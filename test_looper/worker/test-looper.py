@@ -92,8 +92,8 @@ def createTestWorker(config, testLooperMachineInfo):
     return TestLooperWorker.TestLooperWorker(workerSettings, testLooperMachineInfo)
 
 def getMachineInfo():
-    ownMachineName = socket.gethostname()
-    ownInternalIpAddress = socket.gethostbyname(socket.gethostname())
+    ownMachineName = None
+    ownInternalIpAddress = None
     availabilityZone = ''
     instanceType = 'local.machine'
 
@@ -110,6 +110,9 @@ def getMachineInfo():
         logging.info("Resolved availabilityZone: %s", availabilityZone)
 
         instanceType = metadata.get('instance-type')
+    else:
+        ownMachineName = socket.gethostname()
+        ownInternalIpAddress = socket.gethostbyname(socket.gethostname())
 
     ownCoreCount = multiprocessing.cpu_count()
 
