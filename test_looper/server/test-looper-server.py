@@ -53,7 +53,7 @@ def main():
     github = Github.Github(githubAppId,
                            githubAppSecret,
                            githubAccessToken,
-                           user='ufora',
+                           user=config['github']['target_repo_owner'],
                            repo=config['github']['target_repo'])
     testManager = TestManager.TestManager(
         github,
