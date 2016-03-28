@@ -32,9 +32,9 @@ class Github(object):
                  appClientId,
                  appClientSecret,
                  githubAccessToken,
-                 user,
+                 organization,
                  repo,
-                 testDefinitionsPath='contents/test_scripts/testDefinitions.json'):
+                 testDefinitionsPath):
         #assert appClientId is not None
         #assert appClientSecret is not None
         assert githubAccessToken is not None
@@ -42,7 +42,7 @@ class Github(object):
         self.appClientId = appClientId
         self.appClientSecret = appClientSecret
         self.githubAccessToken = githubAccessToken
-        self.user = user
+        self.organization = organization
         self.repo = repo
         self.testDefinitionsPath = testDefinitionsPath
 
@@ -65,7 +65,7 @@ class Github(object):
 
 
     def linkToCommit(self, commitId):
-        return "https://github.com/%s/%s/commit/%s" % (self.user, self.repo, commitId)
+        return "https://github.com/%s/%s/commit/%s" % (self.organization, self.repo, commitId)
 
 
     def getServerAuthParameters(self):
@@ -75,8 +75,10 @@ class Github(object):
 
     def getTestScriptDefinitionsForCommit(self, commitId):
         responseTestDefinitions = requests.get(
-            "https://api.github.com/repos/%s?ref=%s&%s" % (
-                os.path.join(self.user, self.repo, self.testDefinitionsPath),
+            "https://api.github.com/repos/%s/%s/contents/%s?ref=%s&%s" % (
+                self.organization,
+                self.repo,
+                self.testDefinitionsPath,
                 commitId,
                 self.getServerAuthParameters()
                 )
@@ -152,16 +154,19 @@ class Github(object):
             return False
 
         response = requests.get(
-            "https://api.github.com/orgs/ufora/members/%s?access_token=%s" % (
-                user['user']['login'], access_token
+            "https://api.github.com/orgs/%s/members/%s?access_token=%s" % (
+                self.organization,
+                user['user']['login'],
+                access_token
                 )
             )
         if response.status_code == 204:
             return True
 
         logging.info(
-            "Denying access for user %s because they are not a member of the ufora organization",
-            user['user']['login']
+            "Denying access for user %s because they are not a member of the %s organization",
+            user['user']['login'],
+            self.organization
             )
         return False
 

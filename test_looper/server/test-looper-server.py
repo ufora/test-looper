@@ -53,8 +53,9 @@ def main():
     github = Github.Github(githubAppId,
                            githubAppSecret,
                            githubAccessToken,
-                           user=config['github']['target_repo_owner'],
-                           repo=config['github']['target_repo'])
+                           organization=config['github']['target_repo_owner'],
+                           repo=config['github']['target_repo'],
+                           testDefinitionsPath=config['github']['test_definitions_path'])
     testManager = TestManager.TestManager(
         github,
         RedisJsonStore.RedisJsonStore(),
