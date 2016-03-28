@@ -1410,7 +1410,7 @@ class TestLooperHttpServer(object):
                 testResults[commitIndices[commitId]] = summary
 
             renderedResults = []
-            for i in xrange(len(testResults) - 1):
+            for i in xrange(len(testResults)):
                 if testResults[i] is None:
                     renderedResults.append('')
                 else:
@@ -1424,6 +1424,7 @@ class TestLooperHttpServer(object):
                     renderedResults.append(
                         self.renderPerfSummary(testResults[i], priorResult)
                         )
+
             grid.append([self.perfTestLinks(test_name)] + renderedResults)
         return grid
 
