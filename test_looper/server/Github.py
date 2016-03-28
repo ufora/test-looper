@@ -32,8 +32,8 @@ class Github(object):
                  appClientId,
                  appClientSecret,
                  githubAccessToken,
-                 user='ufora',
-                 repo='main',
+                 user,
+                 repo,
                  testDefinitionsPath='contents/test_scripts/testDefinitions.json'):
         #assert appClientId is not None
         #assert appClientSecret is not None
@@ -62,6 +62,11 @@ class Github(object):
                 SubprocessCheckOutput(args, kwds)
                 )
             )
+
+
+    def linkToCommit(self, commitId):
+        return "https://github.com/%s/%s/commit/%s" % (self.user, self.repo, commitId)
+
 
     def getServerAuthParameters(self):
         """Return authorization parameters for GitHub API request using the server

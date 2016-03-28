@@ -48,11 +48,11 @@ class TestLooperHttpServer(object):
                  testManager,
                  ec2Factory,
                  testLooperMachines,
+                 github,
                  githubReceivedAPushSecret=None,
                  testLooperBranch=None,
                  httpPortOverride=None,
-                 disableAuth=False,
-                 repo='ufora'):
+                 disableAuth=False):
         """Initialize the TestLooperHttpServer
 
         testManager - a TestManager.TestManager object
@@ -78,7 +78,7 @@ class TestLooperHttpServer(object):
         self.ec2Factory = ec2Factory
         self.httpPortOverride = httpPortOverride
         self.disableAuth = disableAuth
-        self.repo = repo
+        self.github = github
         self.eventLog = (
             TestLooperHttpServerEventLog.TestLooperHttpServerEventLog(testManager.kvStore)
             )
@@ -372,10 +372,7 @@ class TestLooperHttpServer(object):
             )
 
     def subjectLinkForCommit(self, commit):
-        return HtmlGeneration.link(
-            commit.subject,
-            "https://github.com/ufora/%s/commit/%s" % (self.repo, commit.commitId)
-            )
+        return HtmlGeneration.link(commit.subject, self.github.linkToCommit(commit.commitId))
 
     @cherrypy.expose
     def clearCommit(self, commitId, redirect):

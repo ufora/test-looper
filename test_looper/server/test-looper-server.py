@@ -50,11 +50,13 @@ def main():
 
     port = config['server']['port']
     logging.info("Starting test-looper server on port %d", port)
+    github = Github.Github(githubAppId,
+                           githubAppSecret,
+                           githubAccessToken,
+                           user='ufora',
+                           repo=config['github']['target_repo'])
     testManager = TestManager.TestManager(
-        Github.Github(githubAppId,
-                      githubAppSecret,
-                      githubAccessToken,
-                      repo=config['github']['target_repo']),
+        github,
         RedisJsonStore.RedisJsonStore(),
         TestLooperServer.LockWithTimer(),
         TestManager.TestManagerSettings(
@@ -149,11 +151,11 @@ def main():
         testManager,
         CreateEc2Connection,
         testLooperMachines,
+        github,
         githubReceivedAPushSecret=github_webhook_secret,
         testLooperBranch=looper_branch,
         httpPortOverride=http_port,
-        disableAuth=parsedArgs.no_auth,
-        repo=config['github']['target_repo']
+        disableAuth=parsedArgs.no_auth
         )
 
 
