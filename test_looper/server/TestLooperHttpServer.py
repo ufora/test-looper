@@ -1368,7 +1368,7 @@ class TestLooperHttpServer(object):
                 return text
 
             prior_mean, prior_stddev = prior_summary['time']
-            if abs(mean_time - prior_mean) < prior_stddev * 3:
+            if abs(mean_time - prior_mean) < prior_stddev * 4 / (prior_summary['count'] ** .5):
                 return text
 
             if mean_time < prior_mean:
