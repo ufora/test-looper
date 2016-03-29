@@ -1,5 +1,3 @@
-import logging
-
 class CommitAndTestToRun(object):
     def __init__(self, testName, commit, priority):
         self.testName = testName
@@ -8,6 +6,3 @@ class CommitAndTestToRun(object):
 
     def testDefinition(self):
         return self.commit.getTestDefinitionFor(self.testName)
-
-    def machineCount(self):
-        return self.testDefinition().machineCount

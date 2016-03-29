@@ -4,12 +4,12 @@ import random
 import time
 
 import test_looper.core.TestResult as TestResult
-import test_looper.core.TestScriptDefinition as TestScriptDefinition
+from test_looper.core.TestScriptDefinition import TestScriptDefinition
 
 import test_looper.server.BlockingMachines as BlockingMachines
 import test_looper.server.Branch as Branch
 import test_looper.server.Commit as Commit
-import test_looper.server.CommitAndTestToRun as CommitAndTestToRun
+from test_looper.server.CommitAndTestToRun import CommitAndTestToRun
 
 def pad(s, length):
     if len(s) < length:
@@ -66,7 +66,7 @@ class TestDatabase(object):
         if res is None:
             return None
 
-        return [TestScriptDefinition.TestScriptDefinition.fromJson(x) for x in res]
+        return [TestScriptDefinition.fromJson(x) for x in res]
 
     def setTestScriptDefinitionsForCommit(self, commit, result):
         self.kvStore.set("commit_test_definitions_" + commit, [x.toJson() for x in result])
@@ -222,8 +222,8 @@ class TestManager(object):
                 logging.info("testDef for build: %s", testDef)
                 if (testDef is not None and (
                         workerInfo is None or
-                        self.blockingMachines.machineCanParticipateInTest(testDef,
-                                                                          workerInfo))):
+                        self.blockingMachines.machineCanParticipateInTest(workerInfo,
+                                                                          testDef))):
                     result.append((commit, 'build'))
             elif not commit.needsBuild():
                 result += [
@@ -232,8 +232,8 @@ class TestManager(object):
                         not commit.getTestDefinitionFor(testName).periodicTest and
                         (workerInfo is None or
                          self.blockingMachines.machineCanParticipateInTest(
-                             commit.getTestDefinitionFor(testName),
-                             workerInfo)))
+                             workerInfo,
+                             commit.getTestDefinitionFor(testName))))
                     ]
 
         return result
@@ -377,14 +377,10 @@ class TestManager(object):
             return self.scoreCommitAndTest(commitLevelDict, candidate[0], candidate[1])
 
 
-        commitsAndTestsToRun = map(
-            lambda candidate: CommitAndTestToRun.CommitAndTestToRun(
-                candidate[1],
-                candidate[0],
-                scoreCommitAndTest(candidate)
-                ),
-            candidates
-            )
+        commitsAndTestsToRun = [CommitAndTestToRun(candidate[1],
+                                                   candidate[0],
+                                                   scoreCommitAndTest(candidate))
+                                for candidate in candidates]
 
         return sorted(commitsAndTestsToRun, key=lambda c: c.priority, reverse=True)
 

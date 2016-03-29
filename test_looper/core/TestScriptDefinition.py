@@ -6,30 +6,27 @@ Models a single unit-test script and the resources required to execute it.
 
 import logging
 
-class TestScriptDefinition:
-    validMachineDescriptions = set(["any", "2core", "8core", "32core"])
-
+class TestScriptDefinition(object):
     defaultPeriodicTestPeriodInHours = 12
 
     def __init__(self,
                  testName,
                  testScriptPath,
-                 machineCount,
+                 machines,
                  periodicTest=False,
-                 gpuTest=False,
                  periodicTestPeriodInHours=defaultPeriodicTestPeriodInHours):
         self.testName = testName
         self.testScriptPath = testScriptPath
 
-        for m in machineCount:
-            assert isinstance(machineCount[m], int)
-            assert machineCount[m] > 0
-            assert machineCount[m] < 100
-            assert m in TestScriptDefinition.validMachineDescriptions
+        if 'count' not in machines:
+            machines['count'] = 1
 
-        self.machineCount = machineCount
+        assert isinstance(machines['count'], int)
+        assert machines['count'] > 0
+        assert machines['count'] < 100
+
+        self.machines = machines
         self.periodicTest = periodicTest
-        self.gpuTest = gpuTest
 
         if isinstance(periodicTestPeriodInHours, str):
             periodicTestPeriodInHours = float(periodicTestPeriodInHours)
@@ -39,47 +36,69 @@ class TestScriptDefinition:
 
     def toJson(self):
         return {
-            'testName': self.testName,
-            'testScriptPath': self.testScriptPath,
-            'machineCount': self.machineCount,
+            'name': self.testName,
+            'command': self.testScriptPath,
+            'machines': self.machines,
             'periodicTest': self.periodicTest,
-            'gpuTest': self.gpuTest,
             'periodicTestPeriodInHours': self.periodicTestPeriodInHours
             }
 
     @staticmethod
     def fromJson(json):
+        if 'testName' in json:
+            return TestScriptDefinition.fromJson_old(json)
+
+        return TestScriptDefinition(
+            json['name'],
+            json['command'],
+            json['machines']
+            )
+
+    ###########
+    # Backward compatibility for old testDefinitions.json format
+    # This entire section can eventually be removed
+    validMachineDescriptions = set(["2core", "8core", "32core"])
+    @staticmethod
+    def old_machineCount_to_machines(machineCount):
+        assert len(machineCount) == 1
+        machine, count = machineCount.iteritems().next()
+        assert machine in TestScriptDefinition.validMachineDescriptions
+        if machine == "2core":
+            cores = 4
+        elif machine == "8core":
+            cores = 8
+        elif machine == "32core":
+            cores = 32
+        return {"cores": cores, "count": count}
+
+    @staticmethod
+    def fromJson_old(json):
+        machines = TestScriptDefinition.old_machineCount_to_machines(json['machineCount'])
+        if 'gpuTest' in json:
+            machines['gpu'] = True
+
         return TestScriptDefinition(
             json['testName'],
             json['testScriptPath'],
-            json['machineCount'],
+            machines,
             json['periodicTest'] if 'periodicTest' in json else False,
-            json['gpuTest'] if 'gpuTest' in json else False,
             json['periodicTestPeriodInHours'] if 'periodicTestPeriodInHours' in json \
                 else TestScriptDefinition.defaultPeriodicTestPeriodInHours
             )
+    # End of back-compat section
+    ########
 
     def __repr__(self):
-        return "TestScriptDefinition(testName=%s,testScriptPath=%s,machineCount=%s,periodicTest=%s,gpuTest=%s,periodicTestPeriodInHours=%s)" % (
-            self.testName,
-            self.testScriptPath,
-            self.machineCount,
-            self.periodicTest,
-            self.gpuTest,
-            self.periodicTestPeriodInHours
-            )
+        return ("TestScriptDefinition(testName=%s, testScriptPath=%s, machines=%s, "
+                "periodicTest=%s,periodicTestPeriodInHours=%s)") % (self.testName,
+                                                                    self.testScriptPath,
+                                                                    self.machines,
+                                                                    self.periodicTest,
+                                                                    self.periodicTestPeriodInHours)
 
     def isSingleMachineTest(self):
         return self.totalMachinesRequired() == 1
 
     def totalMachinesRequired(self):
-        return sum(self.machineCount.values())
+        return self.machines['count']
 
-    def isSatisfiedBy(self, machineCount):
-        for m in self.machineCount:
-            if m not in machineCount or machineCount[m] < self.machineCount[m]:
-                logging.info("Test definition not satisfied by available machines.\n" + \
-                             "Test definition: %s\Available machines: %s",
-                             self.machineCount, machineCount)
-                return False
-        return True

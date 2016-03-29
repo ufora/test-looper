@@ -121,12 +121,12 @@ class TestResult(object):
             )
 
     @staticmethod
-    def create(testName, testId, commitId, machine, machineToInternalIpMap):
+    def create(testName, testId, commitId, machineId, machineToInternalIpMap):
         return TestResult(
             testName,
             testId,
             commitId,
-            machine,
+            machineId,
             machineToInternalIpMap,
             time.time(),
             {},

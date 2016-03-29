@@ -8,104 +8,87 @@ class BlockingMachines(object):
     TIMEOUT = 30
 
     def __init__(self):
-        self.blockingCoreCounts = {}
-        self.externalToInternal = {}
+        self.machines = {}
         self.testAssignments = {}
         self.lastPingTimes = {}
 
-    def mapCorecountToMachineType(self, coreCount):
-        if coreCount <= 4:
-            return '2core'
-        elif coreCount >= 32:
-            return '32core'
-        return "%dcore" % coreCount
 
+    @staticmethod
+    def machineCanParticipateInTest(workerInfo, testDefinition):
+        machines = testDefinition.machines
 
-    def machineCanParticipateInTest(self, testDefinition, workerInfo):
         # GPU instances ONLY run GPU tests
-        if testDefinition.gpuTest and workerInfo.instanceType[0] != 'g':
+        if machines.get('gpu', False) and workerInfo.instanceType[0] != 'g':
             return False
-        if not testDefinition.gpuTest and workerInfo.instanceType[0] == 'g':
+        if not machines.get('gpu', False) and workerInfo.instanceType[0] == 'g':
             return False
 
-        machineType = self.mapCorecountToMachineType(workerInfo.coreCount)
-        return machineType in testDefinition.machineCount
+        if 'cores' in machines and machines['cores'] == workerInfo.coreCount:
+            return True
+
+        if 'cores_min' in machines and machines['cores_min'] <= workerInfo.coreCount:
+            return True
+
+        return False
+
 
     def resolveInternalAssignments(self, commit, testName):
         testDefinition = commit.getTestDefinitionFor(testName)
+        assignedMachines = []
 
-        counts = self.blockingMachineTypes()
+        for workerInfo in self.machines.itervalues():
+            if self.machineCanParticipateInTest(workerInfo, testDefinition):
+                assignedMachines.append(workerInfo)
+                if len(assignedMachines) == testDefinition.machines['count']:
+                    break
 
-        if testDefinition.isSatisfiedBy(counts):
-            targetCounts = dict(testDefinition.machineCount)
-
-            usedMachines = {}
-
-            for machine,coreCount in self.blockingCoreCounts.iteritems():
-                if machine not in self.testAssignments:
-                    machineType = self.mapCorecountToMachineType(coreCount)
-                    if machineType in targetCounts and targetCounts[machineType] > 0:
-                        targetCounts[machineType] -= 1
-                        usedMachines[machine] = self.externalToInternal[machine]
-
-            leaderMachine = list(usedMachines)[0]
+        if len(assignedMachines) == testDefinition.machines['count']:
+            leaderMachine = sorted(assignedMachines,
+                                   key=lambda m: m.internalIp)[0]
 
             newTestResult = TestResult.TestResult.create(
                 testName,
                 uuid.uuid4().hex,
                 commit.commitId,
-                leaderMachine,
-                usedMachines
+                leaderMachine.machineId,
+                {m.machineId: m.internalIp for m in assignedMachines}
                 )
 
             logging.info(
                 "Assigning test result %s for definition %s to %s",
                 newTestResult,
                 testDefinition,
-                usedMachines
+                assignedMachines
                 )
 
-            for m in usedMachines:
-                self.testAssignments[m] = newTestResult
+            for m in assignedMachines:
+                self.testAssignments[m.machineId] = newTestResult
 
         self.cleanup()
 
+
     def cleanup(self):
         toDrop = set()
-        for machine, ip in self.externalToInternal.iteritems():
-            if time.time() - self.lastPingTimes[machine] > BlockingMachines.TIMEOUT:
-                if machine in self.testAssignments:
+        for workerInfo in self.machines.itervalues():
+            if time.time() - self.lastPingTimes[workerInfo.machineId] > BlockingMachines.TIMEOUT:
+                if workerInfo.machineId in self.testAssignments:
                     logging.warn(
                         "Machine %s assigned to %s timed out and is not getting its assignment.",
-                        machine,
-                        self.testAssignments[machine]
+                        workerInfo,
+                        self.testAssignments[workerInfo.machineId]
                         )
-                toDrop.add(machine)
+                toDrop.add(workerInfo.machineId)
 
-        for machine in toDrop:
-            self.remove(machine)
+        for machineId in toDrop:
+            self.remove(machineId)
 
-    def remove(self, machine):
-        del self.blockingCoreCounts[machine]
-        del self.externalToInternal[machine]
-        del self.lastPingTimes[machine]
+    def remove(self, machineId):
+        del self.machines[machineId]
+        del self.lastPingTimes[machineId]
 
-        if machine in self.testAssignments:
-            del self.testAssignments[machine]
+        if machineId in self.testAssignments:
+            del self.testAssignments[machineId]
 
-    def blockingMachineTypes(self):
-        blockingMachineTypes = {}
-
-        for machine, coreCount in self.blockingCoreCounts.iteritems():
-            if machine not in self.testAssignments:
-                typeName = self.mapCorecountToMachineType(coreCount)
-
-                if typeName not in blockingMachineTypes:
-                    blockingMachineTypes[typeName] = 0
-
-                blockingMachineTypes[typeName] += 1
-
-        return blockingMachineTypes
 
     def getTestAssignment(self, commit, testName, workerInfo):
         logging.info(
@@ -116,8 +99,7 @@ class BlockingMachines(object):
             workerInfo
             )
 
-        self.externalToInternal[workerInfo.machineId] = workerInfo.internalIp
-        self.blockingCoreCounts[workerInfo.machineId] = workerInfo.coreCount
+        self.machines[workerInfo.machineId] = workerInfo
         self.lastPingTimes[workerInfo.machineId] = time.time()
 
         self.resolveInternalAssignments(commit, testName)

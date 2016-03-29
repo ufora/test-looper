@@ -38,12 +38,6 @@ class Commit(object):
 
         return None
 
-    def getMachineCount(self, testName, instanceType):
-        testDefinition = self.getTestDefinitionFor(testName)
-        if not instanceType in testDefinition.machineCount:
-            return 0
-        return testDefinition.machineCount[instanceType]
-
     def isPeriodicTest(self, testName):
         definition = self.getTestDefinitionFor(testName)
         return definition.periodicTest

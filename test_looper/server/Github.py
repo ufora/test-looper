@@ -1,14 +1,13 @@
 import base64
 import cPickle as pickle
 import logging
-import os
 import requests
 import simplejson
 import subprocess
 import traceback
 
 import test_looper.core.OutOfProcessDownloader as OutOfProcessDownloader
-import test_looper.core.TestScriptDefinition as TestScriptDefinition
+from test_looper.core.TestScriptDefinition import TestScriptDefinition
 
 class SubprocessCheckCall(object):
     def __init__(self, args, kwds):
@@ -102,16 +101,14 @@ class Github(object):
                 )
             return []
 
-        if not isinstance(results, list):
-            logging.warn(
-                "Contents of testDefinitions.json for %s are not a list of test definitions",
-                commitId
-                )
-            return []
+        if isinstance(results, dict) and 'tests' in results:
+            results = results['tests']
 
-        for row in results:
+        if isinstance(results, list):
+            # old testDefinitions.json format - this path is left for backward
+            # compatibility and should be removed at some point
             try:
-                definitions.append(TestScriptDefinition.TestScriptDefinition.fromJson(row))
+                definitions = [TestScriptDefinition.fromJson(row) for row in results]
             except:
                 logging.warn(
                     "contents of testDefinitions.json for %s contained an invalid row",
@@ -119,14 +116,18 @@ class Github(object):
                     )
                 return []
 
-        if not [x for x in definitions if x.testName == "build"]:
-            definitions.append(
-                TestScriptDefinition.TestScriptDefinition('build',
-                                                          './buildJenkins.sh',
-                                                          {'32core': 1})
-                )
+            if not [x for x in definitions if x.testName == "build"]:
+                definitions.append(
+                    TestScriptDefinition('build', './buildJenkins.sh', {'cores': 32})
+                    )
 
-        return definitions
+            return definitions
+        else:
+            logging.warn(
+                "Contents of testDefinitions.json for %s are not a list of test definitions",
+                commitId
+                )
+        return []
 
     def checkAccessTokenWithGithubServer(self, access_token):
         logging.info("Checking access token %s", access_token)
