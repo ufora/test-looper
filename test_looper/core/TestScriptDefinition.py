@@ -79,7 +79,7 @@ class TestScriptDefinition(object):
 
         return TestScriptDefinition(
             json['testName'],
-            json['testScriptPath'],
+            "./make.sh test %s" % json['testScriptPath'],
             machines,
             json['periodicTest'] if 'periodicTest' in json else False,
             json['periodicTestPeriodInHours'] if 'periodicTestPeriodInHours' in json \

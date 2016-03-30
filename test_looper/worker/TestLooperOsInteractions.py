@@ -114,28 +114,20 @@ class TestLooperOsInteractions(object):
         return self.directories.test_data_dir
 
 
-    def run_build_command(self,
-                          log_filename,
-                          build_env,
-                          timeout,
-                          heartbeat,
-                          command_args=None):
+    def run_command(self, command, log_filename, build_env, timeout, heartbeat):
         with open(log_filename, 'a') as build_log:
             env = dict(os.environ)
             env.update(build_env)
-            build_command = './make.sh'
-            if command_args is not None:
-                build_command += ' ' + command_args
-            logging.info("Running build command: '%s'. Log: %s", build_command, log_filename)
+            logging.info("Running command: '%s'. Log: %s", command, log_filename)
             result = self.runSubprocess(timeout,
                                         heartbeat,
-                                        build_command,
+                                        command,
                                         stdout=build_log,
                                         stderr=build_log,
                                         shell=True,
                                         env=env)
             if not result:
-                logging.error("Build failed.")
+                logging.error("Command failed.")
             return result
 
 
@@ -295,7 +287,7 @@ class TestLooperOsInteractions(object):
 
         with self.directoryScope(self.directories.repo_dir):
             return self.resetToCommit(commit_id) and \
-                   self.run_build_command(build_log, build_env, timeout, heartbeat)
+                   self.run_command("./make.sh", build_log, build_env, timeout, heartbeat)
 
 
     def cache_build(self, commit_id, build_package):

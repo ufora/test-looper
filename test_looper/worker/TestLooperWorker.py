@@ -323,12 +323,12 @@ class TestLooperWorker(object):
 
         success = False
         try:
-            success = self.settings.osInteractions.run_build_command(
+            success = self.settings.osInteractions.run_command(
+                script,
                 test_logfile,
                 env_overrides,
                 self.settings.timeout,
-                heartbeat,
-                command_args="test " + script
+                heartbeat
                 )
         except TestInterruptException:
             logging.info("TestInterruptException in machine: %s. Heartbeat response: %s",
