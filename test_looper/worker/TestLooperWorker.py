@@ -133,7 +133,7 @@ class TestLooperWorker(object):
 
         try:
             if test.testName == 'build':
-                result = self.run_build_task(test)
+                result = self.run_build_task(test, task['testScriptDefinition']['command'])
             else:
                 assert self.ownMachineInfo.machineName in test.machineToInternalIpMap, \
                     (test.machine,
@@ -159,7 +159,7 @@ class TestLooperWorker(object):
         self.testLooperClient.publishTestResult(result)
 
 
-    def run_build_task(self, test):
+    def run_build_task(self, test, build_command):
         task_id = test.testId
         commit_id = test.commitId
 
@@ -172,6 +172,7 @@ class TestLooperWorker(object):
         os_interactions = self.settings.osInteractions
         build_output_dir = os_interactions.createNextTestDirForCommit(commit_id)
         is_success = os_interactions.build(commit_id,
+                                           build_command,
                                            build_output_dir,
                                            self.settings.timeout,
                                            heartbeat) and \

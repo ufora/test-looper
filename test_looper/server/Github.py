@@ -101,7 +101,9 @@ class Github(object):
                 )
             return []
 
+        build_definition = None
         if isinstance(results, dict) and 'tests' in results:
+            build_definition = results.get('build')
             results = results['tests']
 
         if isinstance(results, list):
@@ -116,9 +118,12 @@ class Github(object):
                     )
                 return []
 
-            if not [x for x in definitions if x.testName == "build"]:
+            if build_definition:
+                build_definition['name'] = 'build'
+                definitions.append(TestScriptDefinition.fromJson(build_definition))
+            elif not [x for x in definitions if x.testName == "build"]:
                 definitions.append(
-                    TestScriptDefinition('build', './buildJenkins.sh', {'cores': 32})
+                    TestScriptDefinition('build', '', {'cores': 32})
                     )
 
             return definitions

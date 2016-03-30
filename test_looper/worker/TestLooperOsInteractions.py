@@ -277,7 +277,7 @@ class TestLooperOsInteractions(object):
                                       preexec_fn=os.setsid)
 
 
-    def build(self, commit_id, output_dir, timeout, heartbeat):
+    def build(self, commit_id, build_command, output_dir, timeout, heartbeat):
         build_log = os.path.join(output_dir, 'build.log')
         build_env = {
             'BUILD_COMMIT': commit_id,
@@ -287,7 +287,7 @@ class TestLooperOsInteractions(object):
 
         with self.directoryScope(self.directories.repo_dir):
             return self.resetToCommit(commit_id) and \
-                   self.run_command("./make.sh", build_log, build_env, timeout, heartbeat)
+                   self.run_command(build_command, build_log, build_env, timeout, heartbeat)
 
 
     def cache_build(self, commit_id, build_package):
