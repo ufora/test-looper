@@ -35,7 +35,8 @@ TestLooperSettings = collections.namedtuple(
         'artifactsFileName',
         'timeout',
         'awsConnector',
-        'coreDumpsDir'
+        'coreDumpsDir',
+        'repoName'
     ])
 
 class TestLooperWorker(object):
@@ -343,7 +344,7 @@ class TestLooperWorker(object):
 
 
     def package_name_for_commit(self, commit_id):
-        return "ufora-%s.tar.gz" % commit_id
+        return "%s-%s.tar.gz" % (self.settings.repoName, commit_id)
 
 
     def s3_key_name_for_commit(self, commit_id):

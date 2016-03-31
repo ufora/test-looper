@@ -86,7 +86,8 @@ def createTestWorker(config, testLooperMachineInfo):
         artifactsFileName=config['worker']['test_artifacts'],
         timeout=config['worker']['test_timeout'],
         awsConnector=AwsConnector(config['ec2'], testLooperMachineInfo),
-        coreDumpsDir=config['worker']['core_dump_dir']
+        coreDumpsDir=config['worker']['core_dump_dir'],
+        repoName=config['worker']['repo_name']
         )
 
     return TestLooperWorker.TestLooperWorker(workerSettings, testLooperMachineInfo)
