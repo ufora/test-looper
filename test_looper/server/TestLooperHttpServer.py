@@ -96,7 +96,7 @@ class TestLooperHttpServer(object):
 
         if token not in self.accessTokenHasPermission:
             self.accessTokenHasPermission[token] = \
-                self.testManager.github.checkAccessTokenWithGithubServer(token)
+                self.github.checkAccessTokenWithGithubServer(token)
 
             self.eventLog.addLogMessage(
                 self.getCurrentLogin(),
@@ -117,7 +117,7 @@ class TestLooperHttpServer(object):
 
             token = cherrypy.session['github_access_token']
 
-            cherrypy.session['github_login'] = self.testManager.github.getLoginForAccessToken(token)
+            cherrypy.session['github_login'] = self.github.getLoginForAccessToken(token)
 
         return cherrypy.session['github_login']
 
@@ -125,7 +125,7 @@ class TestLooperHttpServer(object):
         #stash the current url
         origRequest = self.currentUrl()
         cherrypy.session['redirect_after_authentication'] = origRequest
-        raise cherrypy.HTTPRedirect(self.testManager.github.authenticationUrl())
+        raise cherrypy.HTTPRedirect(self.github.authenticationUrl())
 
     @cherrypy.expose
     def logout(self):
@@ -135,7 +135,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def githubAuthCallback(self, code):
-        access_token = self.testManager.github.getAccessTokenFromAuthCallbackCode(code)
+        access_token = self.github.getAccessTokenFromAuthCallbackCode(code)
 
         logging.info("Access token is %s", access_token)
 

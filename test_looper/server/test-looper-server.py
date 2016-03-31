@@ -17,8 +17,8 @@ import test_looper.server.TestManager as TestManager
 import test_looper.server.TestLooperEc2Machines as TestLooperEc2Machines
 import test_looper.server.TestLooperAutoProvisioner as TestLooperAutoProvisioner
 
-TEST_LOOPER_APP_CLIENT_ID = "TEST_LOOPER_APP_CLIENT_ID"
-TEST_LOOPER_APP_CLIENT_SECRET = "TEST_LOOPER_APP_CLIENT_SECRET"
+TEST_LOOPER_OAUTH_KEY = "TEST_LOOPER_OAUTH_KEY"
+TEST_LOOPER_OAUTH_SECRET = "TEST_LOOPER_OAUTH_SECRET"
 TEST_LOOPER_GITHUB_ACCESS_TOKEN = "TEST_LOOPER_GITHUB_ACCESS_TOKEN"
 
 def main():
@@ -27,42 +27,38 @@ def main():
     configureLogging(verbose=parsedArgs.verbose)
     configureBoto()
 
-    githubAppId = parsedArgs.githubAppId or config['github']['app_id'] \
-        if 'github' in config and 'app_id' in config['github'] else \
-        os.getenv(TEST_LOOPER_APP_CLIENT_ID)
-    if githubAppId is None and not parsedArgs.no_auth:
-        logging.critical("Either 'github.app_id' config setting or %s must be set.",
-                         TEST_LOOPER_APP_CLIENT_ID)
+    src_ctrl_config = config.get('github', {})
+    oauth_key = src_ctrl_config.get('oauth_key') or os.getenv(TEST_LOOPER_OAUTH_KEY)
+    if oauth_key is None and not parsedArgs.no_auth:
+        logging.critical("Either 'oauth.key' config setting or %s must be set.",
+                         TEST_LOOPER_OAUTH_KEY)
 
-    githubAppSecret = parsedArgs.githubAppSecret or config['github']['app_secret'] \
-        if 'github' in config and 'app_secret' in config['github'] else \
-        os.getenv(TEST_LOOPER_APP_CLIENT_SECRET)
-    if githubAppSecret is None and not parsedArgs.no_auth:
-        logging.critical("Either 'github.app_secret' config setting or %s must be set.",
-                         TEST_LOOPER_APP_CLIENT_SECRET)
+    oauth_secret = src_ctrl_config.get('oauth_secret') or os.getenv(TEST_LOOPER_OAUTH_SECRET)
+    if oauth_secret is None and not parsedArgs.no_auth:
+        logging.critical("Either 'oauth.secret' config setting or %s must be set.",
+                         TEST_LOOPER_OAUTH_SECRET)
 
-    githubAccessToken = parsedArgs.githubAccessToken or config['github']['access_token'] \
-        if 'github' in config and 'access_token' in config['github'] else \
+    github_access_token = src_ctrl_config.get('access_token') or \
         os.getenv(TEST_LOOPER_GITHUB_ACCESS_TOKEN)
-    if githubAccessToken is None and not parsedArgs.no_auth:
+    if github_access_token is None and not parsedArgs.no_auth:
         logging.critical("Either 'github.access_token' config setting or %s must be set.",
                          TEST_LOOPER_GITHUB_ACCESS_TOKEN)
 
     port = config['server']['port']
     logging.info("Starting test-looper server on port %d", port)
-    github = Github.Github(githubAppId,
-                           githubAppSecret,
-                           githubAccessToken,
-                           organization=config['github']['target_repo_owner'],
-                           repo=config['github']['target_repo'],
-                           testDefinitionsPath=config['github']['test_definitions_path'])
+    github = Github.Github(oauth_key,
+                           oauth_secret,
+                           github_access_token,
+                           organization=src_ctrl_config['target_repo_owner'],
+                           repo=src_ctrl_config['target_repo'],
+                           testDefinitionsPath=src_ctrl_config['test_definitions_path'])
     testManager = TestManager.TestManager(
         github,
         RedisJsonStore.RedisJsonStore(),
         TestLooperServer.LockWithTimer(),
         TestManager.TestManagerSettings(
-            baseline_branch=config['github']['baseline_branch'],
-            baseline_depth=config['github'].get('baseline_depth', 20),
+            baseline_branch=src_ctrl_config['baseline_branch'],
+            baseline_depth=src_ctrl_config.get('baseline_depth', 20),
             builder_min_cores=config['server'].get('builder_min_cores', 32)
             )
         )
@@ -134,9 +130,8 @@ def main():
 
         return TestLooperEc2Connection.EC2Connection(ec2Settings)
 
-    looper_branch = config['github']['test_looper_branch'] or parsedArgs.looperBranch
-    github_webhook_secret = str(config['github'].get('webhook_secret')) if 'github' in config \
-        else None
+    looper_branch = src_ctrl_config['test_looper_branch'] or parsedArgs.looperBranch
+    github_webhook_secret = src_ctrl_config.get('webhook_secret')
     http_port = config['server']['http_port'] or parsedArgs.httpPort
 
     testLooperMachines = None
@@ -196,27 +191,6 @@ def createArgumentParser():
                         required=False,
                         type=int,
                         help="Port to run http server on")
-
-    parser.add_argument("--githubAppId",
-                        dest='githubAppId',
-                        required=False,
-                        help="OAuth client ID of test-looper GitHub Application. "
-                             "Can also be specified using the " + TEST_LOOPER_APP_CLIENT_ID +
-                             "environment variable.")
-
-    parser.add_argument("--githubAppSecret",
-                        dest='githubAppSecret',
-                        required=False,
-                        help="OAuth client secret of test-looper GitHub Application. "
-                             "Can also be specified using the " + TEST_LOOPER_APP_CLIENT_SECRET +
-                             "environment variable.")
-
-    parser.add_argument("--githubAccessToken",
-                        dest='githubAccessToken',
-                        required=False,
-                        help="GitHub access token with 'read' permissions to the main repo"
-                             "Can also be specified using the " + TEST_LOOPER_GITHUB_ACCESS_TOKEN +
-                             "environment variable.")
 
     parser.add_argument("-v",
                         "--verbose",
