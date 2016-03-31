@@ -11,37 +11,63 @@ class Github(Git):
     def __init__(self,
                  oauth_key,
                  oauth_secret,
-                 githubAccessToken,
-                 organization,
+                 access_token,
+                 owner,
                  repo,
-                 testDefinitionsPath):
-        assert githubAccessToken is not None
+                 test_definitions_path):
+        assert access_token is not None
 
         super(Github, self).__init__()
 
         self.oauth_key = oauth_key
         self.oauth_secret = oauth_secret
-        self.githubAccessToken = githubAccessToken
-        self.organization = organization
+        self.access_token = access_token
+        self.owner = owner
         self.repo = repo
-        self.testDefinitionsPath = testDefinitionsPath
+        self.test_definitions_path = test_definitions_path
 
 
-    def linkToCommit(self, commitId):
-        return "https://github.com/%s/%s/commit/%s" % (self.organization, self.repo, commitId)
+    ###########
+    ## OAuth
+    def authenticationUrl(self):
+        """Return the url to which we should direct unauthorized users"""
+        return "https://github.com/login/oauth/authorize?scope=read:org&client_id=" + \
+            self.oauth_key
+
+
+    def getAccessTokenFromAuthCallbackCode(self, code):
+        response = requests.post(
+            'https://github.com/login/oauth/access_token',
+            headers={
+                'accept': 'application/json'
+                },
+            data={
+                'client_id': self.oauth_key,
+                'client_secret': self.oauth_secret,
+                'code': code
+                }
+            )
+
+        return simplejson.loads(response.text)['access_token']
+    ## OAuth
+    ###########
+
+
+    def commit_url(self, commit_id):
+        return "https://github.com/%s/%s/commit/%s" % (self.owner, self.repo, commit_id)
 
 
     def getServerAuthParameters(self):
         """Return authorization parameters for GitHub API request using the server
         credentials"""
-        return "access_token=" + self.githubAccessToken
+        return "access_token=" + self.access_token
 
     def getTestScriptDefinitionsForCommit(self, commitId):
         responseTestDefinitions = requests.get(
             "https://api.github.com/repos/%s/%s/contents/%s?ref=%s&%s" % (
-                self.organization,
+                self.owner,
                 self.repo,
-                self.testDefinitionsPath,
+                self.test_definitions_path,
                 commitId,
                 self.getServerAuthParameters()
                 )
@@ -125,7 +151,7 @@ class Github(Git):
 
         response = requests.get(
             "https://api.github.com/orgs/%s/members/%s?access_token=%s" % (
-                self.organization,
+                self.owner,
                 user['user']['login'],
                 access_token
                 )
@@ -134,9 +160,9 @@ class Github(Git):
             return True
 
         logging.info(
-            "Denying access for user %s because they are not a member of the %s organization",
+            "Denying access for user %s because they are not a member of the %s owner",
             user['user']['login'],
-            self.organization
+            self.owner
             )
         return False
 
@@ -147,23 +173,3 @@ class Github(Git):
         return simplejson.loads(
             requests.get("https://api.github.com/user?access_token=" + access_token).text
             )['login']
-
-    def authenticationUrl(self):
-        """Return the url to which we should direct unauthorized users"""
-        return "https://github.com/login/oauth/authorize?scope=read:org&client_id=" + \
-            self.oauth_key
-
-    def getAccessTokenFromAuthCallbackCode(self, code):
-        response = requests.post(
-            'https://github.com/login/oauth/access_token',
-            headers={
-                'accept': 'application/json'
-                },
-            data={
-                'client_id': self.oauth_key,
-                'client_secret': self.oauth_secret,
-                'code': code
-                }
-            )
-
-        return simplejson.loads(response.text)['access_token']

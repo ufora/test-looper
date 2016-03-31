@@ -8,6 +8,7 @@ import os
 import socket
 import sys
 
+import test_looper.server.Bitbucket as Bitbucket
 import test_looper.server.Github as Github
 import test_looper.server.RedisJsonStore as RedisJsonStore
 import test_looper.server.TestLooperEc2Connection as TestLooperEc2Connection
@@ -27,7 +28,7 @@ def main():
     configureLogging(verbose=parsedArgs.verbose)
     configureBoto()
 
-    src_ctrl_config = config.get('github', {})
+    src_ctrl_config = config.get('github') or config.get('bitbucket', {})
     oauth_key = src_ctrl_config.get('oauth_key') or os.getenv(TEST_LOOPER_OAUTH_KEY)
     if oauth_key is None and not parsedArgs.no_auth:
         logging.critical("Either 'oauth.key' config setting or %s must be set.",
@@ -46,14 +47,25 @@ def main():
 
     port = config['server']['port']
     logging.info("Starting test-looper server on port %d", port)
-    github = Github.Github(oauth_key,
-                           oauth_secret,
-                           github_access_token,
-                           organization=src_ctrl_config['target_repo_owner'],
-                           repo=src_ctrl_config['target_repo'],
-                           testDefinitionsPath=src_ctrl_config['test_definitions_path'])
+
+    src_ctrl_args = {
+        'oauth_key': oauth_key,
+        'oauth_secret': oauth_secret,
+        'owner': src_ctrl_config['target_repo_owner'],
+        'repo': src_ctrl_config['target_repo'],
+        'test_definitions_path': src_ctrl_config['test_definitions_path']
+        }
+    if 'github' in config:
+        src_ctrl_class = Github.Github
+        src_ctrl_args['access_token'] = github_access_token
+    elif 'bitbucket' in config:
+        src_ctrl_class = Bitbucket.Bitbucket
+    else:
+        logging.critical("No 'github' or 'bitbucket' sections in config")
+    src_ctrl = src_ctrl_class(**src_ctrl_args)
+
     testManager = TestManager.TestManager(
-        github,
+        src_ctrl,
         RedisJsonStore.RedisJsonStore(),
         TestLooperServer.LockWithTimer(),
         TestManager.TestManagerSettings(
@@ -105,8 +117,8 @@ def main():
         )
 
     def CreateEc2Connection():
-        security_group = config['ec2']['security_group'] or parsedArgs.ec2SecurityGroup
-        worker_ami = config['ec2']['ami'] or parsedArgs.looperAmi
+        security_group = config['ec2']['security_group']
+        worker_ami = config['ec2']['ami']
         instance_profile_name = config['ec2']['worker_role_name'] or 'test-looper'
         ssh_key_name = config['ec2']['worker_ssh_key_name'] or 'test-looper'
         root_volume_size = config['ec2']['worker_root_volume_size_gb'] or 8
@@ -130,7 +142,7 @@ def main():
 
         return TestLooperEc2Connection.EC2Connection(ec2Settings)
 
-    looper_branch = src_ctrl_config['test_looper_branch'] or parsedArgs.looperBranch
+    looper_branch = src_ctrl_config['test_looper_branch']
     github_webhook_secret = src_ctrl_config.get('webhook_secret')
     http_port = config['server']['http_port'] or parsedArgs.httpPort
 
@@ -147,7 +159,7 @@ def main():
         testManager,
         CreateEc2Connection,
         testLooperMachines,
-        github,
+        src_ctrl,
         githubReceivedAPushSecret=github_webhook_secret,
         testLooperBranch=looper_branch,
         httpPortOverride=http_port,
@@ -174,54 +186,35 @@ def createArgumentParser():
         description="Handles test-looper connections and assign test jobs to loopers."
         )
 
-    parser.add_argument('-f', '--config-file',
-                        dest='config',
-                        required=True,
-                        help="test-looper-server configuration file")
+    parser.add_argument('config',
+                        help="Path to configuration file")
 
     parser.add_argument("--port",
-                        dest='port',
-                        required=False,
+                        metavar='N',
                         type=int,
                         default=7531,
                         help="Listening port")
 
     parser.add_argument("--httpPort",
-                        dest='httpPort',
-                        required=False,
+                        metavar='N',
                         type=int,
                         help="Port to run http server on")
 
     parser.add_argument("-v",
                         "--verbose",
                         action='store_true',
-                        required=False)
+                        help="Set logging level to verbose")
 
     parser.add_argument("--local",
                         action='store_true',
-                        required=False,
                         help="Run locally without EC2")
 
     parser.add_argument("--no-auth",
                         action='store_true',
-                        required=False,
                         help="Disable authentication")
 
-    parser.add_argument('--ec2SecurityGroup',
-                        dest='ec2SecurityGroup',
-                        default='looper',
-                        required=False,
-                        help='EC2 security group to use when launching loopers')
 
-    parser.add_argument('--looperAmi',
-                        dest='looperAmi',
-                        required=False,
-                        help='The EC2 image Id to use when launchin loopers')
 
-    parser.add_argument('--looperBranch',
-                        dest='looperBranch',
-                        required=False,
-                        help='The GitHub branch containing the test-looper codebase')
     return parser
 
 

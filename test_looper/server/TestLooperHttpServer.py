@@ -372,7 +372,7 @@ class TestLooperHttpServer(object):
             )
 
     def subjectLinkForCommit(self, commit):
-        return HtmlGeneration.link(commit.subject, self.github.linkToCommit(commit.commitId))
+        return HtmlGeneration.link(commit.subject, self.github.commit_url(commit.commitId))
 
     @cherrypy.expose
     def clearCommit(self, commitId, redirect):
