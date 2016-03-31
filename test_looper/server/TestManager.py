@@ -103,8 +103,6 @@ TestManagerSettings = collections.namedtuple(
 
 
 class TestManager(object):
-    VERSION = "0.0.1"
-
     def __init__(self, github, kvStore, lock, settings):
         self.github = github
         self.kvStore = kvStore
