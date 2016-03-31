@@ -12,9 +12,9 @@ import socket
 import threading
 import time
 
-import TestLooperClient
-import TestLooperWorker
-import TestLooperOsInteractions
+import test_looper.worker.TestLooperClient as TestLooperClient
+import test_looper.worker.TestLooperWorker as TestLooperWorker
+import test_looper.worker.TestLooperOsInteractions as TestLooperOsInteractions
 
 def createArgumentParser():
     parser = argparse.ArgumentParser()
