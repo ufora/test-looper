@@ -104,7 +104,10 @@ class TestLooperHttpServer(object):
                 "Granted" if self.accessTokenHasPermission[token] else "Denied"
                 )
 
-        return self.accessTokenHasPermission[token]
+        if not self.accessTokenHasPermission[token]:
+            raise cherrypy.HTTPError(403, "You are not allowed to access this repository")
+
+        return True
 
     @cherrypy.expose
     @cherrypy.tools.json_out()
