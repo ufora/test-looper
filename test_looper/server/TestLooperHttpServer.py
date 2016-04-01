@@ -48,7 +48,7 @@ class TestLooperHttpServer(object):
                  testManager,
                  ec2Factory,
                  testLooperMachines,
-                 github,
+                 src_ctrl,
                  githubReceivedAPushSecret=None,
                  testLooperBranch=None,
                  httpPortOverride=None,
@@ -78,7 +78,7 @@ class TestLooperHttpServer(object):
         self.ec2Factory = ec2Factory
         self.httpPortOverride = httpPortOverride
         self.disableAuth = disableAuth
-        self.github = github
+        self.src_ctrl = src_ctrl
         self.eventLog = (
             TestLooperHttpServerEventLog.TestLooperHttpServerEventLog(testManager.kvStore)
             )
@@ -96,7 +96,7 @@ class TestLooperHttpServer(object):
 
         if token not in self.accessTokenHasPermission:
             self.accessTokenHasPermission[token] = \
-                self.github.checkAccessTokenWithServer(token)
+                self.src_ctrl.authorize_access_token(token)
 
             self.eventLog.addLogMessage(
                 self.getCurrentLogin(),
@@ -117,7 +117,7 @@ class TestLooperHttpServer(object):
 
             token = cherrypy.session['github_access_token']
 
-            cherrypy.session['github_login'] = self.github.getLoginForAccessToken(token)
+            cherrypy.session['github_login'] = self.src_ctrl.getUserNameFromToken(token)
 
         return cherrypy.session['github_login']
 
@@ -125,7 +125,7 @@ class TestLooperHttpServer(object):
         #stash the current url
         origRequest = self.currentUrl()
         cherrypy.session['redirect_after_authentication'] = origRequest
-        raise cherrypy.HTTPRedirect(self.github.authenticationUrl())
+        raise cherrypy.HTTPRedirect(self.src_ctrl.authenticationUrl())
 
     @cherrypy.expose
     def logout(self):
@@ -135,7 +135,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def githubAuthCallback(self, code):
-        access_token = self.github.getAccessTokenFromAuthCallbackCode(code)
+        access_token = self.src_ctrl.getAccessTokenFromAuthCallbackCode(code)
 
         logging.info("Access token is %s", access_token)
 
@@ -372,7 +372,7 @@ class TestLooperHttpServer(object):
             )
 
     def subjectLinkForCommit(self, commit):
-        return HtmlGeneration.link(commit.subject, self.github.commit_url(commit.commitId))
+        return HtmlGeneration.link(commit.subject, self.src_ctrl.commit_url(commit.commitId))
 
     @cherrypy.expose
     def clearCommit(self, commitId, redirect):

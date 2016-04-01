@@ -52,6 +52,56 @@ class Github(Git):
     ## OAuth
     ###########
 
+    def authorize_access_token(self, access_token):
+        logging.info("Checking access token %s", access_token)
+
+        response = requests.get(
+            "https://api.github.com/applications/%s/tokens/%s" % (
+                self.oauth_key, access_token
+                ),
+            auth=requests.auth.HTTPBasicAuth(self.oauth_key,
+                                             self.oauth_secret)
+            )
+        if not response.ok:
+            logging.info(
+                "Denying access for token %s because we can't get the user name",
+                access_token
+                )
+            return False
+
+        user = simplejson.loads(response.text)
+        if not 'user' in user or not 'login' in user['user']:
+            logging.info(
+                "Denying access for token %s because auth response didn't include user info",
+                access_token
+                )
+            return False
+
+        response = requests.get(
+            "https://api.github.com/orgs/%s/members/%s?access_token=%s" % (
+                self.owner,
+                user['user']['login'],
+                access_token
+                )
+            )
+        if response.status_code == 204:
+            return True
+
+        logging.info(
+            "Denying access for user %s because they are not a member of the %s owner",
+            user['user']['login'],
+            self.owner
+            )
+        return False
+
+
+    @staticmethod
+    def getUserNameFromToken(access_token):
+        """Given a github access token, find out what user the token is assigned to."""
+        return simplejson.loads(
+            requests.get("https://api.github.com/user?access_token=" + access_token).text
+            )['login']
+
 
     def commit_url(self, commit_id):
         return "https://github.com/%s/%s/commit/%s" % (self.owner, self.repo, commit_id)
@@ -123,53 +173,3 @@ class Github(Git):
                 commitId
                 )
         return []
-
-    def checkAccessTokenWithServer(self, access_token):
-        logging.info("Checking access token %s", access_token)
-
-        response = requests.get(
-            "https://api.github.com/applications/%s/tokens/%s" % (
-                self.oauth_key, access_token
-                ),
-            auth=requests.auth.HTTPBasicAuth(self.oauth_key,
-                                             self.oauth_secret)
-            )
-        if not response.ok:
-            logging.info(
-                "Denying access for token %s because we can't get the user name",
-                access_token
-                )
-            return False
-
-        user = simplejson.loads(response.text)
-        if not 'user' in user or not 'login' in user['user']:
-            logging.info(
-                "Denying access for token %s because auth response didn't include user info",
-                access_token
-                )
-            return False
-
-        response = requests.get(
-            "https://api.github.com/orgs/%s/members/%s?access_token=%s" % (
-                self.owner,
-                user['user']['login'],
-                access_token
-                )
-            )
-        if response.status_code == 204:
-            return True
-
-        logging.info(
-            "Denying access for user %s because they are not a member of the %s owner",
-            user['user']['login'],
-            self.owner
-            )
-        return False
-
-
-    @staticmethod
-    def getLoginForAccessToken(access_token):
-        """Given a github access token, find out what user the token is assigned to."""
-        return simplejson.loads(
-            requests.get("https://api.github.com/user?access_token=" + access_token).text
-            )['login']

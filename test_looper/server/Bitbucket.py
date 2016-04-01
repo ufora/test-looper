@@ -43,7 +43,7 @@ class Bitbucket(Git):
         return simplejson.loads(response.text)['access_token']
 
 
-    def checkAccessTokenWithServer(self, access_token):
+    def authorize_access_token(self, access_token):
         logging.info("Checking access token %s", access_token)
 
         response = requests.get(
@@ -88,6 +88,17 @@ class Bitbucket(Git):
         #return False
     ## OAuth
     ###########
+
+    @staticmethod
+    def getUserNameFromToken(access_token):
+        """Given a github access token, find out what user the token is assigned to."""
+        response = requests.get('https://api.bitbucket.org/2.0/user',
+                                headers={'Authorization': 'Bearer %s' % access_token})
+        if not response.ok:
+            logging.error("Unable to retrieve user information from token: %s",
+                          response.text)
+            return 'unknown'
+        return simplejson.loads(response.text)['display_name']
 
 
     def commit_url(self, commit_id):
