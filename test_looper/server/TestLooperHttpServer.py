@@ -96,7 +96,7 @@ class TestLooperHttpServer(object):
 
         if token not in self.accessTokenHasPermission:
             self.accessTokenHasPermission[token] = \
-                self.github.checkAccessTokenWithGithubServer(token)
+                self.github.checkAccessTokenWithServer(token)
 
             self.eventLog.addLogMessage(
                 self.getCurrentLogin(),

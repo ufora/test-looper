@@ -1,3 +1,4 @@
+import logging
 import requests
 import simplejson
 
@@ -38,7 +39,53 @@ class Bitbucket(Git):
                 }
             )
 
+        logging.info("access_token response: %s", response.text)
         return simplejson.loads(response.text)['access_token']
+
+
+    def checkAccessTokenWithServer(self, access_token):
+        logging.info("Checking access token %s", access_token)
+
+        response = requests.get(
+            "https://api.bitbucket.org/2.0/repositories/%s/%s" % (self.owner, self.repo),
+            headers={'Authorization': 'Bearer %s' % access_token}
+            )
+        if not response.ok:
+            logging.info(
+                "Denying access for token %s because we can't access the repo: %s",
+                access_token,
+                response.text
+                )
+            return False
+
+
+        logging.info("Repo GET response: %s", response.text)
+        return True
+
+        #user = simplejson.loads(response.text)
+        #if not 'user' in user or not 'login' in user['user']:
+            #logging.info(
+                #"Denying access for token %s because auth response didn't include user info",
+                #access_token
+                #)
+            #return False
+
+        #response = requests.get(
+            #"https://api.github.com/orgs/%s/members/%s?access_token=%s" % (
+                #self.owner,
+                #user['user']['login'],
+                #access_token
+                #)
+            #)
+        #if response.status_code == 204:
+            #return True
+
+        #logging.info(
+            #"Denying access for user %s because they are not a member of the %s owner",
+            #user['user']['login'],
+            #self.owner
+            #)
+        #return False
     ## OAuth
     ###########
 

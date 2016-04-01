@@ -124,7 +124,7 @@ class Github(Git):
                 )
         return []
 
-    def checkAccessTokenWithGithubServer(self, access_token):
+    def checkAccessTokenWithServer(self, access_token):
         logging.info("Checking access token %s", access_token)
 
         response = requests.get(
