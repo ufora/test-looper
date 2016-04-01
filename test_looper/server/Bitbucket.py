@@ -61,31 +61,6 @@ class Bitbucket(Git):
 
         logging.info("Repo GET response: %s", response.text)
         return True
-
-        #user = simplejson.loads(response.text)
-        #if not 'user' in user or not 'login' in user['user']:
-            #logging.info(
-                #"Denying access for token %s because auth response didn't include user info",
-                #access_token
-                #)
-            #return False
-
-        #response = requests.get(
-            #"https://api.github.com/orgs/%s/members/%s?access_token=%s" % (
-                #self.owner,
-                #user['user']['login'],
-                #access_token
-                #)
-            #)
-        #if response.status_code == 204:
-            #return True
-
-        #logging.info(
-            #"Denying access for user %s because they are not a member of the %s owner",
-            #user['user']['login'],
-            #self.owner
-            #)
-        #return False
     ## OAuth
     ###########
 
