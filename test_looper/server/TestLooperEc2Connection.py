@@ -19,6 +19,8 @@ Ec2Settings = collections.namedtuple('Ec2Settings',
                                       'instance_profile_name',
                                       'vpc_subnets', # map from availability zones to subnets
                                       'worker_ami',
+                                      'worker_alt_ami',
+                                      'alt_ami_instance_types',
                                       'root_volume_size_gb',
                                       'worker_ssh_key_name',
                                       'worker_user_data',
@@ -137,17 +139,14 @@ class EC2Connection(object):
         finally:
             print ""
 
-    def getCurrentLooperImages(self):
-        return self.getLooperImages(filters={'tag-key': looper_current_image_tag})
 
-    def getCurrentLooperImageId(self):
-        if self.ec2Settings.worker_ami:
-            return self.ec2Settings.worker_ami
+    def image_id_for_instance_type(self, instance_type):
+        if instance_type in self.ec2Settings.alt_ami_instance_types:
+            assert self.ec2Settings.worker_alt_ami is not None
+            return self.ec2Settings.worker_alt_ami
 
-        amis = self.getCurrentLooperImages()
-        if len(amis) != 1:
-            raise Exception("There are %d AMIs with the 'current' tag: %s" % (len(amis), amis))
-        return amis[0].id
+        return self.ec2Settings.worker_ami
+
 
     def requestLooperInstances(self,
                                max_bid,
@@ -155,9 +154,12 @@ class EC2Connection(object):
                                instance_count=1,
                                launch_group=None,
                                availability_zone=None):
-        logging.info("EC2 connection, request spot instance_type: %s, max bid: %s, instance count: %s, launch_group: %s, availability_zone: %s" %
-                (instance_type, max_bid, instance_count, launch_group, availability_zone))
-        ami = self.getCurrentLooperImageId()
+        logging.info(
+            ("EC2 connection, request spot instance_type: %s, max bid: %s, instance count: %s, "
+             "launch_group: %s, availability_zone: %s"),
+            instance_type, max_bid, instance_count, launch_group, availability_zone
+            )
+        ami = self.image_id_for_instance_type(instance_type)
         block_device_map = self.createBlockDeviceMapping()
         subnet_id = self.getVpcSubnetForInstance(availability_zone, instance_type)
         self.ec2.request_spot_instances(
@@ -215,80 +217,4 @@ class EC2Connection(object):
                 return
             runningInstances.append(instance)
         return runningInstances
-
-class Images(object):
-    def __init__(self, image=None, instanceType=None, instanceId=None, terminateAfterSave=False):
-        self.ec2 = EC2Connection()
-        self.image = image
-        self.instanceType = instanceType
-        self.instanceId = instanceId
-        self.terminateAfterSave = terminateAfterSave
-
-
-    def list(self):
-        images = sorted(
-                self.ec2.getLooperImages(),
-                key=lambda image: image.name,
-                reverse=True
-                )
-        print "\n         id        |         name                     |    status "
-        print "=" * 68
-        for i, image in enumerate(images):
-            imageId = image.id
-            if 'current' in image.tags:
-                imageId = "*" + imageId
-            print "%3d. %13s | %s | %s" % (i+1, imageId, image.name.ljust(32), image.state)
-        print ""
-
-
-    def set(self):
-        self.setImage(self.image)
-
-    def setImage(self, imageId):
-        try:
-            newImage = self.ec2.getLooperImages(ids=[imageId])
-            assert len(newImage) <= 1, "More than one image has ID %s!" % imageId
-        except boto.exception.EC2ResponseError as e:
-            print "Error: %s could not be retrieved. %s" % (imageId, e.error_message)
-            return
-
-        currentImages = self.ec2.getCurrentLooperImages()
-        if len(currentImages) > 1:
-            print "Warning: More than image is marked as 'current'"
-
-        for image in currentImages:
-            print "Removing 'current' tag from %s: %s" % (image.id, image.name)
-            image.remove_tag('current')
-
-        print "Setting 'current' tag on %s" % imageId
-        newImage[0].add_tag('current')
-
-    def launch(self):
-        image = self.image
-        if image is None:
-            images = self.ec2.getCurrentLooperImageId()
-            image = images[0].id
-
-        print "Launching instance of type %s with image %s" % (self.instanceType, image)
-        try:
-            instances = self.ec2.startLooperInstance(image, self.instanceType)
-
-            if instances is None:
-                return
-            print "New instance started at %s" % instances[0].public_dns_name
-        except boto.exception.EC2ResponseError as e:
-            print "Error: cannot launch instance. %s" % e.error_message
-            return
-
-    def save(self):
-        imageId = self.ec2.saveImage(self.instanceId, looper_image_name_prefix)
-        print "Creating new image:", imageId
-        try:
-            self.ec2.waitForImage(imageId)
-        except TimeoutException:
-            print "Timeout exceeded waiting for image to be created."
-            return
-        self.setImage(imageId)
-        if self.terminateAfterSave:
-            self.ec2.terminateInstances([self.instanceId])
 

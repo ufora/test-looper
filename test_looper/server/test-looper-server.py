@@ -128,12 +128,18 @@ def main():
             'us-west-2b': 'subnet-9046def5',
             'us-west-2c': 'subnet-7124f928'
             }
+        alt_ami_instance_types = []
+        worker_alt_ami = config['ec2'].get('alt_ami')
+        if worker_alt_ami:
+            alt_ami_instance_types = config['ec2'].get('alt_ami_instance_types', [])
         ec2Settings = TestLooperEc2Connection.Ec2Settings(
             aws_region=getInstanceRegion(),
             security_group=security_group,
             instance_profile_name=instance_profile_name,
             vpc_subnets=vpc_subnets,
             worker_ami=worker_ami,
+            worker_alt_ami=worker_alt_ami,
+            alt_ami_instance_types=alt_ami_instance_types,
             root_volume_size_gb=root_volume_size,
             worker_ssh_key_name=ssh_key_name,
             worker_user_data=looperUserData,
