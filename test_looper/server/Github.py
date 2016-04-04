@@ -163,7 +163,7 @@ class Github(Git):
                 definitions.append(TestScriptDefinition.fromJson(build_definition))
             elif not [x for x in definitions if x.testName == "build"]:
                 definitions.append(
-                    TestScriptDefinition('build', '', {'cores': 32})
+                    TestScriptDefinition('build', './make.sh', {'cores': 32})
                     )
 
             return definitions
