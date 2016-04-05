@@ -88,9 +88,18 @@ class Commit(object):
         return bestLevel
 
     def clearTestResult(self, testName, testId):
+        #this test no longer exists
         del self.testsById[testId]
-        del self.testIdsByType[testName]
+
+        #remove it from the lookup table
+        self.testIdsByType[testName].remove(testId)
+
+        #reset the stats for this particular test
         self.statsByType[testName] = TestStats.TestStats()
+
+        #and rebuild them
+        for testId in self.testIdsByType[testName]:
+            self.statsByType[testName].addTest(self.testsById[testId])
 
     def testChanged(self, testName):
         if testName in self.statsByType:
