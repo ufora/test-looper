@@ -74,7 +74,7 @@ class Bitbucket(Git):
 
 
     def commit_url(self, commit_id):
-        return "https://bitbucket.org/%s/%s/commit/%s" % (self.owner, self.repo, commit_id)
+        return "https://bitbucket.org/%s/%s/commits/%s" % (self.owner, self.repo, commit_id)
 
 
     def getTestScriptDefinitionsForCommit(self, commitId):
