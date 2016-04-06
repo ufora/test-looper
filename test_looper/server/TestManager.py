@@ -191,8 +191,6 @@ class TestManager(object):
         logging.info("Get periodic tests to run: %s", result)
         return result
 
-    def canMachineBuild(self, workerInfo):
-        return workerInfo.coreCount >= self.settings.builder_min_cores if workerInfo else True
 
     def getPossibleCommitsAndTests(self, workerInfo=None, includePeriodicTests=True):
         """Return a list consisting of all possible commit/test combinations we'd consider running.
@@ -213,9 +211,10 @@ class TestManager(object):
             if (commit.excludeFromTestingBecauseOfCommitSubject() or
                     commit.buildInProgress() or commit.isBrokenBuild() or
                     not commit.isDeepTest):
+                logging.info("Skipping commit: %s", commit)
                 continue
 
-            if commit.needsBuild() and self.canMachineBuild(workerInfo):
+            if commit.needsBuild():
                 testDef = commit.getTestDefinitionFor('build')
                 logging.info("testDef for build: %s", testDef)
                 if (testDef is not None and (
