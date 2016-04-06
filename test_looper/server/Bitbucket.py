@@ -1,8 +1,9 @@
 import logging
 import requests
-import simplejson
+import traceback
 
 from test_looper.server.Git import Git
+from test_looper.core.TestScriptDefinition import TestScriptDefinition
 
 
 class Bitbucket(Git):
@@ -19,6 +20,7 @@ class Bitbucket(Git):
         self.owner = owner
         self.repo = repo
         self.test_definitions_path = test_definitions_path
+        self.server_access_token = None
 
 
     ###########
@@ -30,17 +32,14 @@ class Bitbucket(Git):
 
 
     def getAccessTokenFromAuthCallbackCode(self, code):
-        response = requests.post(
+        return requests.post(
             'https://bitbucket.org/site/oauth2/access_token',
             auth=(self.oauth_key, self.oauth_secret),
             data={
                 'grant_type': 'authorization_code',
                 'code': '%s' % code
                 }
-            )
-
-        logging.info("access_token response: %s", response.text)
-        return simplejson.loads(response.text)['access_token']
+            ).json()['access_token']
 
 
     def authorize_access_token(self, access_token):
@@ -48,7 +47,7 @@ class Bitbucket(Git):
 
         response = requests.get(
             "https://api.bitbucket.org/2.0/repositories/%s/%s" % (self.owner, self.repo),
-            headers={'Authorization': 'Bearer %s' % access_token}
+            headers=self.authorization_headers(access_token)
             )
         if not response.ok:
             logging.info(
@@ -58,8 +57,6 @@ class Bitbucket(Git):
                 )
             return False
 
-
-        logging.info("Repo GET response: %s", response.text)
         return True
     ## OAuth
     ###########
@@ -73,9 +70,55 @@ class Bitbucket(Git):
             logging.error("Unable to retrieve user information from token: %s",
                           response.text)
             return 'unknown'
-        return simplejson.loads(response.text)['display_name']
+        return response.json()['display_name']
 
 
     def commit_url(self, commit_id):
         return "https://bitbucket.org/%s/%s/commit/%s" % (self.owner, self.repo, commit_id)
 
+
+    def getTestScriptDefinitionsForCommit(self, commitId):
+        url = ('https://api.bitbucket.org/1.0/repositories/'
+               '{owner}/{repo}/raw/{commit}/{path}').format(owner=self.owner,
+                                                            repo=self.repo,
+                                                            commit=commitId,
+                                                            path=self.test_definitions_path)
+        while True:
+            if self.server_access_token is None:
+                self.server_access_token = self.get_server_token()
+
+            response = requests.get(url,
+                                    headers=self.authorization_headers(self.server_access_token))
+            if response.status_code != requests.codes.unauthorized:
+                break
+            self.server_access_token = None
+
+        if not response.ok:
+            response.raise_for_status()
+
+        try:
+            return TestScriptDefinition.bulk_load(response.json())
+        except:
+            logging.warn(
+                "Contents of %s for %s are invalid: %s\n%s",
+                self.test_definitions_path,
+                commitId,
+                response.text,
+                traceback.format_exc()
+                )
+            return []
+
+
+    def get_server_token(self):
+        response = requests.post('https://bitbucket.org/site/oauth2/access_token',
+                                 auth=(self.oauth_key, self.oauth_secret),
+                                 data={'grant_type': 'client_credentials'})
+        if not response.ok:
+            response.raise_for_status()
+
+        return response.json()['access_token']
+
+
+    @staticmethod
+    def authorization_headers(access_token):
+        return {'Authorization': 'Bearer %s' % access_token}

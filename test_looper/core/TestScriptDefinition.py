@@ -60,6 +60,37 @@ class TestScriptDefinition(object):
             client_version
             )
 
+    @staticmethod
+    def bulk_load(json):
+        build_definition = None
+        looper_client_version = None
+        if isinstance(json, dict) and 'tests' in json:
+            build_definition = json.get('build')
+            looper_client_version = json.get('test-looper')
+            json = json['tests']
+
+        if not isinstance(json, list):
+            raise ValueError("Unexpected test definitions file format")
+
+        definitions = [
+            TestScriptDefinition.fromJson(row, client_version=looper_client_version)
+            for row in json
+            ]
+
+        if build_definition:
+            build_definition['name'] = 'build'
+            definitions.append(
+                TestScriptDefinition.fromJson(build_definition,
+                                              client_version=looper_client_version)
+                )
+        elif not [x for x in definitions if x.testName == "build"]:
+            definitions.append(
+                TestScriptDefinition('build', './make.sh', {'cores': 32}, looper_client_version)
+                )
+
+        return definitions
+
+
     ###########
     # Backward compatibility for old testDefinitions.json format
     # This entire section can eventually be removed
@@ -94,6 +125,7 @@ class TestScriptDefinition(object):
             )
     # End of back-compat section
     ########
+
 
     def __repr__(self):
         return ("TestScriptDefinition(testName=%s, testScriptPath=%s, machines=%s, "

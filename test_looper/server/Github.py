@@ -129,55 +129,14 @@ class Github(Git):
         if 'message' in testDefinitionsJson and testDefinitionsJson['message'] == "Not Found":
             return []
 
-        definitions = []
-        results = None
-
         try:
             results = simplejson.loads(base64.b64decode(testDefinitionsJson['content']))
+            return TestScriptDefinition.bulk_load(results)
         except:
             logging.warn(
-                "Contents of testDefinitions.json for %s are not valid json",
+                "Contents of %s for %s are invalid",
+                self.test_definitions_path,
                 commitId
                 )
             return []
 
-        build_definition = None
-        looper_client_version = None
-        if isinstance(results, dict) and 'tests' in results:
-            build_definition = results.get('build')
-            looper_client_version = results.get('test-looper')
-            results = results['tests']
-
-        if isinstance(results, list):
-            # old testDefinitions.json format - this path is left for backward
-            # compatibility and should be removed at some point
-            try:
-                definitions = [
-                    TestScriptDefinition.fromJson(row, client_version=looper_client_version)
-                    for row in results
-                    ]
-            except:
-                logging.warn(
-                    "contents of testDefinitions.json for %s contained an invalid row",
-                    commitId
-                    )
-                return []
-
-            if build_definition:
-                build_definition['name'] = 'build'
-                definitions.append(
-                    TestScriptDefinition.fromJson(build_definition,
-                                                  client_version=looper_client_version)
-                    )
-            elif not [x for x in definitions if x.testName == "build"]:
-                definitions.append(
-                    TestScriptDefinition('build', './make.sh', {'cores': 32})
-                    )
-
-            return definitions
-        else:
-            logging.warn(
-                "Contents of testDefinitions.json for %s are not a list of test definitions",
-                commitId
-                )
-        return []
