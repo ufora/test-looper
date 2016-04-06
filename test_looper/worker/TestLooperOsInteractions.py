@@ -11,6 +11,7 @@ import tarfile
 import threading
 import time
 import traceback
+import virtualenv
 
 import test_looper.client.PerformanceTestReporter as PerformanceTestReporter
 import test_looper.core.DirectoryScope as DirectoryScope
@@ -314,6 +315,17 @@ class TestLooperOsInteractions(object):
         build_path = os.path.join(self.directories.build_cache_dir, commit_id)
         if os.path.exists(build_path):
             return os.path.join(build_path, os.listdir(build_path)[0])
+
+
+    @staticmethod
+    def create_test_virtualenv(test_dir, client_version):
+        venv_dir = os.path.join(test_dir, 'venv')
+        virtualenv.create_environment(venv_dir, site_packages=True)
+        pip = os.path.join(venv_dir, 'bin', 'pip')
+        subprocess.check_call([pip, 'install', 'test-looper==%s' % client_version],
+                              stdout=sys.stdout,
+                              stderr=sys.stderr)
+        return os.path.join(venv_dir, 'bin', 'activate')
 
 
     @staticmethod

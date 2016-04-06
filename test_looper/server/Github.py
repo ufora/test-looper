@@ -142,15 +142,20 @@ class Github(Git):
             return []
 
         build_definition = None
+        looper_client_version = None
         if isinstance(results, dict) and 'tests' in results:
             build_definition = results.get('build')
+            looper_client_version = results.get('test-looper')
             results = results['tests']
 
         if isinstance(results, list):
             # old testDefinitions.json format - this path is left for backward
             # compatibility and should be removed at some point
             try:
-                definitions = [TestScriptDefinition.fromJson(row) for row in results]
+                definitions = [
+                    TestScriptDefinition.fromJson(row, client_version=looper_client_version)
+                    for row in results
+                    ]
             except:
                 logging.warn(
                     "contents of testDefinitions.json for %s contained an invalid row",
@@ -160,7 +165,10 @@ class Github(Git):
 
             if build_definition:
                 build_definition['name'] = 'build'
-                definitions.append(TestScriptDefinition.fromJson(build_definition))
+                definitions.append(
+                    TestScriptDefinition.fromJson(build_definition,
+                                                  client_version=looper_client_version)
+                    )
             elif not [x for x in definitions if x.testName == "build"]:
                 definitions.append(
                     TestScriptDefinition('build', './make.sh', {'cores': 32})

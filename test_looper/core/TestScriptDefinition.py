@@ -13,10 +13,12 @@ class TestScriptDefinition(object):
                  testName,
                  testScriptPath,
                  machines,
+                 client_version,
                  periodicTest=False,
                  periodicTestPeriodInHours=defaultPeriodicTestPeriodInHours):
         self.testName = testName
         self.testScriptPath = testScriptPath
+        self.client_version = client_version
 
         if 'count' not in machines:
             machines['count'] = 1
@@ -39,19 +41,23 @@ class TestScriptDefinition(object):
             'name': self.testName,
             'command': self.testScriptPath,
             'machines': self.machines,
+            'client_version': self.client_version,
             'periodicTest': self.periodicTest,
             'periodicTestPeriodInHours': self.periodicTestPeriodInHours
             }
 
     @staticmethod
-    def fromJson(json):
+    def fromJson(json, client_version=None):
+        client_version = client_version or \
+                         json.get('client_verion')
         if 'testName' in json:
-            return TestScriptDefinition.fromJson_old(json)
+            return TestScriptDefinition.fromJson_old(json, client_version)
 
         return TestScriptDefinition(
             json['name'],
             json['command'],
-            json['machines']
+            json['machines'],
+            client_version
             )
 
     ###########
@@ -72,7 +78,7 @@ class TestScriptDefinition(object):
         return {"cores": cores, "count": count}
 
     @staticmethod
-    def fromJson_old(json):
+    def fromJson_old(json, client_version):
         machines = TestScriptDefinition.old_machineCount_to_machines(json['machineCount'])
         if 'gpuTest' in json:
             machines['gpu'] = True
@@ -81,6 +87,7 @@ class TestScriptDefinition(object):
             json['testName'],
             "./make.sh test %s" % json['testScriptPath'],
             machines,
+            client_version,
             json['periodicTest'] if 'periodicTest' in json else False,
             json['periodicTestPeriodInHours'] if 'periodicTestPeriodInHours' in json \
                 else TestScriptDefinition.defaultPeriodicTestPeriodInHours

@@ -195,6 +195,14 @@ class TestLooperWorker(object):
         package_file = self.download_build(commit_id, test_dir)
         package_dir = self.settings.osInteractions.extract_package(package_file, test_dir)
 
+        command = test_definition.testScriptPath
+        if test_definition.client_version:
+            venv_activate = self.settings.osInteractions.create_test_virtualenv(
+                test_dir,
+                test_definition.client_version
+                )
+            command = "source %s; %s" % (venv_activate, command)
+
         with self.settings.osInteractions.directoryScope(package_dir):
             test_output_dir = os.path.join(test_dir, 'output')
             self.settings.osInteractions.ensureDirectoryExists(test_output_dir)
@@ -207,8 +215,8 @@ class TestLooperWorker(object):
             logging.info("Machine %s is starting run for %s. Command: %s",
                          self.ownMachineInfo.machineName,
                          commit_id,
-                         test_definition.testScriptPath)
-            is_success = self.runTestUsingScript(test_definition.testScriptPath,
+                         command)
+            is_success = self.runTestUsingScript(command,
                                                  env_overrides,
                                                  heartbeat,
                                                  test_output_dir)
