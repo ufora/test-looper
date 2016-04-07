@@ -98,7 +98,7 @@ class TestDatabase(object):
 
 TestManagerSettings = collections.namedtuple(
     'TestManagerSettings',
-    'baseline_branch baseline_depth builder_min_cores'
+    'baseline_branch baseline_depth'
     )
 
 

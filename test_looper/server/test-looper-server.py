@@ -71,8 +71,7 @@ def main():
         TestLooperServer.LockWithTimer(),
         TestManager.TestManagerSettings(
             baseline_branch=src_ctrl_config['baseline_branch'],
-            baseline_depth=src_ctrl_config.get('baseline_depth', 20),
-            builder_min_cores=config['server'].get('builder_min_cores', 32)
+            baseline_depth=src_ctrl_config.get('baseline_depth', 20)
             )
         )
 
