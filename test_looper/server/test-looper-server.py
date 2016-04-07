@@ -149,7 +149,7 @@ def main():
         return TestLooperEc2Connection.EC2Connection(ec2Settings)
 
     looper_branch = src_ctrl_config['test_looper_branch']
-    github_webhook_secret = src_ctrl_config.get('webhook_secret')
+    github_webhook_secret = str(src_ctrl_config.get('webhook_secret'))
     http_port = config['server']['http_port'] or parsedArgs.httpPort
 
     testLooperMachines = None
