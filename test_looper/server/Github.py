@@ -9,6 +9,17 @@ from test_looper.core.TestScriptDefinition import TestScriptDefinition
 from test_looper.server.Git import Git
 
 
+def verify_webhook_request(headers, body, secret):
+    signature = "sha1=" + hmac.new(secret, body, hashlib.sha1).hexdigest()
+    if 'X-HUB-SIGNATURE' not in headers or headers['X-HUB-SIGNATURE'] != signature:
+        return None
+
+    payload = simplejson.loads(body)
+    return {
+        'branch': payload['ref'].split('/')[-1],
+        'repo': payload['repository']['name']
+        }
+
 class Github(Git):
     def __init__(self,
                  oauth_key,
@@ -56,18 +67,9 @@ class Github(Git):
     ## OAuth
     ###########
 
+
     def verify_webhook_request(self, headers, body):
-        signature = "sha1=" + hmac.new(self.webhook_secret, body, hashlib.sha1).hexdigest()
-        if 'X-HUB-SIGNATURE' not in headers or headers['X-HUB-SIGNATURE'] != signature:
-            return None
-
-        payload = simplejson.loads(body)
-        return {
-            'branch': payload['ref'].split('/')[-1],
-            'repo': payload['repository']['name']
-            }
-
-
+        return verify_webhook_request(headers, body, self.webhook_secret)
 
 
     def authorize_access_token(self, access_token):

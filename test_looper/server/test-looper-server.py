@@ -51,7 +51,7 @@ def main():
     src_ctrl_args = {
         'oauth_key': oauth_key,
         'oauth_secret': oauth_secret,
-        'webhook_secret': src_ctrl_config.get('webhook_secret'),
+        'webhook_secret': str(src_ctrl_config.get('webhook_secret')),
         'owner': src_ctrl_config['target_repo_owner'],
         'repo': src_ctrl_config['target_repo'],
         'test_definitions_path': src_ctrl_config['test_definitions_path']
@@ -166,6 +166,7 @@ def main():
         CreateEc2Connection,
         testLooperMachines,
         src_ctrl,
+        str(config['server']['test_looper_webhook_secret']),
         testLooperBranch=looper_branch,
         httpPortOverride=http_port,
         disableAuth=parsedArgs.no_auth

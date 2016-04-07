@@ -8,12 +8,11 @@ import logging
 import threading
 import markdown
 import simplejson
-import hmac
-import hashlib
 import urllib
 import pytz
 from math import ceil
 
+import test_looper.server.Github as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.server.PerformanceDataset as PerformanceDataset
 import test_looper.server.TestLooperHttpServerEventLog as TestLooperHttpServerEventLog
@@ -49,6 +48,7 @@ class TestLooperHttpServer(object):
                  ec2Factory,
                  testLooperMachines,
                  src_ctrl,
+                 test_looper_webhook_secret,
                  testLooperBranch=None,
                  httpPortOverride=None,
                  disableAuth=False):
@@ -68,6 +68,7 @@ class TestLooperHttpServer(object):
         self.httpPortOverride = httpPortOverride
         self.disableAuth = disableAuth
         self.src_ctrl = src_ctrl
+        self.test_looper_webhook_secret = test_looper_webhook_secret
         self.eventLog = (
             TestLooperHttpServerEventLog.TestLooperHttpServerEventLog(testManager.kvStore)
             )
@@ -2008,8 +2009,29 @@ class TestLooperHttpServer(object):
             logging.error("Invalid webhook request")
             raise cherrypy.HTTPError(400, "Invalid webhook request")
 
+        #don't block the webserver itself, so we can do this in a background thread
+        refreshInBackgroundThread = threading.Thread(target=self.refreshTestManager)
 
-        if event['repo'] == 'test-looper' and event['branch'] == self.test_looper_branch:
+        t0 = time.time()
+        logging.info("refreshing TestLooperManager")
+        refreshInBackgroundThread.start()
+        logging.info("refreshing TestLooperManager took %s seconds", time.time() - t0)
+
+
+    @cherrypy.expose
+    def test_looper_webhook(self):
+        if 'Content-Length' not in cherrypy.request.headers:
+            raise cherrypy.HTTPError(400, "Missing Content-Length header")
+        rawbody = cherrypy.request.body.read(int(cherrypy.request.headers['Content-Length']))
+
+        event = Github.verify_webhook_request(cherrypy.request.headers,
+                                              rawbody,
+                                              self.test_looper_webhook_secret)
+        if not event:
+            logging.error("Invalid webhook request")
+            raise cherrypy.HTTPError(400, "Invalid webhook request")
+
+        if event['branch'] == self.test_looper_branch:
             logging.info("Own branch '%s' changed. rebooting", self.test_looper_branch)
 
             #don't block the webserver itself, so we can do this in a background thread
@@ -2017,14 +2039,6 @@ class TestLooperHttpServer(object):
 
             logging.info("restarting TestLooperManager")
             killThread.start()
-        else:
-            #don't block the webserver itself, so we can do this in a background thread
-            refreshInBackgroundThread = threading.Thread(target=self.refreshTestManager)
-
-            t0 = time.time()
-            logging.info("refreshing TestLooperManager")
-            refreshInBackgroundThread.start()
-            logging.info("refreshing TestLooperManager took %s seconds", time.time() - t0)
 
 
 
