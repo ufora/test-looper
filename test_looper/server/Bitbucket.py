@@ -32,14 +32,24 @@ class Bitbucket(Git):
 
 
     def getAccessTokenFromAuthCallbackCode(self, code):
-        return requests.post(
+        response = requests.post(
             'https://bitbucket.org/site/oauth2/access_token',
             auth=(self.oauth_key, self.oauth_secret),
             data={
                 'grant_type': 'authorization_code',
                 'code': '%s' % code
                 }
-            ).json()['access_token']
+            )
+        if not response.ok:
+            response.raise_for_status()
+
+        json = response.json()
+        if 'access_token' in json:
+            return json['access_token']
+
+        logging.error("Failed to get token in OAuth callback. Response: %s",
+                      response.text)
+        return None
 
 
     def authorize_access_token(self, access_token):

@@ -105,7 +105,7 @@ class TestLooperHttpServer(object):
                 )
 
         if not self.accessTokenHasPermission[token]:
-            raise cherrypy.HTTPError(403, "You are not allowed to access this repository")
+            raise cherrypy.HTTPError(403, "You are not authorized to access this repository")
 
         return True
 
@@ -139,6 +139,9 @@ class TestLooperHttpServer(object):
     @cherrypy.expose
     def githubAuthCallback(self, code):
         access_token = self.src_ctrl.getAccessTokenFromAuthCallbackCode(code)
+        if not access_token:
+            logging.error("Failed to accquire access token")
+            raise cherrypy.HTTPError(401, "Unable to authenticate your session")
 
         logging.info("Access token is %s", access_token)
 
@@ -1084,7 +1087,7 @@ class TestLooperHttpServer(object):
         commitIdToTestGroups = {}
         with self.testManager.lock:
             if not branchName in self.testManager.branches:
-                raise cherrypy.HTTPError("400 Forbidden", "Branch does not exist")
+                raise cherrypy.HTTPError(404, "Branch does not exist")
             branch = self.testManager.branches[branchName]
             commits = branch.commitsInOrder
             for commit in commits:
@@ -1113,7 +1116,7 @@ class TestLooperHttpServer(object):
 
         with self.testManager.lock:
             if not branchName in self.testManager.branches:
-                raise cherrypy.HTTPError("400 Forbidden", "Branch does not exist")
+                raise cherrypy.HTTPError(404, "Branch does not exist")
             branch = self.testManager.branches[branchName]
             commits = branch.commitsInOrder
             ungroupedUniqueTestIds = sorted(list(set(t for c in commits for t in c.statsByType)))
@@ -2002,15 +2005,13 @@ class TestLooperHttpServer(object):
     @cherrypy.expose
     def githubReceivedAPush(self):
         if 'Content-Length' not in cherrypy.request.headers:
-            raise cherrypy.HTTPError("403 Forbidden",
-                                     "You are not allowed to access this resource.")
+            raise cherrypy.HTTPError(400, "Missing Content-Length header")
 
         payload, signature = self.getJsonPayloadAndSignature()
 
         if signature != cherrypy.request.headers['X-HUB-SIGNATURE']:
             logging.error("Invalid x-hub-signature received.")
-            raise cherrypy.HTTPError("403 Forbidden",
-                                     "You are not allowed to access this resource.")
+            raise cherrypy.HTTPError(400, "Missing X-HUB-SIGNATURE header")
 
         if payload.get('ref') == ('refs/heads/' + self.test_looper_branch):
             logging.info("origin/%s changed. rebooting", self.test_looper_branch)
