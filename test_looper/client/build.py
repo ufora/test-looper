@@ -12,11 +12,14 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
+import collections
 from hashlib import md5
 import os
 import subprocess
 import sys
 import uuid
+
+import test_looper.client.env as env
 
 
 class MissingImageError(Exception):
@@ -28,21 +31,30 @@ class MissingImageError(Exception):
         return "No docker image with id '%s'" % self.image_id
 
 
-def build(build_command, src_dir=None, dockerfile_dir=None, docker_repo=None):
+def build(build_command,
+          package_pattern=None,
+          src_dir=None,
+          dockerfile_dir=None,
+          docker_repo=None):
     """
     Build a project in test-looper
 
     """
+    package_pattern = package_pattern or ['*.py']
+    if isinstance(package_pattern, basestring):
+        package_pattern = [package_pattern]
+    assert isinstance(package_pattern, collections.Iterable)
+
     src_dir = src_dir or os.path.abspath(os.path.dirname(sys.argv[0]))
 
     docker = get_docker_image(dockerfile_dir, docker_repo)
     if docker:
-        return run_command_in_docker(docker, build_command, src_dir)
+        return run_command_in_docker(docker, build_command, src_dir, package_pattern)
     else:
-        return subprocess.check_call(build_command,
-                                     shell=True,
-                                     stdout=sys.stdout,
-                                     stderr=sys.stderr)
+        subprocess.check_call(build_command,
+                              shell=True,
+                              stdout=sys.stdout,
+                              stderr=sys.stderr)
 
 
 def get_docker_image(dockerfile_dir, docker_repo, create_missing=True):
@@ -53,6 +65,7 @@ def get_docker_image(dockerfile_dir, docker_repo, create_missing=True):
         return None
 
     docker_binary = "nvidia-docker" if is_gpu() else "docker"
+    print "Docker binary: ", docker_binary
 
     dockerfile_dir_hash = hash_files_in_path(dockerfile_dir)
     docker_image = "{docker_repo}:{hash}".format(docker_repo=docker_repo,
@@ -63,6 +76,7 @@ def get_docker_image(dockerfile_dir, docker_repo, create_missing=True):
     if not has_image:
         if create_missing:
             docker.build(dockerfile_dir)
+            docker.push()
         else:
             raise MissingImageError(docker_image)
 
@@ -70,7 +84,7 @@ def get_docker_image(dockerfile_dir, docker_repo, create_missing=True):
 
 
 def is_gpu():
-    return call('nvidia-smi') == call('which nvidia-docker') == 0
+    return call('nvidia-smi', quiet=True) == 0 and call('which nvidia-docker', quiet=True) == 0
 
 
 def call(command, quiet=False):
@@ -89,17 +103,32 @@ def hash_files_in_path(path):
     return h.hexdigest()
 
 
-def run_command_in_docker(docker, command, src_dir):
+def run_command_in_docker(docker, command, src_dir, package_pattern):
     volumes = get_docker_volumes(src_dir)
-    env = get_docker_environment()
+    docker_env = get_docker_environment()
     name = uuid.uuid4().hex
     options = '--rm --ulimit="core=-1" --privileged=true'
-    if env['TEST_LOOPER_MULTIBOX_IP_LIST']:
+    if docker_env['TEST_LOOPER_MULTIBOX_IP_LIST']:
         options += ' --net=host'
 
-    command = 'bash -c "cd /volumes/src; %s"' % command
+    copy_command = ("rsync -am --include '*/' {includes} --exclude '*' "
+                    "{src_dir} /tmp/build").format(
+                        includes=' '.join('--include %s' % p for p in package_pattern),
+                        src_dir=os.path.join(env.docker_src_dir, '*')
+                        )
+    package_name = "{repo}-{commit}.tar.gz".format(repo=env.repo, commit=env.revision)
+    package_command = "tar cfvz {package} /tmp/build/*".format(
+        package=os.path.join(env.docker_output_dir, package_name)
+        )
+    command = 'bash -c "cd {src_dir}; {build} && {copy} && {package}"'.format(
+        src_dir=env.docker_src_dir,
+        build=command,
+        copy=copy_command,
+        package=package_command
+        )
+    print "Running command: ", command
     try:
-        return docker.run(command, name, volumes, env, options)
+        return docker.run(command, name, volumes, docker_env, options)
     finally:
         docker.stop(name)
         docker.remove(name)
@@ -107,16 +136,19 @@ def run_command_in_docker(docker, command, src_dir):
 
 def get_docker_volumes(src_dir):
     volumes = {
-        "src": "--volume {src_dir}:/volumes/src".format(src_dir=src_dir),
+        "src": "--volume {src_dir}:{docker_src_dir}".format(src_dir=src_dir,
+                                                            docker_src_dir=env.docker_src_dir),
         "output": '',
         "ccache": ''
         }
 
-    output_dir = os.getenv("OUTPUT_DIR")
+    output_dir = env.output_dir
     if output_dir:
-        volumes["output"] = "--volume {output_dir}:/volumes/output".format(output_dir=output_dir)
+        volumes["output"] = "--volume {output_dir}:{docker_output_dir}".format(
+            output_dir=output_dir,
+            docker_output_dir=env.docker_output_dir)
 
-    ccache_dir = os.getenv("CCACHE_DIR")
+    ccache_dir = env.ccache_dir
     if ccache_dir:
         volumes["ccache"] = "--volume {ccache_dir}:/volumes/ccache".format(ccache_dir=ccache_dir)
 
@@ -125,14 +157,13 @@ def get_docker_volumes(src_dir):
 
 def get_docker_environment():
     return {
-        'TEST_OUTPUT_DIR': '/volumes/output',
-        'AWS_AVAILABILITY_ZONE': os.getenv('AWS_AVAILABILITY_ZONE', ''),
-        'TEST_LOOPER_TEST_ID': os.getenv('TEST_LOOPER_TEST_ID', ''),
-        'TEST_LOOPER_MULTIBOX_IP_LIST': os.getenv('TEST_LOOPER_MULTIBOX_IP_LIST',
-                                                  '').replace(' ', ','),
-        'TEST_LOOPER_MULTIBOX_OWN_IP': os.getenv('TEST_LOOPER_MULTIBOX_OWN_IP', ''),
+        'TEST_OUTPUT_DIR': env.docker_output_dir,
+        'AWS_AVAILABILITY_ZONE': env.aws_availability_zone,
+        'TEST_LOOPER_TEST_ID': env.test_id,
+        'TEST_LOOPER_MULTIBOX_IP_LIST': env.multibox_test_machines,
+        'TEST_LOOPER_MULTIBOX_OWN_IP': env.own_ip_address,
         'CORE_DUMP_DIR': os.getenv('CORE_DUMP_DIR', ''),
-        'REVISION': os.getenv('REVISION', '')
+        'REVISION': env.revision
         }
 
 
@@ -150,6 +181,13 @@ class Docker(object):
         subprocess.check_call("{docker} build -t {image} {path}".format(docker=self.binary,
                                                                         image=self.image,
                                                                         path=dockerfile_dir),
+                              shell=True,
+                              stdout=sys.stdout,
+                              stderr=sys.stderr)
+
+    def push(self):
+        subprocess.check_call("{docker} push {image}".format(docker=self.binary,
+                                                             image=self.image),
                               shell=True,
                               stdout=sys.stdout,
                               stderr=sys.stderr)

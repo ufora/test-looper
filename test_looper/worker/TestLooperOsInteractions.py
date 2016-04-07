@@ -278,13 +278,14 @@ class TestLooperOsInteractions(object):
                                       preexec_fn=os.setsid)
 
 
-    def build(self, commit_id, build_command, output_dir, timeout, heartbeat):
+    def build(self, commit_id, build_command, env, output_dir, timeout, heartbeat):
         build_log = os.path.join(output_dir, 'build.log')
         build_env = {
             'BUILD_COMMIT': commit_id,
             'OUTPUT_DIR': output_dir,
             'CCACHE_DIR': self.directories.ccache_dir
             }
+        build_env.update(env)
 
         with self.directoryScope(self.directories.repo_dir):
             return self.resetToCommit(commit_id) and \

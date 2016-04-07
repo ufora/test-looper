@@ -174,6 +174,7 @@ class TestLooperWorker(object):
         build_output_dir = os_interactions.createNextTestDirForCommit(commit_id)
         is_success = os_interactions.build(commit_id,
                                            build_command,
+                                           self.test_env_overrides(test, build_output_dir),
                                            build_output_dir,
                                            self.settings.timeout,
                                            heartbeat) and \
@@ -315,6 +316,7 @@ class TestLooperWorker(object):
     def test_env_overrides(self, test, test_output_dir):
         return  {
             'REVISION': test.commitId,
+            'TEST_REPO': self.settings.repoName,
             'OUTPUT_DIR': test_output_dir,
             'CORE_DUMP_DIR': self.settings.coreDumpsDir,
             'UFORA_PERFORMANCE_TEST_RESULTS_FILE': self.perf_test_output_file,
