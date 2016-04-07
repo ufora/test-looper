@@ -1,5 +1,6 @@
 import logging
 import requests
+import simplejson
 import traceback
 
 from test_looper.server.Git import Git
@@ -10,6 +11,7 @@ class Bitbucket(Git):
     def __init__(self,
                  oauth_key,
                  oauth_secret,
+                 webhook_secret,
                  owner,
                  repo,
                  test_definitions_path):
@@ -17,6 +19,7 @@ class Bitbucket(Git):
 
         self.oauth_key = oauth_key
         self.oauth_secret = oauth_secret
+        self.webhook_secret = webhook_secret
         self.owner = owner
         self.repo = repo
         self.test_definitions_path = test_definitions_path
@@ -70,6 +73,18 @@ class Bitbucket(Git):
         return True
     ## OAuth
     ###########
+
+
+    def verify_webhook_request(self, headers, body):
+        if 'X-Hook-UUID' not in headers or headers['X-Hook-UUID'] != self.webhook_secret:
+            return None
+
+        payload = simplejson.loads(body)
+        return {
+            'branch': payload['push']['changes'][0]['new']['name'],
+            'repo': payload['repository']['name']
+            }
+
 
     @staticmethod
     def getUserNameFromToken(access_token):

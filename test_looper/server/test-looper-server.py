@@ -51,6 +51,7 @@ def main():
     src_ctrl_args = {
         'oauth_key': oauth_key,
         'oauth_secret': oauth_secret,
+        'webhook_secret': src_ctrl_config.get('webhook_secret'),
         'owner': src_ctrl_config['target_repo_owner'],
         'repo': src_ctrl_config['target_repo'],
         'test_definitions_path': src_ctrl_config['test_definitions_path']
@@ -149,7 +150,6 @@ def main():
         return TestLooperEc2Connection.EC2Connection(ec2Settings)
 
     looper_branch = src_ctrl_config['test_looper_branch']
-    github_webhook_secret = str(src_ctrl_config.get('webhook_secret'))
     http_port = config['server']['http_port'] or parsedArgs.httpPort
 
     testLooperMachines = None
@@ -166,7 +166,6 @@ def main():
         CreateEc2Connection,
         testLooperMachines,
         src_ctrl,
-        githubReceivedAPushSecret=github_webhook_secret,
         testLooperBranch=looper_branch,
         httpPortOverride=http_port,
         disableAuth=parsedArgs.no_auth

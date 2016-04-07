@@ -1,4 +1,6 @@
 import base64
+import hashlib
+import hmac
 import logging
 import requests
 import simplejson
@@ -12,6 +14,7 @@ class Github(Git):
                  oauth_key,
                  oauth_secret,
                  access_token,
+                 webhook_secret,
                  owner,
                  repo,
                  test_definitions_path):
@@ -22,6 +25,7 @@ class Github(Git):
         self.oauth_key = oauth_key
         self.oauth_secret = oauth_secret
         self.access_token = access_token
+        self.webhook_secret = webhook_secret
         self.owner = owner
         self.repo = repo
         self.test_definitions_path = test_definitions_path
@@ -51,6 +55,20 @@ class Github(Git):
         return simplejson.loads(response.text)['access_token']
     ## OAuth
     ###########
+
+    def verify_webhook_request(self, headers, body):
+        signature = "sha1=" + hmac.new(self.webhook_secret, body, hashlib.sha1).hexdigest()
+        if 'X-HUB-SIGNATURE' not in headers or headers['X-HUB-SIGNATURE'] != signature:
+            return None
+
+        payload = simplejson.loads(body)
+        return {
+            'branch': payload['ref'].split('/')[-1],
+            'repo': payload['repository']['name']
+            }
+
+
+
 
     def authorize_access_token(self, access_token):
         logging.info("Checking access token %s", access_token)

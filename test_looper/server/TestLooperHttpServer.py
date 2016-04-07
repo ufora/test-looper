@@ -49,31 +49,20 @@ class TestLooperHttpServer(object):
                  ec2Factory,
                  testLooperMachines,
                  src_ctrl,
-                 githubReceivedAPushSecret=None,
                  testLooperBranch=None,
                  httpPortOverride=None,
                  disableAuth=False):
         """Initialize the TestLooperHttpServer
 
         testManager - a TestManager.TestManager object
-        githubReceivedAPushSecret - the secret that all github push messages will use as a hash
-            salt
         httpPortOverride - the port to listen on for http requests
         disableAuth - should we disable all authentication and be public?
         """
 
         self.testLooperMachines = testLooperMachines
-
-        if githubReceivedAPushSecret is None:
-            githubReceivedAPushSecret = os.getenv("TEST_LOOPER_WEBHOOK_SECRET", None)
-
         self.testLooperServerLogFile = os.getenv("LOG_FILE")
-
-        self.githubReceivedAPushSecret = githubReceivedAPushSecret
         self.test_looper_branch = testLooperBranch or 'test-looper'
-
         self.accessTokenHasPermission = {}
-
         self.testManager = testManager
         self.ec2Factory = ec2Factory
         self.httpPortOverride = httpPortOverride
@@ -2004,17 +1993,24 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def githubReceivedAPush(self):
+        return self.webhook()
+
+
+    @cherrypy.expose
+    def webhook(self):
         if 'Content-Length' not in cherrypy.request.headers:
             raise cherrypy.HTTPError(400, "Missing Content-Length header")
+        rawbody = cherrypy.request.body.read(int(cherrypy.request.headers['Content-Length']))
 
-        payload, signature = self.getJsonPayloadAndSignature()
+        event = self.src_ctrl.verify_webhook_request(cherrypy.request.headers,
+                                                     rawbody)
+        if not event:
+            logging.error("Invalid webhook request")
+            raise cherrypy.HTTPError(400, "Invalid webhook request")
 
-        if signature != cherrypy.request.headers['X-HUB-SIGNATURE']:
-            logging.error("Invalid x-hub-signature received.")
-            raise cherrypy.HTTPError(400, "Missing X-HUB-SIGNATURE header")
 
-        if payload.get('ref') == ('refs/heads/' + self.test_looper_branch):
-            logging.info("origin/%s changed. rebooting", self.test_looper_branch)
+        if event['repo'] == 'test-looper' and event['branch'] == self.test_looper_branch:
+            logging.info("Own branch '%s' changed. rebooting", self.test_looper_branch)
 
             #don't block the webserver itself, so we can do this in a background thread
             killThread = threading.Thread(target=self.killProcessInOneSecond)
@@ -2031,6 +2027,7 @@ class TestLooperHttpServer(object):
             logging.info("refreshing TestLooperManager took %s seconds", time.time() - t0)
 
 
+
     @staticmethod
     def killProcessInOneSecond():
         time.sleep(1.0)
@@ -2041,15 +2038,6 @@ class TestLooperHttpServer(object):
     def refreshTestManager(self):
         with self.testManager.lock:
             self.testManager.updateBranchesUnderTest()
-
-    def getJsonPayloadAndSignature(self):
-        cl = cherrypy.request.headers['Content-Length']
-        rawbody = cherrypy.request.body.read(int(cl))
-        body = simplejson.loads(rawbody)
-
-        signature = hmac.new(self.githubReceivedAPushSecret, rawbody, hashlib.sha1).hexdigest()
-
-        return body, "sha1=" + signature
 
     @staticmethod
     def getJsonPayload():
