@@ -62,7 +62,7 @@ class TestLooperOsInteractions(object):
             root = tar.next()
             if root is None:
                 raise Exception("Package %s is empty" % package_file)
-            package_dir = os.path.join(target_dir, root.name, 'lib')
+            package_dir = os.path.join(target_dir, root.name)
             logging.info("Extracting package to %s", package_dir)
             tar.extractall(target_dir)
             return package_dir

@@ -196,6 +196,11 @@ class TestLooperWorker(object):
 
         package_file = self.download_build(commit_id, test_dir)
         package_dir = self.settings.osInteractions.extract_package(package_file, test_dir)
+        if 'ufora' in package_dir:
+            # This is a hack for backward-compatibility with the ufora repo
+            lib_dir = os.path.join(package_dir, 'lib')
+            if os.path.exists(lib_dir):
+                package_dir = lib_dir
 
         command = test_definition.testScriptPath
         if test_definition.client_version:

@@ -111,14 +111,16 @@ def run_command_in_docker(docker, command, src_dir, package_pattern):
     if docker_env['TEST_LOOPER_MULTIBOX_IP_LIST']:
         options += ' --net=host'
 
+    package_name = "{repo}-{commit}".format(repo=env.repo, commit=env.revision)
     copy_command = ("rsync -am --include '*/' {includes} --exclude '*' "
-                    "{src_dir} /tmp/build").format(
+                    "{src_dir} /tmp/{package}").format(
                         includes=' '.join('--include %s' % p for p in package_pattern),
-                        src_dir=os.path.join(env.docker_src_dir, '*')
+                        src_dir=os.path.join(env.docker_src_dir, '*'),
+                        package=package_name
                         )
-    package_name = "{repo}-{commit}.tar.gz".format(repo=env.repo, commit=env.revision)
-    package_command = "tar cfvz {package} /tmp/build/*".format(
-        package=os.path.join(env.docker_output_dir, package_name)
+    package_command = "tar cfvz {tarball_path}.tar.gz -C /tmp {package}".format(
+        tarball_path=os.path.join(env.docker_output_dir, package_name),
+        package=package_name
         )
     command = 'bash -c "cd {src_dir}; {build} && {copy} && {package}"'.format(
         src_dir=env.docker_src_dir,
