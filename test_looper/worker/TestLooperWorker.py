@@ -89,6 +89,7 @@ class TestLooperWorker(object):
                         self.ownMachineInfo.machineName,
                         traceback.format_exc()
                         )
+                    raise
 
                 if waitTime > 0:
                     self.stopEvent.wait(waitTime)
