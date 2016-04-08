@@ -114,7 +114,7 @@ def run_command_in_docker(docker, command, src_dir, package_pattern):
     package_name = "{repo}-{commit}".format(repo=env.repo, commit=env.revision)
     copy_command = ("rsync -am --include '*/' {includes} --exclude '*' "
                     "{src_dir} /tmp/{package}").format(
-                        includes=' '.join('--include %s' % p for p in package_pattern),
+                        includes=' '.join("--include '%s'" % p for p in package_pattern),
                         src_dir=os.path.join(env.docker_src_dir, '*'),
                         package=package_name
                         )
