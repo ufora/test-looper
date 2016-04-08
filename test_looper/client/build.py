@@ -65,7 +65,7 @@ def get_docker_image(dockerfile_dir, docker_repo, create_missing=True):
         return None
 
     docker_binary = "nvidia-docker" if is_gpu() else "docker"
-    print "Docker binary: ", docker_binary
+    sys.stdout.write("Docker binary: %s\n" % docker_binary)
 
     dockerfile_dir_hash = hash_files_in_path(dockerfile_dir)
     docker_image = "{docker_repo}:{hash}".format(docker_repo=docker_repo,
@@ -128,7 +128,7 @@ def run_command_in_docker(docker, command, src_dir, package_pattern):
         copy=copy_command,
         package=package_command
         )
-    print "Running command: ", command
+    sys.stdout.write("Running command: %s\n" % command)
     try:
         return docker.run(command, name, volumes, docker_env, options)
     finally:
