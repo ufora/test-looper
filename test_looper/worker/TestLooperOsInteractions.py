@@ -296,7 +296,8 @@ class TestLooperOsInteractions(object):
         while self.is_build_cache_full():
             self.remove_oldest_cached_build()
         cache_dir = os.path.join(self.directories.build_cache_dir, commit_id)
-        os.mkdir(cache_dir)
+        if not os.path.exists(cache_dir):
+            os.mkdir(cache_dir)
         shutil.copy(build_package, cache_dir)
 
 
