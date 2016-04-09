@@ -45,16 +45,55 @@ def build(build_command,
         package_pattern = [package_pattern]
     assert isinstance(package_pattern, collections.Iterable)
 
-    src_dir = src_dir or os.path.abspath(os.path.dirname(sys.argv[0]))
+    # source directory on the host file system
+    raw_src_dir = src_dir or os.path.abspath(os.path.dirname(sys.argv[0]))
+    # source directory in docker container (if running in docker)
+    src_dir = env.docker_src_dir if dockerfile_dir else raw_src_dir
+    output_dir = env.docker_output_dir if dockerfile_dir else env.output_dir
+
+    package_name = "{repo}-{commit}".format(repo=env.repo, commit=env.revision)
+    package_command = "tar cfvz {tarball_path}.tar.gz -C /tmp {package}".format(
+        tarball_path=os.path.join(output_dir, package_name),
+        package=package_name
+        )
+    copy_command = ("rsync -am --include '*/' {includes} --exclude '*' "
+                    "{src_dir} /tmp/{package}").format(
+                        includes=' '.join("--include '%s'" % p for p in package_pattern),
+                        src_dir=os.path.join(src_dir, '*'),
+                        package=package_name
+                        )
 
     docker = get_docker_image(dockerfile_dir, docker_repo)
     if docker:
-        return run_command_in_docker(docker, build_command, src_dir, package_pattern)
+        # make sure that the dockerfile directory is included in the package
+        copy_command = "{copy} && rsync -amR {dockerfile_dir} /tmp/{package}".format(
+            copy=copy_command,
+            dockerfile_dir=dockerfile_dir,
+            package=package_name)
+        return run_command_in_docker(docker,
+                                     make_build_command(build_command,
+                                                        copy_command,
+                                                        package_command),
+                                     raw_src_dir)
     else:
-        subprocess.check_call(build_command,
+        subprocess.check_call(make_build_command(build_command,
+                                                 copy_command,
+                                                 package_command),
                               shell=True,
                               stdout=sys.stdout,
                               stderr=sys.stderr)
+
+
+def test(test_command, dockerfile_dir=None, docker_repo=None):
+    pass
+
+
+def make_build_command(build_command, copy_command, package_command):
+    return '{build} && {copy} && {package}'.format(build=build_command,
+                                                   copy=copy_command,
+                                                   package=package_command)
+
+
 
 
 def get_docker_image(dockerfile_dir, docker_repo, create_missing=True):
@@ -103,7 +142,7 @@ def hash_files_in_path(path):
     return h.hexdigest()
 
 
-def run_command_in_docker(docker, command, src_dir, package_pattern):
+def run_command_in_docker(docker, command, src_dir):
     volumes = get_docker_volumes(src_dir)
     docker_env = get_docker_environment()
     name = uuid.uuid4().hex
@@ -111,22 +150,9 @@ def run_command_in_docker(docker, command, src_dir, package_pattern):
     if docker_env['TEST_LOOPER_MULTIBOX_IP_LIST']:
         options += ' --net=host'
 
-    package_name = "{repo}-{commit}".format(repo=env.repo, commit=env.revision)
-    copy_command = ("rsync -am --include '*/' {includes} --exclude '*' "
-                    "{src_dir} /tmp/{package}").format(
-                        includes=' '.join("--include '%s'" % p for p in package_pattern),
-                        src_dir=os.path.join(env.docker_src_dir, '*'),
-                        package=package_name
-                        )
-    package_command = "tar cfvz {tarball_path}.tar.gz -C /tmp {package}".format(
-        tarball_path=os.path.join(env.docker_output_dir, package_name),
-        package=package_name
-        )
-    command = 'bash -c "cd {src_dir}; {build} && {copy} && {package}"'.format(
+    command = 'bash -c "cd {src_dir}; {command}"'.format(
         src_dir=env.docker_src_dir,
-        build=command,
-        copy=copy_command,
-        package=package_command
+        command=command
         )
     sys.stdout.write("Running command: %s\n" % command)
     try:

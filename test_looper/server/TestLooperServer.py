@@ -153,18 +153,19 @@ class Session(object):
             self.testManager.recordMachineResult(result)
 
         if not result.success and self.testLooperMachines:
-            logging.info("Test result from client at %s: %s, machine: %s", self.address, result, result.machine)
+            logging.info("Test result from client at %s: %s, machine: %s",
+                         self.address,
+                         result,
+                         result.machine)
             isAlive = self.testLooperMachines.isMachineAlive(result.machine)
 
             if not isAlive:
                 testId = result.testId
                 commitId = result.commitId
                 self.testManager.clearResultsForTestIdCommitId(testId, commitId)
-                logging.info("%s, %s returned an invalid test result, purged from db" % (
-                    testId,
-                    result.machine
-                    )
-                )
+                logging.info("%s, %s returned an invalid test result, purged from db",
+                             testId,
+                             result.machine)
 
     def readString(self):
         return socket_util.readString(self.socket)
