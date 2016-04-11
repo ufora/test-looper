@@ -252,10 +252,12 @@ class Docker(object):
 
 
     def stop(self, container_name):
-        return call("{docker} stop {name}".format(docker=self.binary, name=container_name),
+        return call("{docker} stop {name} > /dev/null".format(docker=self.binary,
+                                                              name=container_name),
                     quiet=True)
 
 
     def remove(self, container_name):
-        return call("{docker} rm {name}".format(docker=self.binary, name=container_name),
+        return call("{docker} rm {name} > /dev/null".format(docker=self.binary,
+                                                            name=container_name),
                     quiet=True)
