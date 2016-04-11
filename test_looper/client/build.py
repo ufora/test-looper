@@ -70,11 +70,11 @@ def build(build_command,
             copy=copy_command,
             dockerfile_dir=dockerfile_dir,
             package=package_name)
-        return run_command_in_docker(docker,
-                                     make_build_command(build_command,
-                                                        copy_command,
-                                                        package_command),
-                                     raw_src_dir)
+        run_command_in_docker(docker,
+                              make_build_command(build_command,
+                                                 copy_command,
+                                                 package_command),
+                              raw_src_dir)
     else:
         subprocess.check_call(make_build_command(build_command,
                                                  copy_command,
@@ -84,8 +84,20 @@ def build(build_command,
                               stderr=sys.stderr)
 
 
-def test(test_command, dockerfile_dir=None, docker_repo=None):
-    pass
+def test(test_command=None, dockerfile_dir=None, docker_repo=None):
+    # source directory on the host file system
+    test_command = test_command or ' '.join(sys.argv[1:])
+    docker = get_docker_image(dockerfile_dir, docker_repo)
+    if docker:
+        test_command += " > %s" % os.path.join(env.docker_output_dir, 'test_out.log')
+        run_command_in_docker(docker, test_command, os.getcwd())
+    else:
+        with open(os.path.join(env.output_dir, "test_out.log"), 'w') as f:
+            subprocess.check_call(test_command,
+                                  shell=True,
+                                  stdout=f,
+                                  stderr=f)
+
 
 
 def make_build_command(build_command, copy_command, package_command):
@@ -156,7 +168,9 @@ def run_command_in_docker(docker, command, src_dir):
         )
     sys.stdout.write("Running command: %s\n" % command)
     try:
-        return docker.run(command, name, volumes, docker_env, options)
+        return_code = docker.run(command, name, volumes, docker_env, options)
+        if return_code != 0:
+            raise subprocess.CalledProcessError(return_code, command)
     finally:
         docker.stop(name)
         docker.remove(name)
