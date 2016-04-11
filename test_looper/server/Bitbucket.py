@@ -118,6 +118,9 @@ class Bitbucket(Git):
                 break
             self.server_access_token = None
 
+        if response.status_code == requests.codes.not_found:
+            return []
+
         if not response.ok:
             response.raise_for_status()
 
