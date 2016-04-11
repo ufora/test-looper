@@ -86,7 +86,11 @@ def build(build_command,
 
 def test(test_command=None, dockerfile_dir=None, docker_repo=None):
     # source directory on the host file system
-    test_command = test_command or ' '.join(sys.argv[1:])
+    if test_command is None:
+        argv = list(sys.argv[1:])
+        if argv and argv[0].endswith('.py'):
+            argv = ['python'] + argv
+        test_command = ' '.join(argv)
     docker = get_docker_image(dockerfile_dir, docker_repo)
     if docker:
         test_command += " > %s" % os.path.join(env.docker_output_dir, 'test_out.log')
