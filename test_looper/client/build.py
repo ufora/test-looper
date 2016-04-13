@@ -32,6 +32,7 @@ class MissingImageError(Exception):
 
 
 def build(build_command,
+          working_dir=None,
           package_pattern=None,
           src_dir=None,
           dockerfile_dir=None,
@@ -44,6 +45,12 @@ def build(build_command,
     if isinstance(package_pattern, basestring):
         package_pattern = [package_pattern]
     assert isinstance(package_pattern, collections.Iterable)
+
+    if working_dir:
+        build_command = "pushd {working_dir}; {build_command}; popd".format(
+            working_dir=working_dir,
+            build_command=build_command
+            )
 
     # source directory on the host file system
     raw_src_dir = src_dir or os.path.abspath(os.path.dirname(sys.argv[0]))
@@ -119,14 +126,12 @@ def get_docker_image(dockerfile_dir, docker_repo, create_missing=True):
     if not dockerfile_dir:
         return None
 
-    docker_binary = "nvidia-docker" if is_gpu() else "docker"
-    sys.stdout.write("Docker binary: %s\n" % docker_binary)
 
     dockerfile_dir_hash = hash_files_in_path(dockerfile_dir)
     docker_image = "{docker_repo}:{hash}".format(docker_repo=docker_repo,
                                                  hash=dockerfile_dir_hash)
 
-    docker = Docker(docker_binary, docker_image)
+    docker = Docker(docker_image)
     has_image = docker.pull()
     if not has_image:
         if create_missing:
@@ -138,8 +143,6 @@ def get_docker_image(dockerfile_dir, docker_repo, create_missing=True):
     return docker
 
 
-def is_gpu():
-    return call('nvidia-smi', quiet=True) == 0 and call('which nvidia-docker', quiet=True) == 0
 
 
 def call(command, quiet=False):
@@ -214,9 +217,23 @@ def get_docker_environment():
 
 
 class Docker(object):
-    def __init__(self, docker_binary, image_name):
-        self.binary = docker_binary
+    binary = None
+
+    def __init__(self, image_name):
         self.image = image_name
+
+
+    @classmethod
+    def docker_binary(cls):
+        if cls.binary is None:
+            cls.binary = "nvidia-docker" if cls.is_gpu() else "docker"
+        return cls.binary
+
+
+    @staticmethod
+    def is_gpu():
+        return call('nvidia-smi', quiet=True) == 0 and \
+               call('which nvidia-docker', quiet=True) == 0
 
 
     def pull(self):
