@@ -120,7 +120,8 @@ def run_command_in_docker(docker, command, src_dir, options=None):
     options = options or []
     assert isinstance(options, list)
     options = options + ['--rm', '--ulimit="core=-1"', '--privileged=true']
-    if docker_env['TEST_LOOPER_MULTIBOX_IP_LIST']:
+    if ',' in docker_env['TEST_LOOPER_MULTIBOX_IP_LIST']:
+        # this means we're in a mult-box setting
         options.append('--net=host')
 
     command = 'bash -c "cd {src_dir}; {command}"'.format(
