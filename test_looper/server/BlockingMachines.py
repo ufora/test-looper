@@ -37,6 +37,9 @@ class BlockingMachines(object):
         assignedMachines = []
 
         for workerInfo in self.machines.itervalues():
+            if workerInfo.machineId in self.testAssignments:
+                continue
+
             if self.machineCanParticipateInTest(workerInfo, testDefinition):
                 assignedMachines.append(workerInfo)
                 if len(assignedMachines) == testDefinition.machines['count']:
@@ -63,6 +66,7 @@ class BlockingMachines(object):
 
             for m in assignedMachines:
                 self.testAssignments[m.machineId] = newTestResult
+
 
         self.cleanup()
 
