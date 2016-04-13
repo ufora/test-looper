@@ -92,18 +92,16 @@ def test(test_command=None, dockerfile_dir=None, docker_repo=None, docker_links=
 
     docker = Docker.from_dockerfile(dockerfile_dir, docker_repo)
     if docker:
-        test_command += " >> %s" % os.path.join(env.docker_output_dir, 'test_out.log')
         docker_links = docker_links or []
         run_command_in_docker(docker,
                               test_command,
                               os.getcwd(),
                               options=['--link=%s' % l for l in docker_links])
     else:
-        with open(os.path.join(env.output_dir, "test_out.log"), 'a') as f:
-            subprocess.check_call(test_command,
-                                  shell=True,
-                                  stdout=f,
-                                  stderr=f)
+        subprocess.check_call(test_command,
+                              shell=True,
+                              stdout=sys.stdout,
+                              stderr=sys.stderr)
 
 
 def make_build_command(build_command, copy_command, package_command):
