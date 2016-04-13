@@ -45,6 +45,7 @@ class TestLooperOsInteractions(object):
 
     def cleanup(self):
         self.killLeftoverProcesses()
+        self.removeRunningDockerContainers()
         self.removeDanglingDockerImages()
         logging.info("Clearing data directory: %s", self.directories.test_data_dir)
         assert self.directories.test_data_dir is not None
@@ -81,6 +82,14 @@ class TestLooperOsInteractions(object):
         logging.info("Killing running processes: %s", pidsToKill)
         for procGroup in set([os.getpgid(pid) for pid in pidsToKill]):
             os.killpg(procGroup, signal.SIGKILL)
+
+
+    @staticmethod
+    def removeRunningDockerContainers():
+        subprocess.check_output("docker ps -q | xargs --no-run-if-empty docker stop",
+                                shell=True)
+        subprocess.check_output("docker ps -aq | xargs --no-run-if-empty docker rm",
+                                shell=True)
 
 
     @staticmethod
