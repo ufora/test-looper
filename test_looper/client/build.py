@@ -92,10 +92,10 @@ def test(test_command=None, dockerfile_dir=None, docker_repo=None):
 
     docker = Docker.from_dockerfile(dockerfile_dir, docker_repo)
     if docker:
-        test_command += " > %s" % os.path.join(env.docker_output_dir, 'test_out.log')
+        test_command += " >> %s" % os.path.join(env.docker_output_dir, 'test_out.log')
         run_command_in_docker(docker, test_command, os.getcwd())
     else:
-        with open(os.path.join(env.output_dir, "test_out.log"), 'w') as f:
+        with open(os.path.join(env.output_dir, "test_out.log"), 'a') as f:
             subprocess.check_call(test_command,
                                   shell=True,
                                   stdout=f,
