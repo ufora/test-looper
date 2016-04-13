@@ -115,6 +115,7 @@ class Docker(object):
 
 
     def _run(self, call_func, command, name=None, volumes=None, env=None, options=None):
+        name = name or ''
         if name:
             name = '--name=' + name
 
@@ -125,7 +126,7 @@ class Docker(object):
             volumes = ' '.join('--volume %s:%s' % (k, volumes[k]) for k in volumes)
 
         return call_func(
-            "{docker} run {options} --name={name} {volumes} {env} {image} {command}".format(
+            "{docker} run {options} {name} {volumes} {env} {image} {command}".format(
                 docker=self.docker_binary,
                 options=options or '',
                 name=name,
