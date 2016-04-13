@@ -119,6 +119,7 @@ class Bitbucket(Git):
             self.server_access_token = None
 
         if response.status_code == requests.codes.not_found:
+            logging.info("No test definitions for commit: %s. Url: %s", commitId, url)
             return []
 
         if not response.ok:

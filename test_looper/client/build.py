@@ -223,11 +223,11 @@ class Docker(object):
         self.image = image_name
 
 
-    @classmethod
-    def docker_binary(cls):
-        if cls.binary is None:
-            cls.binary = "nvidia-docker" if cls.is_gpu() else "docker"
-        return cls.binary
+    @property
+    def docker_binary(self):
+        if self.binary is None:
+            self.binary = "nvidia-docker" if self.is_gpu() else "docker"
+        return self.binary
 
 
     @staticmethod
@@ -237,11 +237,12 @@ class Docker(object):
 
 
     def pull(self):
-        return call("{docker} pull {image}".format(docker=self.binary, image=self.image)) == 0
+        return call("{docker} pull {image}".format(docker=self.docker_binary,
+                                                   image=self.image)) == 0
 
 
     def build(self, dockerfile_dir):
-        subprocess.check_call("{docker} build -t {image} {path}".format(docker=self.binary,
+        subprocess.check_call("{docker} build -t {image} {path}".format(docker=self.docker_binary,
                                                                         image=self.image,
                                                                         path=dockerfile_dir),
                               shell=True,
@@ -249,7 +250,7 @@ class Docker(object):
                               stderr=sys.stderr)
 
     def push(self):
-        subprocess.check_call("{docker} push {image}".format(docker=self.binary,
+        subprocess.check_call("{docker} push {image}".format(docker=self.docker_binary,
                                                              image=self.image),
                               shell=True,
                               stdout=sys.stdout,
@@ -262,7 +263,7 @@ class Docker(object):
 
         return call(
             "{docker} run {options} --name={name} {volumes} {env} {image} {command}".format(
-                docker=self.binary,
+                docker=self.docker_binary,
                 options=options or '',
                 name=name,
                 volumes=volumes or '',
@@ -273,12 +274,12 @@ class Docker(object):
 
 
     def stop(self, container_name):
-        return call("{docker} stop {name} > /dev/null".format(docker=self.binary,
+        return call("{docker} stop {name} > /dev/null".format(docker=self.docker_binary,
                                                               name=container_name),
                     quiet=True)
 
 
     def remove(self, container_name):
-        return call("{docker} rm {name} > /dev/null".format(docker=self.binary,
+        return call("{docker} rm {name} > /dev/null".format(docker=self.docker_binary,
                                                             name=container_name),
                     quiet=True)
