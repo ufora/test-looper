@@ -70,7 +70,7 @@ def build(build_command,
                         package=package_name
                         )
 
-    docker = get_docker_image(dockerfile_dir, docker_repo)
+    docker = Docker.from_dockerfile(dockerfile_dir, docker_repo, create_missing=True)
     if docker:
         # make sure that the dockerfile directory is included in the package
         copy_command = "{copy} && rsync -amR {dockerfile_dir} /tmp/{package}".format(
@@ -98,7 +98,8 @@ def test(test_command=None, dockerfile_dir=None, docker_repo=None):
         if argv and argv[0].endswith('.py'):
             argv = ['python'] + argv
         test_command = ' '.join(argv)
-    docker = get_docker_image(dockerfile_dir, docker_repo)
+
+    docker = Docker.from_dockerfile(dockerfile_dir, docker_repo)
     if docker:
         test_command += " > %s" % os.path.join(env.docker_output_dir, 'test_out.log')
         run_command_in_docker(docker, test_command, os.getcwd())
@@ -117,37 +118,13 @@ def make_build_command(build_command, copy_command, package_command):
                                                    package=package_command)
 
 
-
-
-def get_docker_image(dockerfile_dir, docker_repo, create_missing=True):
-    if bool(dockerfile_dir) != bool(docker_repo): # logical xor
-        raise ValueError("You must specify both 'dockerfile_dir' and 'docker_repo' or neither")
-
-    if not dockerfile_dir:
-        return None
-
-
-    dockerfile_dir_hash = hash_files_in_path(dockerfile_dir)
-    docker_image = "{docker_repo}:{hash}".format(docker_repo=docker_repo,
-                                                 hash=dockerfile_dir_hash)
-
-    docker = Docker(docker_image)
-    has_image = docker.pull()
-    if not has_image:
-        if create_missing:
-            docker.build(dockerfile_dir)
-            docker.push()
-        else:
-            raise MissingImageError(docker_image)
-
-    return docker
-
-
-
-
 def call(command, quiet=False):
     kwargs = {} if quiet else {'stdout': sys.stdout, 'stderr': sys.stderr}
     return subprocess.call(command, shell=True, **kwargs)
+
+
+def check_output(command):
+    return subprocess.check_output(command, shell=True)
 
 
 def hash_files_in_path(path):
@@ -235,6 +212,30 @@ class Docker(object):
         return call('nvidia-smi', quiet=True) == 0 and \
                call('which nvidia-docker', quiet=True) == 0
 
+    @classmethod
+    def from_dockerfile(cls, dockerfile_dir, docker_repo, create_missing=False):
+        if bool(dockerfile_dir) != bool(docker_repo): # logical xor
+            raise ValueError("You must specify both 'dockerfile_dir' and 'docker_repo' or neither")
+
+        if not dockerfile_dir:
+            return None
+
+
+        dockerfile_dir_hash = hash_files_in_path(dockerfile_dir)
+        docker_image = "{docker_repo}:{hash}".format(docker_repo=docker_repo,
+                                                     hash=dockerfile_dir_hash)
+
+        docker = Docker(docker_image)
+        has_image = docker.pull()
+        if not has_image:
+            if create_missing:
+                docker.build(dockerfile_dir)
+                docker.push()
+            else:
+                raise MissingImageError(docker_image)
+
+        return docker
+
 
     def pull(self):
         return call("{docker} pull {image}".format(docker=self.docker_binary,
@@ -257,11 +258,33 @@ class Docker(object):
                               stderr=sys.stderr)
 
 
-    def run(self, command, name, volumes=None, env=None, options=None):
+    def run(self, command='', name=None, volumes=None, env=None, options=None):
+        return self._run(call, command, name, volumes, env, options)
+
+
+    def call(self, command, volumes=None, env=None, options=None):
+        options = options or ''
+        options += ' --rm'
+
+        return self._run(check_output,
+                         command,
+                         name=None,
+                         volumes=volumes,
+                         env=env,
+                         options=options)
+
+
+    def _run(self, call_func, command, name=None, volumes=None, env=None, options=None):
+        if name:
+            name = '--name=' + name
+
         if env:
             env = ' '.join('--env {0}={1}'.format(k, v) for k, v in env.iteritems())
 
-        return call(
+        if isinstance(volumes, collections.Mapping):
+            volumes = ' '.join('--volume %s:%s' % (k, volumes[k]) for k in volumes)
+
+        return call_func(
             "{docker} run {options} --name={name} {volumes} {env} {image} {command}".format(
                 docker=self.docker_binary,
                 options=options or '',
