@@ -82,7 +82,7 @@ def build(build_command,
                               stderr=sys.stderr)
 
 
-def test(test_command=None, dockerfile_dir=None, docker_repo=None):
+def test(test_command=None, dockerfile_dir=None, docker_repo=None, docker_links=None):
     # source directory on the host file system
     if test_command is None:
         argv = list(sys.argv[1:])
@@ -93,7 +93,11 @@ def test(test_command=None, dockerfile_dir=None, docker_repo=None):
     docker = Docker.from_dockerfile(dockerfile_dir, docker_repo)
     if docker:
         test_command += " >> %s" % os.path.join(env.docker_output_dir, 'test_out.log')
-        run_command_in_docker(docker, test_command, os.getcwd())
+        docker_links = docker_links or []
+        run_command_in_docker(docker,
+                              test_command,
+                              os.getcwd(),
+                              options=['--link=%s' % l for l in docker_links])
     else:
         with open(os.path.join(env.output_dir, "test_out.log"), 'a') as f:
             subprocess.check_call(test_command,
@@ -108,13 +112,16 @@ def make_build_command(build_command, copy_command, package_command):
                                                    package=package_command)
 
 
-def run_command_in_docker(docker, command, src_dir):
+def run_command_in_docker(docker, command, src_dir, options=None):
     volumes = get_docker_volumes(src_dir)
     docker_env = get_docker_environment()
     name = uuid.uuid4().hex
-    options = '--rm --ulimit="core=-1" --privileged=true'
+
+    options = options or []
+    assert isinstance(options, list)
+    options = options + ['--rm', '--ulimit="core=-1"', '--privileged=true']
     if docker_env['TEST_LOOPER_MULTIBOX_IP_LIST']:
-        options += ' --net=host'
+        options.append('--net=host')
 
     command = 'bash -c "cd {src_dir}; {command}"'.format(
         src_dir=env.docker_src_dir,
@@ -122,7 +129,11 @@ def run_command_in_docker(docker, command, src_dir):
         )
     sys.stdout.write("Running command: %s\n" % command)
     try:
-        return_code = docker.run(command, name, volumes, docker_env, options)
+        return_code = docker.run(command,
+                                 name,
+                                 volumes,
+                                 docker_env,
+                                 ' '.join(options))
         if return_code != 0:
             raise subprocess.CalledProcessError(return_code, command)
     finally:
