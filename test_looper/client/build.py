@@ -82,7 +82,11 @@ def build(build_command,
                               stderr=sys.stderr)
 
 
-def test(test_command=None, dockerfile_dir=None, docker_repo=None, docker_links=None):
+def test(test_command=None,
+         dockerfile_dir=None,
+         docker_repo=None,
+         docker_links=None,
+         docker_env=None):
     # source directory on the host file system
     if test_command is None:
         argv = list(sys.argv[1:])
@@ -96,6 +100,7 @@ def test(test_command=None, dockerfile_dir=None, docker_repo=None, docker_links=
         run_command_in_docker(docker,
                               test_command,
                               os.getcwd(),
+                              docker_env=docker_env,
                               options=['--link=%s' % l for l in docker_links])
     else:
         subprocess.check_call(test_command,
@@ -110,9 +115,10 @@ def make_build_command(build_command, copy_command, package_command):
                                                    package=package_command)
 
 
-def run_command_in_docker(docker, command, src_dir, options=None):
+def run_command_in_docker(docker, command, src_dir, docker_env=None, options=None):
     volumes = get_docker_volumes(src_dir)
-    docker_env = get_docker_environment()
+    docker_env = dict(docker_env) if docker_env else {}
+    docker_env.update(get_docker_environment())
     name = uuid.uuid4().hex
 
     options = options or []
