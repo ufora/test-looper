@@ -52,7 +52,7 @@ class Git(object):
         if not commitRange:
             return []
 
-        command = 'git --no-pager log --topo-order ' + \
+        command = 'git --no-pager log --topo-order --first-parent ' + \
                 commitRange + ' --format=format:"%H %P -- %s"'
         try:
             lines = self.subprocessCheckOutput(command, shell=True).strip().split('\n')
@@ -65,17 +65,20 @@ class Git(object):
         lines = [l.strip() for l in lines if l]
 
         def parseCommitLine(line):
-            splitLine = line.split(' ')
-            doubleDashes = splitLine.index("--")
+            splitLine = line.split(' -- ')
+            if len(splitLine) != 2:
+                logging.warn("Got a confusing commit line: %s", line)
+                return None
 
-            if doubleDashes != 2:
+            hashes = splitLine[0].split(' ')
+            if len(hashes) < 2:
                 logging.warn("Got a confusing commit line: %s", line)
                 return None
 
             return (
-                splitLine[0],                           # commit hash
-                splitLine[1],                           # parent commit
-                " ".join(splitLine[doubleDashes+1:])    # commit title
+                hashes[0],       # commit hash
+                hashes[1],       # parent commit
+                splitLine[1]     # commit title
                 )
 
         commitTuples = [parseCommitLine(l) for l in lines if self.isValidBranchName_(l)]
