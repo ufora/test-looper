@@ -137,8 +137,7 @@ class TestManager(object):
     def getCommitByCommitId(self, commitId):
         if not commitId in self.commits:
             revList = "%s ^%s^^" % (commitId, commitId)
-            commitId, parentHash, commitTitle = \
-                self.github.commitIdsParentHashesAndSubjectsInRevlist(revList)[0]
+            commitId, parentHash, commitTitle = self.github.commitsInRevList(revList)[0]
             self.commits[commitId] = self.createCommit(commitId, parentHash, commitTitle)
         return self.commits[commitId]
 

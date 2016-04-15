@@ -175,7 +175,7 @@ class Branch(object):
         if lock:
             lock.release()
         t0 = time.time()
-        commitIdsParentsAndTitles = testManager.github.commitIdsParentHashesAndSubjectsInRevlist(self.commitRevlist)
+        commitIdsParentsAndTitles = testManager.github.commitsInRevList(self.commitRevlist)
 
         if lock:
             lock.acquire()

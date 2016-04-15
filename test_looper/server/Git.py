@@ -39,7 +39,12 @@ class Git(object):
 
 
     def commitsInRevList(self, commitRange):
-        """Given a revision list, return a list of commits that match.
+        """
+        Returns the list of commits in the specified range.
+
+        'commitRange' should be a revlist, e.g.
+
+            origin/master ^origin/master^^^^^^
 
         Resulting objects are tuples of
             (hash, parent_hash, title, branchName)
@@ -85,27 +90,6 @@ class Git(object):
     @staticmethod
     def isValidBranchName_(name):
         return name and '/HEAD' not in name
-
-
-    def commitIdsParentHashesAndSubjectsInRevlist(self, commitRange):
-        """
-        Returns the list of commits in the specified range.
-
-        'commitRange' should be a revlist, e.g.
-
-            origin/master ^origin/master^^^^^^
-
-        """
-        revisionListToUse = []
-
-        revisions = self.commitsInRevList(commitRange)
-
-        for (commitHash, parentHash, commitTitle) in revisions:
-            revisionListToUse.append(
-                (commitHash, parentHash, commitTitle)
-                )
-
-        return revisionListToUse
 
 
     def subprocessCheckCall(self, *args, **kwds):
