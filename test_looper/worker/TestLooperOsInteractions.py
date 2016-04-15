@@ -189,11 +189,23 @@ class TestLooperOsInteractions(object):
             try:
                 attempts += 1
                 subprocess.check_call([toCall], shell=True)
-                return True
             except subprocess.CalledProcessError:
                 logging.info("Failed to reset the repo to %s. Fetching and trying again.", revision)
                 self.pullLatest()
+        if attempts <= 2:
+            logging.info("updating git submodules")
+            self.updateSubmodules()
+            return True
+
+        logging.error("Failed to reset repo after %d attempts", attempts)
         return False
+
+
+    @staticmethod
+    def updateSubmodules():
+        subprocess.check_call(
+            'git submodule deinit -f . && git submodule init && git submodule update',
+            shell=True)
 
 
     @staticmethod
@@ -215,14 +227,6 @@ class TestLooperOsInteractions(object):
         testOutputDir = os.path.join(revisionDir, str(curIter))
         self.ensureDirectoryExists(testOutputDir)
         return testOutputDir
-
-
-    def resetDepot(self, revision, artifacts):
-        self.resetToCommit(revision)
-        self.cleanup()
-
-        if artifacts is not None:
-            subprocess.call(['rm -rf ' + artifacts], shell=True)
 
 
     @staticmethod
