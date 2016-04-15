@@ -218,6 +218,9 @@ class TestLooperServer(SimpleServer.SimpleServer):
         super(TestLooperServer, self).runListenLoop()
 
         self.httpServer.stop()
+        if self.testLooperMachines:
+            self.testLooperMachines.stop()
+        logging.info("Listen loop stopped")
 
     def stop(self):
         super(TestLooperServer, self).stop()

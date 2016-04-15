@@ -5,8 +5,11 @@ import boto
 import json
 import logging
 import os
+import signal
 import socket
 import sys
+import threading
+import time
 
 import test_looper.server.Bitbucket as Bitbucket
 import test_looper.server.Github as Github
@@ -177,14 +180,20 @@ def main():
                                                httpServer,
                                                testLooperMachines)
 
-    try:
-        server.runListenLoop()
-    except KeyboardInterrupt:
-        pass
-    except:
-        import traceback
-        logging.error(traceback.format_exc())
-    server.stop()
+    serverThread = threading.Thread(target=server.runListenLoop)
+    def handleStopSignal(signum, _):
+        logging.info("Signal received: %s. Stopping service.", signum)
+        if serverThread and serverThread.isAlive():
+            server.stop()
+            serverThread.join()
+
+    signal.signal(signal.SIGTERM, handleStopSignal) # handle kill
+    signal.signal(signal.SIGINT, handleStopSignal)  # handle ctrl-c
+
+    serverThread.start()
+    while serverThread.is_alive():
+        time.sleep(0.5)
+
 
 def createArgumentParser():
     parser = argparse.ArgumentParser(

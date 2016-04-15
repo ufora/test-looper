@@ -210,12 +210,12 @@ class TestLooperAutoProvisioner(object):
 
     def stop(self):
         try:
-            logging.info("Stopping")
             self.running = False
             self.tornDown = True
             self.cancelAutoScaleThreadEvent.set()
             self.workerProvisionerThread.join(5.0)
-            logging.info("Stopped")
+            if self.workerProvisionerThread.isAlive():
+                logging.error("Failed to join worker provisioner thread")
         except:
             logging.warn("Worker provisioner thread was not started")
 

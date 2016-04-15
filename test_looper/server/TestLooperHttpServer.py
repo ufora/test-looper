@@ -2109,5 +2109,6 @@ class TestLooperHttpServer(object):
 
     @staticmethod
     def stop():
-        cherrypy.engine.stop()
-        cherrypy.engine.wait(cherrypy.process.wspbus.states.STOPPED)
+        logging.info("Stopping cherrypy engine")
+        cherrypy.engine.exit()
+        logging.info("Cherrypy engine stopped")
