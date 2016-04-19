@@ -54,7 +54,7 @@ setup(
     author_email='info@ufora.com',
     url='http://www.ufora.com/',
     license='Apache',
-    packages=['test_looper.client'],
+    packages=['test_looper.client', 'test_looper'],
     package_data={
         '': ['*.txt', '*.rst'],
         },
