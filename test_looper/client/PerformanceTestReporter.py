@@ -9,6 +9,7 @@ import os
 import simplejson
 import time
 import inspect
+import warnings
 
 TEST_DATA_LOCATION_ENVIRONMENT_VARIABLE = "TEST_LOOPER_PERFORMANCE_TEST_RESULTS_FILE"
 
@@ -20,16 +21,18 @@ def isCurrentlyTesting():
 
 def record_test(testName, elapsedTime, metadata, **kwargs):
     if not (isinstance(elapsedTime, float) or elapsedTime is None):
-        raise UserWarning(
+        warnings.warn(
             "We may only record a float, or None (in case of failure) for elapsed time"
             )
+        return
 
     if not isCurrentlyTesting():
-        raise UserWarning(
+        warnings.warn(
             ("We are not currently testing, so we can't record test results. "
              "Set the environment variable %s to point to a valid path.") % \
             TEST_DATA_LOCATION_ENVIRONMENT_VARIABLE
             )
+        return
 
     targetPath = os.getenv(TEST_DATA_LOCATION_ENVIRONMENT_VARIABLE)
 
