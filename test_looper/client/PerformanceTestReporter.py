@@ -10,9 +10,9 @@ import simplejson
 import time
 import inspect
 
-TEST_DATA_LOCATION_ENVIRONMENT_VARIABLE = "UFORA_PERFORMANCE_TEST_RESULTS_FILE"
+TEST_DATA_LOCATION_ENVIRONMENT_VARIABLE = "TEST_LOOPER_PERFORMANCE_TEST_RESULTS_FILE"
 
-class TimedOutException(Exception):
+class TimeoutException(Exception):
     pass
 
 def isCurrentlyTesting():
@@ -82,7 +82,7 @@ def testThroughput(testName,
 
             timeUsed += runtime
 
-        except TimedOutException:
+        except TimeoutException:
             break
 
     assert runtime is not None # we had at least one passing result before timing out

@@ -325,7 +325,8 @@ class TestLooperWorker(object):
             'TEST_REPO': self.settings.repoName,
             'OUTPUT_DIR': test_output_dir,
             'CORE_DUMP_DIR': self.settings.coreDumpsDir,
-            'UFORA_PERFORMANCE_TEST_RESULTS_FILE': self.perf_test_output_file,
+            'UFORA_PERFORMANCE_TEST_RESULTS_FILE': self.perf_test_output_file, # back-compat
+            'TEST_LOOPER_PERFORMANCE_TEST_RESULTS_FILE': self.perf_test_output_file,
             'TEST_LOOPER_TEST_ID': test.testId,
             'TEST_LOOPER_MULTIBOX_IP_LIST': test.createIpListToPassToScript(),
             'TEST_LOOPER_MULTIBOX_OWN_IP': self.ownMachineInfo.internalIpAddress,
