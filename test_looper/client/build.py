@@ -174,6 +174,8 @@ def get_docker_environment():
         'TEST_LOOPER_TEST_ID': env.test_id,
         'TEST_LOOPER_MULTIBOX_IP_LIST': env.multibox_test_machines,
         'TEST_LOOPER_MULTIBOX_OWN_IP': env.own_ip_address,
+        'TEST_LOOPER_PERFORMANCE_TEST_RESULTS_FILE': os.path.join(env.docker_output_dir,
+                                                                  env.perf_test_output_file),
         'CORE_DUMP_DIR': os.getenv('CORE_DUMP_DIR', ''),
         'REVISION': env.revision
         }

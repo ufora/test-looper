@@ -18,7 +18,7 @@ class TimeoutException(Exception):
 def isCurrentlyTesting():
     return os.getenv(TEST_DATA_LOCATION_ENVIRONMENT_VARIABLE) is not None
 
-def recordTest(testName, elapsedTime, metadata, **kwargs):
+def record_test(testName, elapsedTime, metadata, **kwargs):
     if not (isinstance(elapsedTime, float) or elapsedTime is None):
         raise UserWarning(
             "We may only record a float, or None (in case of failure) for elapsed time"
@@ -44,12 +44,12 @@ def recordTest(testName, elapsedTime, metadata, **kwargs):
         f.write(simplejson.dumps(perfLogEntry) + "\n")
 
 def recordThroughputTest(testName, runtime, n, baseMultiplier, metadata):
-    recordTest(testName,
-               runtime / n * baseMultiplier,
-               metadata,
-               n=n,
-               baseMultiplier=baseMultiplier,
-               actualTime=runtime)
+    record_test(testName,
+                runtime / n * baseMultiplier,
+                metadata,
+                n=n,
+                baseMultiplier=baseMultiplier,
+                actualTime=runtime)
 
 def testThroughput(testName,
                    testFunOfN,
@@ -94,7 +94,7 @@ def loadTestsFromFile(testFileName):
     with open(testFileName, "rb") as f:
         return [simplejson.loads(x) for x in f.readlines()]
 
-def PerfTest(testName):
+def perftest(test_name):
     """Decorate a unit-test so that it records performance in the global test database"""
     def decorator(f):
         meta = {
@@ -109,11 +109,11 @@ def PerfTest(testName):
                 result = f(self)
             except:
                 if isCurrentlyTesting():
-                    recordTest(testName, None, meta)
+                    record_test(test_name, None, meta)
                 raise
 
             if isCurrentlyTesting():
-                recordTest(testName, time.time() - t0, meta)
+                record_test(test_name, time.time() - t0, meta)
 
             return result
 

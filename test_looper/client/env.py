@@ -19,6 +19,7 @@ docker_output_dir = '/volumes/output'
 docker_src_dir = '/volumes/src'
 ccache_dir = getenv('CCACHE_DIR', '')
 
+perf_test_output_file = getenv("TEST_LOOPER_PERFORMANCE_TEST_RESULTS_FILE")
 repo = getenv("TEST_REPO", '')
 revision = getenv('REVISION', '')
 aws_availability_zone = getenv('AWS_AVAILABILITY_ZONE', '')
