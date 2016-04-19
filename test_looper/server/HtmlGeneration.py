@@ -158,8 +158,6 @@ def grid(grid):
         return width
 
     colWidths = [colWidth(col) for col in range(colCount)]
-    logging.info("Column widths: %s", colWidths)
-
     finalElements = []
 
     for row in grid:
