@@ -6,7 +6,10 @@ in test files. The location of the files is passed to client programs using envi
 """
 
 import os
-import simplejson
+try:
+    import simplejson as json
+except ImportError:
+    import json
 import time
 import inspect
 import warnings
@@ -44,7 +47,7 @@ def record_test(testName, elapsedTime, metadata, **kwargs):
     perfLogEntry.update(kwargs)
 
     with open(targetPath, "ab+") as f:
-        f.write(simplejson.dumps(perfLogEntry) + "\n")
+        f.write(json.dumps(perfLogEntry) + "\n")
 
 def recordThroughputTest(testName, runtime, n, baseMultiplier, metadata):
     record_test(testName,
@@ -95,7 +98,7 @@ def testThroughput(testName,
 
 def loadTestsFromFile(testFileName):
     with open(testFileName, "rb") as f:
-        return [simplejson.loads(x) for x in f.readlines()]
+        return [json.loads(x) for x in f.readlines()]
 
 def perftest(test_name):
     """Decorate a unit-test so that it records performance in the global test database"""
