@@ -100,11 +100,11 @@ def getMachineInfo():
 
     metadata = boto.utils.get_instance_metadata(timeout=2.0, num_retries=1)
     if metadata:
+        ownInternalIpAddress = metadata.get('local-ipv4') or ownInternalIpAddress
+
         ownMachineName = metadata.get('public-hostname') or \
                          metadata.get('public-ipv4') or \
-                         ownMachineName
-
-        ownInternalIpAddress = metadata.get('local-ipv4') or ownInternalIpAddress
+                         ownInternalIpAddress
 
         availabilityZone = metadata.get('placement', {}).get('availability-zone') or \
                            availabilityZone

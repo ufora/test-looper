@@ -405,7 +405,10 @@ class TestLooperHttpServer(object):
             return self.authenticate()
 
         ec2 = self.ec2Factory()
-        instancesByPublicIp = {i.ip_address: i for i in  ec2.getLooperInstances()}
+        instancesByIp = {
+            i.ip_address or i.private_ip_address: i
+            for i in  ec2.getLooperInstances()
+            }
 
         spotRequests = ec2.getLooperSpotRequests()
 
@@ -415,10 +418,10 @@ class TestLooperHttpServer(object):
 
             allMachineIds = set(i for i in self.testManager.mostRecentTouchByMachine.keys())
 
-            allMachineIds = allMachineIds.union(set(instancesByPublicIp.keys()))
+            allMachineIds = allMachineIds.union(set(instancesByIp.keys()))
 
             def rankMachineId(m):
-                if m in instancesByPublicIp:
+                if m in instancesByIp:
                     return (0, m)
                 else:
                     return (1, m)
@@ -431,8 +434,8 @@ class TestLooperHttpServer(object):
 
                 row.append(self.machineLink(machineId))
 
-                if machineId in instancesByPublicIp:
-                    instance = instancesByPublicIp[machineId]
+                if machineId in instancesByIp:
+                    instance = instancesByIp[machineId]
                     if machineId in self.testManager.mostRecentTouchByMachine:
                         pingTime = self.testManager.mostRecentTouchByMachine[machineId]
                         row.append("%.2f" % (time.time() - pingTime))
@@ -469,12 +472,15 @@ class TestLooperHttpServer(object):
             return self.authenticate()
 
         ec2 = self.ec2Factory()
-        instancesByPublicIp = {i.ip_address: i for i in  ec2.getLooperInstances()}
+        instancesByIp = {
+            i.ip_address or i.private_ip_address: i
+            for i in  ec2.getLooperInstances()
+            }
 
-        if machineId not in instancesByPublicIp:
+        if machineId not in instancesByIp:
             return self.errorPage("Unknown machine %s" % machineId)
 
-        instancesByPublicIp[machineId].terminate()
+        instancesByIp[machineId].terminate()
 
         raise cherrypy.HTTPRedirect("/machines")
 

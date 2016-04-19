@@ -22,7 +22,8 @@ class TestLooperEc2Machines(object):
 
     def isMachineAlive(self, machineId):
         instances = self.ec2.getLooperInstances()
-        matches = [inst for inst in instances if inst.ip_address == machineId]
+        matches = [inst for inst in instances
+                   if machineId in (inst.ip_address, inst.private_ip_address)]
         isAlive = len(matches) > 0
         return isAlive
 
