@@ -65,7 +65,7 @@ class TestLooperHttpServer(object):
         self.accessTokenHasPermission = {}
         self.testManager = testManager
         self.ec2Factory = ec2Factory
-        self.httpPortOverride = httpPortOverride
+        self.httpPort = httpPortOverride or 80
         self.disableAuth = disableAuth
         self.src_ctrl = src_ctrl
         self.test_looper_webhook_secret = test_looper_webhook_secret
@@ -128,6 +128,11 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def githubAuthCallback(self, code):
+        # kept for backward compatibility
+        return self.oauth_callback(code)
+
+    @cherrypy.expose
+    def oauth_callback(self, code):
         access_token = self.src_ctrl.getAccessTokenFromAuthCallbackCode(code)
         if not access_token:
             logging.error("Failed to accquire access token")
@@ -2068,7 +2073,7 @@ class TestLooperHttpServer(object):
             'global': {
                 "engine.autoreload.on":False,
                 'server.socket_host': '0.0.0.0',
-                'server.socket_port': 80 if self.httpPortOverride is None else self.httpPortOverride,
+                'server.socket_port': self.httpPort,
                 'server.show.tracebacks': False,
                 'request.show_tracebacks': False,
                 'tools.sessions.on': True,
