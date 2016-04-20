@@ -13,6 +13,7 @@ import test_looper.core.TestResult as TestResult
 class LockWithTimer(object):
     def __init__(self):
         self.lock = threading.Lock()
+        self.initialLockTime = None
 
     def acquire(self):
         self.lock.acquire()
@@ -59,7 +60,7 @@ class Session(object):
 
         except socket_util.SocketException as e:
             logging.info("Socket error: %s", e.message)
-        except Exception as e:
+        except:
             logging.error("Exception: %s", traceback.format_exc())
         finally:
             self.socket.close()
@@ -103,18 +104,22 @@ class Session(object):
 
     def heartbeat(self, args):
         with self.testManager.lock:
+            is_new_machine = self.testManager.recordMachineObservation(args.machineId)
             heartbeatResponse = self.testManager.heartbeat(args.testId,
                                                            args.commitId,
                                                            args.machineId)
 
             self.writeString(heartbeatResponse)
 
+        if is_new_machine:
+            self.ec2Connection.tagInstance(args.machineId)
+
     def getTask(self, workerInfo):
         commit = None
 
         with self.testManager.lock:
             if workerInfo.machineId is not None:
-                self.testManager.machineRequestedTest(workerInfo.machineId)
+                is_new_machine = self.testManager.recordMachineObservation(workerInfo.machineId)
 
             try:
                 t0 = time.time()
@@ -147,10 +152,17 @@ class Session(object):
                               traceback.format_exc())
                 self.writeString(json.dumps(None))
 
+        if is_new_machine:
+            self.ec2Connection.tagInstance(workerInfo.machineId)
+
     def publishTestResult(self, testResultAsJson):
         result = TestResult.TestResultOnMachine.fromJson(testResultAsJson)
         with self.testManager.lock:
+            is_new_machine = self.testManager.recordMachineObservation(result.machine)
             self.testManager.recordMachineResult(result)
+
+        if is_new_machine:
+            self.ec2Connection.tagInstance(result.machine)
 
         if not result.success and self.ec2Connection:
             logging.info("Test result from client at %s: %s, machine: %s",
@@ -186,21 +198,18 @@ class TestLooperServer(SimpleServer.SimpleServer):
         self.port_ = port
         self.testManager = testManager
         self.httpServer = httpServer
-
         self.refreshThread = threading.Thread(target=self._refreshLoop)
-
         self.ec2Connection = ec2Connection
 
-    def privateIp(self):
-        r = requests.get('http://instance-data/latest/dynamic/instance-identity/document/')
-        return str(r.json()['privateIp'])
 
     def port(self):
         return self.port_
 
+
     def initialize(self):
         with self.testManager.lock:
             self.testManager.initialize()
+
 
     def runListenLoop(self):
         logging.info("Starting TestLooperServer listen loop")

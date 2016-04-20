@@ -124,8 +124,10 @@ class TestManager(object):
         test = commit.testsById[testId]
         commit.clearTestResult(test.testName, testId)
 
-    def machineRequestedTest(self, machineId):
+    def recordMachineObservation(self, machineId):
+        new_machine = machineId not in self.mostRecentTouchByMachine
         self.mostRecentTouchByMachine[machineId] = time.time()
+        return new_machine
 
     def refresh(self, lock=None):
         self.updateBranchesUnderTest(lock)
@@ -307,7 +309,6 @@ class TestManager(object):
 
 
     def heartbeat(self, testId, commitId, machineId):
-        self.mostRecentTouchByMachine[machineId] = time.time()
         if commitId in self.commits:
             commit = self.commits[commitId]
             return commit.heartbeatTest(testId, machineId)
@@ -326,7 +327,6 @@ class TestManager(object):
 
         test.recordMachineResult(result)
         self.testDb.updateTestResult(test)
-        self.mostRecentTouchByMachine[result.machine] = time.time()
 
     def computeCommitLevels(self):
         """Given a set of Commit objects, produce a dictionary from commitId to "level",

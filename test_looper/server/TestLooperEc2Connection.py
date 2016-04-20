@@ -40,9 +40,11 @@ class EC2Connection(object):
         else:
             self.ec2 = boto.ec2.connect_to_region(ec2Settings.aws_region)
 
+
     def openTestResultBucket(self):
         s3 = boto.connect_s3()
         return s3.get_bucket(self.ec2Settings.test_result_bucket)
+
 
     def getLooperInstances(self, ids=None):
         reservations = self.ec2.get_all_instances(
@@ -54,22 +56,36 @@ class EC2Connection(object):
         return list(itertools.chain(*[res.instances for res in reservations]))
 
 
+    def getLooperByAddress(self, address):
+        match = [inst for inst in self.getLooperInstances()
+                 if address in (inst.ip_address, inst.private_ip_address)]
+        return match[0] if match else None
+
+
     def isMachineAlive(self, address):
-        instances = self.getLooperInstances()
-        return any(inst for inst in instances
-                   if address in (inst.ip_address, inst.private_ip_address))
+        return self.getLooperByAddress(address) is not None
 
-    def getLooperSpotRequests(self, includeInactive=False):
+
+    def tagInstance(self, address):
+        instance = self.getLooperByAddress(address)
+        if instance:
+            self.ec2.create_tags([instance.id], self.ec2Settings.object_tags)
+
+
+    def getLooperSpotRequests(self):
         def isLooperRequest(spotRequest):
-            if len(filter(lambda g: g.id == self.ec2Settings.security_group,
-                          spotRequest.launch_specification.groups)) == 0:
-                return False
-            return True
+            return any(g for g in spotRequest.launch_specification.groups
+                       if g.id == self.ec2Settings.security_group)
+        return {
+            req.id : req
+            for req in self.ec2.get_all_spot_instance_requests()
+            if isLooperRequest(req)
+            }
 
-        return {req.id : req for req in self.ec2.get_all_spot_instance_requests() if isLooperRequest(req)}
 
     def getAllSpotRequestObjects(self):
         return self.getLooperSpotRequests().itervalues()
+
 
     def cancelSpotRequests(self, requestIds):
         if len(requestIds) == 0:
@@ -77,9 +93,10 @@ class EC2Connection(object):
         spotRequests = self.ec2.get_all_spot_instance_requests(requestIds)
         instanceIds = [r.instance_id for r in spotRequests if r.state == 'active']
         terminated = self.ec2.cancel_spot_instance_requests(requestIds)
-        logging.info("Terminated instances: %s" % terminated)
+        logging.info("Terminated instances: %s", terminated)
         if len(instanceIds) > 0:
             self.terminateInstances(instanceIds)
+
 
     def currentSpotPrices(self, instanceType=None):
         now = datetime.datetime.utcnow().isoformat()
@@ -105,22 +122,23 @@ class EC2Connection(object):
             allFilters.update(filters)
         return self.ec2.get_all_images(image_ids=ids, filters=allFilters)
 
+
     def saveImage(self, instanceId, namePrefix):
         name = self.makeImageName(namePrefix)
         return self.ec2.create_image(instanceId, name)
 
+
     def makeImageName(self, namePrefix):
         today = str(datetime.date.today())
         namePattern = "%s-%s*" % (namePrefix, today)
-        existingImages = self.ec2.get_all_images(
-                                            owners=['self'],
-                                            filters={'name': namePattern}
-                                            )
+        existingImages = self.ec2.get_all_images(owners=['self'],
+                                                 filters={'name': namePattern})
         if len(existingImages) == 0:
             name = namePattern[:-1]
         else:
             name = "%s-%s-%s" % (namePrefix, today, len(existingImages))
         return name
+
 
     def waitForImage(self, imageId, timeout=300):
         t0 = time.time()
@@ -185,6 +203,7 @@ class EC2Connection(object):
             )
         self.ec2.create_tags([r.id for r in spot_requests], self.ec2Settings.object_tags)
 
+
     def createBlockDeviceMapping(self):
         if self.ec2Settings.root_volume_size_gb is None:
             return None
@@ -195,6 +214,7 @@ class EC2Connection(object):
         bdm = boto.ec2.blockdevicemapping.BlockDeviceMapping()
         bdm['/dev/sda1'] = dev_sda1
         return bdm
+
 
     def getVpcSubnetForInstance(self, availability_zone, instance_type):
         if availability_zone is None:
