@@ -146,7 +146,8 @@ def main():
             root_volume_size_gb=root_volume_size,
             worker_ssh_key_name=ssh_key_name,
             worker_user_data=looperUserData,
-            test_result_bucket=test_result_bucket
+            test_result_bucket=test_result_bucket,
+            object_tags=config['ec2'].get('object_tags', {})
             )
 
         return TestLooperEc2Connection.EC2Connection(ec2Settings)

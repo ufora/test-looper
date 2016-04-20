@@ -24,7 +24,8 @@ Ec2Settings = collections.namedtuple('Ec2Settings',
                                       'root_volume_size_gb',
                                       'worker_ssh_key_name',
                                       'worker_user_data',
-                                      'test_result_bucket'])
+                                      'test_result_bucket',
+                                      'object_tags'])
 
 class TimeoutException(Exception):
     pass
@@ -162,7 +163,7 @@ class EC2Connection(object):
         ami = self.image_id_for_instance_type(instance_type)
         block_device_map = self.createBlockDeviceMapping()
         subnet_id = self.getVpcSubnetForInstance(availability_zone, instance_type)
-        self.ec2.request_spot_instances(
+        spot_requests = self.ec2.request_spot_instances(
             image_id=ami,
             price=max_bid,
             instance_type=instance_type,
@@ -176,6 +177,7 @@ class EC2Connection(object):
             instance_profile_name=self.ec2Settings.instance_profile_name,
             user_data=self.ec2Settings.worker_user_data
             )
+        self.ec2.create_tags([r.id for r in spot_requests], self.ec2Settings.object_tags)
 
     def createBlockDeviceMapping(self):
         if self.ec2Settings.root_volume_size_gb is None:
@@ -195,26 +197,3 @@ class EC2Connection(object):
                                         key=lambda az_and_price: az_and_price[1])
             availability_zone = cheapest_az_and_price[0]
         return self.ec2Settings.vpc_subnets[availability_zone]
-
-    def startLooperInstance(self, ami, instanceType):
-        reservation = self.ec2.run_instances(
-                image_id=ami,
-                instance_type=instanceType,
-                key_name='test_looper',
-                security_groups=[image_builder_security_group]
-                )
-        runningInstances = []
-        for instance in reservation.instances:
-            print "Launching new instance %s." % instance.id
-            instance.add_tag(image_builder_tag)
-            if instance.state == 'pending':
-                print "New instance %s is in the 'pending' state. Waiting for it to start." % instance.id
-            while instance.state == 'pending':
-                time.sleep(5)
-                instance.update()
-            if instance.state != 'running':
-                print "Error: New instance %s entered the %s state." % (instance.id, instance.state)
-                return
-            runningInstances.append(instance)
-        return runningInstances
-
