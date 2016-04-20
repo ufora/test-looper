@@ -672,9 +672,6 @@ class TestLooperHttpServer(object):
         headers.append(
             """<div align="right"><a href="/serverLog?size=10000">Server Log</a></div>"""
             )
-        headers.append(
-            """<div align="right"><a href="/v2">Version 2</a></div>"""
-            )
         return HtmlGeneration.headers + "\n" + "\n".join(headers)
 
 
@@ -2073,8 +2070,6 @@ class TestLooperHttpServer(object):
         return body
 
     def start(self):
-        current_dir = os.path.dirname(__file__)
-        contentPath = os.path.join(current_dir, 'v2', 'Content')
         config = {
             'global': {
                 "engine.autoreload.on":False,
@@ -2089,23 +2084,25 @@ class TestLooperHttpServer(object):
         cherrypy.config.update(config)
         logging.info("STARTING HTTP SERVER")
 
-        def authenticationCallback():
-            if not self.isAuthenticated():
-                self.authenticate()
+        #def authenticationCallback():
+            #if not self.isAuthenticated():
+                #self.authenticate()
 
-        cherrypy.tree.mount(
-            v2API.v2API(authenticationCallback),
-            '/v2',
-            {
-                '/': {
-                    'request.dispatch': cherrypy.dispatch.MethodDispatcher(),
-                    'tools.response_headers.on': True,
-                    },
-                '/content': {
-                    'tools.staticdir.on': True,
-                    'tools.staticdir.dir': contentPath
-                    }
-            })
+        #current_dir = os.path.dirname(__file__)
+        #contentPath = os.path.join(current_dir, 'v2', 'Content')
+        #cherrypy.tree.mount(
+            #v2API.v2API(authenticationCallback),
+            #'/v2',
+            #{
+                #'/': {
+                    #'request.dispatch': cherrypy.dispatch.MethodDispatcher(),
+                    #'tools.response_headers.on': True,
+                    #},
+                #'/content': {
+                    #'tools.staticdir.on': True,
+                    #'tools.staticdir.dir': contentPath
+                    #}
+            #})
 
         script_name = ""
 
