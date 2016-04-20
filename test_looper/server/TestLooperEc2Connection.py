@@ -69,7 +69,10 @@ class EC2Connection(object):
     def tagInstance(self, address):
         instance = self.getLooperByAddress(address)
         if instance:
-            self.ec2.create_tags([instance.id], self.ec2Settings.object_tags)
+            ids_to_tag = [instance.id] + [
+                bd.volume_id for bd in instance.block_device_mapping.itervalues()
+                ]
+            self.ec2.create_tags(ids_to_tag, self.ec2Settings.object_tags)
 
 
     def getLooperSpotRequests(self):
