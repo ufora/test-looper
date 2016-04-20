@@ -21,11 +21,7 @@ class TestLooperEc2Machines(object):
         return len(filtered)
 
     def isMachineAlive(self, machineId):
-        instances = self.ec2.getLooperInstances()
-        matches = [inst for inst in instances
-                   if machineId in (inst.ip_address, inst.private_ip_address)]
-        isAlive = len(matches) > 0
-        return isAlive
+        return self.ec2.isMachineAlive(machineId)
 
     def getCurrentAvailabilityZone(self):
         # count the number of distinct availability zones

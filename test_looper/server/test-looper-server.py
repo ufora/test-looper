@@ -179,7 +179,7 @@ def main():
     server = TestLooperServer.TestLooperServer(port,
                                                testManager,
                                                httpServer,
-                                               testLooperMachines)
+                                               ec2Connection)
 
     serverThread = threading.Thread(target=server.runListenLoop)
     def handleStopSignal(signum, _):

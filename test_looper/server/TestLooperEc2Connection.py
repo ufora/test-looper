@@ -53,6 +53,12 @@ class EC2Connection(object):
             })
         return list(itertools.chain(*[res.instances for res in reservations]))
 
+
+    def isMachineAlive(self, address):
+        instances = self.getLooperInstances()
+        return any(inst for inst in instances
+                   if address in (inst.ip_address, inst.private_ip_address))
+
     def getLooperSpotRequests(self, includeInactive=False):
         def isLooperRequest(spotRequest):
             if len(filter(lambda g: g.id == self.ec2Settings.security_group,

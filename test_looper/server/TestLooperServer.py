@@ -44,11 +44,11 @@ HeartbeatArguments = collections.namedtuple('HeartbeatArguments',
                                             'commitId testId machineId')
 
 class Session(object):
-    def __init__(self, testManager, testLooperMachines, socket, address):
+    def __init__(self, testManager, ec2Connection, socket, address):
         self.socket = socket
         self.address = address
         self.testManager = testManager
-        self.testLooperMachines = testLooperMachines
+        self.ec2Connection = ec2Connection
 
     def __call__(self):
         try:
@@ -152,12 +152,12 @@ class Session(object):
         with self.testManager.lock:
             self.testManager.recordMachineResult(result)
 
-        if not result.success and self.testLooperMachines:
+        if not result.success and self.ec2Connection:
             logging.info("Test result from client at %s: %s, machine: %s",
                          self.address,
                          result,
                          result.machine)
-            isAlive = self.testLooperMachines.isMachineAlive(result.machine)
+            isAlive = self.ec2Connection.isMachineAlive(result.machine)
 
             if not isAlive:
                 testId = result.testId
@@ -177,7 +177,7 @@ class TestLooperServer(SimpleServer.SimpleServer):
     #if we modify this protocol version, the loopers should reboot and pull a new copy of the code
     protocolVersion = '2.2.1'
 
-    def __init__(self, port, testManager, httpServer, testLooperMachines):
+    def __init__(self, port, testManager, httpServer, ec2Connection):
         """
         Initialize a TestLooperServer
         """
@@ -189,7 +189,7 @@ class TestLooperServer(SimpleServer.SimpleServer):
 
         self.refreshThread = threading.Thread(target=self._refreshLoop)
 
-        self.testLooperMachines = testLooperMachines
+        self.ec2Connection = ec2Connection
 
     def privateIp(self):
         r = requests.get('http://instance-data/latest/dynamic/instance-identity/document/')
@@ -218,8 +218,6 @@ class TestLooperServer(SimpleServer.SimpleServer):
         super(TestLooperServer, self).runListenLoop()
 
         self.httpServer.stop()
-        if self.testLooperMachines:
-            self.testLooperMachines.stop()
         logging.info("Listen loop stopped")
 
     def stop(self):
@@ -237,7 +235,10 @@ class TestLooperServer(SimpleServer.SimpleServer):
 
     def _onConnect(self, socket, address):
         logging.debug("Accepting connection from %s", address)
-        threading.Thread(target=Session(self.testManager, self.testLooperMachines, socket, address)).start()
+        threading.Thread(target=Session(self.testManager,
+                                        self.ec2Connection,
+                                        socket,
+                                        address)).start()
 
     def _refreshLoop(self):
         # refresh the list of commits that need to be tested every minute
