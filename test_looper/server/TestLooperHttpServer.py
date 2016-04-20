@@ -2084,29 +2084,15 @@ class TestLooperHttpServer(object):
         cherrypy.config.update(config)
         logging.info("STARTING HTTP SERVER")
 
-        #def authenticationCallback():
-            #if not self.isAuthenticated():
-                #self.authenticate()
-
-        #current_dir = os.path.dirname(__file__)
-        #contentPath = os.path.join(current_dir, 'v2', 'Content')
-        #cherrypy.tree.mount(
-            #v2API.v2API(authenticationCallback),
-            #'/v2',
-            #{
-                #'/': {
-                    #'request.dispatch': cherrypy.dispatch.MethodDispatcher(),
-                    #'tools.response_headers.on': True,
-                    #},
-                #'/content': {
-                    #'tools.staticdir.on': True,
-                    #'tools.staticdir.dir': contentPath
-                    #}
-            #})
-
-        script_name = ""
-
-        cherrypy.tree.mount(self, script_name, None)
+        current_dir = os.path.dirname(__file__)
+        cherrypy.tree.mount(self, '/', {
+            '/favicon.ico': {
+                'tools.staticfile.on': True,
+                'tools.staticfile.filename': os.path.join(current_dir,
+                                                          'content',
+                                                          'favicon.ico')
+                }
+            })
 
         cherrypy.engine.autoreload.on = False
 

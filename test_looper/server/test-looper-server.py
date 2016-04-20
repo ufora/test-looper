@@ -156,6 +156,7 @@ def main():
     http_port = config['server']['http_port'] or parsedArgs.httpPort
 
     testLooperMachines = None
+    ec2Connection = None
 
     if not parsedArgs.local:
         ec2Connection = CreateEc2Connection()
