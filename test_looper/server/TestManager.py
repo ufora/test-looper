@@ -186,10 +186,10 @@ class TestManager(object):
                             periodicTest.periodicTestPeriodInHours * 60 * 60
                             )
                     if lastTestRunStarted is None or \
-                            time.time() - lastTestRunStarted > (periodicTest.periodicTestPeriodInHours * 60 * 60):
+                            time.time() - lastTestRunStarted > \
+                                (periodicTest.periodicTestPeriodInHours * 60 * 60):
                         result.append((mostRecentCommit, periodicTest.testName))
 
-        logging.info("Get periodic tests to run: %s", result)
         return result
 
 
@@ -212,12 +212,10 @@ class TestManager(object):
             if (commit.excludeFromTestingBecauseOfCommitSubject() or
                     commit.buildInProgress() or commit.isBrokenBuild() or
                     not commit.isDeepTest):
-                logging.info("Skipping commit: %s", commit)
                 continue
 
             if commit.needsBuild():
                 testDef = commit.getTestDefinitionFor('build')
-                logging.info("testDef for build: %s", testDef)
                 if (testDef is not None and (
                         workerInfo is None or
                         self.blockingMachines.machineCanParticipateInTest(workerInfo,

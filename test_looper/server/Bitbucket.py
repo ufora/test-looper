@@ -56,15 +56,13 @@ class Bitbucket(Git):
 
 
     def authorize_access_token(self, access_token):
-        logging.info("Checking access token %s", access_token)
-
         response = requests.get(
             "https://api.bitbucket.org/2.0/repositories/%s/%s" % (self.owner, self.repo),
             headers=self.authorization_headers(access_token)
             )
         if not response.ok:
             logging.info(
-                "Denying access for token %s because we can't access the repo: %s",
+                "Denying access for token %s because it can't access the repo: %s",
                 access_token,
                 response.text
                 )
