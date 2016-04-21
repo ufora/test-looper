@@ -1518,13 +1518,13 @@ class TestLooperHttpServer(object):
                            testGroupsToTests):
         def anyTestInGroupIsTargetedInCommit(commit, testGroup):
             for group in testGroupsToTests[testGroup]:
-                if commit.isTargetedCommitAndTest(group):
+                if commit.isTargetedTest(group):
                     return True
             return False
 
         def allTestsInGroupAreTargetedInCommit(commit, testGroup):
             for group in testGroupsToTests[testGroup]:
-                if not commit.isTargetedCommitAndTest(group):
+                if not commit.isTargetedTest(group):
                     return False
             return True
 
@@ -1580,7 +1580,7 @@ class TestLooperHttpServer(object):
                 else:
                     row.append(errRate)
             if testGroup in ungroupedUniqueTestIds:
-                if commit.isTargetedCommitAndTest(testGroup):
+                if commit.isTargetedTest(testGroup):
                     row[-1] = HtmlGeneration.greenBacking(row[-1])
             else:
                 if allTestsInGroupAreTargetedInCommit(commit, testGroup):

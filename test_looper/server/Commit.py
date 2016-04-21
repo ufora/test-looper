@@ -24,7 +24,7 @@ class Commit(object):
         self.testsById = {}
         self.testIdsByType = {}
         self.statsByType = {}
-        self.isTargetedCommitAndTestCache = {}
+        self.isTargetedTestCache = {}
         self.suspiciousnessLevelForTestCache = None
         self.suspiciousnessLevelForTestCacheTime = None
 
@@ -106,14 +106,14 @@ class Commit(object):
             self.statsByType[testName].dirtyCache()
 
     def dirtyTestPriorityCache(self):
-        self.isTargetedCommitAndTestCache = {}
+        self.isTargetedTestCache = {}
 
-    def isTargetedCommitAndTest(self, testName):
-        if testName in self.isTargetedCommitAndTestCache:
-            return self.isTargetedCommitAndTestCache[testName]
+    def isTargetedTest(self, testName):
+        if testName in self.isTargetedTestCache:
+            return self.isTargetedTestCache[testName]
         else:
             result = self.computeIsTargetCommitAndTestName(testName)
-            self.isTargetedCommitAndTestCache[testName] = result
+            self.isTargetedTestCache[testName] = result
             return result
 
     def computeIsTargetCommitAndTestName(self, testName):

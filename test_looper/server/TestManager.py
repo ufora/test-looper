@@ -98,7 +98,7 @@ class TestDatabase(object):
 
 TestManagerSettings = collections.namedtuple(
     'TestManagerSettings',
-    'baseline_branch baseline_depth'
+    'baseline_branch baseline_depth max_test_count'
     )
 
 
@@ -221,18 +221,27 @@ class TestManager(object):
                         self.blockingMachines.machineCanParticipateInTest(workerInfo,
                                                                           testDef))):
                     result.append((commit, 'build'))
-            elif not commit.needsBuild():
+            else:
                 result += [
                     (commit, testName) for testName in commit.statsByType.iterkeys()
-                    if (testName != 'build' and
-                        not commit.getTestDefinitionFor(testName).periodicTest and
-                        (workerInfo is None or
-                         self.blockingMachines.machineCanParticipateInTest(
-                             workerInfo,
-                             commit.getTestDefinitionFor(testName))))
+                    if testName != 'build' and self.should_test(commit, testName, workerInfo)
                     ]
 
         return result
+
+
+    def should_test(self, commit, testName, workerInfo):
+        test_def = commit.getTestDefinitionFor(testName)
+        under_max_test_count = (
+            commit.isTargetedTest(testName) or
+            commit.statsByType[testName].completedCount < self.settings.max_test_count
+            )
+        worker_can_participate = (
+            workerInfo is None or
+            self.blockingMachines.machineCanParticipateInTest(workerInfo, test_def)
+            )
+        return not test_def.periodicTest and under_max_test_count and worker_can_participate
+
 
     # we need the current number of provisioned machines because we don't want to run
     # any unit tests that require n machines unless we have that number of machines already
@@ -361,7 +370,10 @@ class TestManager(object):
         first in the list.
         """
         if preferTargetedTests:
-            targetedCandidates = [c for c in candidates if c[0].isTargetedCommitAndTest(c[1])]
+            targetedCandidates = [
+                (commit, test) for commit, test in candidates
+                if commit.isTargetedTest(test)
+                ]
             if len(targetedCandidates) > 0 and random.random() < 0.5:
                 candidates = targetedCandidates
 
@@ -402,7 +414,7 @@ class TestManager(object):
             return self.BASE_PRIORITY_PERIODIC_TEST_COMMIT - commitLevel
         if commit.totalNonTimedOutRuns(testName) == 0:
             return self.BASE_PRIORITY_UNTESTED_COMMIT - commitLevel / 10000.0
-        if commit.isTargetedCommitAndTest(testName):
+        if commit.isTargetedTest(testName):
             return self.BASE_PRIORITY_TARGETED_COMMIT - commitLevel / 10000.0 - \
                 commit.totalNonTimedOutRuns(testName) * weightPerNonTimedOutRun
 
