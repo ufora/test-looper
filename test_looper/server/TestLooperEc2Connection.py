@@ -204,7 +204,17 @@ class EC2Connection(object):
             instance_profile_name=self.ec2Settings.instance_profile_name,
             user_data=self.ec2Settings.worker_user_data
             )
-        self.ec2.create_tags([r.id for r in spot_requests], self.ec2Settings.object_tags)
+
+        while True:
+            try:
+                self.ec2.create_tags([r.id for r in spot_requests],
+                                     self.ec2Settings.object_tags)
+                return
+            except boto.exception.EC2ResponseError as e:
+                if e.body and 'InvalidSpotInstanceRequestID.NotFound' in e.body:
+                    time.sleep(1.0)
+                else:
+                    raise
 
 
     def createBlockDeviceMapping(self):
