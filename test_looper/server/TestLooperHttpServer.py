@@ -669,23 +669,7 @@ class TestLooperHttpServer(object):
         headers.append(
             """<div align="right"><a href="/eventLogs">Event Logs</a></div>"""
             )
-        headers.append(
-            """<div align="right"><a href="/serverLog?size=10000">Server Log</a></div>"""
-            )
         return HtmlGeneration.headers + "\n" + "\n".join(headers)
-
-
-    @cherrypy.expose
-    def serverLog(self, size=10000):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
-        cherrypy.response.headers['Content-Type'] = 'text/plain'
-        if isinstance(size, unicode):
-            size = int(size)
-        with open(self.testLooperServerLogFile) as f:
-            f.seek(size * -1, 2) # seek to end
-            return f.read(size)
 
 
     @staticmethod
