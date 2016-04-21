@@ -1801,8 +1801,8 @@ class TestLooperHttpServer(object):
 
         instanceTypeDropDown = HtmlGeneration.selectBox(
             'instanceType',
-            sorted([(k, "%s cores (%s)" % (v, k))
-                    for k, v in self.availableInstancesAndCoreCount()]),
+            [(k, "%s cores (%s)" % (v, k))
+             for k, v in self.availableInstancesAndCoreCount()],
             self.defaultCoreCount)
         availabilityZoneDropDown = HtmlGeneration.selectBox(
             'availabilityZone',

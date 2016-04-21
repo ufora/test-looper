@@ -15,42 +15,26 @@ class TestLooperAutoProvisioner(object):
         self.minutesBeforeExpirationToDeprovisionMachine = \
             minutesBeforeExpirationToDeprovisionMachine
 
-        machineInfo = {
-            'c3.xlarge' : {
-                'bid': .3,
-                'coreCount': 4
-                },
-            'c3.8xlarge' : {
-                'bid': .9,
-                'coreCount': 32
-                },
-            'c4.xlarge' : {
-                'bid': .3,
-                'coreCount': 4
-                },
-            'c4.8xlarge' : {
-                'bid': .9,
-                'coreCount': 36
-                },
-            'g2.2xlarge' : {
-                'bid': .3,
-                'coreCount': 8
-                },
-            'g2.8xlarge' : {
-                'bid': .9,
-                'coreCount': 32
-                }
-        }
+        machineInfo = [
+            ('c3.xlarge', {'bid': .3, 'coreCount': 4}),
+            ('c3.8xlarge', {'bid': .9, 'coreCount': 32}),
+            ('g2.2xlarge', {'bid': .3, 'coreCount': 8}),
+            ('g2.8xlarge', {'bid': .9, 'coreCount': 32})
+            ]
 
         self.testScriptDefinitionsMachineTypeToInstanceType = {
             '2core' :  'c3.xlarge',
             '32core' : 'c3.8xlarge'
         }
 
-        self.machineTypeToBid = {m: machineInfo[m]['bid'] for m in machineInfo}
+        self.machineTypeToBid = {
+            machine_type: machine_info['bid']
+            for machine_type, machine_info  in machineInfo
+            }
 
         self.availableInstancesAndCoreCount = [
-            (m, machineInfo[m]['coreCount']) for m in machineInfo
+            (machine_type, machine_info['coreCount'])
+            for machine_type, machine_info in machineInfo
             ]
 
         self.periodicTestLaunchGroup = "periodic_test_launch_group"
