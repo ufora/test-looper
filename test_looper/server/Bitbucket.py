@@ -75,6 +75,9 @@ class Bitbucket(Git):
 
     def verify_webhook_request(self, headers, body):
         if 'X-Hook-UUID' not in headers or headers['X-Hook-UUID'] != self.webhook_secret:
+            logging.error("Failed to verify webhook request:\nHeaders: %s\nBody:%s",
+                          headers,
+                          body)
             return None
 
         payload = simplejson.loads(body)
