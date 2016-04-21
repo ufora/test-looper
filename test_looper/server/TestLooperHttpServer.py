@@ -661,7 +661,7 @@ class TestLooperHttpServer(object):
             """<div align="right"><a href="/branches">Branches under test</a></div>"""
             )
         headers.append(
-            """<div align="right"><a href="/machines">Looper machines</a></div>"""
+            """<div align="right"><a href="/machines">Workers</a></div>"""
             )
         headers.append(
             """<div align="right"><a href="/spotRequests">Spot requests</a></div>"""
