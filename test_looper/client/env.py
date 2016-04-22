@@ -24,6 +24,7 @@ repo = getenv("TEST_REPO", '')
 revision = getenv('REVISION', '')
 aws_availability_zone = getenv('AWS_AVAILABILITY_ZONE', '')
 test_id = getenv('TEST_LOOPER_TEST_ID', '')
+test_name = getenv('TEST_LOOPER_TEST_NAME', '')
 multibox_test_machines = getenv('TEST_LOOPER_MULTIBOX_IP_LIST', '').replace(' ', ',')
 own_ip_address = getenv('TEST_LOOPER_MULTIBOX_OWN_IP', '')
 

@@ -328,6 +328,7 @@ class TestLooperWorker(object):
             'UFORA_PERFORMANCE_TEST_RESULTS_FILE': self.perf_test_output_file, # back-compat
             'TEST_LOOPER_PERFORMANCE_TEST_RESULTS_FILE': self.perf_test_output_file,
             'TEST_LOOPER_TEST_ID': test.testId,
+            'TEST_LOOPER_TEST_NAME': test.testName,
             'TEST_LOOPER_MULTIBOX_IP_LIST': test.createIpListToPassToScript(),
             'TEST_LOOPER_MULTIBOX_OWN_IP': self.ownMachineInfo.internalIpAddress,
             'AWS_AVAILABILITY_ZONE' : self.ownMachineInfo.availabilityZone

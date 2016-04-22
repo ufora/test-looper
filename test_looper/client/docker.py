@@ -4,9 +4,17 @@ import os
 import subprocess
 import sys
 
-def call(command, quiet=False):
-    kwargs = {} if quiet else {'stdout': sys.stdout, 'stderr': sys.stderr}
+def call(command, **kwargs):
+    if not kwargs.get('stdout'):
+        kwargs['stdout'] = sys.stdout
+    if not kwargs.get('stderr'):
+        kwargs['stderr'] = sys.stderr
     return subprocess.call(command, shell=True, **kwargs)
+
+
+def call_quiet(command):
+    with open(os.devnull, "w") as devnull:
+        return call(command, stdout=devnull, stderr=devnull)
 
 
 def check_output(command):
@@ -49,8 +57,8 @@ class Docker(object):
 
     @staticmethod
     def is_gpu():
-        return call('nvidia-smi', quiet=True) == 0 and \
-               call('which nvidia-docker', quiet=True) == 0
+        return call_quiet('nvidia-smi') == 0 and \
+               call_quiet('which nvidia-docker') == 0
 
     @classmethod
     def from_dockerfile(cls, dockerfile_dir, docker_repo, create_missing=False):
@@ -98,8 +106,17 @@ class Docker(object):
                               stderr=sys.stderr)
 
 
-    def run(self, command='', name=None, volumes=None, env=None, options=None):
-        return self._run(call, command, name, volumes, env, options)
+    def run(self,
+            command='',
+            name=None,
+            volumes=None,
+            env=None,
+            options=None,
+            output_stream=None):
+        def caller(command):
+            return call(command, stdout=output_stream, stderr=output_stream)
+
+        return self._run(caller, command, name, volumes, env, options)
 
 
     def call(self, command, volumes=None, env=None, options=None):
@@ -138,12 +155,10 @@ class Docker(object):
 
 
     def stop(self, container_name):
-        return call("{docker} stop {name} > /dev/null".format(docker=self.docker_binary,
-                                                              name=container_name),
-                    quiet=True)
+        return call_quiet("{docker} stop {name} > /dev/null".format(docker=self.docker_binary,
+                                                                    name=container_name))
 
 
     def remove(self, container_name):
-        return call("{docker} rm {name} > /dev/null".format(docker=self.docker_binary,
-                                                            name=container_name),
-                    quiet=True)
+        return call_quiet("{docker} rm {name} > /dev/null".format(docker=self.docker_binary,
+                                                                  name=container_name))
