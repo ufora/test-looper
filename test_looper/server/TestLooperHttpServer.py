@@ -1566,10 +1566,10 @@ class TestLooperHttpServer(object):
                     row.append(errRate)
             if testGroup in ungroupedUniqueTestIds:
                 if commit.isTargetedTest(testGroup):
-                    row[-1] = HtmlGeneration.greenBacking(row[-1])
+                    row[-1] = HtmlGeneration.blueBacking(row[-1])
             else:
                 if allTestsInGroupAreTargetedInCommit(commit, testGroup):
-                    row[-1] = HtmlGeneration.greenBacking(row[-1])
+                    row[-1] = HtmlGeneration.blueBacking(row[-1])
 
                 if anyTestInGroupIsTargetedInCommit(commit, testGroup):
                     row[-1] = HtmlGeneration.lightGreyBacking(row[-1])

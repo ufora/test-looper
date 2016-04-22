@@ -201,6 +201,9 @@ def greenBacking(text):
 def redBacking(text):
     return paragraph(text, "bg-danger")
 
+def blueBacking(text):
+    return paragraph(text, "bg-info")
+
 def lightGreyBacking(text):
     return SpanTag(text, {'style': "background-color:#dddddd"})
 
