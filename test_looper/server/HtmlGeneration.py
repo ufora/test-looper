@@ -126,6 +126,11 @@ class Link(HtmlElement):
 
 whitespace = "&nbsp;"
 
+def emphasize_probability(text, level, direction):
+    text = text + whitespace + \
+        '<span class="glyphicon glyphicon-asterisk" aria-hidden="true"></span>' * abs(level)
+    return greenBacking(text) if direction > 0 else redBacking(text)
+
 def pad(s, length):
     text_length = len(s)
     if text_length < length:

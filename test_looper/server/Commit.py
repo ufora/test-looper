@@ -75,18 +75,6 @@ class Commit(object):
                         suspiciousness
                         )
 
-    def commitIsStatisticallyNoticeableFailureRateBreak(self, testName):
-        bestLevel = None
-        for branch in self.branches:
-            level = branch.commitIsStatisticallyNoticeableFailureRateBreak(
-                        self.commitId,
-                        testName
-                        )
-            if bestLevel is None or level < bestLevel:
-                bestLevel = level
-
-        return bestLevel
-
     def clearTestResult(self, testName, testId):
         #this test no longer exists
         del self.testsById[testId]

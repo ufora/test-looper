@@ -1,6 +1,7 @@
 import cherrypy
 import dateutil.parser
 import itertools
+import math
 import os
 import sys
 import time
@@ -1176,7 +1177,7 @@ class TestLooperHttpServer(object):
                             stat.passCount + stat.failCount, stat.passCount
                             )
 
-                        level = branch.commitIsStatisticallyNoticeableFailureRateBreak(
+                        level, direction = branch.commitIsStatisticallyNoticeableFailureRateBreak(
                             c.commitId,
                             testGroup
                             )
@@ -1543,17 +1544,16 @@ class TestLooperHttpServer(object):
                     )
 
                 #check if this point in the commit-sequence has a statistically different
-                #probability of failure from its peers and mark with '--' if so.
+                #probability of failure from its peers and mark it if so.
 
-                level = branch.commitIsStatisticallyNoticeableFailureRateBreak(commit.commitId,
-                                                                               testGroup)
+                level, direction = branch.commitIsStatisticallyNoticeableFailureRateBreak(
+                    commit.commitId,
+                    testGroup
+                    )
 
-                if level == 0.001:
-                    errRate = errRate + " ***"
-                if level == 0.01:
-                    errRate = errRate + " **"
-                if level == 0.1:
-                    errRate = errRate + " *"
+                if level:
+                    level = int(round(math.log(level, 10)))
+                    errRate = HtmlGeneration.emphasize_probability(errRate, level, direction)
 
                 if stat.failCount and testGroup in ungroupedUniqueTestIds:
                     row.append(

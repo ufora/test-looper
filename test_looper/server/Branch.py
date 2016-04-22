@@ -47,20 +47,17 @@ class Branch(object):
     def commitIsStatisticallyNoticeableFailureRateBreak(self, commitId, testType):
         self.updateSequentialFailuresCache()
 
-        if testType not in self.sequentialFailuresCache10:
-            return False
+        if testType in self.sequentialFailuresCache10 and commitId in self.commitIdToIndex:
+            indexInSFR = len(self.commits) - self.commitIdToIndex[commitId] - 1
 
-        if commitId not in self.commitIdToIndex:
-            return False
+            for level, cache in [(.001, self.sequentialFailuresCache1000),
+                                 (.01, self.sequentialFailuresCache100),
+                                 (.1, self.sequentialFailuresCache10)]:
+                break_direction = cache[testType].isBreak(indexInSFR)
+                if break_direction:
+                    return level, break_direction
 
-        indexInSFR = len(self.commits) - self.commitIdToIndex[commitId] - 1
-
-        for level, cache in [(.001, self.sequentialFailuresCache1000),
-                             (.01, self.sequentialFailuresCache100),
-                             (.1, self.sequentialFailuresCache10)]:
-            if cache[testType].isBreak(indexInSFR):
-                return level
-        return None
+        return None, None
 
     def updateSequentialFailuresCache(self):
         if self.sequentialFailuresCache10 is not None:
