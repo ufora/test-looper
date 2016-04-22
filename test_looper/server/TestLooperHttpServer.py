@@ -188,11 +188,12 @@ class TestLooperHttpServer(object):
 
                     row.append(perftest.name)
                     row.append(
-                        "" if perftest.timeElapsed is None else "%.4f" % perftest.timeElapsed
+                        "" if perftest.timeElapsed is None else "%.2f" % perftest.timeElapsed
                         )
                     metadata = ""
                     if perftest.metadata is not None:
-                        metadata = ", ".join("%s: %s" % (k, v) for k, v in perftest.metadata.iteritems())
+                        metadata = ", ".join("%s: %s" % (k, v)
+                                             for k, v in perftest.metadata.iteritems())
                     row.append(metadata)
 
                     perftestsGrid.append(row)
@@ -1339,11 +1340,11 @@ class TestLooperHttpServer(object):
             mean_time, stddev_time = summary['time']
 
             if summary['count'] == 1:
-                text = "%13.4f" % mean_time if mean_time else ''
+                text = "%13.2f" % mean_time if mean_time else ''
             else:
                 text = "%3d@ %s &plusmn; %s" % (
                     summary['count'],
-                    "%8.4f" % mean_time if mean_time else '',
+                    "%8.2f" % mean_time if mean_time else '',
                     self.float_to_str(stddev_time)
                     )
             if prior_summary is None or prior_summary['count'] < 4:
@@ -1438,7 +1439,7 @@ class TestLooperHttpServer(object):
 
     @staticmethod
     def float_to_str(f):
-        return "%.4f" % f if f else ''
+        return "%.2f" % f if f else ''
 
 
     def createGridForBranch(self,
