@@ -650,8 +650,10 @@ class TestLooperHttpServer(object):
     def commonHeader(self):
         headers = []
         headers.append(
-            '<div align="right"><h5><a href="/logout">Logout [%s]</a></h5></div>' % \
-                self.getCurrentLogin()
+            '''<div align="right"><h5>
+                <a href="/logout">
+                Logout [%s] <span class="glyphicon glyphicon-user" aria-hidden="true"/>
+                </a></h5></div>''' % self.getCurrentLogin()
             )
         nav_links = [
             ('Branches', '/branches'),
