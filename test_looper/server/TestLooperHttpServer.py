@@ -797,10 +797,9 @@ class TestLooperHttpServer(object):
             return self.authenticate()
 
         grid = HtmlGeneration.grid(self.branchesGrid())
-        grid += "<pre><code>[%s]</code></pre>" % (
-            HtmlGeneration.link("stop all drilling",
-                                "/disableAllTargetedTests").render(),
-            )
+        grid += HtmlGeneration.Link("/disableAllTargetedTests",
+                                    "Stop all drilling",
+                                    is_button=True).render()
 
         return self.commonHeader() + grid
 
