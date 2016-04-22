@@ -8,7 +8,17 @@ import logging
 import re
 
 headers = """
-<head></head>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css"
+      integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7"
+      crossorigin="anonymous"/>
+<link rel="stylesheet" href="/css/test-looper.css"/>
+</head>
+<body>
+<div class="container-fluid">
 """
 
 def render(x):
@@ -113,11 +123,15 @@ class Link(HtmlElement):
     def withTextReplaced(self, newText):
         return Link(self.url, newText, self.hover_text)
 
+
+whitespace = "&nbsp;"
+
 def pad(s, length):
     text_length = len(s)
     if text_length < length:
-        return s + " " * (length - text_length)
+        return s + whitespace  * (length - text_length)
     return s
+
 
 def link(linkTxt, linkUrl, hover_text=None):
     return Link(linkUrl, linkTxt, hover_text)
@@ -140,54 +154,47 @@ def elementTextLength(e):
     logging.info("Text length: %d, Element: %s", text_length, e)
     return text_length
 
-def grid(grid):
+def grid(rows, header_rows=1):
     """Given a list-of-lists (e.g. row of column values), format as a grid.
 
-    We compute the width of each column (assuming null values if a column is not entirely populated).
+    We compute the width of each column (assuming null values if a column
+    is not entirely populated).
     """
 
-    grid = [[makeHtmlElement(x) for x in row] for row in grid]
+    rows = [[makeHtmlElement(x) for x in row] for row in rows]
 
-    colCount = max(len(x) for x in grid)
+    table_headers = "\n".join(
+        "<tr>%s</tr>" % "\n".join('<th class="fit">%s</th>' % h.render()
+                                  for h in row)
+        for row in rows[:header_rows]
+        )
+    table_rows = "\n".join(
+        "<tr>%s</tr>" % "\n".join('<td class="fit">%s</td>' % c.render() for c in row)
+        for row in rows[header_rows:]
+        )
 
-    def colWidth(c):
-        width = 0
-        for row in grid:
-            if c < len(row):
-                width = max(width, len(row[c]))
-        return width
+    format_str = ('<table class="table table-hscroll table-condensed table-striped">'
+                  '{headers}\n{rows}'
+                  '</table>')
+    return format_str.format(
+        headers=table_headers,
+        rows=table_rows
+        )
 
-    colWidths = [colWidth(col) for col in range(colCount)]
-    finalElements = []
-
-    for row in grid:
-        res = HtmlElement()
-
-        for col in range(colCount):
-            cellValue = row[col] if col < len(row) else ""
-
-            res = res + pad(cellValue, colWidths[col]) + "   "
-
-        finalElements.append(res)
-
-    result = "<pre><code>" + "\n".join([x.render() for x in finalElements]) + "\n</code></pre>"
-
-    return result
+def paragraph(text, classes):
+    return '<p class="%s">%s</p>' % (classes, text)
 
 def lightGrey(text):
-    return FontTag(text, {'color':'#bbbbbb'})
+    return paragraph(text, "text-muted")
 
 def red(text):
-    return FontTag(text, {'color':'#ff6666'})
-
-def green(text):
-    return FontTag(text, {'color':'#339933'})
+    return paragraph(text, "text-danger")
 
 def greenBacking(text):
-    return SpanTag(text, {'style': "background-color:#bbffbb"})
+    return paragraph(text, "bg-success")
 
 def redBacking(text):
-    return SpanTag(text, {'style': "background-color:#ffbbbb"})
+    return paragraph(text, "bg-danger")
 
 def lightGreyBacking(text):
     return SpanTag(text, {'style': "background-color:#dddddd"})

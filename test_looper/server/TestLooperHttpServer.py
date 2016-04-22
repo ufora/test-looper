@@ -648,34 +648,30 @@ class TestLooperHttpServer(object):
     def commonHeader(self):
         headers = []
         headers.append(
-            '<div align="right"><a href="/logout">Logout (logged in as %s)</a></div>' % \
+            '<div align="right"><h5><a href="/logout">Logout [%s]</a></h5></div>' % \
                 self.getCurrentLogin()
             )
-        headers.append(
-            """<div align="right"><br></div>"""
-            )
-        headers.append(
-            """<div align="right"><a href="/testPrioritization">Test Prioritization</a></div>"""
-            )
-        headers.append(
-            """<div align="right"><a href="/branches">Branches under test</a></div>"""
-            )
-        headers.append(
-            """<div align="right"><a href="/machines">Workers</a></div>"""
-            )
-        headers.append(
-            """<div align="right"><a href="/spotRequests">Spot requests</a></div>"""
-            )
-        headers.append(
-            """<div align="right"><a href="/eventLogs">Event Logs</a></div>"""
-            )
+        nav_links = [
+            ('Branches', '/branches'),
+            ('Test Queue', '/testPrioritization'),
+            ('Spot Requests', '/spotRequests'),
+            ('Workers', '/machines'),
+            ('Activity Log', '/eventLogs')
+            ]
+        headers += ['<ul class="nav nav-pills">'] + [
+            '<li role="presentation" class="{is_active}"><a href="{link}">{label}</a></li>'.format(
+                is_active="active" if link == cherrypy.request.path_info else "",
+                link=link,
+                label=label)
+            for label, link in nav_links
+            ] + ['</ul>']
         return HtmlGeneration.headers + "\n" + "\n".join(headers)
 
 
     @staticmethod
     def toggleBranchDeeptestingLink(branch):
         return HtmlGeneration.link(
-            "[test]" if branch.isDeepTest else "[    ]",
+            "[test]" if branch.isDeepTest else "[%s]" % HtmlGeneration.pad("", 5),
             "/toggleBranchDeeptest?branchName=" + branch.branchName
             )
 
@@ -933,7 +929,7 @@ class TestLooperHttpServer(object):
 
     @staticmethod
     def toggleBranchTargetedTestListLink(branch, testType, testGroupsToExpand):
-        text = "[X]" if testType in branch.targetedTestList() else "[ ]"
+        text = "[X]" if testType in branch.targetedTestList() else "[%s]" % HtmlGeneration.pad('', 2)
 
         return HtmlGeneration.link(
             text,
@@ -943,7 +939,7 @@ class TestLooperHttpServer(object):
 
     @staticmethod
     def toggleBranchTargetedCommitIdLink(branch, commitId):
-        text = "[X]" if commitId in branch.targetedCommitIds() else "[ ]"
+        text = "[X]" if commitId in branch.targetedCommitIds() else "[%s]" % HtmlGeneration.pad('', 2)
 
         return HtmlGeneration.link(
             text,
@@ -1285,7 +1281,7 @@ class TestLooperHttpServer(object):
                 "Jump to %s<br/>" % HtmlGeneration.Link(self.currentUrl() + "#perf",
                                                         "Performance Results").render()
                 )
-            return self.commonHeader() + header + HtmlGeneration.grid(grid) + perfSection
+            return self.commonHeader() + header + HtmlGeneration.grid(grid, header_rows=2) + perfSection
 
 
     def summarizePerfResults(self, tests, prefix=''):
@@ -1486,9 +1482,13 @@ class TestLooperHttpServer(object):
                             )
                         )
                     )
-        grid = [["", "", "", "", ""] + testHeaders]
+            testGroupExpandLinks[-1] = HtmlGeneration.pad(testGroupExpandLinks[-1], 20)
+            testHeaders[-1] = HtmlGeneration.pad(testHeaders[-1], 20)
+
+        grid = [["", "", "", "", ""] + testHeaders + ["", ""]]
         grid.append(
-            ["", "COMMIT", "(running)", "", "FAIL RATE"] + testGroupExpandLinks + \
+            ["", "COMMIT", "(running)", "", "FAIL RATE" + HtmlGeneration.whitespace*4] + \
+            testGroupExpandLinks + \
             ["SUBJECT", "branch"]
             )
         return grid
@@ -2075,6 +2075,10 @@ class TestLooperHttpServer(object):
                 'tools.staticfile.filename': os.path.join(current_dir,
                                                           'content',
                                                           'favicon.ico')
+                },
+            '/css': {
+                'tools.staticdir.on': True,
+                'tools.staticdir.dir': os.path.join(current_dir, 'css')
                 }
             })
 
