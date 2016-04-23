@@ -54,6 +54,10 @@ class RedisJsonStore(object):
                 del self.cache[key]
             self.redis.delete(key)
 
+    def keys(self, pattern):
+        with self.lock:
+            return self.redis.keys(pattern)
+
 
 class RedisJsonStoreMock(object):
     """Alternative in-memory implementation of the interface to a RedistJsonStore"""
