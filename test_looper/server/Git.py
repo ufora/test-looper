@@ -52,7 +52,7 @@ class Git(object):
         if not commitRange:
             return []
 
-        command = 'git --no-pager log --topo-order --first-parent ' + \
+        command = 'git --no-pager log --topo-order ' + \
                 commitRange + ' --format=format:"%H %P -- %s"'
         try:
             lines = self.subprocessCheckOutput(command, shell=True).strip().split('\n')
@@ -75,9 +75,11 @@ class Git(object):
                 logging.warn("Got a confusing commit line: %s", line)
                 return None
 
+            parent_commit = hashes[1] if len(hashes) == 2 else hashes[2]
+
             return (
                 hashes[0],       # commit hash
-                hashes[1],       # parent commit
+                parent_commit,   # parent commit
                 splitLine[1]     # commit title
                 )
 
