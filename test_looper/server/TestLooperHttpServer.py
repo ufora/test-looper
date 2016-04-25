@@ -1701,11 +1701,11 @@ class TestLooperHttpServer(object):
 
             row = [
                 str(i+1),
-                HtmlGeneration.link(
-                    "[cancel]",
+                HtmlGeneration.Link(
                     "/cancelSpotRequests?" + urllib.urlencode(
                         {'requestIds': ",".join([str(r.id) for r in spotRequests])}
-                        )
+                        ),
+                    "[cancel]"
                     ),
                 request.launch_specification.instance_type,
                 str(countsByState.get('active', 0)),
@@ -1838,13 +1838,23 @@ class TestLooperHttpServer(object):
             '')
 
         addForm = """
-            <form action="/addSpotRequests" method="post">
-              <b>Add instances:</b>
-              type: %s
-              max price: <input type="text" name="maxPrice">
-              availability zone: %s
-              <input type="submit" value="Add"/>
+            <p><strong>Add instances:</strong></p>
+            <form action="/addSpotRequests" method="post" class="form-inline">
+              <div class="form-group">
+                <label for="instanceType">Type</label>
+                %s
+              </div>
+              <div class="form-group">
+                <label for="maxPrice">Max price</label>
+                <input type="text" name="maxPrice" class="form-control">
+              </div>
+              <div class="form-group">
+                <label for="availbilityZone">Availability zone</label>
+                %s
+              </div>
+              <button type="submit" value="Add" class="btn btn-default">Add</button>
             </form>
+            <p/>
             """ % (instanceTypeDropDown, availabilityZoneDropDown)
         return addForm
 
@@ -1855,7 +1865,10 @@ class TestLooperHttpServer(object):
 
         ec2 = self.ec2Factory()
 
-        clearAll = '<a href="/cancelAllSpotRequests">Cancel all requests</a> '
+        clearAll = HtmlGeneration.Link("/cancelAllSpotRequests",
+                                       "Cancel all requests",
+                                       is_button=True,
+                                       button_style="btn-danger").render()
 
         grid = self.getCurrentSpotRequestGrid(ec2)
 

@@ -119,17 +119,18 @@ class HtmlElements(HtmlElement):
         return self.lengthStash
 
 class Link(HtmlElement):
-    def __init__(self, url, text, hover_text=None, is_button=False):
+    def __init__(self, url, text, hover_text=None, is_button=False, button_style=None):
         self.url = url
         self.text = text
         self.hover_text = hover_text or ''
         self.is_button = is_button
+        self.button_style = button_style or "btn-default"
 
     def __len__(self):
         return len(self.text)
 
     def render(self):
-        button_class = 'class="btn btn-default" role="button"' if self.is_button else ''
+        button_class = ('class="btn %s" role="button"' % self.button_style) if self.is_button else ''
         return """<a href="%s" title="%s" %s>%s</a>""" % (
             self.url, self.hover_text, button_class, render(self.text)
             )
@@ -269,4 +270,4 @@ def selectBox(name, items, default=None):
     options = ['<option value="%s" %s>%s</option>' % (v, "selected" if v == default else '', t) \
                for v, t in items]
 
-    return '<select name=%s>%s</select>' % (name, '\n'.join(options))
+    return '<select class="form-control" name=%s>%s</select>' % (name, '\n'.join(options))
