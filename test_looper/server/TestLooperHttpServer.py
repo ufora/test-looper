@@ -347,7 +347,7 @@ class TestLooperHttpServer(object):
             text = commit[:length]
         else:
             commitId = commit.commitId
-            text = commit.subject
+            text = commit.subject if len(commit.subject) < 71 else commit.subject[:70] + '...'
         extras = {}
 
         if failuresOnly:
