@@ -335,14 +335,19 @@ class TestLooperHttpServer(object):
                     commit.timeoutCount(testName),
                     str(not commit.isDeepTest),
                     joinLinks(self.branchLink(b.branchName) for b in commit.branches),
-                    self.subjectLinkForCommit(commit)
+                    self.sourceLinkForCommit(commit)
                     ])
 
             return grid
 
     @staticmethod
     def commitLink(commit, failuresOnly=False, testName=None, length=7):
-        commitId = commit if isinstance(commit, basestring) else commit.commitId
+        if isinstance(commit, basestring):
+            commitId = commit
+            text = commit[:length]
+        else:
+            commitId = commit.commitId
+            text = commit.subject
         extras = {}
 
         if failuresOnly:
@@ -351,7 +356,7 @@ class TestLooperHttpServer(object):
             extras["testName"] = testName
 
         return HtmlGeneration.link(
-            commitId[:length],
+            text,
             "/commit/" + commitId + ("?" if extras else "") + urllib.urlencode(extras),
             hover_text=None if isinstance(commit, basestring) else commit.subject
             )
@@ -374,8 +379,8 @@ class TestLooperHttpServer(object):
             "/clearCommit?" + urllib.urlencode({'commitId': commitId, 'redirect': redirect})
             )
 
-    def subjectLinkForCommit(self, commit):
-        return HtmlGeneration.link(commit.subject, self.src_ctrl.commit_url(commit.commitId))
+    def sourceLinkForCommit(self, commit):
+        return HtmlGeneration.link(commit.commitId[:7], self.src_ctrl.commit_url(commit.commitId))
 
     @cherrypy.expose
     def clearCommit(self, commitId, redirect):
@@ -563,10 +568,10 @@ class TestLooperHttpServer(object):
 
             grid = self.gridForTestList_(sortedTests, commit=commit, failuresOnly=failuresOnly)
 
-            header = """## Commit %s\n""" % commitId
+            header = """## Commit %s: %s\n""" % (self.sourceLinkForCommit(commit).render(),
+                                                 commit.subject)
             for b in commit.branches:
                 header += """### Branch: %s\n""" % self.branchLink(b.branchName).render()
-            header += """### Subject: %s\n""" % self.subjectLinkForCommit(commit).render()
 
             if failuresOnly:
                 header += "showing failures only. %s<br/><br/>" % \
@@ -1374,7 +1379,7 @@ class TestLooperHttpServer(object):
             headers.append(
                 HtmlGeneration.HtmlElements([
                     HtmlGeneration.HtmlString('  '),
-                    self.commitLink(commit, length=8)
+                    self.commitLink(commit.commitId)
                     ])
                 )
             commitIndices[commit.commitId] = len(commitIndices)
@@ -1492,7 +1497,7 @@ class TestLooperHttpServer(object):
         grid.append(
             ["", "COMMIT", "(running)", "FAIL RATE" + HtmlGeneration.whitespace*4] + \
             testGroupExpandLinks + \
-            ["SUBJECT", "", "branch"]
+            ["SOURCE", "", "branch"]
             )
         return grid
 
@@ -1573,7 +1578,7 @@ class TestLooperHttpServer(object):
                 if anyTestInGroupIsTargetedInCommit(commit, testGroup):
                     row[-1] = HtmlGeneration.lightGreyBacking(row[-1])
 
-        row.append(self.subjectLinkForCommit(commit))
+        row.append(self.sourceLinkForCommit(commit))
         row.append(self.clearCommitIdLink(commit.commitId,
                                           "/branch?branchName=" + branch.branchName))
         row.append(joinLinks(self.branchLink(b.branchName) for b in commit.branches))
