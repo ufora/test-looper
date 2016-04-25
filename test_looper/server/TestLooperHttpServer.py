@@ -420,8 +420,8 @@ class TestLooperHttpServer(object):
         spotRequests = ec2.getLooperSpotRequests()
 
         with self.testManager.lock:
-            grid = [["MACHINE", "PING", "STATE", "TYPE", "SPOT_REQ_ID",
-                     "SPOT_REQUEST_STATE", ""]]
+            grid = [["MACHINE", "PING", "STATE", "TYPE", "SPOT REQ ID",
+                     "SPOT REQUEST STATE", ""]]
 
             allMachineIds = set(i for i in self.testManager.mostRecentTouchByMachine.keys())
 
@@ -449,14 +449,12 @@ class TestLooperHttpServer(object):
                     else:
                         row.append("")
 
-                    row.append(str(instance.state))
+                    row.append(instance.state)
                     row.append(instance.instance_type)
-                    row.append(str(instance.spot_instance_request_id))
+                    row.append(instance.spot_instance_request_id)
 
-                    if instance.spot_instance_request_id in spotRequests:
-                        row.append(str(spotRequests[instance.spot_instance_request_id].status))
-                    else:
-                        row.append("")
+                    spot_request = spotRequests.get(instance.spot_instance_request_id)
+                    row.append(spot_request.status.code if spot_request else '')
 
                     row.append(
                         HtmlGeneration.link(
