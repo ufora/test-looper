@@ -9,6 +9,11 @@
     margin-bottom: 0px;
 }
 
+.table tr.blank_row {
+    height: 10px !important;
+}
+
+
 .table-hscroll {
 width: 100%;
 margin-bottom: 15px;

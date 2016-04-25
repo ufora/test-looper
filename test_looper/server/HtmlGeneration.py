@@ -169,16 +169,21 @@ def grid(rows, header_rows=1):
     """
 
     rows = [[makeHtmlElement(x) for x in row] for row in rows]
+    col_count = len(rows[0])
 
     table_headers = "\n".join(
         "<tr>%s</tr>" % "\n".join('<th class="fit">%s</th>' % h.render()
                                   for h in row)
-        for row in rows[:header_rows]
-        )
-    table_rows = "\n".join(
-        "<tr>%s</tr>" % "\n".join('<td class="fit">%s</td>' % c.render() for c in row)
-        for row in rows[header_rows:]
-        )
+        for row in rows[:header_rows])
+
+    def format_row(row):
+        if row:
+            return "<tr>%s</tr>" % "\n".join('<td class="fit">%s</td>' % c.render()
+                                             for c in row)
+        else:
+            return '<tr class="blank_row"><td colspan="%d"/></tr>' % col_count
+
+    table_rows = "\n".join(format_row(row) for row in rows[header_rows:])
 
     format_str = ('<table class="table table-hscroll table-condensed table-striped">'
                   '{headers}\n{rows}'

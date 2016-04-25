@@ -1258,7 +1258,6 @@ class TestLooperHttpServer(object):
                 if lastCommit is not None and \
                         lastCommit.parentId != c.commitId or commitsInStrand > 9:
                     grid.append([])
-                    grid.append([])
                     commitsInStrand = 0
                 else:
                     commitsInStrand += 1
