@@ -341,7 +341,7 @@ class TestLooperHttpServer(object):
             return grid
 
     @staticmethod
-    def commitLink(commit, failuresOnly=False, testName=None, length=20):
+    def commitLink(commit, failuresOnly=False, testName=None, length=7):
         commitId = commit if isinstance(commit, basestring) else commit.commitId
         extras = {}
 
