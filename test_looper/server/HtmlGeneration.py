@@ -49,17 +49,29 @@ class HtmlElement(object):
     def render(self):
         return ""
 
-class ParagraphTag(HtmlElement):
-    def __init__(self, contained, mods):
+class TextTag(HtmlElement):
+    def __init__(self, tag, contained, mods=None):
+        self.tag = tag
         self.contained = makeHtmlElement(contained)
-        self.mods = mods
+        self.mods = mods or {}
 
     def __len__(self):
         return len(self.contained)
 
     def render(self):
-        return ("<p " + " ".join(['%s="%s"' % (k, v) for k, v in self.mods.iteritems()]) + ">" +
-                self.contained.render() + "</p>")
+        return (("<%s " % self.tag) +
+                " ".join(['%s="%s"' % (k, v) for k, v in self.mods.iteritems()]) + ">" +
+                self.contained.render() + "</%s>" % self.tag)
+
+class ParagraphTag(TextTag):
+    def __init__(self, contained, mods):
+        super(ParagraphTag, self).__init__('p', contained, mods)
+
+
+class BoldTag(TextTag):
+    def __init__(self, contained):
+        super(BoldTag, self).__init__('strong', contained)
+
 
 class SpanTag(HtmlElement):
     def __init__(self, contained, mods):
@@ -177,11 +189,14 @@ def grid(rows, header_rows=1):
         for row in rows[:header_rows])
 
     def format_row(row):
-        if row:
-            return "<tr>%s</tr>" % "\n".join('<td class="fit">%s</td>' % c.render()
-                                             for c in row)
-        else:
+        if len(row) == 0:
             return '<tr class="blank_row"><td colspan="%d"/></tr>' % col_count
+        else:
+            tr = "<tr>%s" % "\n".join('<td class="fit">%s</td>' % c.render()
+                                      for c in row)
+            if len(row) < col_count:
+                tr += '<td colspan="%d"/>' % (col_count - len(row))
+            return tr + "</tr>"
 
     table_rows = "\n".join(format_row(row) for row in rows[header_rows:])
 

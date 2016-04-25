@@ -949,11 +949,14 @@ class TestLooperHttpServer(object):
     def toggleBranchTargetedCommitIdLink(branch, commitId):
         text = "[X]" if commitId in branch.targetedCommitIds() else "[%s]" % HtmlGeneration.pad('', 2)
 
-        return HtmlGeneration.link(
-            text,
-            "/toggleBranchCommitTargeting?branchName=%s&commitId=%s" % (
-                branch.branchName, commitId)
-            )
+        return HtmlGeneration.HtmlElements([
+            HtmlGeneration.link(
+                text,
+                "/toggleBranchCommitTargeting?branchName=%s&commitId=%s" % (
+                    branch.branchName, commitId)
+                ),
+            HtmlGeneration.HtmlString(HtmlGeneration.whitespace * 2)
+            ])
 
     @cherrypy.expose
     def toggleBranchTestTargeting(self, branchName, testType, testGroupsToExpand):
@@ -1254,6 +1257,7 @@ class TestLooperHttpServer(object):
 
             lastCommit = None
             commitsInStrand = 0
+            fork_commits = []
             for c in commits:
                 if lastCommit is not None and \
                         lastCommit.parentId != c.commitId or commitsInStrand > 9:
@@ -1262,11 +1266,33 @@ class TestLooperHttpServer(object):
                 else:
                     commitsInStrand += 1
 
-                grid.append(self.getBranchCommitRow(branch,
-                                                    c,
-                                                    testGroups,
-                                                    ungroupedUniqueTestIds,
-                                                    testGroupsToTests))
+                is_fork = len(fork_commits) > 0 and c.commitId == fork_commits[-1]
+                is_merge = len(c.parentIds) > 1
+
+                row = self.getBranchCommitRow(branch,
+                                              c,
+                                              testGroups,
+                                              ungroupedUniqueTestIds,
+                                              testGroupsToTests)
+
+                pipe = '|'
+                if is_fork:
+                    grid.append([self.gitGraph(len(fork_commits), '/')])
+                    fork_commits = fork_commits[:-1]
+
+
+                row = [self.gitGraph(len(fork_commits), '*')] + row
+                row[1] = HtmlGeneration.whitespace*(4*len(fork_commits)) + row[1].render()
+
+                if is_merge:  # its's a merge commit
+                    fork_commits.append(c.parentIds[0])
+
+                grid.append(row)
+                if is_merge:
+                    grid.append([HtmlGeneration.BoldTag(
+                        (HtmlGeneration.whitespace*2).join(pipe for _ in fork_commits) +
+                        HtmlGeneration.whitespace*2 + "\\"
+                        )])
                 lastCommit = c
 
             perfGrid = self.createBranchPerformanceGrid(branch, prefix=perfprefix)
@@ -1289,6 +1315,16 @@ class TestLooperHttpServer(object):
                                                         "Performance Results").render()
                 )
             return self.commonHeader() + header + HtmlGeneration.grid(grid, header_rows=2) + perfSection
+
+
+    @staticmethod
+    def gitGraph(depth, symbol):
+        return HtmlGeneration.BoldTag(
+            symbol if depth == 0 else
+            (HtmlGeneration.whitespace*2).join('|' for _ in xrange(depth)) +
+            HtmlGeneration.whitespace*2 + symbol
+            )
+
 
 
     def summarizePerfResults(self, tests, prefix=''):
@@ -1519,10 +1555,12 @@ class TestLooperHttpServer(object):
                     return False
             return True
 
-        row = [self.toggleBranchTargetedCommitIdLink(branch, commit.commitId),
-               self.commitLink(commit)]
+        row = [self.commitLink(commit)]
 
-        row.append(str(commit.totalRunningCount()) if commit.totalRunningCount() != 0 else "")
+        row.append(
+            self.toggleBranchTargetedCommitIdLink(branch, commit.commitId).render() + \
+            (str(commit.totalRunningCount()) if commit.totalRunningCount() != 0 else "")
+            )
         passRate = commit.passRate()
         row.append(HtmlGeneration.errRate(1.0 - passRate) if passRate is not None else '')
 
