@@ -1725,16 +1725,20 @@ class TestLooperHttpServer(object):
         return self.testLooperMachines.availableInstancesAndCoreCount
 
     def getSpotInstancePriceGrid(self, ec2):
-        spotPrices = ["<h2>Spot Instance Prices</h2>"]
-        for instanceType in sorted(i[0] for i in self.availableInstancesAndCoreCount()):
-            spotPrices.append("<h3>%s</h3>" % instanceType)
-            pricesByZone = ec2.currentSpotPrices(instanceType=instanceType)
-            spotPrices += [
-                "<b>%s</b>: %s&nbsp;&nbsp;&nbsp;" % (zone, price)
-                for zone, price in sorted(pricesByZone.iteritems())
-                ]
+        prices = {}
+        for instance_type in (i[0] for i in self.availableInstancesAndCoreCount()):
+            prices_by_zone = ec2.currentSpotPrices(instanceType=instance_type)
+            prices[instance_type] = {
+                zone: price for zone, price in sorted(prices_by_zone.iteritems())
+                }
 
-        return spotPrices
+        availability_zones = sorted(prices.itervalues().next().keys())
+        grid = [["Instance Type"] + availability_zones]
+        for instance_type in (i[0] for i in self.availableInstancesAndCoreCount()):
+            grid.append([instance_type] + ["$%s" % prices[instance_type][az]
+                                           for az in sorted(prices[instance_type].keys())])
+
+        return grid
 
 
     @cherrypy.expose
@@ -1882,8 +1886,10 @@ class TestLooperHttpServer(object):
             addForm,
             HtmlGeneration.grid(grid),
             clearAll,
-            "".join(spotPrices),
-            "<br>"*5 + self.generateEventLogHtml()
+            "<br/>"*2,
+            markdown.markdown("## Spot Instance Prices\n"),
+            HtmlGeneration.grid(spotPrices),
+            "<br>"*2 + self.generateEventLogHtml()
             )
 
     def generateEventLogHtml(self, maxMessageCount=10):
