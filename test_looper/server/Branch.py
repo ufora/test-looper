@@ -188,9 +188,11 @@ class Branch(object):
             self.commits[c].dirtyTestPriorityCache()
             del self.commits[c]
 
-        for commitId, parentHash, commitTitle in commitIdsParentsAndTitles:
+        for commitId, parentHashes, commitTitle in commitIdsParentsAndTitles:
             if commitId in newCommitIds:
-                self.commits[commitId] = testManager.createCommit(commitId, parentHash, commitTitle)
+                self.commits[commitId] = testManager.createCommit(commitId,
+                                                                  parentHashes,
+                                                                  commitTitle)
                 self.commits[commitId].branches.add(self)
                 self.commits[commitId].dirtyTestPriorityCache()
 

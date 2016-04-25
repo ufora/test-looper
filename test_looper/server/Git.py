@@ -47,7 +47,7 @@ class Git(object):
             origin/master ^origin/master^^^^^^
 
         Resulting objects are tuples of
-            (hash, parent_hash, title, branchName)
+            (hash, (parent1_hash, parent2_hash, ...), title, branchName)
         """
         if not commitRange:
             return []
@@ -75,11 +75,9 @@ class Git(object):
                 logging.warn("Got a confusing commit line: %s", line)
                 return None
 
-            parent_commit = hashes[1] if len(hashes) == 2 else hashes[2]
-
             return (
                 hashes[0],       # commit hash
-                parent_commit,   # parent commit
+                tuple(hashes[1:]),   # parent commits
                 splitLine[1]     # commit title
                 )
 
