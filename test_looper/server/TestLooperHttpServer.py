@@ -1703,7 +1703,9 @@ class TestLooperHttpServer(object):
                     "/cancelSpotRequests?" + urllib.urlencode(
                         {'requestIds': ",".join([str(r.id) for r in spotRequests])}
                         ),
-                    "[cancel]"
+                    "cancel",
+                    is_button=True,
+                    button_style="btn-danger btn-xs"
                     ),
                 request.launch_specification.instance_type,
                 str(countsByState.get('active', 0)),
