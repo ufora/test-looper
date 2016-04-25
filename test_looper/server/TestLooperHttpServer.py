@@ -1490,9 +1490,9 @@ class TestLooperHttpServer(object):
 
         grid = [["", "", "", "", ""] + testHeaders + ["", ""]]
         grid.append(
-            ["", "COMMIT", "(running)", "", "FAIL RATE" + HtmlGeneration.whitespace*4] + \
+            ["", "COMMIT", "(running)", "FAIL RATE" + HtmlGeneration.whitespace*4] + \
             testGroupExpandLinks + \
-            ["SUBJECT", "branch"]
+            ["SUBJECT", "", "branch"]
             )
         return grid
 
@@ -1519,8 +1519,6 @@ class TestLooperHttpServer(object):
                self.commitLink(commit)]
 
         row.append(str(commit.totalRunningCount()) if commit.totalRunningCount() != 0 else "")
-        row.append(self.clearCommitIdLink(commit.commitId,
-                                          "/branch?branchName=" + branch.branchName))
         passRate = commit.passRate()
         row.append(HtmlGeneration.errRate(1.0 - passRate) if passRate is not None else '')
 
@@ -1576,6 +1574,8 @@ class TestLooperHttpServer(object):
                     row[-1] = HtmlGeneration.lightGreyBacking(row[-1])
 
         row.append(self.subjectLinkForCommit(commit))
+        row.append(self.clearCommitIdLink(commit.commitId,
+                                          "/branch?branchName=" + branch.branchName))
         row.append(joinLinks(self.branchLink(b.branchName) for b in commit.branches))
         return row
 
