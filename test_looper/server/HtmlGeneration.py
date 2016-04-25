@@ -49,7 +49,7 @@ class HtmlElement(object):
     def render(self):
         return ""
 
-class FontTag(HtmlElement):
+class ParagraphTag(HtmlElement):
     def __init__(self, contained, mods):
         self.contained = makeHtmlElement(contained)
         self.mods = mods
@@ -58,8 +58,8 @@ class FontTag(HtmlElement):
         return len(self.contained)
 
     def render(self):
-        return ("<font " + " ".join(['%s="%s"' % (k, v) for k, v in self.mods.iteritems()]) + ">" +
-                self.contained.render() + "</font>")
+        return ("<p " + " ".join(['%s="%s"' % (k, v) for k, v in self.mods.iteritems()]) + ">" +
+                self.contained.render() + "</p>")
 
 class SpanTag(HtmlElement):
     def __init__(self, contained, mods):
@@ -188,29 +188,23 @@ def grid(rows, header_rows=1):
         rows=table_rows
         )
 
-def paragraph(text, classes):
-    return '<p class="%s">%s</p>' % (classes, text)
-
 def lightGrey(text):
-    return paragraph(text, "text-muted")
+    return ParagraphTag(text, {"class": "text-muted"})
 
 def red(text):
-    return paragraph(text, "text-danger")
+    return ParagraphTag(text, {"class": "text-danger"})
 
 def greenBacking(text):
-    return paragraph(text, "bg-success")
+    return ParagraphTag(text, {"class": "bg-success"})
 
 def redBacking(text):
-    return paragraph(text, "bg-danger")
+    return ParagraphTag(text, {"class": "bg-danger"})
 
 def blueBacking(text):
-    return paragraph(text, "bg-info")
+    return ParagraphTag(text, {"class": "bg-info"})
 
 def lightGreyBacking(text):
     return SpanTag(text, {'style': "background-color:#dddddd"})
-
-def tooltip(text, title):
-    return FontTag(text, {'title':title})
 
 def errRateAndTestCount(testCount, successCount):
     if testCount == 0:
@@ -222,8 +216,6 @@ def errRateAndTestCount(testCount, successCount):
 
     if errRate == 0.0:
         return "%4s@%3s%s" % (testCount, 0, "%")
-
-    errPortion = "%4s@" % testCount
 
     if errRate < 0.01:
         errRate *= 10000
@@ -248,7 +240,7 @@ def errRate(frac):
     if frac > .9:
         tr = red(tr)
 
-    return makeHtmlElement(tooltip(tr, 'haro'))
+    return tr
 
 def selectBox(name, items, default=None):
     '''

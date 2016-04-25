@@ -3,6 +3,12 @@
     white-space: nowrap;
     width: 1%;
 }
+
+.table td p,
+.table th p {
+    margin-bottom: 0px;
+}
+
 .table-hscroll {
 width: 100%;
 margin-bottom: 15px;
@@ -10,6 +16,7 @@ overflow-y: hidden;
 -ms-overflow-style: -ms-autohiding-scrollbar;
 border: 1px solid #ddd;
 }
+
 .table-hscroll > .table {
 margin-bottom: 0;
 }
