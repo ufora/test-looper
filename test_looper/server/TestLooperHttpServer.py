@@ -948,13 +948,16 @@ class TestLooperHttpServer(object):
 
     @staticmethod
     def toggleBranchTargetedCommitIdLink(branch, commitId):
-        text = "[X]" if commitId in branch.targetedCommitIds() else "[%s]" % HtmlGeneration.pad('', 2)
-
         return HtmlGeneration.HtmlElements([
-            HtmlGeneration.link(
-                text,
+            HtmlGeneration.Link(
                 "/toggleBranchCommitTargeting?branchName=%s&commitId=%s" % (
-                    branch.branchName, commitId)
+                    branch.branchName, commitId
+                    ),
+                '<span class="glyphicon glyphicon-pushpin" aria-hidden="true"></span>',
+                is_button=True,
+                button_style="btn-default btn-xs" + (
+                    " active" if commitId in branch.targetedCommitIds() else ""
+                    )
                 ),
             HtmlGeneration.HtmlString(HtmlGeneration.whitespace * 2)
             ])
@@ -1531,7 +1534,7 @@ class TestLooperHttpServer(object):
 
         grid = [["", "", "", "", ""] + testHeaders + ["", ""]]
         grid.append(
-            ["", "COMMIT", "(running)", "FAIL RATE" + HtmlGeneration.whitespace*4] + \
+            ["", "COMMIT", "", "(running)", "FAIL RATE" + HtmlGeneration.whitespace*4] + \
             testGroupExpandLinks + \
             ["SOURCE", "", "branch"]
             )
@@ -1558,9 +1561,9 @@ class TestLooperHttpServer(object):
 
         row = [self.commitLink(commit)]
 
+        row.append(self.toggleBranchTargetedCommitIdLink(branch, commit.commitId))
         row.append(
-            self.toggleBranchTargetedCommitIdLink(branch, commit.commitId).render() + \
-            (str(commit.totalRunningCount()) if commit.totalRunningCount() != 0 else "")
+            commit.totalRunningCount() if commit.totalRunningCount() != 0 else ""
             )
         passRate = commit.passRate()
         row.append(HtmlGeneration.errRate(1.0 - passRate) if passRate is not None else '')
