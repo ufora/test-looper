@@ -1316,7 +1316,7 @@ class TestLooperHttpServer(object):
                 markdown.markdown("# Branch " + branchName) + "\n\n" +
                 '<p>Click any <span class="glyphicon glyphicon-pushpin" aria-hidden="true"></span>'
                 ' to toggle test-drilling. If a test-type and a commit are both'
-                " selected within a branch, only the cross section will be tested.</p><br><br>" +
+                " selected within a branch, only the cross section will be tested.</p><br>" +
                 "Jump to %s<br/>" % HtmlGeneration.Link(self.currentUrl() + "#perf",
                                                         "Performance Results").render()
                 )
@@ -1370,7 +1370,7 @@ class TestLooperHttpServer(object):
     @staticmethod
     def currentUrl(remove_query_params=None):
         if remove_query_params is None:
-            return cherrypy.url(qs=cherrypy.request.query_string, relative=False)
+            return cherrypy.url(qs=cherrypy.request.query_string).replace('http://', 'https://')
 
         query_string = cherrypy.lib.httputil.parse_query_string(
             cherrypy.request.query_string
@@ -1378,9 +1378,8 @@ class TestLooperHttpServer(object):
         return cherrypy.url(
             qs="&".join("%s=%s" % (k, v)
                         for k, v in query_string.iteritems()
-                        if k not in remove_query_params),
-            relative=False
-            )
+                        if k not in remove_query_params)
+            ).replace('http://', 'https://')
 
 
     def renderPerfSummary(self, summary, prior_summary):
