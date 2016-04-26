@@ -1840,7 +1840,7 @@ class TestLooperHttpServer(object):
             '')
 
         addForm = """
-            <p><strong>Add instances:</strong></p>
+            <h2>Add instances:</h2>
             <form action="/addSpotRequests" method="post" class="form-inline">
               <div class="form-group">
                 <label for="instanceType">Type</label>
@@ -1854,9 +1854,8 @@ class TestLooperHttpServer(object):
                 <label for="availbilityZone">Availability zone</label>
                 %s
               </div>
-              <button type="submit" value="Add" class="btn btn-default">Add</button>
+              <button type="submit" value="Add" class="btn btn-primary">Add</button>
             </form>
-            <p/>
             """ % (instanceTypeDropDown, availabilityZoneDropDown)
         return addForm
 
@@ -1880,9 +1879,9 @@ class TestLooperHttpServer(object):
 
         return HtmlGeneration.stack(
             self.commonHeader(),
-            addForm,
             HtmlGeneration.grid(grid),
             clearAll,
+            addForm,
             "<br/>"*2,
             markdown.markdown("## Spot Instance Prices\n"),
             HtmlGeneration.grid(spotPrices),
