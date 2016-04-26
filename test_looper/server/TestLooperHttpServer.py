@@ -938,29 +938,33 @@ class TestLooperHttpServer(object):
 
     @staticmethod
     def toggleBranchTargetedTestListLink(branch, testType, testGroupsToExpand):
+        is_drilling = testType in branch.targetedTestList()
+        icon = "glyphicon-minus" if is_drilling else "glyphicon-plus"
+        hover_text = "Run less of this test" if is_drilling else "Run more of this test"
         return HtmlGeneration.Link(
             "/toggleBranchTestTargeting?branchName=%s&testType=%s&testGroupsToExpand=%s" % (
                 branch.branchName, testType, testGroupsToExpand
                 ),
-            '<span class="glyphicon glyphicon-pushpin" aria-hidden="true"></span>',
+            '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
             is_button=True,
-            button_style="btn-default btn-xs" + (
-                " active" if testType in branch.targetedTestList() else ""
-                )
+            button_style="btn-default btn-xs" + (" active" if is_drilling else ""),
+            hover_text=hover_text
             )
 
     @staticmethod
     def toggleBranchTargetedCommitIdLink(branch, commitId):
+        is_drilling = commitId in branch.targetedCommitIds()
+        icon = "glyphicon-minus" if is_drilling else "glyphicon-plus"
+        hover_text = "Run less of this commit" if is_drilling else "Run more of this commit"
         return HtmlGeneration.HtmlElements([
             HtmlGeneration.Link(
                 "/toggleBranchCommitTargeting?branchName=%s&commitId=%s" % (
                     branch.branchName, commitId
                     ),
-                '<span class="glyphicon glyphicon-pushpin" aria-hidden="true"></span>',
+                '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
                 is_button=True,
-                button_style="btn-default btn-xs" + (
-                    " active" if commitId in branch.targetedCommitIds() else ""
-                    )
+                button_style="btn-default btn-xs" + (" active" if is_drilling else ""),
+                hover_text=hover_text
                 ),
             HtmlGeneration.HtmlString(HtmlGeneration.whitespace * 2)
             ])
@@ -1314,9 +1318,11 @@ class TestLooperHttpServer(object):
 
             header = (
                 markdown.markdown("# Branch " + branchName) + "\n\n" +
-                '<p>Click any <span class="glyphicon glyphicon-pushpin" aria-hidden="true"></span>'
-                ' to toggle test-drilling. If a test-type and a commit are both'
-                " selected within a branch, only the cross section will be tested.</p><br>" +
+                '<p>Click the <span class="glyphicon glyphicon-plus" aria-hidden="true"></span>/'
+                '<span class="glyphicon glyphicon-minus" aria-hidden="true"></span> buttons '
+                'to increse/decrease the amount of testing on a given commit or test suite. '
+                'If both a test suite and a commit are selected within a branch'
+                ", only the cross section will received extra test coverage.</p><br>" +
                 "Jump to %s<br/>" % HtmlGeneration.Link(self.currentUrl() + "#perf",
                                                         "Performance Results").render()
                 )
