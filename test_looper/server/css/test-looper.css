@@ -13,6 +13,10 @@
     height: 10px !important;
 }
 
+.nav-pills li a {
+    font-size: 22px;
+}
+
 
 .table-hscroll {
 width: 100%;
