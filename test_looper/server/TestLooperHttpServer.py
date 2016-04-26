@@ -73,7 +73,7 @@ class TestLooperHttpServer(object):
         self.eventLog = (
             TestLooperHttpServerEventLog.TestLooperHttpServerEventLog(testManager.kvStore)
             )
-        self.eventLog.addLogMessage("ubuntu", "TestLooper initialized")
+        self.eventLog.addLogMessage("test-looper", "TestLooper initialized")
         self.defaultCoreCount = 4
 
     def isAuthenticated(self):
@@ -247,7 +247,6 @@ class TestLooperHttpServer(object):
 
         return (
             self.commonHeader() +
-            markdown.markdown("# Test Prioritization List\n") +
             HtmlGeneration.grid(
                 self.prioritizationGrid()
                 )
@@ -468,8 +467,7 @@ class TestLooperHttpServer(object):
 
                 grid.append(row)
 
-            header = """# All Machines\n"""
-            return self.commonHeader() + markdown.markdown(header) + HtmlGeneration.grid(grid)
+            return self.commonHeader() + HtmlGeneration.grid(grid)
 
     @cherrypy.expose
     def terminateMachine(self, machineId):
@@ -1882,7 +1880,6 @@ class TestLooperHttpServer(object):
 
         return HtmlGeneration.stack(
             self.commonHeader(),
-            markdown.markdown("# Spot Requests\n"),
             addForm,
             HtmlGeneration.grid(grid),
             clearAll,
