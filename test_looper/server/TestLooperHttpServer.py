@@ -1734,6 +1734,8 @@ class TestLooperHttpServer(object):
                 ]
             grid.append(row)
 
+        if len(grid) == 1:
+            grid.append(["No open spot instance requests"])
         return grid
 
 
