@@ -11,14 +11,12 @@ import markdown
 import simplejson
 import urllib
 import pytz
-from math import ceil
 
 import test_looper.server.Github as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.server.PerformanceDataset as PerformanceDataset
 import test_looper.server.TestLooperHttpServerEventLog as TestLooperHttpServerEventLog
 
-import test_looper.server.v2API as v2API
 import traceback
 
 time.tzset()
@@ -76,6 +74,10 @@ class TestLooperHttpServer(object):
         self.eventLog.addLogMessage("test-looper", "TestLooper initialized")
         self.defaultCoreCount = 4
 
+
+    def addLogMessage(self, format_string, *args, **kwargs):
+        self.eventLog.addLogMessage(self.getCurrentLogin(), format_string, *args, **kwargs)
+
     def isAuthenticated(self):
         if self.disableAuth:
             return True
@@ -89,8 +91,7 @@ class TestLooperHttpServer(object):
             self.accessTokenHasPermission[token] = \
                 self.src_ctrl.authorize_access_token(token)
 
-            self.eventLog.addLogMessage(
-                self.getCurrentLogin(),
+            self.addLogMessage(
                 "Authorization: %s",
                 "Granted" if self.accessTokenHasPermission[token] else "Denied"
                 )
@@ -100,8 +101,6 @@ class TestLooperHttpServer(object):
 
         return True
 
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
     def getCurrentLogin(self):
         if self.disableAuth:
             return "<auth disabled>"
@@ -277,36 +276,6 @@ class TestLooperHttpServer(object):
 
         return result
 
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def prioritizationData(self):
-        allTests = []
-        with self.testManager.lock:
-            commitsAndTests = self.testManager.getPossibleCommitsAndTests()
-
-            candidates = self.testManager.prioritizeCommitsAndTests(commitsAndTests,
-                                                                    preferTargetedTests=False)
-
-            commitLevelDict = self.testManager.computeCommitLevels()
-
-            for commitAndTestToRun in candidates:
-                commit = commitAndTestToRun.commit
-                testName = commitAndTestToRun.testName
-                priority = commitAndTestToRun.priority
-                test = {}
-                test["name"] = testName
-                test["priority"] = priority
-                test["commitLevel"] = commitLevelDict[commit.commitId]
-                test["totalRuns"] = commit.totalNonTimedOutRuns(testName)
-                test["running"] = commit.runningCount(testName)
-                test["timedOut"] = commit.timeoutCount(testName)
-                test["isDeepTest"] = commit.isDeepTest
-                test["branches"] = []
-                for b in commit.branches:
-                    test["branches"].append(b.branchName)
-                allTests.append(test)
-
-            return allTests
 
     def prioritizationGrid(self):
         with self.testManager.lock:
@@ -689,17 +658,6 @@ class TestLooperHttpServer(object):
             hover_text=hover_text
             )
 
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def toggleBranchDeeptest_api(self, branchName):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
-        with self.testManager.lock:
-            branch = self.testManager.branches[branchName]
-            branch.setIsDeepTest(not branch.isDeepTest)
-
-        return branch.isDeepTest
 
     @cherrypy.expose
     def toggleBranchDeeptest(self, branchName):
@@ -712,60 +670,6 @@ class TestLooperHttpServer(object):
 
         raise cherrypy.HTTPRedirect("/branches")
 
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def getAllBranches(self):
-        with self.testManager.lock:
-            branches = self.testManager.distinctBranches()
-            return [b for b in branches]
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def branchesData(self):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
-        with self.testManager.lock:
-            branches = self.testManager.distinctBranches()
-            allBranches = []
-            for b in sorted(branches):
-                branchData = {}
-                branchData["name"] = b
-                branch = self.testManager.branches[b]
-                commits = branch.commits.values()
-
-                branchData["commitCount"] = len(commits)
-                branchData["isDeepTest"] = branch.isDeepTest
-                if commits:
-                    branchData["running"] = sum([c.totalRunningCount() for c in commits])
-
-                    passes = sum([c.fullPassesCompleted() for c in commits])
-                    branchData["passes"] = passes
-                    branchData["totalRuns"] = sum([c.totalCompletedTestRuns() for c in commits])
-
-                    passRate = sum([
-                        c.fullPassesCompleted() * c.passRate() for c in commits
-                        ])
-                    branchData["passRate"] = passRate
-
-
-                    if passes > 0:
-                        ratio = passRate / passes
-                    else:
-                        ratio = 0.0
-
-                    ratioFormatted = HtmlGeneration.errRateAndTestCount(passes, passRate)
-                    branchData["failureRate"] = ratioFormatted
-
-                    intervalLow, intervalHigh = commits[0].wilsonScoreInterval(ratio, passes)
-
-                    branchData["intervalLow"] = round((1 - intervalLow) * 100, 2)
-                    branchData["intervalHigh"] = round((1 - intervalHigh) * 100, 2)
-
-                allBranches.append(branchData)
-
-        return allBranches
 
     def branchesGrid(self):
         with self.testManager.lock:
@@ -822,40 +726,6 @@ class TestLooperHttpServer(object):
                 branch.setTargetedCommitIds([])
 
         raise cherrypy.HTTPRedirect("/branches")
-
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def getAllCommits(self, branchName):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
-        with self.testManager.lock:
-            commits = self.testManager.branches[branchName].commitsInOrder
-        return [{"commit": x.commitId, "subject": x.subject} for x in commits]
-
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def branchPerformanceData(self, branchName):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
-
-        if not branchName in self.testManager.branches:
-            return self.errorPage("Branch %s not found" % branchName)
-
-        with self.testManager.lock:
-            commits = self.testManager.branches[branchName].commitsInOrder
-
-            dataBySeries = self.testManager.branches[branchName].getPerfDataSummary()
-
-            commitIds = list(reversed([x.commitId for x in commits]))
-
-
-        data = PerformanceDataset.PerformanceDataset(dataBySeries, commitIds)
-        toReturn = data.getObservationData()
-        return toReturn
 
 
     @cherrypy.expose
@@ -993,48 +863,6 @@ class TestLooperHttpServer(object):
 
 
     @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def toggleBranchTestTargeting_v2(self, branchName, testType):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
-        with self.testManager.lock:
-            branch = self.testManager.branches[branchName]
-
-            if testType in branch.targetedTestList():
-                branch.setTargetedTestList(
-                    [x for x in branch.targetedTestList() if x != testType]
-                    )
-            else:
-                branch.setTargetedTestList(
-                    branch.targetedTestList() + [testType]
-                    )
-
-            return testType in branch.targetedTestList()
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def toggleBranchCommitTargeting_v2(self, branchName, commitId):
-        if not self.isAuthenticated():
-            return self.authenticate()
-        logging.warn("branch name: %s, commit id: %s", branchName, commitId)
-        with self.testManager.lock:
-            branch = self.testManager.branches[branchName]
-
-            if commitId in branch.targetedCommitIds():
-                logging.warn("set to off")
-                branch.setTargetedCommitIds(
-                    [x for x in branch.targetedCommitIds() if x != commitId]
-                    )
-            else:
-                logging.warn("set to on")
-                branch.setTargetedCommitIds(
-                    branch.targetedCommitIds() + [commitId]
-                    )
-
-            return commitId in branch.targetedCommitIds()
-
-    @cherrypy.expose
     def toggleBranchCommitTargeting(self, branchName, commitId):
         if not self.isAuthenticated():
             return self.authenticate()
@@ -1065,162 +893,6 @@ class TestLooperHttpServer(object):
         htmlFile.close()
         return result
 
-    @cherrypy.expose
-    def branch_v2(self):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
-        return self.readFile('v2/branch.html')
-
-    @cherrypy.expose
-    def branchPerformance_v2(self):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
-        return self.readFile('v2/branchPerformance.html')
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def getTestsForCommits(self, branchName):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
-        commitIdToTestGroups = {}
-        with self.testManager.lock:
-            if not branchName in self.testManager.branches:
-                raise cherrypy.HTTPError(404, "Branch does not exist")
-            branch = self.testManager.branches[branchName]
-            commits = branch.commitsInOrder
-            for commit in commits:
-                ungroupedUniqueTestIds = sorted(list(set(t for t in commit.statsByType)))
-
-                groupedTests = {}
-                for test in ungroupedUniqueTestIds:
-                    group = test.split('.')[0]
-                    if not group in groupedTests:
-                        groupedTests[group] = []
-                    if test:
-                        toAppend = {
-                            "name" : test,
-                            "isSelected" : test in branch.targetedTestList(),
-                            "isPinned" : False
-                            }
-                        groupedTests[group].append(toAppend)
-                commitIdToTestGroups[commit.commitId] = groupedTests
-            return commitIdToTestGroups
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def getAllTests(self, branchName):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
-        with self.testManager.lock:
-            if not branchName in self.testManager.branches:
-                raise cherrypy.HTTPError(404, "Branch does not exist")
-            branch = self.testManager.branches[branchName]
-            commits = branch.commitsInOrder
-            ungroupedUniqueTestIds = sorted(list(set(t for c in commits for t in c.statsByType)))
-
-            groupedTests = {}
-            for test in ungroupedUniqueTestIds:
-                group = test.split('.')[0]
-                if not group in groupedTests:
-                    groupedTests[group] = []
-                if test:
-                    toAppend = {
-                        "name" : test,
-                        "isSelected" : test in branch.targetedTestList(),
-                        "isPinned" : False
-                        }
-                    groupedTests[group].append(toAppend)
-            return groupedTests
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def getBranchTestData(self, branchName):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
-        branchCommitData = {}
-
-        allCommitData = []
-        with self.testManager.lock:
-            if branchName not in self.testManager.branches:
-                return "Branch %s doesn't exist" % branchName
-            branch = self.testManager.branches[branchName]
-            branchCommitData["isDeepTest"] = branch.isDeepTest
-            commits = branch.commitsInOrder
-            ungroupedUniqueTestIds = sorted(list(set(t for c in commits for t in c.statsByType)))
-            lastCommit = None
-            commitsInStrand = 0
-            testGroups = sorted(list(set(x for x in ungroupedUniqueTestIds)))
-            for indexWithinCommitSequence, c in enumerate(commits):
-                commitData = {}
-                if lastCommit is not None and \
-                        lastCommit.parentId != c.commitId or commitsInStrand > 9:
-                    commitsInStrand = 0
-                else:
-                    commitsInStrand += 1
-
-                commitData["id"] = c.commitId
-                commitData["totalRunning"] = c.totalRunningCount()
-                commitData["errorRate"] = 1.0 - c.passRate()
-                commitData["subject"] = c.subject
-                commitData["branches"] = [b.branchName for b in c.branches]
-                commitData["isSelected"] = c.commitId in branch.targetedCommitIds()
-
-                allTestGroupData = []
-                commitData["TestGroups"] = allTestGroupData
-                for testGroup in testGroups:
-                    testGroupData = {}
-                    allTestGroupData.append(testGroupData)
-                    testGroupData["name"] = testGroup
-                    if testGroups in ungroupedUniqueTestIds:
-                        stat = c.testStatByType(testGroups)
-                    else:
-                        #this is not an accurate calculation. Here we are aggregating tests across
-                        #categories. We should be multiplying their pass rates, but in fact we are
-                        #averaging their failure rates, pretending that they are independent test
-                        #runs.
-                        stat = c.testStatByTypeGroup(testGroup)
-                    testGroupData["totalElapsedMinutes"] = stat.totalElapsedMinutes
-                    testGroupData["runningElapsedMinutes"] = stat.runningElapsedMinutes
-                    testGroupData["runningCount"] = stat.runningCount
-                    testGroupData["passCount"] = stat.passCount
-                    testGroupData["failCount"] = stat.failCount
-                    testGroupData["timeoutCount"] = stat.timeoutCount
-                    testGroupData["completedCount"] = stat.completedCount
-
-                    errRate = ""
-                    errRateVal = 0
-                    if stat.completedCount > 0:
-                        errRate = HtmlGeneration.errRateAndTestCount(
-                            stat.passCount + stat.failCount, stat.passCount
-                            )
-
-                        level, direction = branch.commitIsStatisticallyNoticeableFailureRateBreak(
-                            c.commitId,
-                            testGroup
-                            )
-
-                        if level == 0.001:
-                            errRate = errRate + " ***"
-                        if level == 0.01:
-                            errRate = errRate + " **"
-                        if level == 0.1:
-                            errRate = errRate + " *"
-
-
-                    testGroupData["errRate"] = errRate
-                    errRateVal = self.errRateVal(stat.passCount + stat.failCount, stat.passCount)
-
-                    testGroupData["errRateVal"] = errRateVal
-
-                allCommitData.append(commitData)
-                lastCommit = c
-        branchCommitData["commitData"] = allCommitData
-        return branchCommitData
 
     @staticmethod
     def errRateVal(testCount, successCount):
@@ -1644,29 +1316,6 @@ class TestLooperHttpServer(object):
         return self.commonHeader() + self.generateEventLogHtml(1000)
 
 
-    @cherrypy.expose
-    def toggleAutoProvisioner(self):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
-        autoProvisionerState = self.testLooperMachines.toggleAutoProvisioner()
-        logging.info("toggle auto provisioner, new state: %s", autoProvisionerState)
-
-        raise cherrypy.HTTPRedirect("/spotRequests")
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def getAutoProvisionerState(self):
-        return self.testLooperMachines.getAutoProvisionerState()
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def updateAvailabilityZone(self, az):
-        logging.info("Update availability zone to: %s", az)
-        if not self.isAuthenticated():
-            return self.authenticate()
-        return self.testLooperMachines.updateAvailabilityZone(az)
-
     def getCurrentSpotRequestGrid(self, ec2):
         spotRequests = sorted(
             ec2.getLooperSpotRequests().itervalues(),
@@ -1762,89 +1411,6 @@ class TestLooperHttpServer(object):
         return grid
 
 
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def getSpotInstancePrices(self):
-        spotPrices = []
-        ec2 = self.ec2Factory()
-        for instanceType in [i[0] for i in self.availableInstancesAndCoreCount()]:
-            pricesByZone = ec2.currentSpotPrices(instanceType=instanceType)
-            for zone, price in pricesByZone.iteritems():
-                spotType = {}
-                spotType["type"] = instanceType
-                spotType["zone"] = zone
-                spotType["price"] = price
-                spotPrices.append(spotType)
-        return spotPrices
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def spotRequestsData(self):
-        ec2 = self.ec2Factory()
-
-        spotRequests = sorted(
-            ec2.getLooperSpotRequests().itervalues(),
-            key=lambda r: r.price,
-            reverse=True
-            )
-
-        # we need to group the spot requests by date
-        requestsByCreateTime = {}
-
-        for spotRequest in spotRequests:
-            createTime = spotRequest.create_time
-            if not createTime in requestsByCreateTime:
-                requestsByCreateTime[createTime] = []
-            requestsByCreateTime[createTime].append(spotRequest)
-
-        pricesByTypeAndZone = {}
-        for instanceType in [i[0] for i in self.availableInstancesAndCoreCount()]:
-            pricesByZone = ec2.currentSpotPrices(instanceType=instanceType)
-            pricesByTypeAndZone[instanceType] = pricesByZone
-
-
-        batchRequests = []
-        logging.warn("Prices by type and zone: %s", pricesByTypeAndZone)
-        for createTime in requestsByCreateTime:
-            requests = requestsByCreateTime[createTime]
-            req = requests[0]
-            batchRequest = {}
-            batchRequest["create_time"] = req.create_time
-            batchRequest["price"] = req.price
-            batchRequest["type"] = req.type
-            batchRequest["valid_from"] = req.valid_from
-            batchRequest["valid_until"] = req.valid_until
-            batchRequest["launch_group"] = req.launch_group
-            az = req.launched_availability_zone
-            batchRequest["launched_availability_zone"] = az
-            batchRequest["product_description"] = req.product_description
-            batchRequest["availability_zone_group"] = req.availability_zone_group
-            instanceType = req.launch_specification.instance_type
-            batchRequest["instance_type"] = instanceType
-            batchRequest["instance_id"] = req.instance_id
-            batchRequest["message"] = req.status.message
-            ct = len(requests)
-            batchRequest["count"] = ct
-            fulfilled = len([req for req in requests if req.state == 'active'])
-            batchRequest["fulfilled"] = fulfilled
-            batchRequest["state"] = req.state
-            cost = 0
-            if not az is None:
-                cost = pricesByTypeAndZone[instanceType][az]
-            batchRequest["cost_per_instance"] = cost
-            batchRequest["total_cost"] = ceil(cost * fulfilled * 1000) / 1000.0
-            requestsByCreateTime[createTime] = batchRequest
-            batchRequest["ids"] = [req.id for req in requests]
-            batchRequests.append(batchRequest)
-
-        return batchRequests
-
-    @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def isAutoProvisionerEnabled(self):
-        isAutoProvisionerEnabled = self.testLooperMachines.isAutoProvisionerEnabled()
-        return isAutoProvisionerEnabled
-
     def getAddSpotRequestForm(self, availability_zones):
         instanceTypeDropDown = HtmlGeneration.selectBox(
             'instanceType',
@@ -1922,15 +1488,6 @@ class TestLooperHttpServer(object):
 
 
     @cherrypy.expose
-    @cherrypy.tools.json_out()
-    def getNLastEvents(self, eventCount):
-        try:
-            messages = self.eventLog.getTopNLogMessages(int(eventCount))
-        except:
-            logging.warn("Failed to get last events: %s", traceback.format_exc())
-        return messages
-
-    @cherrypy.expose
     def cancelAllSpotRequests(self, instanceType=None):
         if not self.isAuthenticated():
             return self.authenticate()
@@ -1945,7 +1502,7 @@ class TestLooperHttpServer(object):
 
         ec2.cancelSpotRequests(spotRequests.keys())
 
-        self.eventLog.addLogMessage(self.getCurrentLogin(), "Canceled all spot requests.")
+        self.addLogMessage("Canceled all spot requests.")
 
         raise cherrypy.HTTPRedirect("/spotRequests")
 
@@ -1966,54 +1523,11 @@ class TestLooperHttpServer(object):
                 "# ERROR\n\nRequests %s don't exist" % invalidRequests
                 )
 
-        self.eventLog.addLogMessage(
-            self.getCurrentLogin(),
-            "Cancelling spot requests: %s",
-            requestIds
-            )
+        self.addLogMessage("Cancelling spot requests: %s", requestIds)
 
         ec2.cancelSpotRequests(requestIds)
         raise cherrypy.HTTPRedirect("/spotRequests")
 
-    @cherrypy.expose
-    def setDefaultAvailabilityZone(self, az):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
-        self.testLooperMachines.availabilityZone = az
-
-    @cherrypy.expose
-    def addSpotRequests_v2(self, instanceType, maxPrice, quantity):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
-        az = self.testLooperMachines.availabilityZone
-        try:
-            maxPrice = float(maxPrice)
-        except:
-            return self.commonHeader() + markdown.markdown(
-                "# ERROR\n\nInvalid max price"
-                )
-
-        ec2 = self.ec2Factory()
-
-        ec2.requestLooperInstances(
-            maxPrice,
-            instance_type=instanceType,
-            instance_count=int(quantity),
-            launch_group=None,
-            availability_zone=az
-            )
-
-        self.eventLog.addLogMessage(
-            self.getCurrentLogin(),
-            "Added %s spot requests for type %s and max price of %s",
-            quantity,
-            instanceType,
-            maxPrice
-            )
-
-        return "Success!"
 
     @cherrypy.expose
     def addSpotRequests(self, instanceType, maxPrice, availabilityZone):
@@ -2057,13 +1571,10 @@ class TestLooperHttpServer(object):
                                        instance_type=instanceType,
                                        availability_zone=availabilityZone)
 
-        self.eventLog.addLogMessage(
-            self.getCurrentLogin(),
-            "Added %s spot requests for type %s and max price of %s",
-            provisioned,
-            instanceType,
-            maxPrice
-            )
+        self.addLogMessage("Added %s spot requests for type %s and max price of %s",
+                           provisioned,
+                           instanceType,
+                           maxPrice)
 
         raise cherrypy.HTTPRedirect("/spotRequests")
 
@@ -2128,13 +1639,6 @@ class TestLooperHttpServer(object):
         with self.testManager.lock:
             self.testManager.updateBranchesUnderTest()
 
-    @staticmethod
-    def getJsonPayload():
-        cl = cherrypy.request.headers['Content-Length']
-        rawbody = cherrypy.request.body.read(int(cl))
-        body = simplejson.loads(rawbody)
-
-        return body
 
     def start(self):
         config = {
