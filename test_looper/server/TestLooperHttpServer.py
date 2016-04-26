@@ -1883,14 +1883,18 @@ class TestLooperHttpServer(object):
 
         ec2 = self.ec2Factory()
 
-        clearAll = HtmlGeneration.Link("/cancelAllSpotRequests",
-                                       "Cancel all requests",
-                                       is_button=True,
-                                       button_style="btn-danger").render()
 
         spot_prices = self.get_spot_prices(ec2)
 
         grid = self.getCurrentSpotRequestGrid(ec2)
+        has_open_requests = len(grid) > 1 and len(grid[1]) > 1
+
+        clearAll = HtmlGeneration.Link("/cancelAllSpotRequests",
+                                       "Cancel all requests",
+                                       is_button=True,
+                                       button_style="btn-danger" + (
+                                           "" if has_open_requests else " disabled"
+                                       )).render()
 
         availability_zones = spot_prices.itervalues().next().keys()
         addForm = self.getAddSpotRequestForm(availability_zones)
