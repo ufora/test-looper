@@ -112,9 +112,10 @@ class Docker(object):
             volumes=None,
             env=None,
             options=None,
-            output_stream=None):
+            stdout=None,
+            stderr=None):
         def caller(command):
-            return call(command, stdout=output_stream, stderr=output_stream)
+            return call(command, stdout=stdout, stderr=stderr)
 
         return self._run(caller, command, name, volumes, env, options)
 

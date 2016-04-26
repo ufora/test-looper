@@ -134,13 +134,15 @@ def run_command_in_docker(docker, command, src_dir, docker_env=None, options=Non
         )
     sys.stdout.write("Running command: %s\n" % command)
     try:
-        with open(os.path.join(env.output_dir, "%s.log" % env.test_name), "w") as out_file:
+        with open(os.path.join(env.output_dir, "%s.out.log" % env.test_name), "w") as out_file, \
+             open(os.path.join(env.output_dir, "%s.err.log" % env.test_name), "w") as err_file:
             return_code = docker.run(command,
                                      name,
                                      volumes,
                                      docker_env,
                                      ' '.join(options),
-                                     output_stream=out_file)
+                                     stdout=out_file,
+                                     stderr=err_file)
         if return_code != 0:
             raise subprocess.CalledProcessError(return_code, command)
     finally:
