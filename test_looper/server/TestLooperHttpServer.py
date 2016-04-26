@@ -366,9 +366,11 @@ class TestLooperHttpServer(object):
 
     @staticmethod
     def clearBranchLink(branch, redirect):
-        return HtmlGeneration.link(
-            "[clear]",
-            "/clearBranch?" + urllib.urlencode({'branch':branch, 'redirect': redirect})
+        return HtmlGeneration.Link(
+            "/clearBranch?" + urllib.urlencode({'branch':branch, 'redirect': redirect}),
+            "clear",
+            is_button=True,
+            button_style="btn-danger btn-xs"
             )
 
     @staticmethod
@@ -762,8 +764,8 @@ class TestLooperHttpServer(object):
         with self.testManager.lock:
             branches = self.testManager.distinctBranches()
 
-            grid = [["TEST", "BRANCH NAME", "", "COMMIT COUNT", "RUNNING",
-                     "FULL TEST PASSES", "TOTAL TESTS"]]
+            grid = [["TEST", "BRANCH NAME", "COMMIT COUNT", "RUNNING",
+                     "FULL TEST PASSES", "TOTAL TESTS", ""]]
 
             for b in sorted(branches):
                 branch = self.testManager.branches[b]
@@ -772,7 +774,6 @@ class TestLooperHttpServer(object):
                 row = []
                 row.append(self.toggleBranchDeeptestingLink(branch))
                 row.append(HtmlGeneration.link(b, "/branch?branchName=" + b))
-                row.append(HtmlGeneration.link("[perf]", "/branchPerformance?branchName=" + b))
                 row.append(str(len(commits)))
 
                 if commits:
@@ -782,11 +783,9 @@ class TestLooperHttpServer(object):
 
                     totalRuns = sum([c.totalCompletedTestRuns() for c in commits])
 
-                    row.append(
-                        HtmlGeneration.pad(str(passes), 5) + self.clearBranchLink(b, "/branches")
-                        )
-
+                    row.append(passes)
                     row.append(str(totalRuns))
+                    row.append(self.clearBranchLink(b, "/branches"))
 
                 grid.append(row)
 
