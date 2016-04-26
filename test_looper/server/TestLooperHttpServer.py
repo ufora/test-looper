@@ -1740,14 +1740,17 @@ class TestLooperHttpServer(object):
     def availableInstancesAndCoreCount(self):
         return self.testLooperMachines.availableInstancesAndCoreCount
 
-    def getSpotInstancePriceGrid(self, ec2):
+
+    def get_spot_prices(self, ec2):
         prices = {}
         for instance_type in (i[0] for i in self.availableInstancesAndCoreCount()):
             prices_by_zone = ec2.currentSpotPrices(instanceType=instance_type)
             prices[instance_type] = {
                 zone: price for zone, price in sorted(prices_by_zone.iteritems())
                 }
+        return prices
 
+    def getSpotInstancePriceGrid(self, prices):
         availability_zones = sorted(prices.itervalues().next().keys())
         grid = [["Instance Type"] + availability_zones]
         for instance_type in (i[0] for i in self.availableInstancesAndCoreCount()):
@@ -1840,13 +1843,7 @@ class TestLooperHttpServer(object):
         isAutoProvisionerEnabled = self.testLooperMachines.isAutoProvisionerEnabled()
         return isAutoProvisionerEnabled
 
-    def getAddSpotRequestForm(self, ec2):
-        pricesByZone = None
-        for instanceType in [i[0] for i in self.availableInstancesAndCoreCount()]:
-            if pricesByZone is None:
-                pricesByZone = ec2.currentSpotPrices(instanceType=instanceType)
-                logging.info("Prices by zone: %s", pricesByZone)
-
+    def getAddSpotRequestForm(self, availability_zones):
         instanceTypeDropDown = HtmlGeneration.selectBox(
             'instanceType',
             [(k, "%s cores (%s)" % (v, k))
@@ -1854,7 +1851,7 @@ class TestLooperHttpServer(object):
             self.defaultCoreCount)
         availabilityZoneDropDown = HtmlGeneration.selectBox(
             'availabilityZone',
-            sorted([(az, az) for az in pricesByZone.keys()]),
+            sorted([(az, az) for az in availability_zones]),
             '')
 
         addForm = """
@@ -1889,11 +1886,14 @@ class TestLooperHttpServer(object):
                                        is_button=True,
                                        button_style="btn-danger").render()
 
+        spot_prices = self.get_spot_prices(ec2)
+
         grid = self.getCurrentSpotRequestGrid(ec2)
 
-        addForm = self.getAddSpotRequestForm(ec2)
+        availability_zones = spot_prices.itervalues().next().keys()
+        addForm = self.getAddSpotRequestForm(availability_zones)
 
-        spotPrices = self.getSpotInstancePriceGrid(ec2)
+        spotPrices = self.getSpotInstancePriceGrid(spot_prices)
 
         return HtmlGeneration.stack(
             self.commonHeader(),
