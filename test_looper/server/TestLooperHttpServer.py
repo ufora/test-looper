@@ -677,9 +677,13 @@ class TestLooperHttpServer(object):
 
     @staticmethod
     def toggleBranchDeeptestingLink(branch):
-        return HtmlGeneration.link(
-            "[test]" if branch.isDeepTest else "[%s]" % HtmlGeneration.pad("", 5),
-            "/toggleBranchDeeptest?branchName=" + branch.branchName
+        icon = "glyphicon-stop" if branch.isDeepTest else "glyphicon-play"
+        return HtmlGeneration.Link(
+            "/toggleBranchDeeptest?branchName=" + branch.branchName,
+            '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
+            is_button=True,
+            button_style="btn-default btn-xs" + (" active" if branch.isDeepTest else "")
+            #"[test]" if branch.isDeepTest else "[%s]" % HtmlGeneration.pad("", 5),
             )
 
     @cherrypy.expose
