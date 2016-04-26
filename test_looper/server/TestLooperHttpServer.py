@@ -938,12 +938,15 @@ class TestLooperHttpServer(object):
 
     @staticmethod
     def toggleBranchTargetedTestListLink(branch, testType, testGroupsToExpand):
-        text = "[X]" if testType in branch.targetedTestList() else "[%s]" % HtmlGeneration.pad('', 2)
-
-        return HtmlGeneration.link(
-            text,
+        return HtmlGeneration.Link(
             "/toggleBranchTestTargeting?branchName=%s&testType=%s&testGroupsToExpand=%s" % (
-                branch.branchName, testType, testGroupsToExpand)
+                branch.branchName, testType, testGroupsToExpand
+                ),
+            '<span class="glyphicon glyphicon-pushpin" aria-hidden="true"></span>',
+            is_button=True,
+            button_style="btn-default btn-xs" + (
+                " active" if testType in branch.targetedTestList() else ""
+                )
             )
 
     @staticmethod
@@ -1311,10 +1314,9 @@ class TestLooperHttpServer(object):
 
             header = (
                 markdown.markdown("# Branch " + branchName) + "\n\n" +
-                "Click " + self.drillBranchPerformanceLink(branchName, "", "here").render()
-                + " to see performance statistics for this branch.\n<br><br> "
-                "Click any [ ] or [X] to toggle test-drilling. If a test-type and a commit are both"
-                " selected within a branch, only the cross section will be tested.<br><br>" +
+                '<p>Click any <span class="glyphicon glyphicon-pushpin" aria-hidden="true"></span>'
+                ' to toggle test-drilling. If a test-type and a commit are both'
+                " selected within a branch, only the cross section will be tested.</p><br><br>" +
                 "Jump to %s<br/>" % HtmlGeneration.Link(self.currentUrl() + "#perf",
                                                         "Performance Results").render()
                 )
@@ -1368,7 +1370,7 @@ class TestLooperHttpServer(object):
     @staticmethod
     def currentUrl(remove_query_params=None):
         if remove_query_params is None:
-            return cherrypy.url(qs=cherrypy.request.query_string)
+            return cherrypy.url(qs=cherrypy.request.query_string, relative=False)
 
         query_string = cherrypy.lib.httputil.parse_query_string(
             cherrypy.request.query_string
@@ -1376,7 +1378,8 @@ class TestLooperHttpServer(object):
         return cherrypy.url(
             qs="&".join("%s=%s" % (k, v)
                         for k, v in query_string.iteritems()
-                        if k not in remove_query_params)
+                        if k not in remove_query_params),
+            relative=False
             )
 
 
@@ -1471,7 +1474,8 @@ class TestLooperHttpServer(object):
             links.append(HtmlGeneration.link(
                 segment,
                 cherrypy.url(
-                    qs="&".join("%s=%s" % (k, v) for k, v in query_string.iteritems())
+                    qs="&".join("%s=%s" % (k, v) for k, v in query_string.iteritems()),
+                    relative=False
                     )
                 ))
 
@@ -1532,7 +1536,7 @@ class TestLooperHttpServer(object):
             testGroupExpandLinks[-1] = HtmlGeneration.pad(testGroupExpandLinks[-1], 20)
             testHeaders[-1] = HtmlGeneration.pad(testHeaders[-1], 20)
 
-        grid = [["", "", "", "", ""] + testHeaders + ["", ""]]
+        grid = [["", "", "", "", ""] + testHeaders + ["", "", ""]]
         grid.append(
             ["", "COMMIT", "", "(running)", "FAIL RATE" + HtmlGeneration.whitespace*4] + \
             testGroupExpandLinks + \
