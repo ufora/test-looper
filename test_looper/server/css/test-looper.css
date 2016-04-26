@@ -16,6 +16,9 @@
 .nav-pills li a {
     font-size: 22px;
 }
+ul.nav-pills {
+    margin-bottom: 10px;
+}
 
 
 .table-hscroll {
