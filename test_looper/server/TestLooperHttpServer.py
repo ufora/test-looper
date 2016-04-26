@@ -375,9 +375,11 @@ class TestLooperHttpServer(object):
 
     @staticmethod
     def clearCommitIdLink(commitId, redirect):
-        return HtmlGeneration.link(
-            "[clear]",
-            "/clearCommit?" + urllib.urlencode({'commitId': commitId, 'redirect': redirect})
+        return HtmlGeneration.Link(
+            "/clearCommit?" + urllib.urlencode({'commitId': commitId, 'redirect': redirect}),
+            "clear",
+            is_button=True,
+            button_style="btn-danger btn-xs"
             )
 
     def sourceLinkForCommit(self, commit):
