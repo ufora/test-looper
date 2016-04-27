@@ -153,35 +153,14 @@ class TestManager(object):
         return not test_def.periodicTest and under_max_test_count and worker_can_participate
 
 
-    # we need the current number of provisioned machines because we don't want to run
-    # any unit tests that require n machines unless we have that number of machines already
     def getTask(self, workerInfo):
-        """
-        We are passed the current number of provisioned machines so we don't try to assign
-        to a unit test whose target machine count can't be satisfied
-        """
         t0 = time.time()
-        result = self.getTask_(workerInfo)
-
-        logging.info("calling getTask_ took %s seconds and returned %s",
-                     time.time() - t0, result)
-
-        return result
-
-
-    def getTask_(self, workerInfo):
-        """This method is called from a worker machine looking for a test to run. We
-        will give him the highest priority test that he is qualified to run
-
-        We are passed the current number of provisioned machines so we don't try to assign
-        to a unit test whose target machine count can't be satisfied
-        """
-
         allCommitsToTest = self.getPossibleCommitsAndTests(workerInfo)
+        possible_commits_time = time.time()
         candidates = self.prioritizeCommitsAndTests(allCommitsToTest)
+        prioritization_time = time.time()
 
         if not candidates:
-            logging.info("Prioritized commits and tests returned none")
             return None, None, None
 
 
@@ -190,7 +169,6 @@ class TestManager(object):
         testName = firstCandidate.testName
 
         testDefinition = commit.getTestDefinitionFor(testName)
-        logging.info("Next test definition: %s", testDefinition)
         assert testDefinition is not None, \
             "Couldn't find %s within tests %s in commit %s. testDefs are %s" % (
                 testName,
@@ -202,9 +180,9 @@ class TestManager(object):
         testResult = self.blockingMachines.getTestAssignment(commit,
                                                              testName,
                                                              workerInfo)
+        test_assignment_time = time.time()
 
         if testResult is None:
-            logging.warn("Test result is none")
             return None, None, None
 
         if testResult.commitId != commit.commitId:
@@ -213,6 +191,16 @@ class TestManager(object):
         if testResult.testId not in commit.testsById:
             commit.addTestResult(testResult, updateDB=True)
             self.testDb.updateTestResult(testResult)
+
+        end_time = time.time()
+
+        logging.info("getTask timing - Total: %.2f, possible_commits: %.2f, "
+                     "prioritization: %.2f, assignment: %.2f, add_result: %.2f",
+                     end_time - t0,
+                     possible_commits_time - t0,
+                     prioritization_time - possible_commits_time,
+                     test_assignment_time - prioritization_time,
+                     end_time - test_assignment_time)
 
         return commit, commit.getTestDefinitionFor(testResult.testName), testResult
 

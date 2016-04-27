@@ -137,13 +137,10 @@ class Session(object):
 
                 if commit:
                     testName = testDefinition.testName
-                    logging.info("Test to run is %s. Took %s to find it.",
+                    logging.info("Took %.2f sec to select test %s for worker %s.",
+                                 time.time() - t0,
                                  testName,
-                                 time.time() - t0)
-                    logging.debug("Test assignment for client at %s: %s",
-                                  self.address,
-                                  testResult)
-
+                                 self.address)
                     testDefinition = commit.getTestDefinitionFor(testName)
 
                     self.writeString(
