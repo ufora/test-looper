@@ -13,12 +13,13 @@ import time
 
 import test_looper.server.Bitbucket as Bitbucket
 import test_looper.server.Github as Github
-import test_looper.server.RedisJsonStore as RedisJsonStore
+from test_looper.server.RedisJsonStore import RedisJsonStore
+from test_looper.server.TestDatabase import TestDatabase
 import test_looper.server.TestLooperEc2Connection as TestLooperEc2Connection
 import test_looper.server.TestLooperHttpServer as TestLooperHttpServer
+from test_looper.server.TestLooperHttpServerEventLog import TestLooperHttpServerEventLog
 import test_looper.server.TestLooperServer as TestLooperServer
 import test_looper.server.TestManager as TestManager
-
 TEST_LOOPER_OAUTH_KEY = "TEST_LOOPER_OAUTH_KEY"
 TEST_LOOPER_OAUTH_SECRET = "TEST_LOOPER_OAUTH_SECRET"
 TEST_LOOPER_GITHUB_ACCESS_TOKEN = "TEST_LOOPER_GITHUB_ACCESS_TOKEN"
@@ -75,7 +76,7 @@ def main():
 
     testManager = TestManager.TestManager(
         src_ctrl,
-        RedisJsonStore.RedisJsonStore(),
+        TestDatabase(RedisJsonStore()),
         TestLooperServer.LockWithTimer(),
         TestManager.TestManagerSettings(
             baseline_branch=src_ctrl_config['baseline_branch'],
@@ -168,6 +169,7 @@ def main():
         available_instance_types_and_core_count,
         src_ctrl,
         str(config['server']['test_looper_webhook_secret']),
+        event_log=TestLooperHttpServerEventLog(RedisJsonStore()),
         testLooperBranch=looper_branch,
         httpPortOverride=http_port,
         disableAuth=parsedArgs.no_auth

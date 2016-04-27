@@ -15,7 +15,6 @@ import pytz
 import test_looper.server.Github as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.server.PerformanceDataset as PerformanceDataset
-import test_looper.server.TestLooperHttpServerEventLog as TestLooperHttpServerEventLog
 
 import traceback
 
@@ -48,6 +47,7 @@ class TestLooperHttpServer(object):
                  available_instance_types_and_core_count,
                  src_ctrl,
                  test_looper_webhook_secret,
+                 event_log,
                  testLooperBranch=None,
                  httpPortOverride=None,
                  disableAuth=False):
@@ -68,9 +68,7 @@ class TestLooperHttpServer(object):
         self.disableAuth = disableAuth
         self.src_ctrl = src_ctrl
         self.test_looper_webhook_secret = test_looper_webhook_secret
-        self.eventLog = (
-            TestLooperHttpServerEventLog.TestLooperHttpServerEventLog(testManager.kvStore)
-            )
+        self.eventLog = event_log
         self.eventLog.addLogMessage("test-looper", "TestLooper initialized")
         self.defaultCoreCount = 4
 

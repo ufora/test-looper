@@ -4,96 +4,11 @@ import random
 import time
 
 import test_looper.core.TestResult as TestResult
-from test_looper.core.TestScriptDefinition import TestScriptDefinition
 
 import test_looper.server.BlockingMachines as BlockingMachines
 import test_looper.server.Branch as Branch
 import test_looper.server.Commit as Commit
 from test_looper.server.CommitAndTestToRun import CommitAndTestToRun
-
-def pad(s, length):
-    if len(s) < length:
-        return s + " " * (length - len(s))
-    return s[:length]
-
-
-class TestDatabase(object):
-    def __init__(self, kvStore):
-        self.kvStore = kvStore
-        self.dbPrefix = "1_"
-
-    def getTestIdsForCommit(self, commitId):
-        tests = self.kvStore.get(self.dbPrefix + "commit_tests_" + commitId)
-
-        if tests:
-            return tests
-        return []
-
-    def loadTestResultForTestId(self, testId):
-        res = self.kvStore.get(self.dbPrefix + "test_" + testId)
-        if not res:
-            return res
-
-        return TestResult.TestResult.fromJson(res)
-
-    def clearResultsForTestIdCommitId(self, testId, commitId):
-        self.kvStore.delete(self.dbPrefix + "test_" + testId)
-        testIds = self.kvStore.get(self.dbPrefix + "commit_tests_" + commitId)
-        if testIds is None:
-            return
-        filtered = [testId for testId in testIds if testId != testId]
-        self.kvStore.set(self.dbPrefix + "commit_tests_" + commitId, filtered)
-
-
-    def clearAllTestsForCommitId(self, commitId):
-        ids = self.getTestIdsForCommit(commitId)
-
-        for testId in ids:
-            self.kvStore.delete(self.dbPrefix + "test_" + testId)
-
-        self.kvStore.delete(self.dbPrefix + "commit_tests_" + commitId)
-
-    def updateTestListForCommit(self, commit):
-        ids = sorted(commit.testsById.keys())
-
-        self.kvStore.set(self.dbPrefix + "commit_tests_" + commit.commitId, ids)
-
-    def updateTestResult(self, result):
-        self.kvStore.set(self.dbPrefix + "test_" + result.testId, result.toJson())
-
-    def getTestScriptDefinitionsForCommit(self, commitId):
-        res = self.kvStore.get("commit_test_definitions_" + commitId)
-        if res is None:
-            return None
-
-        return [TestScriptDefinition.fromJson(x) for x in res]
-
-    def setTestScriptDefinitionsForCommit(self, commit, result):
-        self.kvStore.set("commit_test_definitions_" + commit, [x.toJson() for x in result])
-
-    def getTargetedTestTypesForBranch(self, branchname):
-        return self.kvStore.get("branch_targeted_tests_" + branchname) or []
-
-    def setTargetedTestTypesForBranch(self, branchname, testNames):
-        return self.kvStore.set("branch_targeted_tests_" + branchname, testNames)
-
-    def getTargetedCommitIdsForBranch(self, branchname):
-        return self.kvStore.get("branch_targeted_commit_ids_" + branchname) or []
-
-    def setTargetedCommitIdsForBranch(self, branchname, commitIds):
-        return self.kvStore.set("branch_targeted_commit_ids_" + branchname, commitIds)
-
-    def getBranchIsDeepTestBranch(self, branchname):
-        result = self.kvStore.get("branch_is_deep_test_" + branchname)
-        if result is None:
-            if branchname == "origin/master":
-                return True
-            else:
-                return False
-        return result
-
-    def setBranchIsDeepTestBranch(self, branchname, isDeep):
-        return self.kvStore.set("branch_is_deep_test_" + branchname, isDeep)
 
 
 TestManagerSettings = collections.namedtuple(
@@ -103,10 +18,9 @@ TestManagerSettings = collections.namedtuple(
 
 
 class TestManager(object):
-    def __init__(self, github, kvStore, lock, settings):
-        self.github = github
-        self.kvStore = kvStore
-        self.testDb = TestDatabase(kvStore)
+    def __init__(self, src_ctrl, test_db, lock, settings):
+        self.src_ctrl = src_ctrl
+        self.testDb = test_db
         self.settings = settings
 
         self.mostRecentTouchByMachine = {}
@@ -139,7 +53,7 @@ class TestManager(object):
     def getCommitByCommitId(self, commitId):
         if not commitId in self.commits:
             revList = "%s ^%s^^" % (commitId, commitId)
-            commitId, parentHashes, commitTitle = self.github.commitsInRevList(revList)[0]
+            commitId, parentHashes, commitTitle = self.src_ctrl.commitsInRevList(revList)[0]
             self.commits[commitId] = self.createCommit(commitId, parentHashes, commitTitle)
         return self.commits[commitId]
 
@@ -417,8 +331,8 @@ class TestManager(object):
             lock.release()
 
         t0 = time.time()
-        branchNames = set(self.github.listBranches())
-        logging.info("listing github branches took %s seconds", time.time() - t0)
+        branchNames = set(self.src_ctrl.listBranches())
+        logging.info("listing src_ctrl branches took %s seconds", time.time() - t0)
 
         if lock:
             lock.acquire()
@@ -483,7 +397,7 @@ class TestManager(object):
             testScriptDefinitions = self.testDb.getTestScriptDefinitionsForCommit(commitId)
 
             if testScriptDefinitions is None:
-                testScriptDefinitions = self.github.getTestScriptDefinitionsForCommit(commitId)
+                testScriptDefinitions = self.src_ctrl.getTestScriptDefinitionsForCommit(commitId)
                 self.testDb.setTestScriptDefinitionsForCommit(commitId, testScriptDefinitions)
 
             self.commits[commitId] = Commit.Commit(self.testDb,

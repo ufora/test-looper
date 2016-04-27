@@ -24,11 +24,13 @@ class Branch(object):
     def __str__(self):
         return self.__repr__()
 
+    # Commit
     def dirtySequentialFailuresCache(self):
         self.sequentialFailuresCache10 = None
         self.sequentialFailuresCache100 = None
         self.sequentialFailuresCache1000 = None
 
+    # Commit
     def failureRateAndIndexForCommitIdAndTest(self, commitId, testType):
         self.updateSequentialFailuresCache()
 
@@ -44,6 +46,7 @@ class Branch(object):
             )
 
 
+    # HttpServer
     def commitIsStatisticallyNoticeableFailureRateBreak(self, commitId, testType):
         self.updateSequentialFailuresCache()
 
@@ -86,6 +89,7 @@ class Branch(object):
                 self.sequentialFailuresCache1000[testName].add(stat.failCount, stat.completedCount)
 
 
+    # TestManager
     def updateRevList(self, revList, testManager):
         if revList != self.commitRevlist:
             self.commitRevlist = revList
@@ -136,6 +140,7 @@ class Branch(object):
 
         return commitList
 
+    # HttpServer
     @property
     def isDeepTest(self):
         if self.isDeepTestCache is not None:
@@ -144,18 +149,22 @@ class Branch(object):
         self.isDeepTestCache = self.testDb.getBranchIsDeepTestBranch(self.branchName)
         return self.isDeepTestCache
 
+    # HttpServer
     def setIsDeepTest(self, isDeepTest):
         self.isDeepTestCache = isDeepTest
         return self.testDb.setBranchIsDeepTestBranch(self.branchName, isDeepTest)
 
+    # Commit, HttpServer
     def targetedTestList(self):
         return self.testDb.getTargetedTestTypesForBranch(self.branchName)
 
+    # HttpServer
     def setTargetedTestList(self, testNames):
         for commit in self.commits.values():
             commit.dirtyTestPriorityCache()
         return self.testDb.setTargetedTestTypesForBranch(self.branchName, testNames)
 
+    # Commit, HttpServer
     def targetedCommitIds(self):
         return list(
             set(self.testDb.getTargetedCommitIdsForBranch(self.branchName)).intersection(
@@ -163,16 +172,18 @@ class Branch(object):
                 )
             )
 
+    # HttpServer
     def setTargetedCommitIds(self, commitIds):
         for commit in self.commits.values():
             commit.dirtyTestPriorityCache()
         return self.testDb.setTargetedCommitIdsForBranch(self.branchName, commitIds)
 
+    # TestManager
     def updateCommitsUnderTest(self, testManager, lock=None):
         if lock:
             lock.release()
         t0 = time.time()
-        commitIdsParentsAndTitles = testManager.github.commitsInRevList(self.commitRevlist)
+        commitIdsParentsAndTitles = testManager.src_ctrl.commitsInRevList(self.commitRevlist)
 
         if lock:
             lock.acquire()
@@ -204,6 +215,7 @@ class Branch(object):
         if diff > .5:
             logging.info("updating commits in memory took %s seconds", diff)
 
+    # HttpServer
     def getPerfDataSummary(self):
         series = {}
 
@@ -221,4 +233,3 @@ class Branch(object):
                     commitDict[test.commitId].append(perfStat.timeElapsed)
 
         return series
-
