@@ -670,8 +670,11 @@ class TestLooperHttpServer(object):
 
 
     def branchesGrid(self):
+        t0 = time.time()
         with self.testManager.lock:
+            lock_time = time.time()
             branches = self.testManager.distinctBranches()
+            branch_list_time = time.time()
 
             grid = [["TEST", "BRANCH NAME", "COMMIT COUNT", "RUNNING",
                      "FULL TEST PASSES", "TOTAL TESTS", ""]]
@@ -697,6 +700,14 @@ class TestLooperHttpServer(object):
                     row.append(self.clearBranchLink(b, "/branches"))
 
                 grid.append(row)
+
+            end_time = time.time()
+            logging.info("branches page timing - Total: %.2f, lock: %.2f, "
+                         "branch_list: %.2f, grid: %.2f",
+                         end_time - t0,
+                         lock_time - t0,
+                         branch_list_time - lock_time,
+                         end_time - branch_list_time)
 
             return grid
 
@@ -908,7 +919,9 @@ class TestLooperHttpServer(object):
         if not self.isAuthenticated():
             return self.authenticate()
 
+        t0 = time.time()
         with self.testManager.lock:
+            lock_time = time.time()
             if branchName not in self.testManager.branches:
                 return self.errorPage("Branch %s doesn't exist" % branchName)
 
@@ -977,7 +990,11 @@ class TestLooperHttpServer(object):
                         )])
                 lastCommit = c
 
+            grid_time = time.time()
+
             perfGrid = self.createBranchPerformanceGrid(branch, prefix=perfprefix)
+
+            perf_time = time.time()
             perfSection = '<br/><p id="perf" />' + \
                 markdown.markdown("### Performance Results  ") + \
                 HtmlGeneration.link(
@@ -997,7 +1014,16 @@ class TestLooperHttpServer(object):
                 "Jump to %s<br/>" % HtmlGeneration.Link(self.currentUrl() + "#perf",
                                                         "Performance Results").render()
                 )
-            return self.commonHeader() + header + HtmlGeneration.grid(grid, header_rows=2) + perfSection
+
+            grid = HtmlGeneration.grid(grid, header_rows=2)
+            rendering_time = time.time()
+
+            logging.info("branch page timing - Total: %.2f, lock: %.2f, grid: %.2f, rendering: %.2f",
+                         rendering_time - t0,
+                         lock_time - t0,
+                         grid_time - lock_time,
+                         rendering_time - grid_time)
+            return self.commonHeader() + header + grid + perfSection
 
 
     @staticmethod
