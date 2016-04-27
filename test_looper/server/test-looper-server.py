@@ -18,12 +18,17 @@ import test_looper.server.TestLooperEc2Connection as TestLooperEc2Connection
 import test_looper.server.TestLooperHttpServer as TestLooperHttpServer
 import test_looper.server.TestLooperServer as TestLooperServer
 import test_looper.server.TestManager as TestManager
-import test_looper.server.TestLooperEc2Machines as TestLooperEc2Machines
-import test_looper.server.TestLooperAutoProvisioner as TestLooperAutoProvisioner
 
 TEST_LOOPER_OAUTH_KEY = "TEST_LOOPER_OAUTH_KEY"
 TEST_LOOPER_OAUTH_SECRET = "TEST_LOOPER_OAUTH_SECRET"
 TEST_LOOPER_GITHUB_ACCESS_TOKEN = "TEST_LOOPER_GITHUB_ACCESS_TOKEN"
+
+available_instance_types_and_core_count = {
+    'c3.xlarge': 4,
+    'c3.8xlarge': 32,
+    'g2.2xlarge': 8,
+    'g2.8xlarge': 32
+    }
 
 def main():
     parsedArgs = createArgumentParser().parse_args()
@@ -156,20 +161,11 @@ def main():
     looper_branch = src_ctrl_config['test_looper_branch']
     http_port = config['server']['http_port'] or parsedArgs.httpPort
 
-    testLooperMachines = None
-    ec2Connection = None
-
-    if not parsedArgs.local:
-        ec2Connection = CreateEc2Connection()
-        testLooperMachines = TestLooperAutoProvisioner.TestLooperAutoProvisioner(
-            testManager,
-            TestLooperEc2Machines.TestLooperEc2Machines(ec2Connection)
-            )
 
     httpServer = TestLooperHttpServer.TestLooperHttpServer(
         testManager,
         CreateEc2Connection,
-        testLooperMachines,
+        available_instance_types_and_core_count,
         src_ctrl,
         str(config['server']['test_looper_webhook_secret']),
         testLooperBranch=looper_branch,
@@ -177,7 +173,7 @@ def main():
         disableAuth=parsedArgs.no_auth
         )
 
-
+    ec2Connection = None if parsedArgs.local else CreateEc2Connection()
     server = TestLooperServer.TestLooperServer(port,
                                                testManager,
                                                httpServer,

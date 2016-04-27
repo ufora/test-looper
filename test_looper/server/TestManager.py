@@ -193,7 +193,7 @@ class TestManager(object):
         return result
 
 
-    def getPossibleCommitsAndTests(self, workerInfo=None, includePeriodicTests=True):
+    def getPossibleCommitsAndTests(self, workerInfo=None):
         """Return a list consisting of all possible commit/test combinations we'd consider running.
 
         Each item the list is a tuple
@@ -204,10 +204,6 @@ class TestManager(object):
         indicating that we don't know the list of commits.
         """
         result = []
-
-        if includePeriodicTests:
-            result += self.getPeriodicTestsToRun()
-
         for commit in self.commits.itervalues():
             if (commit.excludeFromTestingBecauseOfCommitSubject() or
                     commit.buildInProgress() or commit.isBrokenBuild() or
@@ -258,14 +254,6 @@ class TestManager(object):
 
         return result
 
-    def hasPendingPeriodicTests(self):
-        periodic = self.getPeriodicTestsToRun()
-        commitLevelDict = self.computeCommitLevels()
-        for (commit, testName) in periodic:
-            score = self.scoreCommitAndTest(commitLevelDict, commit, testName)
-            if score > 0:
-                return True
-        return False
 
     def getTask_(self, workerInfo):
         """This method is called from a worker machine looking for a test to run. We
@@ -339,21 +327,19 @@ class TestManager(object):
         """Given a set of Commit objects, produce a dictionary from commitId to "level",
         where 'level' is 0 for leaf commits and increases by 1 at each parent."""
         commitLevel = {}
-        commitsById = {}
-        commits = list(self.commits.values())
 
-        for c in commits:
-            commitsById[c.commitId] = c
-
-        parentIds = set([c.parentId for c in commits])
-        leaves = set([c for c in commits if c.commitId not in parentIds])
+        parentIds = set(c.parentId for c in self.commits.itervalues())
+        leaves = set(commit for commit_id, commit in self.commits.iteritems()
+                     if commit_id not in parentIds)
 
         def followChain(commit, level):
             if commit.commitId not in commitLevel or commitLevel[commit.commitId] > level:
                 commitLevel[commit.commitId] = level
 
-                if commit.parentId in commitsById:
-                    followChain(commitsById[commit.parentId], level+1)
+                for parent_commit in (self.commits.get(parent_id)
+                                      for parent_id in commit.parentIds):
+                    if parent_commit:
+                        followChain(parent_commit, level+1)
 
         for l in leaves:
             followChain(l, 0)

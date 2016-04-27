@@ -45,7 +45,7 @@ class TestLooperHttpServer(object):
     def __init__(self,
                  testManager,
                  ec2Factory,
-                 testLooperMachines,
+                 available_instance_types_and_core_count,
                  src_ctrl,
                  test_looper_webhook_secret,
                  testLooperBranch=None,
@@ -58,12 +58,12 @@ class TestLooperHttpServer(object):
         disableAuth - should we disable all authentication and be public?
         """
 
-        self.testLooperMachines = testLooperMachines
+        self.testManager = testManager
+        self.ec2Factory = ec2Factory
+        self.available_instance_types_and_core_count = available_instance_types_and_core_count
         self.testLooperServerLogFile = os.getenv("LOG_FILE")
         self.test_looper_branch = testLooperBranch or 'test-looper'
         self.accessTokenHasPermission = {}
-        self.testManager = testManager
-        self.ec2Factory = ec2Factory
         self.httpPort = httpPortOverride or 80
         self.disableAuth = disableAuth
         self.src_ctrl = src_ctrl
@@ -1388,13 +1388,9 @@ class TestLooperHttpServer(object):
         return grid
 
 
-    def availableInstancesAndCoreCount(self):
-        return self.testLooperMachines.availableInstancesAndCoreCount
-
-
     def get_spot_prices(self, ec2):
         prices = {}
-        for instance_type in (i[0] for i in self.availableInstancesAndCoreCount()):
+        for instance_type in self.available_instance_types_and_core_count.iterkeys():
             prices_by_zone = ec2.currentSpotPrices(instanceType=instance_type)
             prices[instance_type] = {
                 zone: price for zone, price in sorted(prices_by_zone.iteritems())
@@ -1404,7 +1400,7 @@ class TestLooperHttpServer(object):
     def getSpotInstancePriceGrid(self, prices):
         availability_zones = sorted(prices.itervalues().next().keys())
         grid = [["Instance Type"] + availability_zones]
-        for instance_type in (i[0] for i in self.availableInstancesAndCoreCount()):
+        for instance_type in self.available_instance_types_and_core_count.iterkeys():
             grid.append([instance_type] + ["$%s" % prices[instance_type][az]
                                            for az in sorted(prices[instance_type].keys())])
 
@@ -1414,8 +1410,11 @@ class TestLooperHttpServer(object):
     def getAddSpotRequestForm(self, availability_zones):
         instanceTypeDropDown = HtmlGeneration.selectBox(
             'instanceType',
-            [(k, "%s cores (%s)" % (v, k))
-             for k, v in self.availableInstancesAndCoreCount()],
+            [
+                (instance_type, "%s cores (%s)" % (core_count, instance_type))
+                for instance_type, core_count in
+                self.available_instance_types_and_core_count.iteritems()
+            ],
             self.defaultCoreCount)
         availabilityZoneDropDown = HtmlGeneration.selectBox(
             'availabilityZone',
@@ -1540,25 +1539,17 @@ class TestLooperHttpServer(object):
             )
         try:
             maxPrice = float(maxPrice)
-        except:
+        except ValueError:
             return self.commonHeader() + markdown.markdown(
                 "# ERROR\n\nInvalid max price"
                 )
 
-        matchedTuples = [
-            match for match in self.availableInstancesAndCoreCount()
-            if match[0] == instanceType
-            ]
+        coreCount = self.available_instance_types_and_core_count.get(instanceType)
+        if coreCount is None:
+            return self.commonHeader() + markdown.markdown(
+                "# ERROR\n\nInvalid instance type"
+                )
 
-        if len(matchedTuples) == 0:
-            try:
-                maxPrice = float(maxPrice)
-            except:
-                return self.commonHeader() + markdown.markdown(
-                    "# ERROR\n\nInvalid instance type"
-                    )
-
-        coreCount = matchedTuples[0][1]
         ec2 = self.ec2Factory()
         provisioned = 0.0
         min_price = 0.0075 * coreCount
@@ -1597,11 +1588,7 @@ class TestLooperHttpServer(object):
 
         #don't block the webserver itself, so we can do this in a background thread
         refreshInBackgroundThread = threading.Thread(target=self.refreshTestManager)
-
-        t0 = time.time()
-        logging.info("refreshing TestLooperManager")
         refreshInBackgroundThread.start()
-        logging.info("refreshing TestLooperManager took %s seconds", time.time() - t0)
 
 
     @cherrypy.expose
