@@ -1246,7 +1246,7 @@ class TestLooperHttpServer(object):
             commit.totalRunningCount() if commit.totalRunningCount() != 0 else ""
             )
         passRate = commit.passRate()
-        row.append(HtmlGeneration.errRate(1.0 - passRate) if passRate is not None else '')
+        row.append(self.errRate(1.0 - passRate) if passRate is not None else '')
 
         for testGroup in testGroups:
             if testGroups in ungroupedUniqueTestIds:
@@ -1264,7 +1264,7 @@ class TestLooperHttpServer(object):
                 else:
                     row.append("[%s running]" % stat.runningCount)
             else:
-                errRate = HtmlGeneration.errRateAndTestCount(
+                errRate = self.errRateAndTestCount(
                     stat.passCount + stat.failCount,
                     stat.passCount
                     )
@@ -1288,7 +1288,8 @@ class TestLooperHttpServer(object):
                                         testName=testGroup).withTextReplaced(errRate)
                         )
                 else:
-                    row.append(errRate)
+                    row.append(HtmlGeneration.lightGrey(errRate))
+
             if testGroup in ungroupedUniqueTestIds:
                 if commit.isTargetedTest(testGroup):
                     row[-1] = HtmlGeneration.blueBacking(row[-1])
@@ -1304,6 +1305,44 @@ class TestLooperHttpServer(object):
                                           "/branch?branchName=" + branch.branchName))
         row.append(joinLinks(self.branchLink(b.branchName) for b in commit.branches))
         return row
+
+    @staticmethod
+    def errRateAndTestCount(testCount, successCount):
+        if testCount == 0:
+            return "  0     "
+
+        successCount = float(successCount)
+
+        errRate = 1.0 - successCount / testCount
+
+        if errRate == 0.0:
+            return "%4s@%3s%s" % (testCount, 0, "%")
+
+        if errRate < 0.01:
+            errRate *= 10000
+            errText = '.%2s' % int(errRate)
+        elif errRate < 0.1:
+            errRate *= 100
+            errText = '%s.%s' % (int(errRate), int(errRate * 10) % 10)
+        else:
+            errRate *= 100
+            errText = '%3s' % int(errRate)
+
+        return "%4s@%3s" % (testCount, errText) + "%"
+
+
+    @staticmethod
+    def errRate(frac):
+        tr = "%.1f" % (frac * 100) + "%"
+        tr = tr.rjust(6)
+
+        if frac < .1:
+            tr = HtmlGeneration.lightGrey(tr)
+
+        if frac > .9:
+            tr = HtmlGeneration.red(tr)
+
+        return tr
 
 
     @cherrypy.expose

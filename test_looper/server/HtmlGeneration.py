@@ -227,42 +227,6 @@ def blueBacking(text):
 def lightGreyBacking(text):
     return SpanTag(text, {'style': "background-color:#dddddd"})
 
-def errRateAndTestCount(testCount, successCount):
-    if testCount == 0:
-        return "  0     "
-
-    successCount = float(successCount)
-
-    errRate = 1.0 - successCount / testCount
-
-    if errRate == 0.0:
-        return "%4s@%3s%s" % (testCount, 0, "%")
-
-    if errRate < 0.01:
-        errRate *= 10000
-        errText = '.%2s' % int(errRate)
-    elif errRate < 0.1:
-        errRate *= 100
-        errText = '%s.%s' % (int(errRate), int(errRate * 10) % 10)
-    else:
-        errRate *= 100
-        errText = '%3s' % int(errRate)
-
-    return "%4s@%3s" % (testCount, errText) + "%"
-
-
-def errRate(frac):
-    tr = "%.1f" % (frac * 100) + "%"
-    tr = tr.rjust(6)
-
-    if frac < .1:
-        tr = lightGrey(tr)
-
-    if frac > .9:
-        tr = red(tr)
-
-    return tr
-
 def selectBox(name, items, default=None):
     '''
     items - a list of (value, caption) tuples representing the items in the select box.
