@@ -483,14 +483,6 @@ class TestLooperHttpServer(object):
 
             return self.commonHeader() + markdown.markdown(header) + HtmlGeneration.grid(grid)
 
-    @staticmethod
-    def mean_and_stddev(values):
-        if values is None:
-            return None, None
-        mean = float(sum(values))/len(values)
-        stddev = (sum((v - mean)**2 for v in values)/len(values)) ** 0.5
-        return mean, stddev
-
 
 
     @cherrypy.expose
@@ -519,20 +511,6 @@ class TestLooperHttpServer(object):
             if testName is not None:
                 sortedTests = [x for x in sortedTests if x.testName == testName]
 
-            perf_grid = [['NAME', 'RUNS', 'TIME (MEAN)', 'TIME (STDDEV)', 'UNITS (MEAN)',
-                          'UNITS (STDDEV)']]
-            perf_summary = self.summarizePerfResults(sortedTests)
-            for name, summary in sorted(perf_summary.iteritems()):
-                mean_time, stddev_time = summary['time']
-                mean_units, stddev_units = summary['units']
-                perf_grid.append([name,
-                                  summary['count'],
-                                  self.float_to_str(mean_time),
-                                  self.float_to_str(stddev_time),
-                                  self.float_to_str(mean_units),
-                                  self.float_to_str(stddev_units)])
-
-
             grid = self.gridForTestList_(sortedTests, commit=commit, failuresOnly=failuresOnly)
 
             header = """## Commit %s: %s\n""" % (self.sourceLinkForCommit(commit).render(),
@@ -559,18 +537,8 @@ class TestLooperHttpServer(object):
                                     None).withTextReplaced("Show all tests").render()
                     )
 
-            perfSection = ""
-            if len(perf_summary) > 0:
-                header += "Jump to %s<br/>" % HtmlGeneration.Link(self.currentUrl() + "#perf",
-                                                                  "Performance Results").render()
-                perfSection = ('<br/><br/><p id="perf" />' +
-                               markdown.markdown("### Performance Results") +
-                               HtmlGeneration.grid(perf_grid)
-                              )
 
-
-            return self.commonHeader() + markdown.markdown(header) + HtmlGeneration.grid(grid) + \
-                perfSection
+            return self.commonHeader() + markdown.markdown(header) + HtmlGeneration.grid(grid)
 
     def gridForTestList_(self, sortedTests, commit=None, failuresOnly=False):
         grid = [["TEST", "TYPE", "RESULT", "STARTED", "MACHINE", "ELAPSED (MIN)",
@@ -1035,41 +1003,6 @@ class TestLooperHttpServer(object):
             )
 
 
-
-    def summarizePerfResults(self, tests, prefix=''):
-        perf_stats = {}
-        for test in tests:
-            for perf_test in test.getPerformanceTestResults() or []:
-                if not perf_test.name.startswith(prefix):
-                    continue
-
-                stats = perf_stats.get(perf_test.name, {})
-                stats['count'] = stats.get('count', 0) + 1
-                if perf_test.timeElapsed:
-                    times = stats.get('time')
-                    if times is None:
-                        times = []
-                        stats['time'] = times
-                    times.append(perf_test.timeElapsed)
-                if perf_test.metadata and 'n' in perf_test.metadata:
-                    units = stats.get('units')
-                    if units is None:
-                        units = []
-                        stats['units'] = units
-                    units.append(perf_test.metadata['n'])
-                perf_stats[perf_test.name] = stats
-
-        perf_summary = {
-            name: {
-                'count': stats['count'],
-                'time': self.mean_and_stddev(stats.get('time')),
-                'units': self.mean_and_stddev(stats.get('units'))
-                }
-            for name, stats in perf_stats.iteritems()
-            }
-        return perf_summary
-
-
     @staticmethod
     def currentUrl(remove_query_params=None):
         if remove_query_params is None:
@@ -1127,8 +1060,7 @@ class TestLooperHttpServer(object):
                     ])
                 )
             commitIndices[commit.commitId] = len(commitIndices)
-            commit_perf_summary = self.summarizePerfResults(commit.testsById.itervalues(),
-                                                            prefix)
+            commit_perf_summary = commit.summarizePerfResults(prefix)
             for name, summary in commit_perf_summary.iteritems():
                 test_results = perf_results.get(name)
                 if test_results is None:

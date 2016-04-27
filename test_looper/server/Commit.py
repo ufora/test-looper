@@ -24,6 +24,7 @@ class Commit(object):
         self.testsById = {}
         self.testIdsByType = {}
         self.statsByType = {}
+        self.perfTests = {}
         self.isTargetedTestCache = {}
         self.suspiciousnessLevelForTestCache = None
         self.suspiciousnessLevelForTestCacheTime = None
@@ -80,6 +81,8 @@ class Commit(object):
                         )
 
     def clearTestResult(self, testName, testId):
+        test_result = self.testsById[testId]
+
         #this test no longer exists
         del self.testsById[testId]
 
@@ -87,15 +90,39 @@ class Commit(object):
         self.testIdsByType[testName].remove(testId)
 
         #reset the stats for this particular test
-        self.statsByType[testName] = TestStats.TestStats()
-
         #and rebuild them
+        self.statsByType[testName] = TestStats.TestStats()
         for testId in self.testIdsByType[testName]:
             self.statsByType[testName].addTest(self.testsById[testId])
+
+        #remove all perf tests that were part of this test
+        self.removeTestPerfResults(test_result)
+
 
     def testChanged(self, testName):
         if testName in self.statsByType:
             self.statsByType[testName].dirtyCache()
+
+
+    def removeTestPerfResults(self, test_result):
+        for perf_result in test_result.getPerformanceTestResults():
+            self.perfTests[perf_result.name]['results'].remove(perf_result)
+            self.perfTests[perf_result.name]['summary'] = None
+
+
+    def addPerfResultsForTest(self, test_result):
+        for perf_result in test_result.getPerformanceTestResults():
+            results = self.perfTests.get(perf_result.name)
+            if results is None:
+                results = {
+                    'results': [],
+                    'summary': None
+                    }
+                self.perfTests[perf_result.name] = results
+
+            results['results'].append(perf_result)
+            results['summary'] = None
+
 
     def dirtyTestPriorityCache(self):
         self.isTargetedTestCache = {}
@@ -164,9 +191,44 @@ class Commit(object):
             self.statsByType[result.testName] = TestStats.TestStats()
 
         self.statsByType[result.testName].addTest(result)
+        self.addPerfResultsForTest(result)
 
         for branch in self.branches:
             branch.dirtySequentialFailuresCache()
+
+
+    def summarizePerfResults(self, prefix=None):
+        prefix = prefix or ''
+        perfTests = ((name, results) for name, results in self.perfTests.iteritems()
+                     if name.startswith(prefix))
+        summary = {}
+        for name, results in perfTests:
+            test_summary = results['summary']
+            if test_summary is None:
+                test_summary = results['summary'] = self.summarizePerfResultsForTest(
+                    results['results']
+                    )
+            summary[name] = test_summary
+
+        return summary
+
+
+    def summarizePerfResultsForTest(self, results):
+        return {
+            'count': len(results),
+            'time': self.mean_and_stddev([r.timeElapsed for r in results
+                                          if r.timeElapsed]),
+            'units': self.mean_and_stddev([r.metadata['n'] for r in results
+                                           if r.metadata and 'n' in r.metadata])
+            }
+
+    @staticmethod
+    def mean_and_stddev(values):
+        if not values:
+            return None, None
+        mean = float(sum(values))/len(values)
+        stddev = (sum((v - mean)**2 for v in values)/len(values)) ** 0.5
+        return mean, stddev
 
 
     def testStatByType(self, testName):
