@@ -205,6 +205,7 @@ class Commit(object):
         for name, results in perfTests:
             test_summary = results['summary']
             if test_summary is None:
+                logging.info("computing perf summary for %s", name)
                 test_summary = results['summary'] = self.summarizePerfResultsForTest(
                     results['results']
                     )

@@ -986,11 +986,13 @@ class TestLooperHttpServer(object):
             grid = HtmlGeneration.grid(grid, header_rows=2)
             rendering_time = time.time()
 
-            logging.info("branch page timing - Total: %.2f, lock: %.2f, grid: %.2f, rendering: %.2f",
+            logging.info("branch page timing - Total: %.2f, lock: %.2f, grid: %.2f, "
+                         "perf_grid: %.2f, rendering: %.2f",
                          rendering_time - t0,
                          lock_time - t0,
                          grid_time - lock_time,
-                         rendering_time - grid_time)
+                         perf_time - grid_time,
+                         rendering_time - perf_time)
             return self.commonHeader() + header + grid + perfSection
 
 
