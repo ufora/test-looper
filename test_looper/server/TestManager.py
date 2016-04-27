@@ -332,7 +332,7 @@ class TestManager(object):
 
         t0 = time.time()
         branchNames = set(self.src_ctrl.listBranches())
-        logging.info("listing src_ctrl branches took %s seconds", time.time() - t0)
+        logging.info("listing branches took %.2f seconds", time.time() - t0)
 
         if lock:
             lock.acquire()
@@ -370,11 +370,11 @@ class TestManager(object):
                 bottom_commit,
                 self
                 )
-        logging.info("creating new branches took %s seconds", time.time() - t0)
+        logging.info("creating new branches took %.2f seconds", time.time() - t0)
 
         t0 = time.time()
         self.pruneUnusedCommits()
-        logging.info("pruning unused commits took %s seconds", time.time() - t0)
+        logging.info("pruning unused commits took %.2f seconds", time.time() - t0)
 
     def pruneUnusedCommits(self):
         toPrune = set()
