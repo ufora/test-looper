@@ -32,13 +32,13 @@ class HtmlElement(object):
         return [self]
 
     def __add__(self, other):
-        if isinstance(other, (basestring)):
+        if isinstance(other, basestring):
             return self + HtmlString(other)
 
         return HtmlElements(self.elementList() + other.elementList())
 
     def __radd__(self, other):
-        if isinstance(other, (basestring)):
+        if isinstance(other, basestring):
             return HtmlString(other) + self
 
         return HtmlElements(other.elementList() + self.elementList())
@@ -65,6 +65,12 @@ class TextTag(HtmlElement):
 
 class ParagraphTag(TextTag):
     def __init__(self, contained, mods):
+        if isinstance(contained, TextTag):
+            for k, v in contained.mods.iteritems():
+                mod = mods.get(k)
+                mods[k] = "%s %s" % (mod, v) if k else v
+            contained = contained.contained
+
         super(ParagraphTag, self).__init__('p', contained, mods)
 
 
