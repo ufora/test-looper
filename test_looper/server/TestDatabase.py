@@ -67,7 +67,7 @@ class TestDatabase(object):
     def setTargetedCommitIdsForBranch(self, branchname, commitIds):
         return self.kvStore.set("branch_targeted_commit_ids_" + branchname, commitIds)
 
-    def getBranchIsDeepTestBranch(self, branchname):
+    def getBranchIsUnderTest(self, branchname):
         result = self.kvStore.get("branch_is_deep_test_" + branchname)
         if result is None:
             if branchname == "origin/master":
@@ -76,5 +76,5 @@ class TestDatabase(object):
                 return False
         return result
 
-    def setBranchIsDeepTestBranch(self, branchname, isDeep):
-        return self.kvStore.set("branch_is_deep_test_" + branchname, isDeep)
+    def setBranchIsUnderTest(self, branchname, isUnderTest):
+        return self.kvStore.set("branch_is_deep_test_" + branchname, isUnderTest)

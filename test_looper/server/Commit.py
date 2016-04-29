@@ -148,11 +148,8 @@ class Commit(object):
         return False
 
     @property
-    def isDeepTest(self):
-        for b in self.branches:
-            if b.isDeepTest:
-                return True
-        return False
+    def isUnderTest(self):
+        return any(b.isUnderTest for b in self.branches)
 
     def __repr__(self):
         return "Commit(commitId='%s', parentId='%s', subject='%s')" % \
@@ -288,7 +285,7 @@ class Commit(object):
                buildStats.failCount == buildStats.completedCount
 
     def totalPassesNeeded(self):
-        return Commit.DEEP_TEST_PASS_COUNT if self.isDeepTest \
+        return Commit.DEEP_TEST_PASS_COUNT if self.isUnderTest \
                                            else Commit.SMOKE_TEST_PASS_COUNT
 
     def buildInProgress(self):
@@ -307,7 +304,7 @@ class Commit(object):
             )
 
     def isSmokeTestCommitAndHasEnoughRuns(self):
-        return (not self.isDeepTest) and self.fullPassesCompleted() >= self.SMOKE_TEST_PASS_COUNT
+        return (not self.isUnderTest) and self.fullPassesCompleted() >= self.SMOKE_TEST_PASS_COUNT
 
     def totalCompletedTestRuns(self):
         ''' The total number of tests run in all categories.'''
@@ -359,8 +356,8 @@ class Commit(object):
             return 0
         return stats.runningCount + stats.passCount + stats.failCount
 
-    def isDeepTestAndFailureRateIsHighEnoughToStopTesting(self):
-        return self.isDeepTest and (
+    def isUnderTestAndFailureRateIsHighEnoughToStopTesting(self):
+        return self.isUnderTest and (
                 self.fullPassesCompleted() > 4 and self.passRate() < .25
             or  self.fullPassesCompleted() > 10 and self.passRate() < .5
             )

@@ -299,7 +299,7 @@ class TestLooperHttpServer(object):
                     commit.totalNonTimedOutRuns(testName),
                     commit.runningCount(testName),
                     commit.timeoutCount(testName),
-                    str(not commit.isDeepTest),
+                    str(not commit.isUnderTest),
                     joinLinks(self.branchLink(b.branchName) for b in commit.branches),
                     self.sourceLinkForCommit(commit)
                     ])
@@ -613,26 +613,26 @@ class TestLooperHttpServer(object):
 
 
     @staticmethod
-    def toggleBranchDeeptestingLink(branch):
-        icon = "glyphicon-pause" if branch.isDeepTest else "glyphicon-play"
-        hover_text = "%s testing this branch" % ("Pause" if branch.isDeepTest else "Start")
+    def toggleBranchUnderTestLink(branch):
+        icon = "glyphicon-pause" if branch.isUnderTest else "glyphicon-play"
+        hover_text = "%s testing this branch" % ("Pause" if branch.isUnderTest else "Start")
         return HtmlGeneration.Link(
-            "/toggleBranchDeeptest?branchName=" + branch.branchName,
+            "/toggleBranchUnderTest?branchName=" + branch.branchName,
             '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
             is_button=True,
-            button_style="btn-xs " + ("btn-success active" if branch.isDeepTest else "btn-default"),
+            button_style="btn-xs " + ("btn-success active" if branch.isUnderTest else "btn-default"),
             hover_text=hover_text
             )
 
 
     @cherrypy.expose
-    def toggleBranchDeeptest(self, branchName):
+    def toggleBranchUnderTest(self, branchName):
         if not self.isAuthenticated():
             return self.authenticate()
 
         with self.testManager.lock:
             branch = self.testManager.branches[branchName]
-            branch.setIsDeepTest(not branch.isDeepTest)
+            branch.setIsUnderTest(not branch.isUnderTest)
 
         raise cherrypy.HTTPRedirect("/branches")
 
@@ -652,7 +652,7 @@ class TestLooperHttpServer(object):
                 commits = branch.commits.values()
 
                 row = []
-                row.append(self.toggleBranchDeeptestingLink(branch))
+                row.append(self.toggleBranchUnderTestLink(branch))
                 row.append(HtmlGeneration.link(b, "/branch?branchName=" + b))
                 row.append(str(len(commits)))
 

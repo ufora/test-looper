@@ -121,7 +121,7 @@ class TestManager(object):
         for commit in self.commits.itervalues():
             if (commit.excludeFromTestingBecauseOfCommitSubject() or
                     commit.buildInProgress() or commit.isBrokenBuild() or
-                    not commit.isDeepTest):
+                    not commit.isUnderTest):
                 continue
 
             if commit.needsBuild():

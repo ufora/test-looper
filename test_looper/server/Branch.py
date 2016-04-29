@@ -12,7 +12,7 @@ class Branch(object):
         self.commitIdToIndex = {}
 
         self.commitRevlist = commitRevlist
-        self.isDeepTestCache = None
+        self.isUnderTest_ = None
         self.sequentialFailuresCache10 = None
         self.sequentialFailuresCache100 = None
         self.sequentialFailuresCache1000 = None
@@ -142,17 +142,17 @@ class Branch(object):
 
     # HttpServer
     @property
-    def isDeepTest(self):
-        if self.isDeepTestCache is not None:
-            return self.isDeepTestCache
+    def isUnderTest(self):
+        if self.isUnderTest_ is not None:
+            return self.isUnderTest_
 
-        self.isDeepTestCache = self.testDb.getBranchIsDeepTestBranch(self.branchName)
-        return self.isDeepTestCache
+        self.isUnderTest_ = self.testDb.getBranchIsUnderTest(self.branchName)
+        return self.isUnderTest_
 
     # HttpServer
-    def setIsDeepTest(self, isDeepTest):
-        self.isDeepTestCache = isDeepTest
-        return self.testDb.setBranchIsDeepTestBranch(self.branchName, isDeepTest)
+    def setIsUnderTest(self, isUnderTest):
+        self.isUnderTest_ = isUnderTest
+        return self.testDb.setBranchIsUnderTest(self.branchName, isUnderTest)
 
     # Commit, HttpServer
     def targetedTestList(self):
