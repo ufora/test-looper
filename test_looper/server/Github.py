@@ -11,8 +11,12 @@ from test_looper.server.Git import Git
 
 def verify_webhook_request(headers, body, secret):
     signature = "sha1=" + hmac.new(secret, body, hashlib.sha1).hexdigest()
-    if 'X-HUB-SIGNATURE' not in headers or headers['X-HUB-SIGNATURE'] != signature:
+    if ('X-GitHub-Event' not in headers or 'X-HUB-SIGNATURE' not in headers or
+            headers['X-HUB-SIGNATURE'] != signature):
         return None
+
+    if headers['X-GitHub-Event'] != 'push':
+        return {}
 
     payload = simplejson.loads(body)
     return {

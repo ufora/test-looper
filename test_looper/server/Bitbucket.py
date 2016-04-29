@@ -74,15 +74,20 @@ class Bitbucket(Git):
 
 
     def verify_webhook_request(self, headers, body):
-        if 'X-Hook-UUID' not in headers or headers['X-Hook-UUID'] != self.webhook_secret:
+        if ('X-Hook-UUID' not in headers or 'X-Event-Key' not in headers or
+                headers['X-Hook-UUID'] != self.webhook_secret):
             logging.error("Failed to verify webhook request:\nHeaders: %s\nBody:%s",
                           headers,
                           body)
             return None
 
+        if headers['X-Event-Key'] != 'repo:push':
+            return {}
+
         payload = simplejson.loads(body)
+        change = payload['push']['changes'][0]
         return {
-            'branch': payload['push']['changes'][0]['new']['name'],
+            'branch': change['new']['name'] if 'new' in change else change['old']['name'],
             'repo': payload['repository']['name']
             }
 
