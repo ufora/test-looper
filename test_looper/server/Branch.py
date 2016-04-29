@@ -207,10 +207,12 @@ class Branch(object):
                 self.commits[commitId].branches.add(self)
                 self.commits[commitId].dirtyTestPriorityCache()
 
-        self.commitsInOrder = Branch.orderCommits(self.commits.values())
+        self.commitsInOrder = [self.commits[c] for c, _, _ in commitIdsParentsAndTitles]
+        self.commitIdToIndex = {
+            commit.commitId: index
+            for index, commit in enumerate(self.commitsInOrder)
+            }
 
-        for index, commit in enumerate(self.commitsInOrder):
-            self.commitIdToIndex[commit.commitId] = index
         diff = time.time() - t0
         if diff > .5:
             logging.info("updating commits in memory took %s seconds", diff)
