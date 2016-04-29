@@ -99,9 +99,10 @@ class Commit(object):
         self.removeTestPerfResults(test_result)
 
 
-    def testChanged(self, testName):
+    def testChanged(self, testName, result):
         if testName in self.statsByType:
             self.statsByType[testName].dirtyCache()
+        self.addPerfResultsForTest(result)
 
 
     def removeTestPerfResults(self, test_result):

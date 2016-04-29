@@ -220,9 +220,9 @@ class TestManager(object):
             logging.warn("Commit id %s not found in test manager commits", commitId)
             return
         test = self.commits[commitId].testsById[testId]
-        self.commits[commitId].testChanged(test.testName)
 
         test.recordMachineResult(result)
+        self.commits[commitId].testChanged(test.testName, test)
         self.testDb.updateTestResult(test)
 
     def computeCommitLevels(self):
