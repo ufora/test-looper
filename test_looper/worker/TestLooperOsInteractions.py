@@ -181,7 +181,7 @@ class TestLooperOsInteractions(object):
         logging.info("Fetching from origin")
         subprocess.check_call(['git fetch origin'], shell=True)
 
-    def resetToCommit(self, revision):
+    def resetToCommit(self, revision, log_filename):
         logging.info("Resetting to revision %s", revision)
         toCall = 'git reset --hard ' + revision
         attempts = 0
@@ -194,18 +194,27 @@ class TestLooperOsInteractions(object):
                 self.pullLatest()
         if attempts <= 2:
             logging.info("updating git submodules")
-            self.updateSubmodules()
-            return True
+            try:
+                self.updateSubmodules(log_filename)
+                return True
+            except subprocess.CalledProcessError:
+                logging.info("Failed to update git submodules")
+                return False
 
         logging.error("Failed to reset repo after %d attempts", attempts)
         return False
 
 
     @staticmethod
-    def updateSubmodules():
-        subprocess.check_call(
-            'git submodule deinit -f . && git submodule init && git submodule update',
-            shell=True)
+    def updateSubmodules(log_filename):
+        with open(log_filename, 'a') as f:
+            command = 'git submodule deinit -f . && git submodule init && git submodule update'
+            f.write(command + '\n')
+            subprocess.check_call(
+                command,
+                stdout=f,
+                stderr=f,
+                shell=True)
 
 
     @staticmethod
@@ -301,7 +310,7 @@ class TestLooperOsInteractions(object):
         build_env.update(env)
 
         with self.directoryScope(self.directories.repo_dir):
-            return self.resetToCommit(commit_id) and \
+            return self.resetToCommit(commit_id, build_log) and \
                    self.run_command(build_command, build_log, build_env, timeout, heartbeat)
 
 
