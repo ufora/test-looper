@@ -197,7 +197,7 @@ class Session(object):
 
 class TestLooperServer(SimpleServer.SimpleServer):
     #if we modify this protocol version, the loopers should reboot and pull a new copy of the code
-    protocolVersion = '2.2.5'
+    protocolVersion = '2.2.6'
 
     def __init__(self, port, testManager, httpServer, ec2Connection):
         """
