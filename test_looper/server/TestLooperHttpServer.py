@@ -48,14 +48,14 @@ class TestLooperHttpServer(object):
                  src_ctrl,
                  test_looper_webhook_secret,
                  event_log,
+                 auth_level,
                  testLooperBranch=None,
-                 httpPortOverride=None,
-                 disableAuth=False):
+                 httpPortOverride=None):
         """Initialize the TestLooperHttpServer
 
         testManager - a TestManager.TestManager object
         httpPortOverride - the port to listen on for http requests
-        disableAuth - should we disable all authentication and be public?
+        auth_level - should we disable all authentication and be public?
         """
 
         self.testManager = testManager
@@ -65,7 +65,7 @@ class TestLooperHttpServer(object):
         self.test_looper_branch = testLooperBranch or 'test-looper'
         self.accessTokenHasPermission = {}
         self.httpPort = httpPortOverride or 80
-        self.disableAuth = disableAuth
+        self.auth_level = auth_level
         self.src_ctrl = src_ctrl
         self.test_looper_webhook_secret = test_looper_webhook_secret
         self.eventLog = event_log
@@ -76,8 +76,8 @@ class TestLooperHttpServer(object):
     def addLogMessage(self, format_string, *args, **kwargs):
         self.eventLog.addLogMessage(self.getCurrentLogin(), format_string, *args, **kwargs)
 
-    def isAuthenticated(self):
-        if self.disableAuth:
+    def isAuthenticated(self, write_permission=False):
+        if self.auth_level == 'none' or (self.auth_level == 'write' and not write_permission):
             return True
 
         if 'github_access_token' not in cherrypy.session:
@@ -100,7 +100,7 @@ class TestLooperHttpServer(object):
         return True
 
     def getCurrentLogin(self):
-        if self.disableAuth:
+        if self.auth_level == 'none':
             return "<auth disabled>"
 
         if 'github_login' not in cherrypy.session:
@@ -354,7 +354,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def clearCommit(self, commitId, redirect):
-        if not self.isAuthenticated():
+        if not self.isAuthenticated(write_permission=True):
             return self.authenticate()
 
         with self.testManager.lock:
@@ -364,7 +364,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def clearBranch(self, branch, redirect=None):
-        if not self.isAuthenticated():
+        if not self.isAuthenticated(write_permission=True):
             return self.authenticate()
 
         with self.testManager.lock:
@@ -442,7 +442,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def terminateMachine(self, machineId):
-        if not self.isAuthenticated():
+        if not self.isAuthenticated(write_permission=True):
             return self.authenticate()
 
         ec2 = self.ec2Factory()
@@ -627,7 +627,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def toggleBranchUnderTest(self, branchName):
-        if not self.isAuthenticated():
+        if not self.isAuthenticated(write_permission=True):
             return self.authenticate()
 
         with self.testManager.lock:
@@ -694,7 +694,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def disableAllTargetedTests(self):
-        if not self.isAuthenticated():
+        if not self.isAuthenticated(write_permission=True):
             return self.authenticate()
 
         with self.testManager.lock:
@@ -819,7 +819,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def toggleBranchTestTargeting(self, branchName, testType, testGroupsToExpand):
-        if not self.isAuthenticated():
+        if not self.isAuthenticated(write_permission=True):
             return self.authenticate()
 
         with self.testManager.lock:
@@ -841,7 +841,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def toggleBranchCommitTargeting(self, branchName, commitId):
-        if not self.isAuthenticated():
+        if not self.isAuthenticated(write_permissions=True):
             return self.authenticate()
         logging.warn("branch name: %s, commit id: %s", branchName, commitId)
         with self.testManager.lock:
@@ -1485,7 +1485,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def cancelAllSpotRequests(self, instanceType=None):
-        if not self.isAuthenticated():
+        if not self.isAuthenticated(write_permission=True):
             return self.authenticate()
 
         ec2 = self.ec2Factory()
@@ -1504,7 +1504,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def cancelSpotRequests(self, requestIds):
-        if not self.isAuthenticated():
+        if not self.isAuthenticated(write_permissions=True):
             return self.authenticate()
         requestIds = requestIds.split(',')
 
@@ -1527,7 +1527,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def addSpotRequests(self, instanceType, maxPrice, availabilityZone):
-        if not self.isAuthenticated():
+        if not self.isAuthenticated(write_permissions=True):
             return self.authenticate()
 
         logging.info(

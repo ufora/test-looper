@@ -39,18 +39,18 @@ def main():
 
     src_ctrl_config = config.get('github') or config.get('bitbucket', {})
     oauth_key = src_ctrl_config.get('oauth_key') or os.getenv(TEST_LOOPER_OAUTH_KEY)
-    if oauth_key is None and not parsedArgs.no_auth:
+    if oauth_key is None and parsedArgs.auth != 'none':
         logging.critical("Either 'oauth.key' config setting or %s must be set.",
                          TEST_LOOPER_OAUTH_KEY)
 
     oauth_secret = src_ctrl_config.get('oauth_secret') or os.getenv(TEST_LOOPER_OAUTH_SECRET)
-    if oauth_secret is None and not parsedArgs.no_auth:
+    if oauth_secret is None and parsedArgs.auth != 'none':
         logging.critical("Either 'oauth.secret' config setting or %s must be set.",
                          TEST_LOOPER_OAUTH_SECRET)
 
     github_access_token = src_ctrl_config.get('access_token') or \
         os.getenv(TEST_LOOPER_GITHUB_ACCESS_TOKEN)
-    if github_access_token is None and not parsedArgs.no_auth:
+    if github_access_token is None and parsedArgs.auth != 'none':
         logging.critical("Either 'github.access_token' config setting or %s must be set.",
                          TEST_LOOPER_GITHUB_ACCESS_TOKEN)
 
@@ -170,9 +170,9 @@ def main():
         src_ctrl,
         str(config['server']['test_looper_webhook_secret']),
         event_log=TestLooperHttpServerEventLog(RedisJsonStore()),
+        auth_level=parsedArgs.auth,
         testLooperBranch=looper_branch,
-        httpPortOverride=http_port,
-        disableAuth=parsedArgs.no_auth
+        httpPortOverride=http_port
         )
 
     ec2Connection = None if parsedArgs.local else CreateEc2Connection()
@@ -224,11 +224,13 @@ def createArgumentParser():
                         action='store_true',
                         help="Run locally without EC2")
 
-    parser.add_argument("--no-auth",
-                        action='store_true',
-                        help="Disable authentication")
-
-
+    parser.add_argument("--auth",
+                        choices=['full', 'write', 'none'],
+                        default='full',
+                        help=("Authentication requirements.\n"
+                              "Full: no unauthenticated access\n"
+                              "Write: must authenticate to write\n"
+                              "None: open, unauthenticated access"))
 
     return parser
 
