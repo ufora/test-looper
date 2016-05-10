@@ -1387,7 +1387,7 @@ class TestLooperHttpServer(object):
 
     def get_spot_prices(self, ec2):
         prices = {}
-        for instance_type in self.available_instance_types_and_core_count.iterkeys():
+        for instance_type, _ in self.available_instance_types_and_core_count:
             prices_by_zone = ec2.currentSpotPrices(instanceType=instance_type)
             prices[instance_type] = {
                 zone: price for zone, price in sorted(prices_by_zone.iteritems())
@@ -1397,7 +1397,7 @@ class TestLooperHttpServer(object):
     def getSpotInstancePriceGrid(self, prices):
         availability_zones = sorted(prices.itervalues().next().keys())
         grid = [["Instance Type"] + availability_zones]
-        for instance_type in self.available_instance_types_and_core_count.iterkeys():
+        for instance_type, _ in self.available_instance_types_and_core_count:
             grid.append([instance_type] + ["$%s" % prices[instance_type][az]
                                            for az in sorted(prices[instance_type].keys())])
 
@@ -1410,7 +1410,7 @@ class TestLooperHttpServer(object):
             [
                 (instance_type, "%s cores (%s)" % (core_count, instance_type))
                 for instance_type, core_count in
-                self.available_instance_types_and_core_count.iteritems()
+                self.available_instance_types_and_core_count
             ],
             self.defaultCoreCount)
         availabilityZoneDropDown = HtmlGeneration.selectBox(
@@ -1541,15 +1541,16 @@ class TestLooperHttpServer(object):
                 "# ERROR\n\nInvalid max price"
                 )
 
-        coreCount = self.available_instance_types_and_core_count.get(instanceType)
-        if coreCount is None:
+        coreCount = [c for i, c in self.available_instance_types_and_core_count
+                     if i == instanceType]
+        if not coreCount:
             return self.commonHeader() + markdown.markdown(
                 "# ERROR\n\nInvalid instance type"
                 )
 
         ec2 = self.ec2Factory()
         provisioned = 0.0
-        min_price = 0.0075 * coreCount
+        min_price = 0.0075 * coreCount[0]
         while True:
             provisioned += 1
             bid = maxPrice / provisioned

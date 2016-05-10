@@ -24,12 +24,12 @@ TEST_LOOPER_OAUTH_KEY = "TEST_LOOPER_OAUTH_KEY"
 TEST_LOOPER_OAUTH_SECRET = "TEST_LOOPER_OAUTH_SECRET"
 TEST_LOOPER_GITHUB_ACCESS_TOKEN = "TEST_LOOPER_GITHUB_ACCESS_TOKEN"
 
-available_instance_types_and_core_count = {
-    'c3.xlarge': 4,
-    'c3.8xlarge': 32,
-    'g2.2xlarge': 8,
-    'g2.8xlarge': 32
-    }
+available_instance_types_and_core_count = [
+    ('c3.xlarge', 4),
+    ('c3.8xlarge', 32),
+    ('g2.2xlarge', 8),
+    ('g2.8xlarge', 32)
+    ]
 
 def main():
     parsedArgs = createArgumentParser().parse_args()
