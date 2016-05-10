@@ -8,7 +8,6 @@ import time
 import logging
 import threading
 import markdown
-import simplejson
 import urllib
 import pytz
 
@@ -76,47 +75,62 @@ class TestLooperHttpServer(object):
     def addLogMessage(self, format_string, *args, **kwargs):
         self.eventLog.addLogMessage(self.getCurrentLogin(), format_string, *args, **kwargs)
 
-    def isAuthenticated(self, write_permission=False):
-        if self.auth_level == 'none' or (self.auth_level == 'write' and not write_permission):
-            return True
-
-        if 'github_access_token' not in cherrypy.session:
-            return False
-
-        token = cherrypy.session['github_access_token']
-
-        if token not in self.accessTokenHasPermission:
-            self.accessTokenHasPermission[token] = \
-                self.src_ctrl.authorize_access_token(token)
-
-            self.addLogMessage(
-                "Authorization: %s",
-                "Granted" if self.accessTokenHasPermission[token] else "Denied"
-                )
-
-        if not self.accessTokenHasPermission[token]:
-            raise cherrypy.HTTPError(403, "You are not authorized to access this repository")
-
-        return True
 
     def getCurrentLogin(self):
-        if self.auth_level == 'none':
-            return "<auth disabled>"
+        login = cherrypy.session.get('github_login', None)
+        if login is None and self.is_authenticated():
+            token = self.access_token()
+            login = cherrypy.session['github_login'] = self.src_ctrl.getUserNameFromToken(token)
+        return login or "Guest"
 
-        if 'github_login' not in cherrypy.session:
-            assert 'github_access_token' in cherrypy.session
-
-            token = cherrypy.session['github_access_token']
-
-            cherrypy.session['github_login'] = self.src_ctrl.getUserNameFromToken(token)
-
-        return cherrypy.session['github_login']
 
     def authenticate(self):
         #stash the current url
-        origRequest = self.currentUrl()
-        cherrypy.session['redirect_after_authentication'] = origRequest
+        self.save_current_url()
         raise cherrypy.HTTPRedirect(self.src_ctrl.authenticationUrl())
+
+
+    def save_current_url(self):
+        cherrypy.session['redirect_after_authentication'] = self.currentUrl()
+
+
+    @staticmethod
+    def is_authenticated():
+        return 'github_access_token' in cherrypy.session
+
+
+    @staticmethod
+    def access_token():
+        return cherrypy.session['github_access_token']
+
+
+    def can_write(self):
+        return self.authorize(read_only=False)
+
+
+    def authorize(self, read_only):
+        if self.auth_level == 'none' or (self.auth_level == 'write' and read_only):
+            return True
+
+        if not self.is_authenticated():
+            self.authenticate()
+        else:
+            token = self.access_token()
+            is_authorized = self.accessTokenHasPermission.get(token)
+            if is_authorized is None:
+                is_authorized = self.src_ctrl.authorize_access_token(token)
+                self.accessTokenHasPermission[token] = is_authorized
+
+                self.addLogMessage(
+                    "Authorization: %s",
+                    "Granted" if is_authorized else "Denied"
+                    )
+
+            if not is_authorized:
+                raise cherrypy.HTTPError(403, "You are not authorized to access this repository")
+
+            return True
+
 
     @cherrypy.expose
     def logout(self):
@@ -128,10 +142,12 @@ class TestLooperHttpServer(object):
 
         raise cherrypy.HTTPRedirect("/")
 
+
     @cherrypy.expose
     def githubAuthCallback(self, code):
         # kept for backward compatibility
         return self.oauth_callback(code)
+
 
     @cherrypy.expose
     def oauth_callback(self, code):
@@ -145,24 +161,22 @@ class TestLooperHttpServer(object):
         cherrypy.session['github_access_token'] = access_token
 
         raise cherrypy.HTTPRedirect(
-            cherrypy.session['redirect_after_authentication'] if
-                'redirect_after_authentication' in cherrypy.session else '/'
+            cherrypy.session.pop('redirect_after_authentication', None) or '/'
             )
+
 
     def errorPage(self, errorMessage):
         return self.commonHeader() + "\n" + markdown.markdown("#ERROR\n\n" + errorMessage)
 
+
     @cherrypy.expose
     def index(self):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
         raise cherrypy.HTTPRedirect("/branches")
+
 
     @cherrypy.expose
     def test(self, testId):
-        if not self.isAuthenticated():
-            return self.authenticate()
+        self.authorize(read_only=True)
 
         with self.testManager.lock:
             test = self.testManager.getTestById(testId)
@@ -243,9 +257,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def testPrioritization(self):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
+        self.authorize(read_only=True)
         return (
             self.commonHeader() +
             HtmlGeneration.grid(
@@ -358,8 +370,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def clearCommit(self, commitId, redirect):
-        if not self.isAuthenticated(write_permission=True):
-            return self.authenticate()
+        self.authorize(read_only=False)
 
         with self.testManager.lock:
             self.testManager.clearCommitId(commitId)
@@ -368,8 +379,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def clearBranch(self, branch, redirect=None):
-        if not self.isAuthenticated(write_permission=True):
-            return self.authenticate()
+        self.authorize(read_only=False)
 
         with self.testManager.lock:
             commits = self.testManager.branches[branch].commits
@@ -382,8 +392,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def machines(self):
-        if not self.isAuthenticated():
-            return self.authenticate()
+        self.authorize(read_only=True)
 
         ec2 = self.ec2Factory()
         instancesByIp = {
@@ -446,8 +455,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def terminateMachine(self, machineId):
-        if not self.isAuthenticated(write_permission=True):
-            return self.authenticate()
+        self.authorize(read_only=False)
 
         ec2 = self.ec2Factory()
         instancesByIp = {
@@ -464,8 +472,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def machine(self, machineId):
-        if not self.isAuthenticated():
-            return self.authenticate()
+        self.authorize(read_only=True)
 
         with self.testManager.lock:
             tests = []
@@ -491,8 +498,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def commit(self, commitId, failuresOnly=False, testName=None):
-        if not self.isAuthenticated():
-            return self.authenticate()
+        self.authorize(read_only=True)
 
         with self.testManager.lock:
             if commitId not in self.testManager.commits:
@@ -591,13 +597,23 @@ class TestLooperHttpServer(object):
     def machineLink(machine):
         return HtmlGeneration.link(machine, "/machine?machineId="+machine)
 
+
+    def login_link(self):
+        self.save_current_url()
+        return '<a href="%s">Login</a>' % self.src_ctrl.authenticationUrl()
+
+
+    def logout_link(self):
+        return ('<a href="/logout">'
+                'Logout [%s] <span class="glyphicon glyphicon-user" aria-hidden="true"/>'
+                '</a>') % self.getCurrentLogin()
+
+
     def commonHeader(self):
         headers = []
         headers.append(
-            '''<div align="right"><h5>
-                <a href="/logout">
-                Logout [%s] <span class="glyphicon glyphicon-user" aria-hidden="true"/>
-                </a></h5></div>''' % self.getCurrentLogin()
+            '<div align="right"><h5>%s</h5></div>' % (
+                self.logout_link() if self.is_authenticated() else self.login_link())
             )
         nav_links = [
             ('Branches', '/branches'),
@@ -631,8 +647,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def toggleBranchUnderTest(self, branchName):
-        if not self.isAuthenticated(write_permission=True):
-            return self.authenticate()
+        self.authorize(read_only=False)
 
         with self.testManager.lock:
             branch = self.testManager.branches[branchName]
@@ -685,8 +700,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def branches(self):
-        if not self.isAuthenticated():
-            return self.authenticate()
+        self.authorize(read_only=True)
 
         grid = HtmlGeneration.grid(self.branchesGrid())
         grid += HtmlGeneration.Link("/disableAllTargetedTests",
@@ -698,8 +712,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def disableAllTargetedTests(self):
-        if not self.isAuthenticated(write_permission=True):
-            return self.authenticate()
+        self.authorize(read_only=False)
 
         with self.testManager.lock:
             for branch in self.testManager.branches.itervalues():
@@ -711,8 +724,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def branchPerformance(self, branchName, prefix=""):
-        if not self.isAuthenticated():
-            return self.authenticate()
+        self.authorize(read_only=True)
 
         if not branchName in self.testManager.branches:
             return self.errorPage("Branch %s not found" % branchName)
@@ -823,8 +835,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def toggleBranchTestTargeting(self, branchName, testType, testGroupsToExpand):
-        if not self.isAuthenticated(write_permission=True):
-            return self.authenticate()
+        self.authorize(read_only=False)
 
         with self.testManager.lock:
             branch = self.testManager.branches[branchName]
@@ -845,8 +856,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def toggleBranchCommitTargeting(self, branchName, commitId):
-        if not self.isAuthenticated(write_permissions=True):
-            return self.authenticate()
+        self.authorize(read_only=False)
         logging.warn("branch name: %s, commit id: %s", branchName, commitId)
         with self.testManager.lock:
             branch = self.testManager.branches[branchName]
@@ -888,8 +898,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def branch(self, branchName, testGroupsToExpand=None, perfprefix=None):
-        if not self.isAuthenticated():
-            return self.authenticate()
+        self.authorize(read_only=True)
 
         t0 = time.time()
         with self.testManager.lock:
@@ -1311,9 +1320,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def eventLogs(self):
-        if not self.isAuthenticated():
-            return self.authenticate()
-
+        self.authorize(read_only=True)
         return self.commonHeader() + self.generateEventLogHtml(1000)
 
 
@@ -1444,12 +1451,9 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def spotRequests(self):
-        if not self.isAuthenticated():
-            return self.authenticate()
+        self.authorize(read_only=True)
 
         ec2 = self.ec2Factory()
-
-
         spot_prices = self.get_spot_prices(ec2)
 
         grid = self.getCurrentSpotRequestGrid(ec2)
@@ -1489,8 +1493,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def cancelAllSpotRequests(self, instanceType=None):
-        if not self.isAuthenticated(write_permission=True):
-            return self.authenticate()
+        self.authorize(read_only=False)
 
         ec2 = self.ec2Factory()
         spotRequests = ec2.getLooperSpotRequests()
@@ -1508,8 +1511,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def cancelSpotRequests(self, requestIds):
-        if not self.isAuthenticated(write_permissions=True):
-            return self.authenticate()
+        self.authorize(read_only=False)
         requestIds = requestIds.split(',')
 
         ec2 = self.ec2Factory()
@@ -1531,8 +1533,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def addSpotRequests(self, instanceType, maxPrice, availabilityZone):
-        if not self.isAuthenticated(write_permissions=True):
-            return self.authenticate()
+        self.authorize(read_only=False)
 
         logging.info(
             "Add spot request. Instance type: %s, max price: %s, az: %s",
