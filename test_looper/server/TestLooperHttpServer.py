@@ -120,7 +120,11 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def logout(self):
-        cherrypy.session.pop('github_access_token', None)
+        token = cherrypy.session.pop('github_access_token', None)
+        if token and token in self.accessTokenHasPermission:
+            del self.accessTokenHasPermission[token]
+
+        cherrypy.session.pop('github_login')
 
         raise cherrypy.HTTPRedirect("/")
 
