@@ -105,31 +105,42 @@ class TestLooperHttpServer(object):
 
 
     def can_write(self):
-        return self.authorize(read_only=False)
+        if self.auth_level == 'none':
+            return True
+
+        if not self.is_authenticated():
+            return False
+
+        token = self.access_token()
+        is_authorized = self.accessTokenHasPermission.get(token)
+        if is_authorized is None:
+            is_authorized = self.src_ctrl.authorize_access_token(token)
+            self.accessTokenHasPermission[token] = is_authorized
+
+            self.addLogMessage(
+                "Authorization: %s",
+                "Granted" if is_authorized else "Denied"
+                )
+        return is_authorized
 
 
     def authorize(self, read_only):
         if self.auth_level == 'none' or (self.auth_level == 'write' and read_only):
-            return True
+            return
 
         if not self.is_authenticated():
+            # this redirects to the login page. Authorization will take place
+            # again once the user is redirected back to the app.
             self.authenticate()
         else:
-            token = self.access_token()
-            is_authorized = self.accessTokenHasPermission.get(token)
-            if is_authorized is None:
-                is_authorized = self.src_ctrl.authorize_access_token(token)
-                self.accessTokenHasPermission[token] = is_authorized
+            if self.can_write():
+                return
 
-                self.addLogMessage(
-                    "Authorization: %s",
-                    "Granted" if is_authorized else "Denied"
-                    )
-
-            if not is_authorized:
-                raise cherrypy.HTTPError(403, "You are not authorized to access this repository")
-
-            return True
+            message = (
+                "You are not authorized to access this repository" if read_only else
+                "You are not authorized to perform the requested operation"
+                )
+            raise cherrypy.HTTPError(403, message)
 
 
     @cherrypy.expose
@@ -347,22 +358,29 @@ class TestLooperHttpServer(object):
     def branchLink(branch):
         return HtmlGeneration.link(branch, "/branch?branchName=%s" % branch)
 
-    @staticmethod
-    def clearBranchLink(branch, redirect):
-        return HtmlGeneration.Link(
+
+    def disable_if_cant_write(self, style):
+        if self.can_write() or "disabled" in style:
+            return style
+        return style + " disabled"
+
+
+    def small_clear_button(self, url, label=None):
+        label = label or "clear"
+        return HtmlGeneration.Link(url,
+                                   label,
+                                   is_button=True,
+                                   button_style=self.disable_if_cant_write('btn-danger btn-xs'))
+
+
+    def clearBranchLink(self, branch, redirect):
+        return self.small_clear_button(
             "/clearBranch?" + urllib.urlencode({'branch':branch, 'redirect': redirect}),
-            "clear",
-            is_button=True,
-            button_style="btn-danger btn-xs"
             )
 
-    @staticmethod
-    def clearCommitIdLink(commitId, redirect):
-        return HtmlGeneration.Link(
+    def clearCommitIdLink(self, commitId, redirect):
+        return self.small_clear_button(
             "/clearCommit?" + urllib.urlencode({'commitId': commitId, 'redirect': redirect}),
-            "clear",
-            is_button=True,
-            button_style="btn-danger btn-xs"
             )
 
     def sourceLinkForCommit(self, commit):
@@ -440,9 +458,9 @@ class TestLooperHttpServer(object):
                     row.append(spot_request.status.code if spot_request else '')
 
                     row.append(
-                        HtmlGeneration.link(
-                            "[terminate]",
-                            "/terminateMachine?machineId=" + machineId
+                        self.small_clear_button(
+                            "/terminateMachine?machineId=" + machineId,
+                            "terminate"
                             )
                         )
                 else:
@@ -632,15 +650,15 @@ class TestLooperHttpServer(object):
         return HtmlGeneration.headers + "\n" + "\n".join(headers)
 
 
-    @staticmethod
-    def toggleBranchUnderTestLink(branch):
+    def toggleBranchUnderTestLink(self, branch):
         icon = "glyphicon-pause" if branch.isUnderTest else "glyphicon-play"
         hover_text = "%s testing this branch" % ("Pause" if branch.isUnderTest else "Start")
+        button_style = "btn-xs " + ("btn-success active" if branch.isUnderTest else "btn-default")
         return HtmlGeneration.Link(
             "/toggleBranchUnderTest?branchName=" + branch.branchName,
             '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
             is_button=True,
-            button_style="btn-xs " + ("btn-success active" if branch.isUnderTest else "btn-default"),
+            button_style=self.disable_if_cant_write(button_style),
             hover_text=hover_text
             )
 
@@ -705,7 +723,8 @@ class TestLooperHttpServer(object):
         grid = HtmlGeneration.grid(self.branchesGrid())
         grid += HtmlGeneration.Link("/disableAllTargetedTests",
                                     "Stop all drilling",
-                                    is_button=True).render()
+                                    is_button=True,
+                                    button_style=self.disable_if_cant_write("btn-default")).render()
 
         return self.commonHeader() + grid
 
@@ -800,26 +819,26 @@ class TestLooperHttpServer(object):
             "/branchPerformance?branchName=" + branchName + "&prefix=" + seriesName
             )
 
-    @staticmethod
-    def toggleBranchTargetedTestListLink(branch, testType, testGroupsToExpand):
+    def toggleBranchTargetedTestListLink(self, branch, testType, testGroupsToExpand):
         is_drilling = testType in branch.targetedTestList()
         icon = "glyphicon-minus" if is_drilling else "glyphicon-plus"
         hover_text = "Run less of this test" if is_drilling else "Run more of this test"
+        button_style = "btn-default btn-xs" + (" active" if is_drilling else "")
         return HtmlGeneration.Link(
             "/toggleBranchTestTargeting?branchName=%s&testType=%s&testGroupsToExpand=%s" % (
                 branch.branchName, testType, testGroupsToExpand
                 ),
             '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
             is_button=True,
-            button_style="btn-default btn-xs" + (" active" if is_drilling else ""),
+            button_style=self.disable_if_cant_write(button_style),
             hover_text=hover_text
             )
 
-    @staticmethod
-    def toggleBranchTargetedCommitIdLink(branch, commitId):
+    def toggleBranchTargetedCommitIdLink(self, branch, commitId):
         is_drilling = commitId in branch.targetedCommitIds()
         icon = "glyphicon-minus" if is_drilling else "glyphicon-plus"
         hover_text = "Run less of this commit" if is_drilling else "Run more of this commit"
+        button_style = "btn-default btn-xs" + (" active" if is_drilling else "")
         return HtmlGeneration.HtmlElements([
             HtmlGeneration.Link(
                 "/toggleBranchCommitTargeting?branchName=%s&commitId=%s" % (
@@ -827,7 +846,7 @@ class TestLooperHttpServer(object):
                     ),
                 '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
                 is_button=True,
-                button_style="btn-default btn-xs" + (" active" if is_drilling else ""),
+                button_style=self.disable_if_cant_write(button_style),
                 hover_text=hover_text
                 ),
             HtmlGeneration.HtmlString(HtmlGeneration.whitespace * 2)
@@ -1378,7 +1397,7 @@ class TestLooperHttpServer(object):
                         ),
                     "cancel",
                     is_button=True,
-                    button_style="btn-danger btn-xs"
+                    button_style=self.disable_if_cant_write("btn-danger btn-xs")
                     ),
                 request.launch_specification.instance_type,
                 str(countsByState.get('active', 0)),
@@ -1459,15 +1478,16 @@ class TestLooperHttpServer(object):
         grid = self.getCurrentSpotRequestGrid(ec2)
         has_open_requests = len(grid) > 1 and len(grid[1]) > 1
 
-        clearAll = HtmlGeneration.Link("/cancelAllSpotRequests",
-                                       "Cancel all requests",
-                                       is_button=True,
-                                       button_style="btn-danger" + (
-                                           "" if has_open_requests else " disabled"
-                                       )).render()
+        button_style = "btn-danger" + ("" if has_open_requests else " disabled")
+        clearAll = HtmlGeneration.Link(
+            "/cancelAllSpotRequests",
+            "Cancel all requests",
+            is_button=True,
+            button_style=self.disable_if_cant_write(button_style)
+            ).render()
 
         availability_zones = spot_prices.itervalues().next().keys()
-        addForm = self.getAddSpotRequestForm(availability_zones)
+        addForm = (self.getAddSpotRequestForm(availability_zones) if self.can_write() else '')
 
         spotPrices = self.getSpotInstancePriceGrid(spot_prices)
 
