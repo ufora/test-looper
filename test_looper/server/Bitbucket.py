@@ -87,7 +87,8 @@ class Bitbucket(Git):
         payload = simplejson.loads(body)
         change = payload['push']['changes'][0]
         return {
-            'branch': change['new']['name'] if 'new' in change else change['old']['name'],
+            'branch': change['new']['name'] if 'new' in change and change['new'] is not None \
+                else change['old']['name'],
             'repo': payload['repository']['name']
             }
 
