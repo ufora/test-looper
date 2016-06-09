@@ -162,7 +162,6 @@ def main():
     looper_branch = src_ctrl_config['test_looper_branch']
     http_port = config['server']['http_port'] or parsedArgs.httpPort
 
-
     httpServer = TestLooperHttpServer.TestLooperHttpServer(
         testManager,
         CreateEc2Connection,
@@ -172,7 +171,8 @@ def main():
         event_log=TestLooperHttpServerEventLog(RedisJsonStore()),
         auth_level=parsedArgs.auth,
         testLooperBranch=looper_branch,
-        httpPortOverride=http_port
+        httpPortOverride=http_port,
+        enable_advanced_views=config['server'].get('enable_advanced_views', False)
         )
 
     ec2Connection = None if parsedArgs.local else CreateEc2Connection()

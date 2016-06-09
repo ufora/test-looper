@@ -49,12 +49,15 @@ class TestLooperHttpServer(object):
                  event_log,
                  auth_level,
                  testLooperBranch=None,
-                 httpPortOverride=None):
+                 httpPortOverride=None,
+                 enable_advanced_views=False):
         """Initialize the TestLooperHttpServer
 
         testManager - a TestManager.TestManager object
         httpPortOverride - the port to listen on for http requests
-        auth_level - should we disable all authentication and be public?
+        auth_level - none: no authentication at all
+                     write: need authentication for "write" operations
+                     full: must authenticate to access anything
         """
 
         self.testManager = testManager
@@ -70,6 +73,7 @@ class TestLooperHttpServer(object):
         self.eventLog = event_log
         self.eventLog.addLogMessage("test-looper", "TestLooper initialized")
         self.defaultCoreCount = 4
+        self.enable_advanced_views = enable_advanced_views
 
 
     def addLogMessage(self, format_string, *args, **kwargs):
@@ -635,11 +639,14 @@ class TestLooperHttpServer(object):
             )
         nav_links = [
             ('Branches', '/branches'),
-            ('Test Queue', '/testPrioritization'),
             ('Spot Requests', '/spotRequests'),
-            ('Workers', '/machines'),
-            ('Activity Log', '/eventLogs')
+            ('Workers', '/machines')
             ]
+        if self.enable_advanced_views:
+            nav_links += [
+                ('Activity Log', '/eventLogs'),
+                ('Test Queue', '/testPrioritization')
+                ]
         headers += ['<ul class="nav nav-pills">'] + [
             '<li role="presentation" class="{is_active}"><a href="{link}">{label}</a></li>'.format(
                 is_active="active" if link == cherrypy.request.path_info else "",
