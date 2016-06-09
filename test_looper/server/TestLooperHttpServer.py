@@ -75,6 +75,10 @@ class TestLooperHttpServer(object):
         self.defaultCoreCount = 4
         self.enable_advanced_views = enable_advanced_views
 
+        self.refresh_lock = threading.Lock()
+        self.need_refresh = False
+        self.refresh_thread = None
+
 
     def addLogMessage(self, format_string, *args, **kwargs):
         self.eventLog.addLogMessage(self.getCurrentLogin(), format_string, *args, **kwargs)
@@ -681,6 +685,24 @@ class TestLooperHttpServer(object):
         raise cherrypy.HTTPRedirect("/branches")
 
 
+    @cherrypy.expose
+    def refresh(self):
+        self.refreshBranches(block=True)
+        raise cherrypy.HTTPRedirect("/branches")
+
+
+    def refreshBranches(self, block=True):
+        with self.refresh_lock:
+            self.need_refresh = True
+            if self.refresh_thread is None:
+                self.refresh_thread = threading.Thread(target=self.refreshTestManager)
+                self.refresh_thread.start()
+            refresh_thread = self.refresh_thread
+
+        if block:
+            refresh_thread.join()
+
+
     def branchesGrid(self):
         t0 = time.time()
         with self.testManager.lock:
@@ -688,8 +710,16 @@ class TestLooperHttpServer(object):
             branches = self.testManager.distinctBranches()
             branch_list_time = time.time()
 
+            refresh_button = HtmlGeneration.Link(
+                "/refresh",
+                '<span class="glyphicon glyphicon-refresh " aria-hidden="true" />',
+                is_button=True,
+                button_style='btn-default btn-xs',
+                hover_text='Refresh branches'
+                )
+
             grid = [["TEST", "BRANCH NAME", "COMMIT COUNT", "RUNNING",
-                     "FULL TEST PASSES", "TOTAL TESTS", ""]]
+                     "FULL TEST PASSES", "TOTAL TESTS", refresh_button]]
 
             for b in sorted(branches):
                 branch = self.testManager.branches[b]
@@ -1617,8 +1647,7 @@ class TestLooperHttpServer(object):
             raise cherrypy.HTTPError(400, "Invalid webhook request")
 
         #don't block the webserver itself, so we can do this in a background thread
-        refreshInBackgroundThread = threading.Thread(target=self.refreshTestManager)
-        refreshInBackgroundThread.start()
+        self.refreshBranches(block=False)
 
 
     @cherrypy.expose
@@ -1653,8 +1682,19 @@ class TestLooperHttpServer(object):
         os._exit(0)
 
     def refreshTestManager(self):
-        with self.testManager.lock:
-            self.testManager.updateBranchesUnderTest()
+        need_refresh = True
+        while need_refresh:
+            with self.refresh_lock:
+                self.need_refresh = False
+
+            with self.testManager.lock:
+                self.testManager.updateBranchesUnderTest()
+
+            with self.refresh_lock:
+                need_refresh = self.need_refresh
+
+        with self.refresh_lock:
+            self.refresh_thread = None
 
 
     def start(self):
