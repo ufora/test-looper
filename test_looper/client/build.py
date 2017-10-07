@@ -19,7 +19,7 @@ import sys
 import uuid
 
 import test_looper.client.env as env
-from test_looper.client.docker import Docker
+from test_looper.tools.Docker import Docker
 
 
 def build(build_command=None,

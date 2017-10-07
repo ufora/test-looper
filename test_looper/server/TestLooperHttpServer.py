@@ -11,7 +11,7 @@ import markdown
 import urllib
 import pytz
 
-import test_looper.server.Github as Github
+import test_looper.server.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.server.PerformanceDataset as PerformanceDataset
 
@@ -42,7 +42,7 @@ def joinLinks(linkList):
 class TestLooperHttpServer(object):
     def __init__(self,
                  testManager,
-                 ec2Factory,
+                 aws_ec2_connection,
                  available_instance_types_and_core_count,
                  src_ctrl,
                  test_looper_webhook_secret,
@@ -61,7 +61,7 @@ class TestLooperHttpServer(object):
         """
 
         self.testManager = testManager
-        self.ec2Factory = ec2Factory
+        self.aws_ec2_connection = aws_ec2_connection
         self.available_instance_types_and_core_count = available_instance_types_and_core_count
         self.testLooperServerLogFile = os.getenv("LOG_FILE")
         self.test_looper_branch = testLooperBranch or 'test-looper'
@@ -93,9 +93,14 @@ class TestLooperHttpServer(object):
 
 
     def authenticate(self):
-        #stash the current url
-        self.save_current_url()
-        raise cherrypy.HTTPRedirect(self.src_ctrl.authenticationUrl())
+        auth_url = self.src_ctrl.authenticationUrl()
+
+        if auth_url is not None:
+            #stash the current url
+            self.save_current_url()
+            raise cherrypy.HTTPRedirect(auth_url)
+        else:
+            cherrypy.session['github_access_token'] = "DUMMY"
 
 
     def save_current_url(self):
@@ -285,7 +290,7 @@ class TestLooperHttpServer(object):
             )
 
     def testResultDownloadUrl(self, testId, key):
-        ec2 = self.ec2Factory()
+        ec2 = self.aws_ec2_connection
         keys = list(ec2.openTestResultBucket().list(prefix=testId + "/" + key))
 
         logging.info("Prefix = %s. keys = %s. key = %s", testId, keys, key)
@@ -295,7 +300,7 @@ class TestLooperHttpServer(object):
         return key.generate_url(expires_in=300)
 
     def testResultKeys(self, testId):
-        ec2 = self.ec2Factory()
+        ec2 = self.aws_ec2_connection
         keys = list(ec2.openTestResultBucket().list(prefix=testId))
 
         result = []
@@ -392,7 +397,12 @@ class TestLooperHttpServer(object):
             )
 
     def sourceLinkForCommit(self, commit):
-        return HtmlGeneration.link(commit.commitId[:7], self.src_ctrl.commit_url(commit.commitId))
+        url = self.src_ctrl.commit_url(commit.commitId)
+        if url:
+            return HtmlGeneration.link(commit.commitId[:7], url)
+        else:
+            return HtmlGeneration.lightGrey(commit.commitId[:7])
+
 
     @cherrypy.expose
     def clearCommit(self, commitId, redirect):
@@ -420,7 +430,7 @@ class TestLooperHttpServer(object):
     def machines(self):
         self.authorize(read_only=True)
 
-        ec2 = self.ec2Factory()
+        ec2 = self.aws_ec2_connection
         instancesByIp = {
             i.ip_address or i.private_ip_address: i
             for i in  ec2.getLooperInstances()
@@ -483,7 +493,7 @@ class TestLooperHttpServer(object):
     def terminateMachine(self, machineId):
         self.authorize(read_only=False)
 
-        ec2 = self.ec2Factory()
+        ec2 = self.aws_ec2_connection
         instancesByIp = {
             i.ip_address or i.private_ip_address: i
             for i in  ec2.getLooperInstances()
@@ -1509,7 +1519,7 @@ class TestLooperHttpServer(object):
     def spotRequests(self):
         self.authorize(read_only=True)
 
-        ec2 = self.ec2Factory()
+        ec2 = self.aws_ec2_connection
         spot_prices = self.get_spot_prices(ec2)
 
         grid = self.getCurrentSpotRequestGrid(ec2)
@@ -1552,7 +1562,7 @@ class TestLooperHttpServer(object):
     def cancelAllSpotRequests(self, instanceType=None):
         self.authorize(read_only=False)
 
-        ec2 = self.ec2Factory()
+        ec2 = self.aws_ec2_connection
         spotRequests = ec2.getLooperSpotRequests()
         if instanceType is not None:
             spotRequests = {
@@ -1571,7 +1581,7 @@ class TestLooperHttpServer(object):
         self.authorize(read_only=False)
         requestIds = requestIds.split(',')
 
-        ec2 = self.ec2Factory()
+        ec2 = self.aws_ec2_connection
         spotRequests = ec2.getLooperSpotRequests()
 
         print "requestIds:", requestIds, "type:", type(requestIds)
@@ -1610,7 +1620,7 @@ class TestLooperHttpServer(object):
                 "# ERROR\n\nInvalid instance type"
                 )
 
-        ec2 = self.ec2Factory()
+        ec2 = self.aws_ec2_connection
         provisioned = 0.0
         min_price = 0.0075 * coreCount[0]
         while True:

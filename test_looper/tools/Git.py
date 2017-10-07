@@ -2,28 +2,50 @@ import cPickle as pickle
 import logging
 import subprocess
 import traceback
+import os
 
 import test_looper.core.OutOfProcessDownloader as OutOfProcessDownloader
 
+class DirectoryScope:
+    def __init__(self, path):
+        self.old_path = None
+        self.path = path
+
+    def __enter__(self, *args):
+        self.old_path = os.getcwd()
+        os.chdir(self.path)
+
+    def __exit__(self, *args):
+        os.chdir(self.old_path)
+
+
 class SubprocessCheckCall(object):
-    def __init__(self, args, kwds):
+    def __init__(self, path, args, kwds):
+        self.path = path
         self.args = args
         self.kwds = kwds
 
     def __call__(self):
-        return pickle.dumps(subprocess.check_call(*self.args, **self.kwds))
+        with DirectoryScope(self.path):
+            return pickle.dumps(subprocess.check_call(*self.args, **self.kwds))
 
 class SubprocessCheckOutput(object):
-    def __init__(self, args, kwds):
+    def __init__(self, path, args, kwds):
+        self.path = path
         self.args = args
         self.kwds = kwds
 
     def __call__(self):
-        return pickle.dumps(subprocess.check_output(*self.args, **self.kwds))
+        with DirectoryScope(self.path):
+            return pickle.dumps(subprocess.check_output(*self.args, **self.kwds))
 
 
 class Git(object):
-    def __init__(self):
+    def __init__(self, path_to_repo=None):
+        if path_to_repo is None:
+            path_to_repo = os.getcwd()
+
+        self.path_to_repo = path_to_repo
         self.outOfProcessDownloaderPool = \
             OutOfProcessDownloader.OutOfProcessDownloaderPool(1, dontImportSetup=True)
 
@@ -52,14 +74,18 @@ class Git(object):
         if not commitRange:
             return []
 
-        command = 'git --no-pager log --topo-order ' + \
-                commitRange + ' --format=format:"%H %P -- %s"'
-        try:
-            lines = self.subprocessCheckOutput(command, shell=True).strip().split('\n')
-        except subprocess.CalledProcessError:
-            stack = ''.join(traceback.format_stack())
-            logging.error("error fetching revlist %s\n%s", commitRange, stack)
-            raise ValueError("error fetching '%s'" % commitRange)
+        lines = None
+        while lines is None:
+            try:
+                command = 'git --no-pager log --topo-order ' + \
+                        commitRange + ' --format=format:"%H %P -- %s"'
+
+                lines = self.subprocessCheckOutput(command, shell=True).strip().split('\n')
+            except Exception:
+                if commitRange.endswith("^"):
+                    commitRange = commitRange[:-1]
+                else:
+                    raise Exception("error fetching '%s'" % commitRange)
 
 
         lines = [l.strip() for l in lines if l]
@@ -98,13 +124,13 @@ class Git(object):
     def subprocessCheckCall(self, *args, **kwds):
         return pickle.loads(
             self.outOfProcessDownloaderPool.executeAndReturnResultAsString(
-                SubprocessCheckCall(args, kwds)
+                SubprocessCheckCall(self.path_to_repo, args, kwds)
                 )
             )
 
     def subprocessCheckOutput(self, *args, **kwds):
         return pickle.loads(
             self.outOfProcessDownloaderPool.executeAndReturnResultAsString(
-                SubprocessCheckOutput(args, kwds)
+                SubprocessCheckOutput(self.path_to_repo, args, kwds)
                 )
             )

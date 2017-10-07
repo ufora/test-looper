@@ -6,7 +6,7 @@ import requests
 import simplejson
 
 from test_looper.core.TestScriptDefinition import TestScriptDefinition
-from test_looper.server.Git import Git
+from test_looper.tools.Git import Git
 
 
 def verify_webhook_request(headers, body, secret):

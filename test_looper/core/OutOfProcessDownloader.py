@@ -168,7 +168,7 @@ class OutOfProcessDownloader:
                                 traceback.format_exc()
                                 )
 
-                        outgoingMessage = pickle.dumps(e)
+                        outgoingMessage = str(e)
                         isException = True
                     finally:
                         if heartbeatLogger:
@@ -200,7 +200,7 @@ class OutOfProcessDownloader:
                                 traceback.format_exc()
                                 )
 
-                        outgoingMessage = pickle.dumps(e)
+                        outgoingMessage = str(e)
                         isException = True
 
 
@@ -215,6 +215,7 @@ class OutOfProcessDownloader:
         finally:
             #bail
             if self.actuallyRunOutOfProcess:
+                logging.error("OutOfProcessDownloader exiting")
                 os._exit(0)
 
     def executeAndCallback(self, toExecute, callbackTakingFDAndSize):
@@ -238,7 +239,7 @@ class OutOfProcessDownloader:
 
             if isException:
                 pickledException = os.read(self.parentReadFD, msgSize)
-                raise pickle.loads(pickledException)
+                raise Exception(pickledException)
             else:
                 callbackTakingFDAndSize(self.parentReadFD, msgSize)
 
