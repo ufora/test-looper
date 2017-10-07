@@ -651,16 +651,23 @@ class TestLooperHttpServer(object):
             '<div align="right"><h5>%s</h5></div>' % (
                 self.logout_link() if self.is_authenticated() else self.login_link())
             )
+
         nav_links = [
-            ('Branches', '/branches'),
-            ('Spot Requests', '/spotRequests'),
-            ('Workers', '/machines')
+            ('Branches', '/branches')
             ]
+
+        if self.aws_ec2_connection is not None:
+            nav_links += [
+                ('Spot Requests', '/spotRequests'),
+                ('Workers', '/machines')
+                ]
+
         if self.enable_advanced_views:
             nav_links += [
                 ('Activity Log', '/eventLogs'),
                 ('Test Queue', '/testPrioritization')
                 ]
+        
         headers += ['<ul class="nav nav-pills">'] + [
             '<li role="presentation" class="{is_active}"><a href="{link}">{label}</a></li>'.format(
                 is_active="active" if link == cherrypy.request.path_info else "",
