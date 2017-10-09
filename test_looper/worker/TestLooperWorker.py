@@ -34,7 +34,7 @@ TestLooperSettings = collections.namedtuple(
         'testLooperClientFactory',
         'artifactsFileName',
         'timeout',
-        'awsConnector',
+        'artifactStorage',
         'coreDumpsDir',
         'repoName'
     ])
@@ -162,14 +162,14 @@ class TestLooperWorker(object):
 
 
     def run_build_task(self, test, build_command):
-        task_id = test.testId
+        testId = test.testId
         commit_id = test.commitId
 
-        if self.settings.awsConnector.build_exists(self.s3_key_name_for_commit(commit_id)):
+        if self.settings.artifactStorage.build_exists(self.key_name_for_commit(commit_id)):
             return self.create_test_result(True, test)
 
         def heartbeat():
-            return self.sendHeartbeat(self.testLooperClient, task_id, commit_id)
+            return self.sendHeartbeat(self.testLooperClient, testId, commit_id)
 
         os_interactions = self.settings.osInteractions
         build_output_dir = os_interactions.createNextTestDirForCommit(commit_id)
@@ -182,11 +182,12 @@ class TestLooperWorker(object):
                      self.upload_build(commit_id, build_output_dir)
         if not is_success:
             logging.info("Failed to build commit: %s", commit_id)
-            os_interactions.uploadTestArtifacts(
-                self.settings.awsConnector.get_test_result_bucket(),
-                '%s/%s' % (task_id, self.ownMachineInfo.machineName),
+            self.settings.artifactStorage.uploadTestArtifacts(
+                testId, 
+                self.ownMachineInfo.machineName, 
                 build_output_dir
                 )
+
         return self.create_test_result(is_success, test)
 
 
@@ -196,19 +197,17 @@ class TestLooperWorker(object):
 
         package_file = self.download_build(commit_id, test_dir)
         package_dir = self.settings.osInteractions.extract_package(package_file, test_dir)
-        if 'ufora' in package_dir:
-            # This is a hack for backward-compatibility with the ufora repo
-            lib_dir = os.path.join(package_dir, 'lib')
-            if os.path.exists(lib_dir):
-                package_dir = lib_dir
 
-        command = test_definition.testScriptPath
+        command = test_definition.testCommand
         if test_definition.client_version:
             venv_activate = self.settings.osInteractions.create_test_virtualenv(
                 test_dir,
                 test_definition.client_version
                 )
             command = "source %s; %s" % (venv_activate, command)
+
+        logging.info("")
+        logging.info("package_dir is %s", package_dir)
 
         with self.settings.osInteractions.directoryScope(package_dir):
             test_output_dir = os.path.join(test_dir, 'output')
@@ -235,9 +234,9 @@ class TestLooperWorker(object):
             if not is_success:
                 heartbeat()
                 logging.info("machine %s uploading artifacts", self.ownMachineInfo.machineName)
-                self.settings.osInteractions.uploadTestArtifacts(
-                    self.settings.awsConnector.get_test_result_bucket(),
-                    "%s/%s" % (target_test.testId, self.ownMachineInfo.machineName),
+                self.settings.artifactStorage.uploadTestArtifacts(
+                    target_test.testId,
+                    self.ownMachineInfo.machineName,
                     test_output_dir
                     )
 
@@ -289,18 +288,15 @@ class TestLooperWorker(object):
             return False
 
         self.settings.osInteractions.cache_build(commit_id, package_filename)
-        s3_key_name = self.s3_key_name_for_commit(commit_id)
+        s3_key_name = self.key_name_for_commit(commit_id)
         try:
-            logging.info("Uploading build '%s' to %s",
-                         package_filename,
-                         self.settings.awsConnector.get_build_s3_url(s3_key_name))
-            self.settings.awsConnector.upload_build(s3_key_name,
+            self.settings.artifactStorage.upload_build(s3_key_name,
                                                     package_filename)
             return True
         except:
             logging.error("Failed to upload package '%s' to %s\n%s",
                           package_filename,
-                          self.settings.awsConnector.get_build_s3_url(s3_key_name),
+                          s3_key_name,
                           traceback.format_exc())
             return False
 
@@ -311,7 +307,7 @@ class TestLooperWorker(object):
             package_file = os.path.join(test_dir,
                                         self.package_name_for_commit(commit_id))
             logging.info("Downloading build to: %s", package_file)
-            self.settings.awsConnector.download_build(self.s3_key_name_for_commit(commit_id),
+            self.settings.artifactStorage.download_build(self.key_name_for_commit(commit_id),
                                                       package_file)
             self.settings.osInteractions.cache_build(commit_id, package_file)
         else:
@@ -325,7 +321,7 @@ class TestLooperWorker(object):
             'TEST_REPO': self.settings.repoName,
             'OUTPUT_DIR': test_output_dir,
             'CORE_DUMP_DIR': self.settings.coreDumpsDir,
-            'UFORA_PERFORMANCE_TEST_RESULTS_FILE': self.perf_test_output_file, # back-compat
+            'PERFORMANCE_TEST_RESULTS_FILE': self.perf_test_output_file, # back-compat
             'TEST_LOOPER_PERFORMANCE_TEST_RESULTS_FILE': self.perf_test_output_file,
             'TEST_LOOPER_TEST_ID': test.testId,
             'TEST_LOOPER_TEST_NAME': test.testName,
@@ -337,10 +333,9 @@ class TestLooperWorker(object):
 
     def runTestUsingScript(self, script, env_overrides, heartbeat, output_dir):
         test_logfile = os.path.join(output_dir, 'test_out.log')
-        logging.info("Machine %s is logging to %s",
+        logging.info("Machine %s is logging to %s with",
                      self.ownMachineInfo.machineName,
                      test_logfile)
-
         success = False
         try:
             success = self.settings.osInteractions.run_command(
@@ -365,7 +360,7 @@ class TestLooperWorker(object):
         return "%s-%s.tar.gz" % (self.settings.repoName, commit_id)
 
 
-    def s3_key_name_for_commit(self, commit_id):
+    def key_name_for_commit(self, commit_id):
         return "%s/%s" % (commit_id, self.package_name_for_commit(commit_id))
 
 

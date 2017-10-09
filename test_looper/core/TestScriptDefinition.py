@@ -11,13 +11,13 @@ class TestScriptDefinition(object):
 
     def __init__(self,
                  testName,
-                 testScriptPath,
+                 testCommand,
                  machines,
                  client_version,
                  periodicTest=False,
                  periodicTestPeriodInHours=defaultPeriodicTestPeriodInHours):
         self.testName = testName
-        self.testScriptPath = testScriptPath
+        self.testCommand = testCommand
         self.client_version = client_version
 
         if 'count' not in machines:
@@ -39,7 +39,7 @@ class TestScriptDefinition(object):
     def toJson(self):
         return {
             'name': self.testName,
-            'command': self.testScriptPath,
+            'command': self.testCommand,
             'machines': self.machines,
             'client_version': self.client_version,
             'periodicTest': self.periodicTest,
@@ -50,13 +50,11 @@ class TestScriptDefinition(object):
     def fromJson(json, client_version=None):
         client_version = client_version or \
                          json.get('client_verion')
-        if 'testName' in json:
-            return TestScriptDefinition.fromJson_old(json, client_version)
-
+        
         return TestScriptDefinition(
             json['name'],
             json['command'],
-            json['machines'],
+            json.get('machines', {'count': 1, 'cores_min': 0}),
             client_version
             )
 
@@ -91,46 +89,11 @@ class TestScriptDefinition(object):
         return definitions
 
 
-    ###########
-    # Backward compatibility for old testDefinitions.json format
-    # This entire section can eventually be removed
-    validMachineDescriptions = set(["2core", "8core", "32core"])
-    @staticmethod
-    def old_machineCount_to_machines(machineCount):
-        assert len(machineCount) == 1
-        machine, count = machineCount.iteritems().next()
-        assert machine in TestScriptDefinition.validMachineDescriptions
-        if machine == "2core":
-            cores = 4
-        elif machine == "8core":
-            cores = 8
-        elif machine == "32core":
-            cores = 32
-        return {"cores": cores, "count": count}
-
-    @staticmethod
-    def fromJson_old(json, client_version):
-        machines = TestScriptDefinition.old_machineCount_to_machines(json['machineCount'])
-        if 'gpuTest' in json:
-            machines['gpu'] = True
-
-        return TestScriptDefinition(
-            json['testName'],
-            "./make.sh test %s" % json['testScriptPath'],
-            machines,
-            client_version,
-            json['periodicTest'] if 'periodicTest' in json else False,
-            json['periodicTestPeriodInHours'] if 'periodicTestPeriodInHours' in json \
-                else TestScriptDefinition.defaultPeriodicTestPeriodInHours
-            )
-    # End of back-compat section
-    ########
-
 
     def __repr__(self):
-        return ("TestScriptDefinition(testName=%s, testScriptPath=%s, machines=%s, "
+        return ("TestScriptDefinition(testName=%s, testCommand=%s, machines=%s, "
                 "periodicTest=%s,periodicTestPeriodInHours=%s)") % (self.testName,
-                                                                    self.testScriptPath,
+                                                                    self.testCommand,
                                                                     self.machines,
                                                                     self.periodicTest,
                                                                     self.periodicTestPeriodInHours)

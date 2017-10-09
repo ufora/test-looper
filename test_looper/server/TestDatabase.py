@@ -1,10 +1,13 @@
+import logging
 import test_looper.core.TestResult as TestResult
 from test_looper.core.TestScriptDefinition import TestScriptDefinition
 
 class TestDatabase(object):
-    def __init__(self, kvStore):
+    def __init__(self, kvStore, dbPrefix):
         self.kvStore = kvStore
-        self.dbPrefix = "1_"
+        self.dbPrefix = dbPrefix
+
+        logging.info("Initializing TestDatabase with prefix %s", dbPrefix)
 
     def getTestIdsForCommit(self, commitId):
         tests = self.kvStore.get(self.dbPrefix + "commit_tests_" + commitId)
@@ -46,29 +49,31 @@ class TestDatabase(object):
         self.kvStore.set(self.dbPrefix + "test_" + result.testId, result.toJson())
 
     def getTestScriptDefinitionsForCommit(self, commitId):
-        res = self.kvStore.get("commit_test_definitions_" + commitId)
+        res = self.kvStore.get(self.dbPrefix + "commit_test_definitions_" + commitId)
         if res is None:
             return None
+
+        logging.info("Getting %s cached test definitions for %s", len(res), commitId)
 
         return [TestScriptDefinition.fromJson(x) for x in res]
 
     def setTestScriptDefinitionsForCommit(self, commit, result):
-        self.kvStore.set("commit_test_definitions_" + commit, [x.toJson() for x in result])
+        self.kvStore.set(self.dbPrefix + "commit_test_definitions_" + commit, [x.toJson() for x in result])
 
     def getTargetedTestTypesForBranch(self, branchname):
-        return self.kvStore.get("branch_targeted_tests_" + branchname) or []
+        return self.kvStore.get(self.dbPrefix + "branch_targeted_tests_" + branchname) or []
 
     def setTargetedTestTypesForBranch(self, branchname, testNames):
-        return self.kvStore.set("branch_targeted_tests_" + branchname, testNames)
+        return self.kvStore.set(self.dbPrefix + "branch_targeted_tests_" + branchname, testNames)
 
     def getTargetedCommitIdsForBranch(self, branchname):
-        return self.kvStore.get("branch_targeted_commit_ids_" + branchname) or []
+        return self.kvStore.get(self.dbPrefix + "branch_targeted_commit_ids_" + branchname) or []
 
     def setTargetedCommitIdsForBranch(self, branchname, commitIds):
-        return self.kvStore.set("branch_targeted_commit_ids_" + branchname, commitIds)
+        return self.kvStore.set(self.dbPrefix + "branch_targeted_commit_ids_" + branchname, commitIds)
 
     def getBranchIsUnderTest(self, branchname):
-        result = self.kvStore.get("branch_is_deep_test_" + branchname)
+        result = self.kvStore.get(self.dbPrefix + "branch_is_deep_test_" + branchname)
         if result is None:
             if branchname == "origin/master":
                 return True
@@ -77,4 +82,4 @@ class TestDatabase(object):
         return result
 
     def setBranchIsUnderTest(self, branchname, isUnderTest):
-        return self.kvStore.set("branch_is_deep_test_" + branchname, isUnderTest)
+        return self.kvStore.set(self.dbPrefix + "branch_is_deep_test_" + branchname, isUnderTest)

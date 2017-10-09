@@ -6,12 +6,11 @@ import sys
 import traceback
 import threading
 import multiprocessing
+import logging
 
 import test_looper.core.SubprocessingModified as subprocess
 import test_looper.core.SubprocessRunner as SubprocessRunner
-import ufora
 from test_looper.core.DirectoryScope import DirectoryScope
-import ufora.config.Setup as Setup
 
 def removeFileIfExists(filePath):
     if os.path.isfile(filePath):
@@ -24,10 +23,11 @@ def removeAndCreateDirectory(directory):
 
 class TestScriptRunner(object):
     def __init__(self, testRoot, defaultTimeout = 500):
-        self.testRoot = os.path.join(os.path.split(os.path.split(ufora.__file__)[0])[0], testRoot)
-        self.pathToBsaScripts = os.path.join(os.path.split(ufora.__file__)[0], "scripts")
-        self.pathToProjectRoot = os.path.split(os.path.split(ufora.__file__)[0])[0]
+        logging.info("Initializing TestScriptRunner at %s", testRoot)
 
+        self.testRoot = testRoot
+        self.pathToProjectRoot = testRoot
+        
         self.defaultTimeout = defaultTimeout
         self.scripts = self.findTestScripts_()
 
@@ -66,57 +66,18 @@ class TestScriptRunner(object):
         self.envVars = self.createTestEnvironment_()
         return self.run_()
 
-
-    def runWithCodeCoverage(self):
-        print "Setting up code coverage collection."
-        self.createSiteCustomizeFileForCodeCoverage_()
-        try:
-            self.envVars = self.createTestEnvironment_()
-            self.envVars["COVERAGE_PROCESS_START"] = self.coverageConfigFile_()
-            allPassed = self.run_()
-        finally:
-            self.removeSiteCustomizeFile_()
-            self.collectCoverageFiles_()
-
-        return allPassed
-
-
     def run_(self):
         assert self.envVars is not None
 
-        self.temporaryDirectory = tempfile.mkdtemp()
         try:
-            self.tempConfigPath = os.path.join(self.temporaryDirectory, "config.cfg")
-            self.envVars[Setup.DEFAULT_CONFIG_ENV_VARNAME] = self.tempConfigPath
-            self.createTempConfigFile_()
-
             return self.runScripts_()
         finally:
             self.mergeTestResultFiles_()
-            self.removeTemporaryDirectory_()
-
-    def createTempConfigFile_(self):
-        #write a fake config file with the necessary details
-        with open(self.tempConfigPath, "wb") as f:
-            f.write(self.generateTestConfigFileBody_())
-
-
-    def generateTestConfigFileBody_(self):
-        return ("ROOT_DATA_DIR = %s\n"
-                "BASE_PORT = %s\n"
-                "FORA_MAX_MEM_MB = %s\n"
-                ) % (
-                Setup.config().rootDataDir,
-                Setup.config().basePort,
-                "10000" if multiprocessing.cpu_count() <= 8 else "60000"
-                )
-
 
     def createTestEnvironment_(self):
         envVars = dict(os.environ)
-        envVars["PATH"] = self.pathToBsaScripts + os.pathsep + envVars["PATH"]
-        envVars["PYTHONPATH"] = self.pathToProjectRoot + os.pathsep + envVars["PYTHONPATH"]
-        envVars["UFORA_TEST_ERROR_OUTPUT_DIRECTORY"] = self.pathToProjectRoot
+        envVars["TESTROOT"] = self.testRoot
+        envVars["TEST_ERROR_OUTPUT_DIRECTORY"] = self.pathToProjectRoot
         return envVars
 
 
@@ -205,26 +166,7 @@ class TestScriptRunner(object):
                 )
 
         return True
-    def createSiteCustomizeFileForCodeCoverage_(self):
-        self.removeSiteCustomizeFile_()
-
-        with open(self.siteCustomizeFileName_(), 'w') as f:
-            f.write('import coverage\n')
-            f.write('coverage.process_startup()\n')
-
-
-    def removeSiteCustomizeFile_(self):
-        removeFileIfExists(self.siteCustomizeFileName_())
-        removeFileIfExists(self.siteCustomizeFileName_() + 'c') # delete the .pyc file too
-
-
-    def siteCustomizeFileName_(self):
-        return os.path.join(self.pathToProjectRoot, 'sitecustomize.py')
-
-
-    def coverageConfigFile_(self):
-        return os.path.join(self.pathToProjectRoot, 'coverage.cfg')
-
+    
     def mergeTestResultFiles_(self):
         print "Collecting test results."
         scriptDirectories = set([os.path.split(s)[0] for s in self.scripts])
@@ -245,18 +187,4 @@ class TestScriptRunner(object):
             except IOError:
                 pass
 
-    def collectCoverageFiles_(self):
-        print "Collecting code coverage results."
-        scriptDirectories = set([os.path.split(s)[0] for s in self.scripts])
-        coverageFiles = [os.path.join(d, f) for d in scriptDirectories for f in os.listdir(d) if f.startswith('.coverage') ]
-        index = 1
-        for f in coverageFiles:
-            try:
-                shutil.move(f, os.path.join(self.pathToProjectRoot, '.coverage.' + str(index)))
-                index += 1
-            except IOError:
-                pass
-
-
-    def removeTemporaryDirectory_(self):
-        shutil.rmtree(self.temporaryDirectory)
+    

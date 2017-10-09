@@ -12,13 +12,14 @@ import threading
 import time
 import traceback
 import virtualenv
+import psutil
 
+import test_looper.tools.Git as Git
 import test_looper.client.PerformanceTestReporter as PerformanceTestReporter
 import test_looper.core.DirectoryScope as DirectoryScope
-import test_looper.core.TimerQueue as TimerQueue
 import test_looper.worker.TestLooperClient as TestLooperClient
 
-timerQueue = TimerQueue.TimerQueue(16)
+
 
 TestLooperDirectories = collections.namedtuple(
     'TestLooperDirectories',
@@ -26,12 +27,21 @@ TestLooperDirectories = collections.namedtuple(
     )
 
 class TestLooperOsInteractions(object):
-    def __init__(self, test_looper_directories):
+    def __init__(self, test_looper_directories, source_control):
         self.directories = test_looper_directories
+
+        self.ensureDirectoryExists(self.directories.repo_dir)
+        self.ensureDirectoryExists(self.directories.test_data_dir)
+        self.ensureDirectoryExists(self.directories.build_cache_dir)
+        self.ensureDirectoryExists(self.directories.ccache_dir)
+
         self.max_build_cache_depth = 10
         self.heartbeatInterval = TestLooperClient.TestLooperClient.HEARTBEAT_INTERVAL
         self.ownSessionId = os.getsid(0)
         self.ownProcGroupId = os.getpgrp()
+        self.source_control = source_control
+        self.git_repo = Git.Git(self.directories.repo_dir)
+
 
 
     @staticmethod
@@ -40,7 +50,12 @@ class TestLooperOsInteractions(object):
 
 
     def initializeTestLooperEnvironment(self):
+        self.initializeGitRepo()
         self.clearOldTestResults()
+
+    def initializeGitRepo(self):
+        if not self.git_repo.isInitialized():
+            self.git_repo.cloneFrom(self.source_control.cloneUrl())
 
 
     def cleanup(self):
@@ -50,7 +65,7 @@ class TestLooperOsInteractions(object):
         logging.info("Clearing data directory: %s", self.directories.test_data_dir)
         assert self.directories.test_data_dir is not None
         assert self.directories.test_data_dir != ''
-        cmd = 'docker run --rm -v %s:/volume ubuntu:14.04 bash -c "rm -rf /volume/*"'
+        cmd = 'rm -rf %s/*'
         output = subprocess.check_output(cmd % self.directories.test_data_dir,
                                          shell=True)
         logging.info("Cleared data directory: %s", output)
@@ -63,9 +78,9 @@ class TestLooperOsInteractions(object):
             root = tar.next()
             if root is None:
                 raise Exception("Package %s is empty" % package_file)
-            package_dir = os.path.join(target_dir, root.name)
+            package_dir = os.path.join(target_dir, "build")
             logging.info("Extracting package to %s", package_dir)
-            tar.extractall(target_dir)
+            tar.extractall(package_dir)
             return package_dir
 
 
@@ -73,15 +88,26 @@ class TestLooperOsInteractions(object):
         """Kill all processes in our session that are in a different process group.
         TestLooperOsInteractions starts child processes in new process groups.
         """
+
+        self_and_parents = []
+        p = psutil.Process()
+        
+        while p is not None:
+            self_and_parents.append(os.getpgid(p.pid))
+            p = p.parent()
+
+
         allProcIds = [int(pid) for pid in os.listdir('/proc') if pid.isdigit()]
         pidsToKill = [
             pid for pid in allProcIds
             if os.getsid(pid) == self.ownSessionId and os.getpgid(pid) != self.ownProcGroupId
+                and pid not in self_and_parents
             ]
 
         logging.info("Killing running processes: %s", pidsToKill)
         for procGroup in set([os.getpgid(pid) for pid in pidsToKill]):
-            os.killpg(procGroup, signal.SIGKILL)
+            if procGroup not in self_and_parents:
+                os.killpg(procGroup, signal.SIGKILL)
 
 
     @staticmethod
@@ -125,9 +151,18 @@ class TestLooperOsInteractions(object):
 
 
     def run_command(self, command, log_filename, build_env, timeout, heartbeat):
+        logging.info("build_env: %s", build_env)
         with open(log_filename, 'a') as build_log:
             env = dict(os.environ)
             env.update(build_env)
+
+            print >> build_log, "Inherited Environment Variables:"
+            for e in sorted(build_env):
+                print >> build_log, "\t%s=%s" % (e, env[e])
+
+            print >> build_log, "Running command ", command
+            build_log.flush()
+
             logging.info("Running command: '%s'. Log: %s", command, log_filename)
             result = self.runSubprocess(timeout,
                                         heartbeat,
@@ -282,11 +317,6 @@ class TestLooperOsInteractions(object):
         env['WORKSPACE'] = os.getcwd()
         env['CUMULUS_DATA_DIR'] = self.directories.test_data_dir
 
-        self.writeTextToFile(
-            os.path.join(os.getcwd(), "ufora", "config", "config.cfg"),
-            "ROOT_DATA_DIR=" + self.directories.test_data_dir
-            )
-
         env.update(environmentOverrides)
 
         with open(outlogfilePath, 'w', 1) as outlogfile:
@@ -322,7 +352,6 @@ class TestLooperOsInteractions(object):
             os.mkdir(cache_dir)
         shutil.copy(build_package, cache_dir)
 
-
     def is_build_cache_full(self):
         return len(os.listdir(self.directories.build_cache_dir)) >= self.max_build_cache_depth
 
@@ -350,39 +379,6 @@ class TestLooperOsInteractions(object):
                               stdout=sys.stdout,
                               stderr=sys.stderr)
         return os.path.join(venv_dir, 'bin', 'activate')
-
-
-    @staticmethod
-    def uploadTestArtifacts(bucket, keyPrefix, testOutputDir):
-        def uploadFile(path, semaphore):
-            try:
-                logging.info("Uploading %s", path)
-                headers = {}
-                if '.log' in path:
-                    headers['Content-Type'] = 'text/plain'
-                if path.endswith('.gz'):
-                    headers['Content-Encoding'] = 'gzip'
-                key = bucket.new_key(keyPrefix + '/' + os.path.split(path)[-1])
-                key.set_contents_from_filename(path, headers=headers)
-            except:
-                logging.error("Failed to upload %s:\n%s", path, traceback.format_exc())
-            finally:
-                semaphore.release()
-
-        for logFile in os.listdir(testOutputDir):
-            if logFile.endswith(('.log', '.out')):
-                logFile = os.path.join(testOutputDir, logFile)
-                subprocess.call(['gzip %s' % logFile], shell=True)
-
-
-        sem = threading.Semaphore(0)
-        for logFile in os.listdir(testOutputDir):
-            logFile = os.path.join(testOutputDir, logFile)
-            timerQueue.enqueueWorkItem(uploadFile, (logFile, sem))
-
-        for logFile in os.listdir(testOutputDir):
-            sem.acquire()
-
 
     def protocolMismatchObserved(self):
         self.abortTestLooper("test-looper server is on a different protocol version than we are.")

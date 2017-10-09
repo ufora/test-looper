@@ -3,6 +3,7 @@ import logging
 import subprocess
 import traceback
 import os
+import threading
 
 import test_looper.core.OutOfProcessDownloader as OutOfProcessDownloader
 
@@ -41,24 +42,38 @@ class SubprocessCheckOutput(object):
 
 
 class Git(object):
-    def __init__(self, path_to_repo=None):
-        if path_to_repo is None:
-            path_to_repo = os.getcwd()
-
+    def __init__(self, path_to_repo):
         self.path_to_repo = path_to_repo
+        
         self.outOfProcessDownloaderPool = \
             OutOfProcessDownloader.OutOfProcessDownloaderPool(1, dontImportSetup=True)
+        
+        self.git_repo_lock = threading.RLock()
 
+    def isInitialized(self):
+        return os.path.exists(os.path.join(self.path_to_repo, ".git"))
 
-    def listBranches(self, prefix='origin'):
-        self.fetchOrigin()
-        if self.subprocessCheckCall('git remote prune origin', shell=True) != 0:
-            logging.error("Failed to 'git remote prune origin'. " +
-                          "Deleted remote branches may continue to be tested.")
-        output = self.subprocessCheckOutput('git branch -r', shell=True).strip().split('\n')
-        output = [l.strip() for l in output if l]
-        return [l for l in output if l.startswith(prefix) and self.isValidBranchName_(l)]
+    def cloneFrom(self, sourceRepo):
+        if not os.path.exists(self.path_to_repo):
+            os.makedirs(self.path_to_repo)
 
+        with self.git_repo_lock:
+            if self.subprocessCheckCall('git clone %s .' % sourceRepo, shell=True) != 0:
+                logging.error("Failed to clone source repo %s")
+
+    def listBranches(self):
+        with self.git_repo_lock:
+            self.fetchOrigin()
+            if self.subprocessCheckCall('git remote prune origin', shell=True) != 0:
+                logging.error("Failed to 'git remote prune origin'. " +
+                              "Deleted remote branches may continue to be tested.")
+            output = self.subprocessCheckOutput('git branch -a', shell=True).strip().split('\n')
+            
+            output = [l.strip() for l in output if l]
+            output = [l[1:] if l[0] == '*' else l for l in output if l]
+            output = [l.strip() for l in output if l]
+
+            return [l for l in output if l and self.isValidBranchName_(l)]
 
     def commitsInRevList(self, commitRange):
         """
@@ -71,54 +86,64 @@ class Git(object):
         Resulting objects are tuples of
             (hash, (parent1_hash, parent2_hash, ...), title, branchName)
         """
-        if not commitRange:
-            return []
+        with self.git_repo_lock:
+            if not commitRange:
+                return []
 
-        lines = None
-        while lines is None:
-            try:
-                command = 'git --no-pager log --topo-order ' + \
-                        commitRange + ' --format=format:"%H %P -- %s"'
+            lines = None
+            while lines is None:
+                try:
+                    command = 'git --no-pager log --topo-order ' + \
+                            commitRange + ' --format=format:"%H %P -- %s"'
 
-                lines = self.subprocessCheckOutput(command, shell=True).strip().split('\n')
-            except Exception:
-                if commitRange.endswith("^"):
-                    commitRange = commitRange[:-1]
-                else:
-                    raise Exception("error fetching '%s'" % commitRange)
+                    lines = self.subprocessCheckOutput(command, shell=True).strip().split('\n')
+                except Exception:
+                    if commitRange.endswith("^"):
+                        commitRange = commitRange[:-1]
+                    else:
+                        raise Exception("error fetching '%s'" % commitRange)
 
 
-        lines = [l.strip() for l in lines if l]
+            lines = [l.strip() for l in lines if l]
 
-        def parseCommitLine(line):
-            splitLine = line.split(' -- ')
-            if len(splitLine) != 2:
-                logging.warn("Got a confusing commit line: %s", line)
+            def parseCommitLine(line):
+                splitLine = line.split(' -- ')
+                if len(splitLine) != 2:
+                    logging.warn("Got a confusing commit line: %s", line)
+                    return None
+
+                hashes = splitLine[0].split(' ')
+                if len(hashes) < 2:
+                    logging.warn("Got a confusing commit line: %s", line)
+                    return None
+
+                return (
+                    hashes[0],       # commit hash
+                    tuple(hashes[1:]),   # parent commits
+                    splitLine[1]     # commit title
+                    )
+
+            commitTuples = [parseCommitLine(l) for l in lines if self.isValidBranchName_(l)]
+            return [c for c in commitTuples if c is not None]
+
+    def getFileContents(self, commit, path):
+        try:
+            return self.subprocessCheckOutput("git show '%s:%s'" % (commit,path))
+        except Exception as e:
+            if "No such file" in e.message:
                 return None
-
-            hashes = splitLine[0].split(' ')
-            if len(hashes) < 2:
-                logging.warn("Got a confusing commit line: %s", line)
-                return None
-
-            return (
-                hashes[0],       # commit hash
-                tuple(hashes[1:]),   # parent commits
-                splitLine[1]     # commit title
-                )
-
-        commitTuples = [parseCommitLine(l) for l in lines if self.isValidBranchName_(l)]
-        return [c for c in commitTuples if c is not None]
+            raise
 
 
     def fetchOrigin(self):
-        if self.subprocessCheckCall('git fetch', shell=True) != 0:
-            logging.error("Failed to fetch from origin!")
+        with self.git_repo_lock:
+            if self.subprocessCheckCall('git fetch', shell=True) != 0:
+                logging.error("Failed to fetch from origin!")
 
 
     @staticmethod
     def isValidBranchName_(name):
-        return name and '/HEAD' not in name
+        return name and '/HEAD' not in name and "(" not in name and "*" not in name
 
 
     def subprocessCheckCall(self, *args, **kwds):

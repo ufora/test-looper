@@ -11,9 +11,7 @@ import sys
 import threading
 import time
 
-import test_looper.server.source_control.LocalGitRepo as LocalGitRepo
-import test_looper.server.source_control.Bitbucket as Bitbucket
-import test_looper.server.source_control.Github as Github
+import test_looper.server.source_control.SourceControlFromConfig as SourceControlFromConfig
 from test_looper.server.RedisJsonStore import RedisJsonStore
 from test_looper.server.TestDatabase import TestDatabase
 import test_looper.server.TestLooperEc2Connection as TestLooperEc2Connection
@@ -21,6 +19,7 @@ import test_looper.server.TestLooperHttpServer as TestLooperHttpServer
 from test_looper.server.TestLooperHttpServerEventLog import TestLooperHttpServerEventLog
 import test_looper.server.TestLooperServer as TestLooperServer
 import test_looper.server.TestManager as TestManager
+import test_looper.core.ArtifactStorage as ArtifactStorage
 TEST_LOOPER_OAUTH_KEY = "TEST_LOOPER_OAUTH_KEY"
 TEST_LOOPER_OAUTH_SECRET = "TEST_LOOPER_OAUTH_SECRET"
 TEST_LOOPER_GITHUB_ACCESS_TOKEN = "TEST_LOOPER_GITHUB_ACCESS_TOKEN"
@@ -43,68 +42,6 @@ def configureBoto():
     if not boto.config.has_option('Boto', 'http_socket_timeout'):
         boto.config.set('Boto', 'http_socket_timeout', '1')
 
-def configureGithub(src_ctrl_config, parsedArgs):
-    oauth_key = src_ctrl_config.get('oauth_key') or os.getenv(TEST_LOOPER_OAUTH_KEY)
-    if oauth_key is None and parsedArgs.auth != 'none':
-        logging.critical("Either 'oauth.key' config setting or %s must be set.",
-                         TEST_LOOPER_OAUTH_KEY)
-
-    oauth_secret = src_ctrl_config.get('oauth_secret') or os.getenv(TEST_LOOPER_OAUTH_SECRET)
-    if oauth_secret is None and parsedArgs.auth != 'none':
-        logging.critical("Either 'oauth.secret' config setting or %s must be set.",
-                         TEST_LOOPER_OAUTH_SECRET)
-
-    github_access_token = src_ctrl_config.get('access_token') or \
-        os.getenv(TEST_LOOPER_GITHUB_ACCESS_TOKEN)
-    if github_access_token is None and parsedArgs.auth != 'none':
-        logging.critical("Either 'github.access_token' config setting or %s must be set.",
-                         TEST_LOOPER_GITHUB_ACCESS_TOKEN)
-
-    src_ctrl_args = {
-        'oauth_key': oauth_key,
-        'oauth_secret': oauth_secret,
-        'webhook_secret': str(src_ctrl_config.get('webhook_secret')),
-        'owner': src_ctrl_config['target_repo_owner'],
-        'repo': src_ctrl_config['target_repo'],
-        'test_definitions_path': src_ctrl_config['test_definitions_path'],
-        'access_token': github_access_token
-        }
-
-    return Github.Github(**src_ctrl_args)
-
-def configureBitbucket(src_ctrl_config, parsedArgs):
-    oauth_key = src_ctrl_config.get('oauth_key') or os.getenv(TEST_LOOPER_OAUTH_KEY)
-    if oauth_key is None and parsedArgs.auth != 'none':
-        logging.critical("Either 'oauth.key' config setting or %s must be set.",
-                         TEST_LOOPER_OAUTH_KEY)
-
-    oauth_secret = src_ctrl_config.get('oauth_secret') or os.getenv(TEST_LOOPER_OAUTH_SECRET)
-    if oauth_secret is None and parsedArgs.auth != 'none':
-        logging.critical("Either 'oauth.secret' config setting or %s must be set.",
-                         TEST_LOOPER_OAUTH_SECRET)
-
-    access_token = src_ctrl_config.get('access_token')
-    if github_access_token is None and parsedArgs.auth != 'none':
-        logging.critical("'bitbucket.access_token' config setting must be set.")
-
-    src_ctrl_args = {
-        'oauth_key': oauth_key,
-        'oauth_secret': oauth_secret,
-        'webhook_secret': str(src_ctrl_config.get('webhook_secret')),
-        'owner': src_ctrl_config['target_repo_owner'],
-        'repo': src_ctrl_config['target_repo'],
-        'test_definitions_path': src_ctrl_config['test_definitions_path'],
-        'access_token': access_token
-        }
-
-    return Bitbucket.Bitbucket(**src_ctrl_args)
-
-def configureGit(config, parsedArgs):
-    return LocalGitRepo.LocalGitRepo(
-        config.get('path_to_repo'),
-        config.get('test_definitions_path'),
-        )
-
 def main():
     parsedArgs = createArgumentParser().parse_args()
     config = loadConfiguration(parsedArgs.config)
@@ -114,23 +51,16 @@ def main():
     port = config['server']['port']
     logging.info("Starting test-looper server on port %d", port)
 
-    if 'github' in config:
-        src_ctrl = configureGithub(config['github'], parsedArgs)
-    elif 'bitbucket' in config:
-        src_ctrl = configureBitbucket(config['bitbucket'], parsedArgs)
-    elif 'git' in config:
-        src_ctrl = configureGit(config['git'], parsedArgs)
-    else:
-        raise Exception("One of 'git', 'github', or 'bitbucket' must be set in config")
+    src_ctrl = SourceControlFromConfig.getFromConfig(config["source_control"])
 
     testManager = TestManager.TestManager(
         src_ctrl,
-        TestDatabase(RedisJsonStore()),
+        TestDatabase(RedisJsonStore(), config['server']['redis_prefix']),
         TestLooperServer.LockWithTimer(),
         TestManager.TestManagerSettings(
             baseline_branch=config['server'].get('baseline_branch', 'master'),
             baseline_depth=config['server'].get('baseline_depth', 20),
-            max_test_count=config['server'].get('max_test_count', 50)
+            max_test_count=config['server'].get('max_test_count', 3)
             )
         )
 
@@ -218,6 +148,7 @@ def main():
     httpServer = TestLooperHttpServer.TestLooperHttpServer(
         testManager,
         ec2_connection,
+        ArtifactStorage.storageFromConfig(config['artifacts']),
         available_instance_types_and_core_count,
         src_ctrl,
         str(config['server']['test_looper_webhook_secret']) if 
@@ -240,7 +171,8 @@ def main():
         logging.info("Signal received: %s. Stopping service.", signum)
         if serverThread and serverThread.isAlive():
             server.stop()
-            serverThread.join()
+        logging.info("Stopping service complete.")
+        os._exit(0)
 
     signal.signal(signal.SIGTERM, handleStopSignal) # handle kill
     signal.signal(signal.SIGINT, handleStopSignal)  # handle ctrl-c

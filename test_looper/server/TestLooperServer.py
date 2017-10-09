@@ -158,7 +158,7 @@ class Session(object):
                               traceback.format_exc())
                 self.writeString(json.dumps(None))
 
-        if is_new_machine:
+        if is_new_machine and self.ec2Connection:
             self.ec2Connection.tagInstance(workerInfo.machineId)
 
 
@@ -168,7 +168,7 @@ class Session(object):
             is_new_machine = self.testManager.recordMachineObservation(result.machine)
             self.testManager.recordMachineResult(result)
 
-        if is_new_machine:
+        if is_new_machine and self.ec2Connection:
             self.ec2Connection.tagInstance(result.machine)
 
         if not result.success and self.ec2Connection:
@@ -227,13 +227,14 @@ class TestLooperServer(SimpleServer.SimpleServer):
 
         logging.info("HTTP server started")
 
-        self.initialize()
-        logging.info("TestLooper initialized")
+        try:
+            self.initialize()
+            logging.info("TestLooper initialized")
 
-        super(TestLooperServer, self).runListenLoop()
-
-        self.httpServer.stop()
-        logging.info("Listen loop stopped")
+            super(TestLooperServer, self).runListenLoop()
+        finally:
+            self.httpServer.stop()
+            logging.info("Listen loop stopped")
 
 
     def stop(self):

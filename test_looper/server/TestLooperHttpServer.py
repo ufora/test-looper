@@ -43,6 +43,7 @@ class TestLooperHttpServer(object):
     def __init__(self,
                  testManager,
                  aws_ec2_connection,
+                 artifactStorage,
                  available_instance_types_and_core_count,
                  src_ctrl,
                  test_looper_webhook_secret,
@@ -74,6 +75,7 @@ class TestLooperHttpServer(object):
         self.eventLog.addLogMessage("test-looper", "TestLooper initialized")
         self.defaultCoreCount = 4
         self.enable_advanced_views = enable_advanced_views
+        self.artifactStorage = artifactStorage
 
         self.refresh_lock = threading.Lock()
         self.need_refresh = False
@@ -289,31 +291,15 @@ class TestLooperHttpServer(object):
                 )
             )
 
+    @cherrypy.expose
+    def test_contents(self, testId, key):
+        return self.artifactStorage.testContentsHtml(testId, key)
+
     def testResultDownloadUrl(self, testId, key):
-        ec2 = self.aws_ec2_connection
-        keys = list(ec2.openTestResultBucket().list(prefix=testId + "/" + key))
-
-        logging.info("Prefix = %s. keys = %s. key = %s", testId, keys, key)
-
-        key = keys[0]
-
-        return key.generate_url(expires_in=300)
+        return "/test_contents?testId=%s&key=%s" % (testId, key)
 
     def testResultKeys(self, testId):
-        ec2 = self.aws_ec2_connection
-        keys = list(ec2.openTestResultBucket().list(prefix=testId))
-
-        result = []
-
-        for k in keys:
-            prefix = testId + '/'
-            assert k.name.startswith(prefix)
-            result.append(k.name[len(prefix):])
-
-        logging.info("result: %s", result)
-
-        return result
-
+        return self.artifactStorage.testResultKeysFor(testId)
 
     def prioritizationGrid(self):
         with self.testManager.lock:
@@ -701,12 +687,14 @@ class TestLooperHttpServer(object):
 
         raise cherrypy.HTTPRedirect("/branches")
 
-
     @cherrypy.expose
     def refresh(self):
         self.refreshBranches(block=True)
         raise cherrypy.HTTPRedirect("/branches")
 
+    @cherrypy.expose
+    def refreshNonblocking(self):
+        self.refreshBranches(block=False)
 
     def refreshBranches(self, block=True):
         with self.refresh_lock:
@@ -946,17 +934,6 @@ class TestLooperHttpServer(object):
                     )
 
         raise cherrypy.HTTPRedirect("/branch?branchName=" + branchName)
-
-
-    @staticmethod
-    def readFile(path):
-        thisDir = os.path.dirname(__file__)
-        filepath = os.path.join(thisDir, path)
-        htmlFile = open(filepath, "r")
-        result = htmlFile.read()
-        htmlFile.close()
-        return result
-
 
     @staticmethod
     def errRateVal(testCount, successCount):
@@ -1650,7 +1627,6 @@ class TestLooperHttpServer(object):
     def githubReceivedAPush(self):
         return self.webhook()
 
-
     @cherrypy.expose
     def webhook(self):
         if 'Content-Length' not in cherrypy.request.headers:
@@ -1665,7 +1641,6 @@ class TestLooperHttpServer(object):
 
         #don't block the webserver itself, so we can do this in a background thread
         self.refreshBranches(block=False)
-
 
     @cherrypy.expose
     def test_looper_webhook(self):
@@ -1688,7 +1663,6 @@ class TestLooperHttpServer(object):
 
             logging.info("restarting TestLooperManager")
             killThread.start()
-
 
 
     @staticmethod

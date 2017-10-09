@@ -210,6 +210,8 @@ class OutOfProcessDownloader:
                     )
 
                 os.write(self.childWriteFD, finalValueToWrite)
+        except KeyboardInterrupt as e:
+            self.executeChild__()
         except:
             logging.error("Main OutOfProcessDownloader loop failed: %s", traceback.format_exc())
         finally:

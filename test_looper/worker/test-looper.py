@@ -9,12 +9,17 @@ import multiprocessing
 import logging
 import signal
 import socket
+import subprocess
 import threading
 import time
+import os
 
 import test_looper.worker.TestLooperClient as TestLooperClient
 import test_looper.worker.TestLooperWorker as TestLooperWorker
 import test_looper.worker.TestLooperOsInteractions as TestLooperOsInteractions
+import test_looper.server.source_control.SourceControlFromConfig as SourceControlFromConfig
+import test_looper.core.ArtifactStorage as ArtifactStorage
+
 
 def createArgumentParser():
     parser = argparse.ArgumentParser()
@@ -32,46 +37,18 @@ def initLogging():
         )
     logging.getLogger().addHandler(ch)
 
-class AwsConnector(object):
-    def __init__(self, ec2_config, machine_info):
-        self.test_result_bucket_name = ec2_config['test_result_bucket']
-        self.builds_bucket_name = ec2_config['builds_bucket']
-        self.aws_region = machine_info.availabilityZone[:-1]
-
-    @property
-    def connection(self):
-        return boto.s3.connect_to_region(self.aws_region)
-
-    def get_test_result_bucket(self):
-        return self.connection.get_bucket(self.test_result_bucket_name)
-
-    def get_build_bucket(self):
-        return self.connection.get_bucket(self.builds_bucket_name)
-
-    def get_build_s3_url(self, key_name):
-        return "s3://%s/%s" % (self.builds_bucket_name, key_name)
-
-    def upload_build(self, key_name, file_name):
-        key = boto.s3.key.Key(self.get_build_bucket(), key_name)
-        key.set_contents_from_filename(file_name)
-
-    def download_build(self, key_name, dest):
-        key = boto.s3.key.Key(self.get_build_bucket(), key_name)
-        key.get_contents_to_filename(dest)
-
-    def build_exists(self, key_name):
-        return self.get_build_bucket().get_key(key_name) is not None
-
-
 
 def createTestWorker(config, testLooperMachineInfo):
     directories = TestLooperOsInteractions.TestLooperDirectories(
-        repo_dir=config['worker']['repo_path'],
+        repo_dir=config['worker']['working_repo'],
         test_data_dir=config['worker']['test_data_dir'],
         build_cache_dir=config['worker']['build_cache_dir'],
         ccache_dir=config['worker']['ccache_dir']
         )
-    osInteractions = TestLooperOsInteractions.TestLooperOsInteractions(directories)
+    osInteractions = TestLooperOsInteractions.TestLooperOsInteractions(
+        directories, 
+        SourceControlFromConfig.getFromConfig(config["source_control"])
+        )
     osInteractions.initializeTestLooperEnvironment()
 
     def createTestLooperClient():
@@ -85,7 +62,7 @@ def createTestWorker(config, testLooperMachineInfo):
         testLooperClientFactory=createTestLooperClient,
         artifactsFileName=config['worker']['test_artifacts'],
         timeout=config['worker']['test_timeout'],
-        awsConnector=AwsConnector(config['ec2'], testLooperMachineInfo),
+        artifactStorage=ArtifactStorage.storageFromConfig(config),
         coreDumpsDir=config['worker']['core_dump_dir'],
         repoName=config['worker']['repo_name']
         )
