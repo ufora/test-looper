@@ -172,7 +172,7 @@ class LocalArtifactStorage(object):
         return os.path.exists(os.path.join(self.build_storage_path, key_name))
 
 def storageFromConfig(config):
-    if config['type'] = 's3':
+    if config['type'] == 's3':
         return AwsArtifactStorage(config)
     elif config['type'] == 'local_disk':
         return LocalArtifactStorage(config)

@@ -61,12 +61,13 @@ class Git(object):
             if self.subprocessCheckCall('git clone %s .' % sourceRepo, shell=True) != 0:
                 logging.error("Failed to clone source repo %s")
 
+    def pruneRemotes(self):
+        if self.subprocessCheckCall('git remote prune origin', shell=True) != 0:
+            logging.error("Failed to 'git remote prune origin'. " +
+                              "Deleted remote branches may continue to be tested.")
+            
     def listBranches(self):
         with self.git_repo_lock:
-            self.fetchOrigin()
-            if self.subprocessCheckCall('git remote prune origin', shell=True) != 0:
-                logging.error("Failed to 'git remote prune origin'. " +
-                              "Deleted remote branches may continue to be tested.")
             output = self.subprocessCheckOutput('git branch -a', shell=True).strip().split('\n')
             
             output = [l.strip() for l in output if l]
@@ -127,12 +128,14 @@ class Git(object):
             return [c for c in commitTuples if c is not None]
 
     def getFileContents(self, commit, path):
-        try:
-            return self.subprocessCheckOutput("git show '%s:%s'" % (commit,path))
-        except Exception as e:
-            if "No such file" in e.message:
-                return None
-            raise
+        with self.git_repo_lock:
+            try:
+                return self.subprocessCheckOutput("git show '%s:%s'" % (commit,path), shell=True)
+            except Exception as e:
+                if "No such file" in e.message:
+                    logging.warn("Couldn't find file %s in commit %s" % (path, commit))
+                    return None
+                raise
 
 
     def fetchOrigin(self):

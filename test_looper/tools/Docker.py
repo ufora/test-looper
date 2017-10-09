@@ -1,8 +1,11 @@
 import collections
 from hashlib import md5
 import os
+import test_looper.core.SubprocessRunner as SubprocessRunner
 import subprocess
 import sys
+import tempfile
+import logging
 
 def call(command, **kwargs):
     if not kwargs.get('stdout'):
@@ -68,8 +71,8 @@ class Docker(object):
         if not dockerfile_dir:
             return None
 
-
         dockerfile_dir_hash = hash_files_in_path(dockerfile_dir)
+
         docker_image = "{docker_repo}:{hash}".format(docker_repo=docker_repo,
                                                      hash=dockerfile_dir_hash)
 
@@ -84,19 +87,69 @@ class Docker(object):
 
         return docker
 
+    @classmethod
+    def from_dockerfile_as_string(cls, docker_repo, dockerfile_as_string, create_missing=False):
+        h = md5()
+        h.update(dockerfile_as_string)
+
+        dockerfile_hash = h.hexdigest()
+
+        docker_image = "{docker_repo}/test_looper:{hash}".format(docker_repo=docker_repo, hash=dockerfile_hash)
+
+        docker = Docker(docker_image)
+
+        has_image = docker.pull()
+        if not has_image:
+            if create_missing:
+                logging.info("Building docker image %s from source...", docker_image)
+
+                docker.buildFromString(dockerfile_as_string)
+                docker.push()
+            else:
+                raise MissingImageError(docker_image)
+
+        return docker
+
 
     def pull(self):
-        return call("{docker} pull {image}".format(docker=self.docker_binary,
+        return call_quiet("{docker} pull {image}".format(docker=self.docker_binary,
                                                    image=self.image)) == 0
 
 
     def build(self, dockerfile_dir):
-        subprocess.check_call("{docker} build -t {image} {path}".format(docker=self.docker_binary,
+        subprocess.check_call("{docker} build --label test_looper_worker --no-cache -t {image} {path}".format(docker=self.docker_binary,
                                                                         image=self.image,
                                                                         path=dockerfile_dir),
                               shell=True,
                               stdout=sys.stdout,
-                              stderr=sys.stderr)
+                              stderr=sys.stderr
+                              )
+
+    def buildFromString(self, dockerfile_text,timeout=None):
+        with tempfile.NamedTemporaryFile() as tmp:
+            print >> tmp, dockerfile_text
+            tmp.flush()
+
+            output = []
+
+            def onStdOut(m):
+                output.append(m)
+                print m
+
+            proc = SubprocessRunner.SubprocessRunner(["{docker} build --label test_looper_worker --no-cache -t {image} - < {tmpfile}".format(
+                                                                            docker=self.docker_binary,
+                                                                            image=self.image,
+                                                                            tmpfile=tmp.name
+                                                                            )],
+                                  onStdOut,
+                                  onStdOut,
+                                  shell=True,
+                                  )
+            proc.start()
+            result = proc.wait(timeout=timeout)
+
+            if result != 0:
+                raise Exception("Failed to build dockerfile:\n%s" % ("\n".join(output)))
 
     def push(self):
         subprocess.check_call("{docker} push {image}".format(docker=self.docker_binary,

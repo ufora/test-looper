@@ -135,7 +135,7 @@ class TestLooperWorker(object):
 
         try:
             if test.testName == 'build':
-                result = self.run_build_task(test, task['testScriptDefinition']['command'])
+                result = self.run_build_task(test, task['testScriptDefinition'])
             else:
                 assert self.ownMachineInfo.machineName in test.machineToInternalIpMap, \
                     (test.machine,
@@ -160,8 +160,8 @@ class TestLooperWorker(object):
                      result)
         self.testLooperClient.publishTestResult(result)
 
-
-    def run_build_task(self, test, build_command):
+    def run_build_task(self, test, test_definition):
+        build_command = test_definition["command"]
         testId = test.testId
         commit_id = test.commitId
 
@@ -173,13 +173,19 @@ class TestLooperWorker(object):
 
         os_interactions = self.settings.osInteractions
         build_output_dir = os_interactions.createNextTestDirForCommit(commit_id)
-        is_success = os_interactions.build(commit_id,
+
+        image = os_interactions.getDockerImage(test.commitId, test_definition.get("docker"), build_output_dir)
+
+        is_success = image and os_interactions.build(commit_id,
                                            build_command,
                                            self.test_env_overrides(test, build_output_dir),
                                            build_output_dir,
                                            self.settings.timeout,
-                                           heartbeat) and \
+                                           heartbeat,
+                                           docker_image=image
+                                           ) and \
                      self.upload_build(commit_id, build_output_dir)
+
         if not is_success:
             logging.info("Failed to build commit: %s", commit_id)
             self.settings.artifactStorage.uploadTestArtifacts(
@@ -193,24 +199,20 @@ class TestLooperWorker(object):
 
     def run_test_task(self, target_test, test_definition):
         commit_id = target_test.commitId
+        command = test_definition.testCommand
         test_dir = self.settings.osInteractions.createNextTestDirForCommit(commit_id)
 
         package_file = self.download_build(commit_id, test_dir)
         package_dir = self.settings.osInteractions.extract_package(package_file, test_dir)
 
-        command = test_definition.testCommand
-        if test_definition.client_version:
-            venv_activate = self.settings.osInteractions.create_test_virtualenv(
-                test_dir,
-                test_definition.client_version
-                )
-            command = "source %s; %s" % (venv_activate, command)
-
         logging.info("")
         logging.info("package_dir is %s", package_dir)
 
+        test_output_dir = os.path.join(test_dir, 'output')
+
+        image = self.settings.osInteractions.getDockerImage(commit_id, test_definition.docker, test_output_dir)
+
         with self.settings.osInteractions.directoryScope(package_dir):
-            test_output_dir = os.path.join(test_dir, 'output')
             self.settings.osInteractions.ensureDirectoryExists(test_output_dir)
 
             env_overrides = self.test_env_overrides(target_test, test_output_dir)
@@ -222,10 +224,14 @@ class TestLooperWorker(object):
                          self.ownMachineInfo.machineName,
                          commit_id,
                          command)
+
             is_success = self.runTestUsingScript(command,
                                                  env_overrides,
                                                  heartbeat,
-                                                 test_output_dir)
+                                                 test_output_dir,
+                                                 docker_image=image
+                                                 )
+
             test_result = self.create_test_result(is_success, target_test)
 
             self.capture_perf_results(target_test.testName,
@@ -331,7 +337,7 @@ class TestLooperWorker(object):
             }
 
 
-    def runTestUsingScript(self, script, env_overrides, heartbeat, output_dir):
+    def runTestUsingScript(self, script, env_overrides, heartbeat, output_dir, docker_image):
         test_logfile = os.path.join(output_dir, 'test_out.log')
         logging.info("Machine %s is logging to %s with",
                      self.ownMachineInfo.machineName,
@@ -343,7 +349,8 @@ class TestLooperWorker(object):
                 test_logfile,
                 env_overrides,
                 self.settings.timeout,
-                heartbeat
+                heartbeat,
+                docker_image=docker_image
                 )
         except TestInterruptException:
             logging.info("TestInterruptException in machine: %s. Heartbeat response: %s",

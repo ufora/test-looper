@@ -14,11 +14,12 @@ import traceback
 import virtualenv
 import psutil
 
+import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.tools.Git as Git
 import test_looper.client.PerformanceTestReporter as PerformanceTestReporter
 import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.worker.TestLooperClient as TestLooperClient
-
+import test_looper.tools.Docker as Docker
 
 
 TestLooperDirectories = collections.namedtuple(
@@ -27,8 +28,10 @@ TestLooperDirectories = collections.namedtuple(
     )
 
 class TestLooperOsInteractions(object):
-    def __init__(self, test_looper_directories, source_control):
+    def __init__(self, test_looper_directories, source_control, docker_repo):
         self.directories = test_looper_directories
+
+        logging.info("Ensuring existence of %s", self.directories.repo_dir)
 
         self.ensureDirectoryExists(self.directories.repo_dir)
         self.ensureDirectoryExists(self.directories.test_data_dir)
@@ -41,13 +44,11 @@ class TestLooperOsInteractions(object):
         self.ownProcGroupId = os.getpgrp()
         self.source_control = source_control
         self.git_repo = Git.Git(self.directories.repo_dir)
-
-
+        self.docker_repo = docker_repo
 
     @staticmethod
     def directoryScope(directoryScope):
         return DirectoryScope.DirectoryScope(directoryScope)
-
 
     def initializeTestLooperEnvironment(self):
         self.initializeGitRepo()
@@ -56,7 +57,6 @@ class TestLooperOsInteractions(object):
     def initializeGitRepo(self):
         if not self.git_repo.isInitialized():
             self.git_repo.cloneFrom(self.source_control.cloneUrl())
-
 
     def cleanup(self):
         self.killLeftoverProcesses()
@@ -71,7 +71,6 @@ class TestLooperOsInteractions(object):
         logging.info("Cleared data directory: %s", output)
         self.clearOldTestResults()
 
-
     @staticmethod
     def extract_package(package_file, target_dir):
         with tarfile.open(package_file) as tar:
@@ -82,7 +81,6 @@ class TestLooperOsInteractions(object):
             logging.info("Extracting package to %s", package_dir)
             tar.extractall(package_dir)
             return package_dir
-
 
     def killLeftoverProcesses(self):
         """Kill all processes in our session that are in a different process group.
@@ -112,9 +110,11 @@ class TestLooperOsInteractions(object):
 
     @staticmethod
     def removeRunningDockerContainers():
-        subprocess.check_output("docker ps -q | xargs --no-run-if-empty docker stop",
+        logging.info("Removing all running docker containers")
+
+        subprocess.check_output("docker ps -q -f label=test_looper_worker | xargs --no-run-if-empty docker stop",
                                 shell=True)
-        subprocess.check_output("docker ps -aq | xargs --no-run-if-empty docker rm",
+        subprocess.check_output("docker ps -aq -f label=test_looper_worker | xargs --no-run-if-empty docker rm",
                                 shell=True)
 
 
@@ -150,8 +150,11 @@ class TestLooperOsInteractions(object):
         return self.directories.test_data_dir
 
 
-    def run_command(self, command, log_filename, build_env, timeout, heartbeat):
+    def run_command(self, command, log_filename, build_env, timeout, heartbeat, docker_image):
         logging.info("build_env: %s", build_env)
+
+        logging.info("build_env: %s", build_env)
+
         with open(log_filename, 'a') as build_log:
             env = dict(os.environ)
             env.update(build_env)
@@ -164,24 +167,53 @@ class TestLooperOsInteractions(object):
             build_log.flush()
 
             logging.info("Running command: '%s'. Log: %s", command, log_filename)
-            result = self.runSubprocess(timeout,
-                                        heartbeat,
-                                        command,
-                                        stdout=build_log,
-                                        stderr=build_log,
-                                        shell=True,
-                                        env=env)
-            if not result:
-                logging.error("Command failed.")
-            return result
+
+            def onOut(msg):
+                print >> build_log, msg
+            def onErr(msg):
+                print >> build_log, msg
+            
+            if docker_image is None:
+                subprocess = SubprocessRunner.SubprocessRunner(command, onOut, onErr, shell=True)
+            else:
+                volumes = []
+                env_vars = []
+                for dirname in ['repo_dir', 'test_data_dir', 'build_cache_dir', 'ccache_dir']:
+                    path = os.path.abspath(getattr(self.directories, dirname))
+
+                    volumes += ["-v", "%s:%s" % (path,path)]
+
+                for var, val in build_env.items():
+                    env_vars += ["--env", "%s=%s" % (var,val)]
+
+                cmds = [
+                    docker_image.binary,
+                    "run",
+                    "--rm"] +  volumes + env_vars + [
+                    "-w", os.getcwd(),
+                    "--label", "test_looper_worker",
+                    docker_image.image,
+                    "/bin/bash",
+                    "-c",
+                    command
+                    ]
+                
+                subprocess = SubprocessRunner.SubprocessRunner(cmds, onOut, onErr, shell=False)
+
+                result = self.runSubprocess(subprocess,
+                                            timeout,
+                                            heartbeat)
+                if not result:
+                    logging.error("Command failed.")
+                return result
 
 
-    def runSubprocess(self, timeout, heartbeatFunction, *args, **kwargs):
-        proc = subprocess.Popen(*args, **kwargs)
-
+    def runSubprocess(self, proc, timeout, heartbeatFunction):
         # subprocess doesn't have time wait...
         def waiter():
             proc.wait()
+        
+        proc.start()
 
         t = threading.Thread(target=waiter)
         t.start()
@@ -208,7 +240,7 @@ class TestLooperOsInteractions(object):
             os.killpg(proc.pid, signal.SIGTERM)
             proc.wait()
         t.join()
-        return not is_timeout and proc.returncode == 0
+        return not is_timeout and proc.wait() == 0
 
 
     @staticmethod
@@ -224,17 +256,10 @@ class TestLooperOsInteractions(object):
             try:
                 attempts += 1
                 subprocess.check_call([toCall], shell=True)
-            except subprocess.CalledProcessError:
-                logging.info("Failed to reset the repo to %s. Fetching and trying again.", revision)
-                self.pullLatest()
-        if attempts <= 2:
-            logging.info("updating git submodules")
-            try:
-                self.updateSubmodules(log_filename)
                 return True
-            except subprocess.CalledProcessError:
-                logging.info("Failed to update git submodules")
-                return False
+            except subprocess.CalledProcessError as e:
+                logging.info("Failed to reset the repo to %s. Fetching and trying again. %s", revision, traceback.format_exc())
+                self.pullLatest()
 
         logging.error("Failed to reset repo after %d attempts", attempts)
         return False
@@ -303,34 +328,8 @@ class TestLooperOsInteractions(object):
         return os.path.join(testOutputDir, 'performanceMeasurements.json')
 
 
-    def executeScript(self,
-                      timeoutForProc,
-                      heartbeatFunction,
-                      scriptToRun,
-                      environmentOverrides,
-                      testOutputDir,
-                      outlogfilePath):
-        env = dict(os.environ)
 
-        env['LOOPER_DATA_DIR'] = testOutputDir
-        env['PYTHONPATH'] = os.getcwd()
-        env['WORKSPACE'] = os.getcwd()
-        env['CUMULUS_DATA_DIR'] = self.directories.test_data_dir
-
-        env.update(environmentOverrides)
-
-        with open(outlogfilePath, 'w', 1) as outlogfile:
-            return self.runSubprocess(timeoutForProc,
-                                      heartbeatFunction,
-                                      ['ulimit -c unlimited; ' + scriptToRun],
-                                      shell=True,
-                                      stdout=outlogfile,
-                                      stderr=outlogfile,
-                                      env=env,
-                                      preexec_fn=os.setsid)
-
-
-    def build(self, commit_id, build_command, env, output_dir, timeout, heartbeat):
+    def build(self, commit_id, build_command, env, output_dir, timeout, heartbeat, docker_image):
         build_log = os.path.join(output_dir, 'build.log')
         build_env = {
             'BUILD_COMMIT': commit_id,
@@ -341,7 +340,7 @@ class TestLooperOsInteractions(object):
 
         with self.directoryScope(self.directories.repo_dir):
             return self.resetToCommit(commit_id, build_log) and \
-                   self.run_command(build_command, build_log, build_env, timeout, heartbeat)
+                   self.run_command(build_command, build_log, build_env, timeout, heartbeat, docker_image)
 
 
     def cache_build(self, commit_id, build_package):
@@ -370,19 +369,43 @@ class TestLooperOsInteractions(object):
             return os.path.join(build_path, os.listdir(build_path)[0])
 
 
-    @staticmethod
-    def create_test_virtualenv(test_dir, client_version):
-        venv_dir = os.path.join(test_dir, 'venv')
-        virtualenv.create_environment(venv_dir, site_packages=True)
-        pip = os.path.join(venv_dir, 'bin', 'pip')
-        subprocess.check_call([pip, 'install', 'test-looper==%s' % client_version],
-                              stdout=sys.stdout,
-                              stderr=sys.stderr)
-        return os.path.join(venv_dir, 'bin', 'activate')
+    def getDockerImage(self, commit_id, dockerConf, output_dir):
+        try:
+            if 'native' in dockerConf:
+                return None
+
+            if 'tag' in dockerConf:
+                tagname = dockerConf['tag']
+
+                for char in tagname:
+                    if not char.isalnum() or char in ".-_":
+                        raise Exception("Invalid tag name: " + tagname)
+
+                d = Docker.Docker(self.docker_repo + "/" + dockerConf['tag'])
+
+                if not d.pull():
+                    raise Exception("Couldn't find docker explicitly named image %s" % d.image)
+
+                return d
+
+            if 'dockerfile' in dockerConf:
+                source = self.source_control.source_repo.getFileContents(commit_id, dockerConf["dockerfile"])
+                if source is None:
+                    raise Exception("No file found at %s in commit %s" % (dockerConf["dockerfile"], commit_id))
+
+                return Docker.Docker.from_dockerfile_as_string(self.docker_repo, source, create_missing=True)
+
+        except Exception as e:
+            with open(os.path.join(output_dir,"docker_configuration_error.log"),"w") as f:
+                print >> f, "Failed to get a docker image configured by %s:\n\n%s" % (
+                    dockerConf,
+                    traceback.format_exc()
+                    )
+
+        return None
 
     def protocolMismatchObserved(self):
         self.abortTestLooper("test-looper server is on a different protocol version than we are.")
-
 
     @staticmethod
     def abortTestLooper(reason):

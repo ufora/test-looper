@@ -14,11 +14,13 @@ class TestScriptDefinition(object):
                  testCommand,
                  machines,
                  client_version,
+                 docker,
                  periodicTest=False,
                  periodicTestPeriodInHours=defaultPeriodicTestPeriodInHours):
         self.testName = testName
         self.testCommand = testCommand
         self.client_version = client_version
+        self.docker = docker
 
         if 'count' not in machines:
             machines['count'] = 1
@@ -43,19 +45,25 @@ class TestScriptDefinition(object):
             'machines': self.machines,
             'client_version': self.client_version,
             'periodicTest': self.periodicTest,
-            'periodicTestPeriodInHours': self.periodicTestPeriodInHours
+            'periodicTestPeriodInHours': self.periodicTestPeriodInHours,
+            'docker': self.docker
             }
 
     @staticmethod
-    def fromJson(json, client_version=None):
+    def fromJson(json, client_version=None, docker=None):
         client_version = client_version or \
                          json.get('client_verion')
         
+        #allow individual tests to override their image configuration
+        if "docker" in json:
+            docker = json["docker"]
+
         return TestScriptDefinition(
             json['name'],
             json['command'],
             json.get('machines', {'count': 1, 'cores_min': 0}),
-            client_version
+            client_version,
+            docker
             )
 
     @staticmethod
@@ -65,25 +73,27 @@ class TestScriptDefinition(object):
         if isinstance(json, dict) and 'tests' in json:
             build_definition = json.get('build')
             looper_client_version = json.get('test-looper')
-            json = json['tests']
+            docker = json.get('docker')
+            
+            test_json = json['tests']
+        else:
+            test_json = None
 
-        if not isinstance(json, list):
-            raise ValueError("Unexpected test definitions file format")
+        if not isinstance(test_json, list):
+            raise ValueError("Unexpected test definitions file format: %s" % json)
 
         definitions = [
-            TestScriptDefinition.fromJson(row, client_version=looper_client_version)
-            for row in json
+            TestScriptDefinition.fromJson(row, client_version=looper_client_version, docker=docker)
+            for row in test_json
             ]
 
         if build_definition:
             build_definition['name'] = 'build'
             definitions.append(
                 TestScriptDefinition.fromJson(build_definition,
-                                              client_version=looper_client_version)
-                )
-        elif not [x for x in definitions if x.testName == "build"]:
-            definitions.append(
-                TestScriptDefinition('build', './make.sh', {'cores': 32}, looper_client_version)
+                                              client_version=looper_client_version,
+                                              docker=docker
+                                              )
                 )
 
         return definitions

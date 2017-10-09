@@ -16,7 +16,10 @@ class SubprocessRunner(object):
                  onStdErr,
                  env=None,
                  enablePartialLineOutput=False,
-                 closeFds=False):
+                 closeFds=False,
+                 shell=False
+                 ):
+        self.shell=shell
         self.onStdOut = onStdOut
         self.onStdErr = onStdErr
         self.subprocessArguments = subprocessArguments
@@ -98,7 +101,9 @@ class SubprocessRunner(object):
                                                 stdout=stdOutWrite,
                                                 stderr=stdErrWrite,
                                                 env=self.env,
-                                                close_fds=self.closeFds)
+                                                close_fds=self.closeFds,
+                                                shell=self.shell
+                                                )
                 subprocessEvent.set()
             except:
                 logging.error("Failed to start subprocess:\n%s", traceback.format_exc())
@@ -205,8 +210,8 @@ class SubprocessRunner(object):
 
 
 
-def callAndReturnResultWithoutOutput(args, timeout=60.0, env=None):
-    sub_process = SubprocessRunner(args, lambda msg: None, lambda msg: None, env=env)
+def callAndReturnResultWithoutOutput(args, timeout=60.0, shell=False, env=None):
+    sub_process = SubprocessRunner(args, lambda msg: None, lambda msg: None, shell=shell, env=env)
     sub_process.start()
     result = sub_process.wait(timeout)
     sub_process.stop()
@@ -214,19 +219,29 @@ def callAndReturnResultWithoutOutput(args, timeout=60.0, env=None):
     assert result is not None, "Subprocess failed to return: %s" % args
     return result
 
-def callAndReturnResultAndOutput(args, timeout=60.0, env=None):
+def callAndReturnResultAndOutput(args, timeout=60.0, shell=False, env=None):
     stdOut = []
     stdErr = []
 
-    sub_process = SubprocessRunner(args, stdOut.append, stdErr.append, env=env)
+    sub_process = SubprocessRunner(args, stdOut.append, stdErr.append, shell=shell, env=env)
     sub_process.start()
     result = sub_process.wait(timeout)
     sub_process.stop()
 
     return result, stdOut, stdErr
 
-def callAndAssertSuccess(args, timeout=60.0, env=None):
-    res, out, err = callAndReturnResultAndOutput(args, timeout=timeout, env=env)
+def callAndReturnResultAndOutputMerged(args, timeout=60.0, shell=False, env=None):
+    out = []
+
+    sub_process = SubprocessRunner(args, out.append, out.append, shell=shell, env=env)
+    sub_process.start()
+    result = sub_process.wait(timeout)
+    sub_process.stop()
+
+    return result, out
+
+def callAndAssertSuccess(args, timeout=60.0, shell=False, env=None):
+    res, out, err = callAndReturnResultAndOutput(args, timeout=timeout, shell=shell, env=env)
 
     if res != 0.0:
         print "failed " + " ".join(args)
@@ -242,8 +257,8 @@ def callAndAssertSuccess(args, timeout=60.0, env=None):
 
         assert False
 
-def callAndReturnOutput(args, timeout=60.0, env=None):
-    result, out, _ = callAndReturnResultAndOutput(args, timeout, env=env)
+def callAndReturnOutput(args, timeout=60.0, shell=False, env=None):
+    result, out, _ = callAndReturnResultAndOutput(args, timeout, shell=shell, env=env)
     if result is None:
         return None
     return "\n".join(out)

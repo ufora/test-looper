@@ -47,8 +47,10 @@ def createTestWorker(config, testLooperMachineInfo):
         )
     osInteractions = TestLooperOsInteractions.TestLooperOsInteractions(
         directories, 
-        SourceControlFromConfig.getFromConfig(config["source_control"])
+        source_control=SourceControlFromConfig.getFromConfig(config["source_control"]),
+        docker_repo=config.get("docker_repo"),
         )
+    
     osInteractions.initializeTestLooperEnvironment()
 
     def createTestLooperClient():
@@ -62,7 +64,7 @@ def createTestWorker(config, testLooperMachineInfo):
         testLooperClientFactory=createTestLooperClient,
         artifactsFileName=config['worker']['test_artifacts'],
         timeout=config['worker']['test_timeout'],
-        artifactStorage=ArtifactStorage.storageFromConfig(config),
+        artifactStorage=ArtifactStorage.storageFromConfig(config['artifacts']),
         coreDumpsDir=config['worker']['core_dump_dir'],
         repoName=config['worker']['repo_name']
         )
