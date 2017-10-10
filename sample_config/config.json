@@ -3,14 +3,13 @@
         "port": 1234,
         "http_port": 8081,
         "address": "localhost",
-        "redis_prefix": "nativepython_40_",
+        "redis_prefix": "nativepython_48_",
         "enable_advanced_views": true
         },
     "artifacts": {
         "type": "local_disk",
-        "test_artifacts_storage_path": 
-            "/home/braxton/code/test-looper-install/test_artifacts",
-        "build_storage_path": "/home/braxton/code/test-looper-install/worker/build_storage"
+        "test_artifacts_storage_path": "/home/braxton/code/test-looper-install/test_artifacts",
+        "build_storage_path": "/home/braxton/code/test-looper-install/build_storage"
         },
     "worker": {
         "working_repo": "/home/braxton/code/test-looper-install/worker/working_git_repo",
@@ -25,15 +24,7 @@
     "source_control": {
         "type": "local_git",
         "path_to_repo": "/home/braxton/code/nativepython",
-        "test_definitions_path": "test_definitions.json",
-        "test_definitions_override": {
-            "build": {
-                "command": 
-                    "tar -zcvf $OUTPUT_DIR/$TEST_REPO-$BUILD_COMMIT.tar.gz *"
-                },
-            "tests": [
-                {"name": "python", "command": "./test.pys"}
-                ]
-            }
-        }
+        "test_definitions_path": "testDefinitions.json"
+        },
+    "test_definitions_default": null
 }
