@@ -131,11 +131,8 @@ class Git(object):
         with self.git_repo_lock:
             try:
                 return self.subprocessCheckOutput("git show '%s:%s'" % (commit,path), shell=True)
-            except Exception as e:
-                if "No such file" in e.message:
-                    logging.warn("Couldn't find file %s in commit %s" % (path, commit))
-                    return None
-                raise
+            except:
+                return None
 
 
     def fetchOrigin(self):

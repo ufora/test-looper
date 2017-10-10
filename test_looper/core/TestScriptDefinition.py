@@ -13,13 +13,11 @@ class TestScriptDefinition(object):
                  testName,
                  testCommand,
                  machines,
-                 client_version,
                  docker,
                  periodicTest=False,
                  periodicTestPeriodInHours=defaultPeriodicTestPeriodInHours):
         self.testName = testName
         self.testCommand = testCommand
-        self.client_version = client_version
         self.docker = docker
 
         if 'count' not in machines:
@@ -43,17 +41,13 @@ class TestScriptDefinition(object):
             'name': self.testName,
             'command': self.testCommand,
             'machines': self.machines,
-            'client_version': self.client_version,
             'periodicTest': self.periodicTest,
             'periodicTestPeriodInHours': self.periodicTestPeriodInHours,
             'docker': self.docker
             }
 
     @staticmethod
-    def fromJson(json, client_version=None, docker=None):
-        client_version = client_version or \
-                         json.get('client_verion')
-        
+    def fromJson(json, docker=None):
         #allow individual tests to override their image configuration
         if "docker" in json:
             docker = json["docker"]
@@ -62,17 +56,15 @@ class TestScriptDefinition(object):
             json['name'],
             json['command'],
             json.get('machines', {'count': 1, 'cores_min': 0}),
-            client_version,
             docker
             )
 
     @staticmethod
-    def bulk_load(json):
+    def testSetFromJson(json):
         build_definition = None
-        looper_client_version = None
+        
         if isinstance(json, dict) and 'tests' in json:
             build_definition = json.get('build')
-            looper_client_version = json.get('test-looper')
             docker = json.get('docker')
             
             test_json = json['tests']
@@ -83,17 +75,14 @@ class TestScriptDefinition(object):
             raise ValueError("Unexpected test definitions file format: %s" % json)
 
         definitions = [
-            TestScriptDefinition.fromJson(row, client_version=looper_client_version, docker=docker)
+            TestScriptDefinition.fromJson(row, docker=docker)
             for row in test_json
             ]
 
         if build_definition:
             build_definition['name'] = 'build'
             definitions.append(
-                TestScriptDefinition.fromJson(build_definition,
-                                              client_version=looper_client_version,
-                                              docker=docker
-                                              )
+                TestScriptDefinition.fromJson(build_definition, docker=docker)
                 )
 
         return definitions

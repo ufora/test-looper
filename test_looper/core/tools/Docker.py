@@ -34,6 +34,10 @@ def hash_files_in_path(path):
 
     return h.hexdigest()
 
+def hash_string(s):
+    h = md5()
+    h.update(s)
+    return h.hexdigest()
 
 class MissingImageError(Exception):
     def __init__(self, image_id):
@@ -45,23 +49,12 @@ class MissingImageError(Exception):
 
 
 class Docker(object):
-    binary = None
+    @property
+    def binary(self):
+        return "docker"
 
     def __init__(self, image_name):
         self.image = image_name
-
-
-    @property
-    def docker_binary(self):
-        if self.binary is None:
-            self.binary = "nvidia-docker" if self.is_gpu() else "docker"
-        return self.binary
-
-
-    @staticmethod
-    def is_gpu():
-        return call_quiet('nvidia-smi') == 0 and \
-               call_quiet('which nvidia-docker') == 0
 
     @classmethod
     def from_dockerfile(cls, dockerfile_dir, docker_repo, create_missing=False):
@@ -89,12 +82,12 @@ class Docker(object):
 
     @classmethod
     def from_dockerfile_as_string(cls, docker_repo, dockerfile_as_string, create_missing=False):
-        h = md5()
-        h.update(dockerfile_as_string)
+        dockerfile_hash = hash_string(dockerfile_as_string)
 
-        dockerfile_hash = h.hexdigest()
-
-        docker_image = "{docker_repo}/test_looper:{hash}".format(docker_repo=docker_repo, hash=dockerfile_hash)
+        if docker_repo is not None:
+            docker_image = "{docker_repo}/test_looper:{hash}".format(docker_repo=docker_repo, hash=dockerfile_hash)
+        else:
+            docker_image = "test_looper:{hash}".format(hash=dockerfile_hash)
 
         docker = Docker(docker_image)
 
@@ -104,7 +97,8 @@ class Docker(object):
                 logging.info("Building docker image %s from source...", docker_image)
 
                 docker.buildFromString(dockerfile_as_string)
-                docker.push()
+                if docker_repo is not None:
+                    docker.push()
             else:
                 raise MissingImageError(docker_image)
 
@@ -112,18 +106,20 @@ class Docker(object):
 
 
     def pull(self):
-        return call_quiet("{docker} pull {image}".format(docker=self.docker_binary,
+        return call("{docker} pull {image}".format(docker=self.binary,
                                                    image=self.image)) == 0
 
 
     def build(self, dockerfile_dir):
-        subprocess.check_call("{docker} build --label test_looper_worker --no-cache -t {image} {path}".format(docker=self.docker_binary,
-                                                                        image=self.image,
-                                                                        path=dockerfile_dir),
-                              shell=True,
-                              stdout=sys.stdout,
-                              stderr=sys.stderr
-                              )
+        subprocess.check_call(
+            "{docker} build --label test_looper_worker --no-cache -t {image} {path}"
+                .format(docker=self.binary,
+                        image=self.image,
+                        path=dockerfile_dir),
+            shell=True,
+            stdout=sys.stdout,
+            stderr=sys.stderr
+            )
 
     def buildFromString(self, dockerfile_text,timeout=None):
         with tempfile.NamedTemporaryFile() as tmp:
@@ -136,15 +132,18 @@ class Docker(object):
                 output.append(m)
                 print m
 
-            proc = SubprocessRunner.SubprocessRunner(["{docker} build --label test_looper_worker --no-cache -t {image} - < {tmpfile}".format(
-                                                                            docker=self.docker_binary,
-                                                                            image=self.image,
-                                                                            tmpfile=tmp.name
-                                                                            )],
-                                  onStdOut,
-                                  onStdOut,
-                                  shell=True,
-                                  )
+            proc = SubprocessRunner.SubprocessRunner(
+                ["{docker} build --label test_looper_worker --no-cache -t {image} - < {tmpfile}"
+                    .format(
+                        docker=self.binary,
+                        image=self.image,
+                        tmpfile=tmp.name
+                        )],
+                onStdOut,
+                onStdOut,
+                shell=True,
+                )
+
             proc.start()
             result = proc.wait(timeout=timeout)
 
@@ -152,11 +151,15 @@ class Docker(object):
                 raise Exception("Failed to build dockerfile:\n%s" % ("\n".join(output)))
 
     def push(self):
-        subprocess.check_call("{docker} push {image}".format(docker=self.docker_binary,
-                                                             image=self.image),
-                              shell=True,
-                              stdout=sys.stdout,
-                              stderr=sys.stderr)
+        assert self.docker_repo is not None
+
+        subprocess.check_call(
+            "{docker} push {image}"
+                .format(docker=self.binary, image=self.image),
+            shell=True,
+            stdout=sys.stdout,
+            stderr=sys.stderr
+            )
 
 
     def run(self,
@@ -198,7 +201,7 @@ class Docker(object):
 
         return call_func(
             "{docker} run {options} {name} {volumes} {env} {image} {command}".format(
-                docker=self.docker_binary,
+                docker=self.binary,
                 options=options or '',
                 name=name,
                 volumes=volumes or '',
@@ -209,10 +212,10 @@ class Docker(object):
 
 
     def stop(self, container_name):
-        return call_quiet("{docker} stop {name} > /dev/null".format(docker=self.docker_binary,
+        return call_quiet("{docker} stop {name} > /dev/null".format(docker=self.binary,
                                                                     name=container_name))
 
 
     def remove(self, container_name):
-        return call_quiet("{docker} rm {name} > /dev/null".format(docker=self.docker_binary,
+        return call_quiet("{docker} rm {name} > /dev/null".format(docker=self.binary,
                                                                   name=container_name))

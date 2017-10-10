@@ -3,7 +3,7 @@ import requests
 import simplejson
 import traceback
 
-from test_looper.tools.Git import Git
+from test_looper.core.tools.Git import Git
 from test_looper.core.TestScriptDefinition import TestScriptDefinition
 
 
@@ -132,17 +132,7 @@ class Bitbucket(Git):
         if not response.ok:
             response.raise_for_status()
 
-        try:
-            return TestScriptDefinition.bulk_load(response.json())
-        except:
-            logging.warn(
-                "Contents of %s for %s are invalid: %s\n%s",
-                self.test_definitions_path,
-                commitId,
-                response.text,
-                traceback.format_exc()
-                )
-            return []
+        return response.json()
 
 
     def get_server_token(self):

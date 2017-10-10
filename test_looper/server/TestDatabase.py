@@ -53,12 +53,10 @@ class TestDatabase(object):
         if res is None:
             return None
 
-        logging.info("Getting %s cached test definitions for %s", len(res), commitId)
-
-        return [TestScriptDefinition.fromJson(x) for x in res]
+        return res
 
     def setTestScriptDefinitionsForCommit(self, commit, result):
-        self.kvStore.set(self.dbPrefix + "commit_test_definitions_" + commit, [x.toJson() for x in result])
+        self.kvStore.set(self.dbPrefix + "commit_test_definitions_" + commit, result)
 
     def getTargetedTestTypesForBranch(self, branchname):
         return self.kvStore.get(self.dbPrefix + "branch_targeted_tests_" + branchname) or []

@@ -6,7 +6,7 @@ import requests
 import simplejson
 
 from test_looper.core.TestScriptDefinition import TestScriptDefinition
-from test_looper.tools.Git import Git
+from test_looper.core.tools.Git import Git
 
 
 def verify_webhook_request(headers, body, secret):
@@ -151,16 +151,7 @@ class Github(Git):
         testDefinitionsJson = simplejson.loads(responseTestDefinitions.text)
 
         if 'message' in testDefinitionsJson and testDefinitionsJson['message'] == "Not Found":
-            return []
+            return None
 
-        try:
-            results = simplejson.loads(base64.b64decode(testDefinitionsJson['content']))
-            return TestScriptDefinition.bulk_load(results)
-        except:
-            logging.warn(
-                "Contents of %s for %s are invalid",
-                self.test_definitions_path,
-                commitId
-                )
-            return []
+        return base64.b64decode(testDefinitionsJson['content'])
 

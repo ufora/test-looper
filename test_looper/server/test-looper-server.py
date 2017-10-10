@@ -60,7 +60,8 @@ def main():
         TestManager.TestManagerSettings(
             baseline_branch=config['server'].get('baseline_branch', 'master'),
             baseline_depth=config['server'].get('baseline_depth', 20),
-            max_test_count=config['server'].get('max_test_count', 3)
+            max_test_count=config['server'].get('max_test_count', 3),
+            test_definitions_default=config.get('test_definitions_default', {})
             )
         )
 

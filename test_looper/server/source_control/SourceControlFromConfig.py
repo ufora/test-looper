@@ -61,8 +61,7 @@ def configureBitbucket(src_ctrl_config):
 def configureGit(config):
     return LocalGitRepo.LocalGitRepo(
         path_to_repo=config.get('path_to_repo'),
-        test_definitions_path=config.get('test_definitions_path'),
-        test_definitions_override=config.get('test_definitions_override')
+        test_definitions_path=config.get('test_definitions_path')
         )
 
 def getFromConfig(config):

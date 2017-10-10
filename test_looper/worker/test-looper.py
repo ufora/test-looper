@@ -2,6 +2,7 @@
 
 import argparse
 import boto
+import pprint
 import boto.s3.key
 import boto.utils
 import json
@@ -112,7 +113,12 @@ if __name__ == "__main__":
     args = createArgumentParser().parse_args()
     config = loadConfiguration(args.config)
     machineInfo = getMachineInfo()
-    logging.info("Starting test-looper on %s with config: %s", machineInfo, config)
+
+    logging.info(
+        "Starting test-looper on %s with config: %s", 
+        machineInfo, 
+        pprint.PrettyPrinter().pprint(config)
+        )
 
     testLooperWorker = createTestWorker(config, machineInfo)
     workerThread = threading.Thread(target=testLooperWorker.startTestLoop)

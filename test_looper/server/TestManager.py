@@ -2,19 +2,23 @@ import collections
 import logging
 import random
 import time
+import traceback
 
 import test_looper.core.TestResult as TestResult
 
 import test_looper.server.BlockingMachines as BlockingMachines
+import test_looper.core.TestScriptDefinition as TestScriptDefinition
 import test_looper.server.Branch as Branch
 import test_looper.server.Commit as Commit
 from test_looper.server.CommitAndTestToRun import CommitAndTestToRun
 
 
-TestManagerSettings = collections.namedtuple(
-    'TestManagerSettings',
-    'baseline_branch baseline_depth max_test_count'
-    )
+class TestManagerSettings:
+    def __init__(self, baseline_branch, baseline_depth, max_test_count, test_definitions_default):
+        self.baseline_branch = baseline_branch
+        self.baseline_depth = baseline_depth
+        self.max_test_count = max_test_count
+        self.test_definitions_default = test_definitions_default
 
 
 class TestManager(object):
@@ -382,17 +386,40 @@ class TestManager(object):
 
     def createCommit(self, commitId, parentHashes, commitTitle):
         if commitId not in self.commits:
-            testScriptDefinitions = self.testDb.getTestScriptDefinitionsForCommit(commitId)
+            json = self.testDb.getTestScriptDefinitionsForCommit(commitId)
 
-            if testScriptDefinitions is None:
-                testScriptDefinitions = self.src_ctrl.getTestScriptDefinitionsForCommit(commitId)
-                self.testDb.setTestScriptDefinitionsForCommit(commitId, testScriptDefinitions)
+            if json is None:
+                data = self.src_ctrl.getTestScriptDefinitionsForCommit(commitId)
+
+                if data is None:
+                    json = "default"
+                else:
+                    try:
+                        json = simplejson.loads(data)
+                    except:
+                        logging.error("Contents of test definitions for %s are not valid json." % commitId)
+                        json = {}
+
+                self.testDb.setTestScriptDefinitionsForCommit(commitId, json)
+
+            try:
+                if json == "default":
+                    json = self.settings.test_definitions_default
+
+                testScriptDefinitions = TestScriptDefinition.TestScriptDefinition.testSetFromJson(json)
+                testScriptDefinitionsError = None
+            except Exception as e:
+                testScriptDefinitions = []
+                testScriptDefinitionsError = e.message
+                
 
             self.commits[commitId] = Commit.Commit(self.testDb,
                                                    commitId,
                                                    parentHashes,
                                                    commitTitle,
-                                                   testScriptDefinitions)
+                                                   testScriptDefinitions,
+                                                   testScriptDefinitionsError
+                                                   )
 
         return self.commits[commitId]
 

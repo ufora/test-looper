@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-from test_looper.tools.Git import Git
+from test_looper.core.tools.Git import Git
 from test_looper.server.RedisJsonStore import RedisJsonStore
 from test_looper.server.TestManager import TestDatabase
 

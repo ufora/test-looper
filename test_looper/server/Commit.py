@@ -14,13 +14,21 @@ class Commit(object):
     MIN_PASS_RATE = 0.7
     SUSPICIOUSNESS_CACHE_TIMEOUT = 30.0
 
-    def __init__(self, testDb, commitId, parentIds, subject, testScriptDefinitions):
+    def __init__(self, 
+            testDb, 
+            commitId, 
+            parentIds, 
+            subject, 
+            testScriptDefinitions, 
+            testScriptDefinitionsError
+            ):
         self.testDb = testDb
         self.commitId = commitId
         self.parentIds = parentIds
         self.subject = subject
         self.branches = set()
         self.testScriptDefinitions = testScriptDefinitions
+        self.testScriptDefinitionsError = testScriptDefinitionsError
         self.testsById = {}
         self.testIdsByType = {}
         self.statsByType = {}

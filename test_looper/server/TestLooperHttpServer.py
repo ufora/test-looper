@@ -1324,8 +1324,16 @@ class TestLooperHttpServer(object):
                     row[-1] = HtmlGeneration.lightGreyBacking(row[-1])
 
         row.append(self.sourceLinkForCommit(commit))
-        row.append(self.clearCommitIdLink(commit.commitId,
-                                          "/branch?branchName=" + branch.branchName))
+        
+        row.append(
+            HtmlGeneration.lightGrey("invalid test file") 
+                    if commit.testScriptDefinitionsError is not None
+            else HtmlGeneration.lightGrey("no tests") 
+                    if len(commit.testScriptDefinitions) == 0
+            else self.clearCommitIdLink(commit.commitId,
+                                          "/branch?branchName=" + branch.branchName)
+            )
+
         row.append(joinLinks(self.branchLink(b.branchName) for b in commit.branches))
         return row
 

@@ -15,11 +15,10 @@ import virtualenv
 import psutil
 
 import test_looper.core.SubprocessRunner as SubprocessRunner
-import test_looper.tools.Git as Git
-import test_looper.client.PerformanceTestReporter as PerformanceTestReporter
+import test_looper.core.tools.Git as Git
 import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.worker.TestLooperClient as TestLooperClient
-import test_looper.tools.Docker as Docker
+import test_looper.core.tools.Docker as Docker
 
 
 TestLooperDirectories = collections.namedtuple(
@@ -120,7 +119,7 @@ class TestLooperOsInteractions(object):
 
     @staticmethod
     def removeDanglingDockerImages():
-        cmd = 'docker images -qf dangling=true | xargs --no-run-if-empty docker rmi'
+        cmd = 'docker images -qf dangling=true -f label=test_looper_worker | xargs --no-run-if-empty docker rmi'
         output = subprocess.check_output(cmd, shell=True)
         logging.info("Deleted dangling docker images: %s", output)
 
@@ -145,14 +144,10 @@ class TestLooperOsInteractions(object):
 
         return int(subprocess.check_output('du -s "%s"' % path, shell=True).split()[0])
 
-
     def baseDataDir(self):
         return self.directories.test_data_dir
 
-
     def run_command(self, command, log_filename, build_env, timeout, heartbeat, docker_image):
-        logging.info("build_env: %s", build_env)
-
         logging.info("build_env: %s", build_env)
 
         with open(log_filename, 'a') as build_log:
@@ -198,14 +193,18 @@ class TestLooperOsInteractions(object):
                     command
                     ]
                 
-                subprocess = SubprocessRunner.SubprocessRunner(cmds, onOut, onErr, shell=False)
+                try:
+                    subprocess = SubprocessRunner.SubprocessRunner(cmds, onOut, onErr, shell=False)
 
-                result = self.runSubprocess(subprocess,
-                                            timeout,
-                                            heartbeat)
-                if not result:
-                    logging.error("Command failed.")
-                return result
+                    result = self.runSubprocess(subprocess,
+                                                timeout,
+                                                heartbeat)
+                    if not result:
+                        logging.error("Command failed.")
+                    return result
+                except:
+                    logging.error("Failed running %s", " ".join(cmds))
+                    raise
 
 
     def runSubprocess(self, proc, timeout, heartbeatFunction):
@@ -301,8 +300,7 @@ class TestLooperOsInteractions(object):
     @staticmethod
     def extractPerformanceTests(outPerformanceTestsFile, testName):
         if os.path.exists(outPerformanceTestsFile):
-            performanceTestsList = \
-                PerformanceTestReporter.loadTestsFromFile(outPerformanceTestsFile)
+            performanceTestsList = []
 
             #verify that we can dump this as json. If we fail, we'll still be able to understand
             #what happened
@@ -368,7 +366,6 @@ class TestLooperOsInteractions(object):
         if os.path.exists(build_path):
             return os.path.join(build_path, os.listdir(build_path)[0])
 
-
     def getDockerImage(self, commit_id, dockerConf, output_dir):
         try:
             if 'native' in dockerConf:
@@ -378,10 +375,15 @@ class TestLooperOsInteractions(object):
                 tagname = dockerConf['tag']
 
                 for char in tagname:
-                    if not char.isalnum() or char in ".-_":
+                    if not (char.isalnum() or char in ".-_:"):
                         raise Exception("Invalid tag name: " + tagname)
 
-                d = Docker.Docker(self.docker_repo + "/" + dockerConf['tag'])
+                if self.docker_repo is None:
+                    image_name = dockerConf["tag"]
+                else:
+                    image_name = self.docker_repo + "/" + dockerConf["tag"]
+
+                d = Docker.Docker(image_name)
 
                 if not d.pull():
                     raise Exception("Couldn't find docker explicitly named image %s" % d.image)
@@ -395,6 +397,9 @@ class TestLooperOsInteractions(object):
 
                 return Docker.Docker.from_dockerfile_as_string(self.docker_repo, source, create_missing=True)
 
+            raise Exception("No docker configuration was provided. Test should define one of " + 
+                    "native, tag, or dockerfile"
+                    )
         except Exception as e:
             with open(os.path.join(output_dir,"docker_configuration_error.log"),"w") as f:
                 print >> f, "Failed to get a docker image configured by %s:\n\n%s" % (

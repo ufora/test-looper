@@ -140,6 +140,11 @@ class LocalArtifactStorage(object):
         self.filecopy(dest, os.path.join(self.build_storage_path, key_name))
 
     def uploadTestArtifacts(self, testId, machineName, testOutputDir):
+        try:
+            os.makedirs(os.path.join(self.test_artifacts_storage_path, testId))
+        except OSError:
+            pass
+
         def uploadFile(path, semaphore):
             try:
                 logging.info("Uploading %s", path)
