@@ -18,7 +18,7 @@ import os
 import test_looper.worker.TestLooperClient as TestLooperClient
 import test_looper.worker.TestLooperWorker as TestLooperWorker
 import test_looper.worker.TestLooperOsInteractions as TestLooperOsInteractions
-import test_looper.server.source_control.SourceControlFromConfig as SourceControlFromConfig
+import test_looper.core.source_control.SourceControlFromConfig as SourceControlFromConfig
 import test_looper.core.ArtifactStorage as ArtifactStorage
 
 

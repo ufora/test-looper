@@ -11,7 +11,7 @@ import sys
 import threading
 import time
 
-import test_looper.server.source_control.SourceControlFromConfig as SourceControlFromConfig
+import test_looper.core.source_control.SourceControlFromConfig as SourceControlFromConfig
 from test_looper.server.RedisJsonStore import RedisJsonStore
 from test_looper.server.TestDatabase import TestDatabase
 import test_looper.server.TestLooperEc2Connection as TestLooperEc2Connection

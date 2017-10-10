@@ -11,7 +11,7 @@ import markdown
 import urllib
 import pytz
 
-import test_looper.server.source_control as Github
+import test_looper.core.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.server.PerformanceDataset as PerformanceDataset
 
