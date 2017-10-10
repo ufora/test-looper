@@ -13,32 +13,131 @@ image_builder_tag = 'test-looper-image-builder'
 looper_current_image_tag = 'current'
 all_states_except_terminated = ['pending', 'running', 'shutting-down', 'stopping', 'stopped']
 
-Ec2Settings = collections.namedtuple('Ec2Settings',
-                                     ['aws_region',
-                                      'security_group',
-                                      'instance_profile_name',
-                                      'vpc_subnets', # map from availability zones to subnets
-                                      'worker_ami',
-                                      'worker_alt_ami',
-                                      'alt_ami_instance_types',
-                                      'root_volume_size_gb',
-                                      'worker_ssh_key_name',
-                                      'worker_user_data',
-                                      'test_result_bucket',
-                                      'object_tags'])
+class cloudSettings:
+    def __init__(self,
+                aws_region,
+                security_group,
+                instance_profile_name,
+                vpc_subnets,
+                worker_ami,
+                worker_alt_ami,
+                alt_ami_instance_types,
+                root_volume_size_gb,
+                worker_ssh_key_name,
+                worker_user_data,
+                test_result_bucket,
+                object_tags
+                ):
+        self.aws_region = aws_region
+        self.security_group = security_group
+        self.instance_profile_name = instance_profile_name
+        self.vpc_subnets = vpc_subnets
+        self.worker_ami = worker_ami
+        self.worker_alt_ami = worker_alt_ami
+        self.alt_ami_instance_types = alt_ami_instance_types
+        self.root_volume_size_gb = root_volume_size_gb
+        self.worker_ssh_key_name = worker_ssh_key_name
+        self.worker_user_data = worker_user_data
+        self.test_result_bucket = test_result_bucket
+        self.object_tags = object_tags
 
 class TimeoutException(Exception):
     pass
 
-class EC2Connection(object):
-    def __init__(self, ec2Settings):
-        logging.info("EC2 settings: %s", ec2Settings)
-        self.ec2Settings = ec2Settings
 
-        if ec2Settings.aws_region is None:
+class Ec2Connection(object):
+    available_instance_types_and_core_count = [
+        ('c3.xlarge', 4),
+        ('c3.8xlarge', 32),
+        ('g2.2xlarge', 8),
+        ('g2.8xlarge', 32)
+        ]
+
+    @staticmethod
+    def fromConfig(config):
+        ownInternalIpAddress = getInstancePrivateIp()
+        worker_config_file = config['worker']['config_file']
+        worker_core_dump_dir = config['worker']['core_dump_dir']
+        worker_user_account = 'test-looper'
+        worker_data_dir = '/home/test-looper/test_data'
+        worker_ccache_dir = '/home/test-looper/ccache'
+        worker_build_cache_dir = '/home/test-looper/build_cache'
+        mnt_root_dir = '/mnt/test-looper'
+        looperUserData = '''#!/bin/bash
+        mount | grep /mnt > /dev/null
+        if [ $? -eq 0 ]; then
+            UMOUNT_ATTEMPTS=0
+            until umount /mnt || [ $UMOUNT_ATTEMPTS -eq 4 ]; do
+                echo "Unmount attempt: $(( UMOUNT_ATTEMPTS++ ))"
+                fuser -vm /mnt
+                sleep 1
+            done
+            mkfs.btrfs -f /dev/xvdb
+            mount /mnt
+            start docker
+            echo "{worker_core_dump_dir}/core.%p" > /proc/sys/kernel/core_pattern
+            mkdir -p {mnt_root_dir}/test_data {mnt_root_dir}/ccache {mnt_root_dir}/build_cache
+            chown -R {worker_user_account}:{worker_user_account} {mnt_root_dir}
+            mount -B {mnt_root_dir}/test_data {worker_data_dir}
+            mount -B {mnt_root_dir}/ccache {worker_ccache_dir}
+            mount -B {mnt_root_dir}/build_cache {worker_build_cache_dir}
+        fi
+        sed -i 's/__PRIVATE_IP__/{server_ip}/' {config_file}
+        sed -i 's/__PORT__/{server_port}/' {config_file}
+        start test-looper'''.format(
+            worker_core_dump_dir=worker_core_dump_dir,
+            mnt_root_dir=mnt_root_dir,
+            worker_user_account=worker_user_account,
+            worker_data_dir=worker_data_dir,
+            worker_build_cache_dir=worker_build_cache_dir,
+            worker_ccache_dir=worker_ccache_dir,
+            server_ip=ownInternalIpAddress,
+            server_port=port,
+            config_file=worker_config_file
+            )
+
+        security_group = config['cloud']['security_group']
+        worker_ami = config['cloud']['ami']
+        instance_profile_name = config['cloud']['worker_role_name'] or 'test-looper'
+        ssh_key_name = config['cloud']['worker_ssh_key_name'] or 'test-looper'
+        root_volume_size = config['cloud']['worker_root_volume_size_gb'] or 8
+        test_result_bucket = config['cloud']['test_result_bucket']
+        vpc_subnets = config['cloud']['vpc_subnets'] or {
+            'us-west-2a': 'subnet-112c9266',
+            'us-west-2b': 'subnet-9046def5',
+            'us-west-2c': 'subnet-7124f928'
+            }
+        alt_ami_instance_types = []
+        worker_alt_ami = config['cloud'].get('alt_ami')
+        if worker_alt_ami:
+            alt_ami_instance_types = config['cloud'].get('alt_ami_instance_types', [])
+        cloudSettings = cloudConnection.cloudSettings(
+            aws_region=getInstanceRegion(),
+            security_group=security_group,
+            instance_profile_name=instance_profile_name,
+            vpc_subnets=vpc_subnets,
+            worker_ami=worker_ami,
+            worker_alt_ami=worker_alt_ami,
+            alt_ami_instance_types=alt_ami_instance_types,
+            root_volume_size_gb=root_volume_size,
+            worker_ssh_key_name=ssh_key_name,
+            worker_user_data=looperUserData,
+            test_result_bucket=test_result_bucket,
+            object_tags=config['cloud'].get('object_tags', {})
+            )
+
+        return cloudConnection.cloudConnection(cloudSettings)
+
+
+
+    def __init__(self, cloudSettings):
+        logging.info("cloud settings: %s", cloudSettings)
+        self.ec2Settings = cloudSettings
+
+        if cloudSettings.aws_region is None:
             self.ec2 = boto.connect_ec2()
         else:
-            self.ec2 = boto.ec2.connect_to_region(ec2Settings.aws_region)
+            self.ec2 = boto.ec2.connect_to_region(cloudSettings.aws_region)
 
 
     def openTestResultBucket(self):
@@ -151,7 +250,7 @@ class EC2Connection(object):
             while True:
                 try:
                     images = self.getLooperImages(ids=[imageId])
-                except boto.exception.EC2ResponseError:
+                except boto.exception.cloudResponseError:
                     images = []
                 if len(images) == 1:
                     if images[0].state == u'available':
@@ -183,7 +282,7 @@ class EC2Connection(object):
                                launch_group=None,
                                availability_zone=None):
         logging.info(
-            ("EC2 connection, request spot instance_type: %s, max bid: %s, instance count: %s, "
+            ("cloud connection, request spot instance_type: %s, max bid: %s, instance count: %s, "
              "launch_group: %s, availability_zone: %s"),
             instance_type, max_bid, instance_count, launch_group, availability_zone
             )
@@ -210,7 +309,7 @@ class EC2Connection(object):
                 self.ec2.create_tags([r.id for r in spot_requests],
                                      self.ec2Settings.object_tags)
                 return
-            except boto.exception.EC2ResponseError as e:
+            except boto.exception.cloudResponseError as e:
                 if e.body and 'InvalidSpotInstanceRequestID.NotFound' in e.body:
                     time.sleep(1.0)
                 else:

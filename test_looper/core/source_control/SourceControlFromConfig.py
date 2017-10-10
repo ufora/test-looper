@@ -2,6 +2,10 @@ import test_looper.core.source_control.LocalGitRepo as LocalGitRepo
 import test_looper.core.source_control.Bitbucket as Bitbucket
 import test_looper.core.source_control.Github as Github
 
+TEST_LOOPER_GITHUB_ACCESS_TOKEN = "TEST_LOOPER_GITHUB_ACCESS_TOKEN"
+TEST_LOOPER_OAUTH_KEY = "TEST_LOOPER_OAUTH_KEY"
+TEST_LOOPER_OAUTH_SECRET = "TEST_LOOPER_OAUTH_SECRET"
+
 def configureGithub(src_ctrl_config):
     oauth_key = src_ctrl_config.get('oauth_key') or os.getenv(TEST_LOOPER_OAUTH_KEY)
     if oauth_key is None and config["auth"] == "none" != 'none':

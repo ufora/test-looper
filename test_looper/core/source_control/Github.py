@@ -8,7 +8,6 @@ import simplejson
 from test_looper.core.TestScriptDefinition import TestScriptDefinition
 from test_looper.core.tools.Git import Git
 
-
 def verify_webhook_request(headers, body, secret):
     signature = "sha1=" + hmac.new(secret, body, hashlib.sha1).hexdigest()
     if ('X-GitHub-Event' not in headers or 'X-HUB-SIGNATURE' not in headers or

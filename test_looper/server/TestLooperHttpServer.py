@@ -19,15 +19,6 @@ import traceback
 
 time.tzset()
 
-
-def stringifyDateToLocalTz(date):
-    tzString = os.getenv('TZ')
-    if tzString:
-        return str(date.astimezone(pytz.timezone(tzString)))
-    return str(date)
-
-
-
 def joinLinks(linkList):
     res = ""
 
@@ -42,16 +33,14 @@ def joinLinks(linkList):
 class TestLooperHttpServer(object):
     def __init__(self,
                  testManager,
-                 aws_ec2_connection,
+                 cloud_connection,
                  artifactStorage,
-                 available_instance_types_and_core_count,
                  src_ctrl,
-                 test_looper_webhook_secret,
                  event_log,
                  auth_level,
-                 testLooperBranch=None,
-                 httpPortOverride=None,
-                 enable_advanced_views=False):
+                 httpPort,
+                 enable_advanced_views
+                 ):
         """Initialize the TestLooperHttpServer
 
         testManager - a TestManager.TestManager object
@@ -62,15 +51,11 @@ class TestLooperHttpServer(object):
         """
 
         self.testManager = testManager
-        self.aws_ec2_connection = aws_ec2_connection
-        self.available_instance_types_and_core_count = available_instance_types_and_core_count
-        self.testLooperServerLogFile = os.getenv("LOG_FILE")
-        self.test_looper_branch = testLooperBranch or 'test-looper'
+        self.cloud_connection = cloud_connection
         self.accessTokenHasPermission = {}
-        self.httpPort = httpPortOverride or 80
+        self.httpPort = httpPort
         self.auth_level = auth_level
         self.src_ctrl = src_ctrl
-        self.test_looper_webhook_secret = test_looper_webhook_secret
         self.eventLog = event_log
         self.eventLog.addLogMessage("test-looper", "TestLooper initialized")
         self.defaultCoreCount = 4
@@ -416,13 +401,12 @@ class TestLooperHttpServer(object):
     def machines(self):
         self.authorize(read_only=True)
 
-        ec2 = self.aws_ec2_connection
         instancesByIp = {
             i.ip_address or i.private_ip_address: i
-            for i in  ec2.getLooperInstances()
+            for i in self.cloud_connection.getLooperInstances()
             }
 
-        spotRequests = ec2.getLooperSpotRequests()
+        spotRequests = self.cloud_connection.getLooperSpotRequests()
 
         with self.testManager.lock:
             grid = [["MACHINE", "PING", "STATE", "TYPE", "SPOT REQ ID",
@@ -479,10 +463,9 @@ class TestLooperHttpServer(object):
     def terminateMachine(self, machineId):
         self.authorize(read_only=False)
 
-        ec2 = self.aws_ec2_connection
         instancesByIp = {
             i.ip_address or i.private_ip_address: i
-            for i in  ec2.getLooperInstances()
+            for i in self.cloud_connection.getLooperInstances()
             }
 
         if machineId not in instancesByIp:
@@ -642,7 +625,7 @@ class TestLooperHttpServer(object):
             ('Branches', '/branches')
             ]
 
-        if self.aws_ec2_connection is not None:
+        if self.cloud_connection is not None:
             nav_links += [
                 ('Spot Requests', '/spotRequests'),
                 ('Workers', '/machines')
@@ -1382,9 +1365,9 @@ class TestLooperHttpServer(object):
         return self.commonHeader() + self.generateEventLogHtml(1000)
 
 
-    def getCurrentSpotRequestGrid(self, ec2):
+    def getCurrentSpotRequestGrid(self):
         spotRequests = sorted(
-            ec2.getLooperSpotRequests().itervalues(),
+            self.cloud_connection.getLooperSpotRequests().itervalues(),
             key=lambda r: r.price,
             reverse=True
             )
@@ -1454,10 +1437,10 @@ class TestLooperHttpServer(object):
         return grid
 
 
-    def get_spot_prices(self, ec2):
+    def get_spot_prices(self):
         prices = {}
-        for instance_type, _ in self.available_instance_types_and_core_count:
-            prices_by_zone = ec2.currentSpotPrices(instanceType=instance_type)
+        for instance_type, _ in self.cloud_connection :
+            prices_by_zone = self.cloud_connection.currentSpotPrices(instanceType=instance_type)
             prices[instance_type] = {
                 zone: price for zone, price in sorted(prices_by_zone.iteritems())
                 }
@@ -1466,7 +1449,7 @@ class TestLooperHttpServer(object):
     def getSpotInstancePriceGrid(self, prices):
         availability_zones = sorted(prices.itervalues().next().keys())
         grid = [["Instance Type"] + availability_zones]
-        for instance_type, _ in self.available_instance_types_and_core_count:
+        for instance_type, _ in self.cloud_connection.available_instance_types_and_core_count:
             grid.append([instance_type] + ["$%s" % prices[instance_type][az]
                                            for az in sorted(prices[instance_type].keys())])
 
@@ -1479,7 +1462,7 @@ class TestLooperHttpServer(object):
             [
                 (instance_type, "%s cores (%s)" % (core_count, instance_type))
                 for instance_type, core_count in
-                self.available_instance_types_and_core_count
+                self.cloud_connection.available_instance_types_and_core_count
             ],
             self.defaultCoreCount)
         availabilityZoneDropDown = HtmlGeneration.selectBox(
@@ -1511,10 +1494,9 @@ class TestLooperHttpServer(object):
     def spotRequests(self):
         self.authorize(read_only=True)
 
-        ec2 = self.aws_ec2_connection
-        spot_prices = self.get_spot_prices(ec2)
+        spot_prices = self.get_spot_prices()
 
-        grid = self.getCurrentSpotRequestGrid(ec2)
+        grid = self.getCurrentSpotRequestGrid()
         has_open_requests = len(grid) > 1 and len(grid[1]) > 1
 
         button_style = "btn-danger" + ("" if has_open_requests else " disabled")
@@ -1554,15 +1536,15 @@ class TestLooperHttpServer(object):
     def cancelAllSpotRequests(self, instanceType=None):
         self.authorize(read_only=False)
 
-        ec2 = self.aws_ec2_connection
-        spotRequests = ec2.getLooperSpotRequests()
+        self.cloud_connection = self.cloud_connection
+        spotRequests = self.cloud_connection.getLooperSpotRequests()
         if instanceType is not None:
             spotRequests = {
                 k: v for k, v in spotRequests.iteritems() \
                     if v.launch_specification.instance_type == instanceType
                 }
 
-        ec2.cancelSpotRequests(spotRequests.keys())
+        self.cloud_connection.cancelSpotRequests(spotRequests.keys())
 
         self.addLogMessage("Canceled all spot requests.")
 
@@ -1573,8 +1555,7 @@ class TestLooperHttpServer(object):
         self.authorize(read_only=False)
         requestIds = requestIds.split(',')
 
-        ec2 = self.aws_ec2_connection
-        spotRequests = ec2.getLooperSpotRequests()
+        spotRequests = self.cloud_connection.getLooperSpotRequests()
 
         print "requestIds:", requestIds, "type:", type(requestIds)
 
@@ -1586,7 +1567,7 @@ class TestLooperHttpServer(object):
 
         self.addLogMessage("Cancelling spot requests: %s", requestIds)
 
-        ec2.cancelSpotRequests(requestIds)
+        self.cloud_connection.cancelSpotRequests(requestIds)
         raise cherrypy.HTTPRedirect("/spotRequests")
 
 
@@ -1605,14 +1586,13 @@ class TestLooperHttpServer(object):
                 "# ERROR\n\nInvalid max price"
                 )
 
-        coreCount = [c for i, c in self.available_instance_types_and_core_count
+        coreCount = [c for i, c in self.cloud_connection.available_instance_types_and_core_count
                      if i == instanceType]
         if not coreCount:
             return self.commonHeader() + markdown.markdown(
                 "# ERROR\n\nInvalid instance type"
                 )
 
-        ec2 = self.aws_ec2_connection
         provisioned = 0.0
         min_price = 0.0075 * coreCount[0]
         while True:
@@ -1620,7 +1600,7 @@ class TestLooperHttpServer(object):
             bid = maxPrice / provisioned
             if bid < min_price:
                 break
-            ec2.requestLooperInstances(bid,
+            self.cloud_connection.requestLooperInstances(bid,
                                        instance_type=instanceType,
                                        availability_zone=availabilityZone)
 
@@ -1649,36 +1629,6 @@ class TestLooperHttpServer(object):
 
         #don't block the webserver itself, so we can do this in a background thread
         self.refreshBranches(block=False)
-
-    @cherrypy.expose
-    def test_looper_webhook(self):
-        if 'Content-Length' not in cherrypy.request.headers:
-            raise cherrypy.HTTPError(400, "Missing Content-Length header")
-        rawbody = cherrypy.request.body.read(int(cherrypy.request.headers['Content-Length']))
-
-        event = Github.verify_webhook_request(cherrypy.request.headers,
-                                              rawbody,
-                                              self.test_looper_webhook_secret)
-        if not event:
-            logging.error("Invalid webhook request")
-            raise cherrypy.HTTPError(400, "Invalid webhook request")
-
-        if event['branch'] == self.test_looper_branch:
-            logging.info("Own branch '%s' changed. rebooting", self.test_looper_branch)
-
-            #don't block the webserver itself, so we can do this in a background thread
-            killThread = threading.Thread(target=self.killProcessInOneSecond)
-
-            logging.info("restarting TestLooperManager")
-            killThread.start()
-
-
-    @staticmethod
-    def killProcessInOneSecond():
-        time.sleep(1.0)
-        sys.stdout.flush()
-        sys.stderr.flush()
-        os._exit(0)
 
     def refreshTestManager(self):
         need_refresh = True
