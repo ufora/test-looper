@@ -6,14 +6,26 @@ import time
 import sys
 import logging
 
-image_builder_security_group = 'dev-security-group'
+import test_looper.core.cloud.MachineInfo as MachineInfo
 
 looper_image_name_prefix = 'test-looper-small'
 image_builder_tag = 'test-looper-image-builder'
 looper_current_image_tag = 'current'
 all_states_except_terminated = ['pending', 'running', 'shutting-down', 'stopping', 'stopped']
 
-class cloudSettings:
+
+def configureBoto():
+    if not boto.config.has_section('Boto'):
+        boto.config.add_section('Boto')
+    if not boto.config.has_option('Boto', 'metadata_service_timeout'):
+        boto.config.set('Boto', 'metadata_service_timeout', '1')
+    if not boto.config.has_option('Boto', 'metadata_service_num_attempts'):
+        boto.config.set('Boto', 'metadata_service_num_attempts', '1')
+    if not boto.config.has_option('Boto', 'http_socket_timeout'):
+        boto.config.set('Boto', 'http_socket_timeout', '1')
+
+
+class Ec2Settings:
     def __init__(self,
                 aws_region,
                 security_group,
@@ -45,6 +57,25 @@ class TimeoutException(Exception):
     pass
 
 
+def getInstanceMetadata():
+    return boto.utils.get_instance_metadata(timeout=2.0, num_retries=1)
+
+def getInstancePrivateIp():
+    logging.info('Retrieving local IP address from instance metadata')
+    metadata = getInstanceMetadata()
+    return metadata['local-ipv4'] if metadata else socket.gethostbyname(socket.gethostname())
+
+def getInstanceRegion():
+    logging.info('Retrieving availability zone from instance metadata')
+    metadata = getInstanceMetadata()
+    if not metadata:
+        return ''
+
+    placement = metadata['placement']
+    az = placement['availability-zone']
+    return az[:-1]
+
+
 class Ec2Connection(object):
     available_instance_types_and_core_count = [
         ('c3.xlarge', 4),
@@ -52,6 +83,47 @@ class Ec2Connection(object):
         ('g2.2xlarge', 8),
         ('g2.8xlarge', 32)
         ]
+
+    def __init__(self, ec2Settings):
+        configureBoto()
+
+        self.ec2Settings = ec2Settings
+
+        if ec2Settings.aws_region is None:
+            self.ec2 = boto.connect_ec2()
+        else:
+            self.ec2 = boto.ec2.connect_to_region(ec2Settings.aws_region)
+
+    def getOwnMachineInfo():
+        ownMachineName = None
+        ownInternalIpAddress = None
+        availabilityZone = ''
+        instanceType = 'local.machine'
+
+        metadata = boto.utils.get_instance_metadata(timeout=2.0, num_retries=1)
+        if metadata:
+            ownInternalIpAddress = metadata.get('local-ipv4') or ownInternalIpAddress
+
+            ownMachineName = metadata.get('public-hostname') or \
+                             metadata.get('public-ipv4') or \
+                             ownInternalIpAddress
+
+            availabilityZone = metadata.get('placement', {}).get('availability-zone') or \
+                               availabilityZone
+            logging.info("Resolved availabilityZone: %s", availabilityZone)
+
+            instanceType = metadata.get('instance-type')
+        else:
+            ownMachineName = socket.gethostname()
+            ownInternalIpAddress = socket.gethostbyname(socket.gethostname())
+
+        ownCoreCount = multiprocessing.cpu_count()
+
+        return MachineInfo.MachineInfo(ownMachineName,
+                                      ownInternalIpAddress,
+                                      ownCoreCount,
+                                      availabilityZone,
+                                      instanceType)
 
     @staticmethod
     def fromConfig(config):
@@ -63,6 +135,7 @@ class Ec2Connection(object):
         worker_ccache_dir = '/home/test-looper/ccache'
         worker_build_cache_dir = '/home/test-looper/build_cache'
         mnt_root_dir = '/mnt/test-looper'
+
         looperUserData = '''#!/bin/bash
         mount | grep /mnt > /dev/null
         if [ $? -eq 0 ]; then
@@ -111,7 +184,8 @@ class Ec2Connection(object):
         worker_alt_ami = config['cloud'].get('alt_ami')
         if worker_alt_ami:
             alt_ami_instance_types = config['cloud'].get('alt_ami_instance_types', [])
-        cloudSettings = cloudConnection.cloudSettings(
+
+        ec2Settings = Ec2Connection.Ec2Settings(
             aws_region=getInstanceRegion(),
             security_group=security_group,
             instance_profile_name=instance_profile_name,
@@ -126,24 +200,7 @@ class Ec2Connection(object):
             object_tags=config['cloud'].get('object_tags', {})
             )
 
-        return cloudConnection.cloudConnection(cloudSettings)
-
-
-
-    def __init__(self, cloudSettings):
-        logging.info("cloud settings: %s", cloudSettings)
-        self.ec2Settings = cloudSettings
-
-        if cloudSettings.aws_region is None:
-            self.ec2 = boto.connect_ec2()
-        else:
-            self.ec2 = boto.ec2.connect_to_region(cloudSettings.aws_region)
-
-
-    def openTestResultBucket(self):
-        s3 = boto.connect_s3()
-        return s3.get_bucket(self.ec2Settings.test_result_bucket)
-
+        return Ec2Connection.Ec2Connection(ec2Settings)
 
     def getLooperInstances(self, ids=None):
         reservations = self.ec2.get_all_instances(
@@ -335,3 +392,7 @@ class Ec2Connection(object):
                                         key=lambda az_and_price: az_and_price[1])
             availability_zone = cheapest_az_and_price[0]
         return self.ec2Settings.vpc_subnets[availability_zone]
+
+    def isSpotEnabled(self):
+        return True
+    

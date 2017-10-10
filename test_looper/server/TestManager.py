@@ -32,7 +32,7 @@ class TestManager(object):
         self.commits = {}
         self.periodicTestRunBranchCandidates = ['origin/master']
 
-        #dict from internalIp to properties of blocking machines
+        #dict from internalIpAddress to properties of blocking machines
         self.blockingMachines = BlockingMachines.BlockingMachines()
         self.lock = lock
 

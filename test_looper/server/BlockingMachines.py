@@ -18,9 +18,9 @@ class BlockingMachines(object):
         machines = testDefinition.machines
 
         # GPU instances ONLY run GPU tests
-        if machines.get('gpu', False) and workerInfo.instanceType[0] != 'g':
+        if machines.get('gpu', False) and not workerInfo.isGpuInstance():
             return False
-        if not machines.get('gpu', False) and workerInfo.instanceType[0] == 'g':
+        if not machines.get('gpu', False) and workerInfo.isGpuInstance():
             return False
 
         if 'cores' in machines and machines['cores'] == workerInfo.coreCount:
@@ -47,14 +47,14 @@ class BlockingMachines(object):
 
         if len(assignedMachines) == testDefinition.machines['count']:
             leaderMachine = sorted(assignedMachines,
-                                   key=lambda m: m.internalIp)[0]
+                                   key=lambda m: m.internalIpAddress)[0]
 
             newTestResult = TestResult.TestResult.create(
                 testName,
                 uuid.uuid4().hex,
                 commit.commitId,
                 leaderMachine.machineId,
-                {m.machineId: m.internalIp for m in assignedMachines}
+                {m.machineId: m.internalIpAddress for m in assignedMachines}
                 )
 
             logging.info(

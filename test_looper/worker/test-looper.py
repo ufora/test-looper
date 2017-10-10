@@ -15,6 +15,7 @@ import threading
 import time
 import os
 
+import test_looper.core.cloud.FromConfig
 import test_looper.worker.TestLooperClient as TestLooperClient
 import test_looper.worker.TestLooperWorker as TestLooperWorker
 import test_looper.worker.TestLooperOsInteractions as TestLooperOsInteractions
@@ -39,13 +40,14 @@ def initLogging():
     logging.getLogger().addHandler(ch)
 
 
-def createTestWorker(config, testLooperMachineInfo):
+def createTestWorker(config, machineInfo):
     directories = TestLooperOsInteractions.TestLooperDirectories(
         repo_dir=config['worker']['working_repo'],
         test_data_dir=config['worker']['test_data_dir'],
         build_cache_dir=config['worker']['build_cache_dir'],
         ccache_dir=config['worker']['ccache_dir']
         )
+    
     osInteractions = TestLooperOsInteractions.TestLooperOsInteractions(
         directories, 
         source_control=SourceControlFromConfig.getFromConfig(config["source_control"]),
@@ -70,38 +72,7 @@ def createTestWorker(config, testLooperMachineInfo):
         repoName=config['worker']['repo_name']
         )
 
-    return TestLooperWorker.TestLooperWorker(workerSettings, testLooperMachineInfo)
-
-def getMachineInfo():
-    ownMachineName = None
-    ownInternalIpAddress = None
-    availabilityZone = ''
-    instanceType = 'local.machine'
-
-    metadata = boto.utils.get_instance_metadata(timeout=2.0, num_retries=1)
-    if metadata:
-        ownInternalIpAddress = metadata.get('local-ipv4') or ownInternalIpAddress
-
-        ownMachineName = metadata.get('public-hostname') or \
-                         metadata.get('public-ipv4') or \
-                         ownInternalIpAddress
-
-        availabilityZone = metadata.get('placement', {}).get('availability-zone') or \
-                           availabilityZone
-        logging.info("Resolved availabilityZone: %s", availabilityZone)
-
-        instanceType = metadata.get('instance-type')
-    else:
-        ownMachineName = socket.gethostname()
-        ownInternalIpAddress = socket.gethostbyname(socket.gethostname())
-
-    ownCoreCount = multiprocessing.cpu_count()
-
-    return TestLooperWorker.TestLooperMachineInfo(ownMachineName,
-                                                  ownInternalIpAddress,
-                                                  ownCoreCount,
-                                                  availabilityZone,
-                                                  instanceType)
+    return TestLooperWorker.TestLooperWorker(workerSettings, machineInfo)
 
 def loadConfiguration(configFile):
     with open(configFile, 'r') as fin:
@@ -112,7 +83,10 @@ if __name__ == "__main__":
 
     args = createArgumentParser().parse_args()
     config = loadConfiguration(args.config)
-    machineInfo = getMachineInfo()
+
+    cloud_connection = test_looper.core.cloud.FromConfig.fromConfig(config)
+    
+    machineInfo = cloud_connection.getOwnMachineInfo()
 
     logging.info(
         "Starting test-looper on %s with config: %s", 

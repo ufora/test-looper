@@ -230,8 +230,8 @@ class TestLooperHttpServer(object):
                 row = []
 
                 row.append(machine)
-                internalIp = test.machineToInternalIpMap[machine]
-                row.append(internalIp)
+                internalIpAddress = test.machineToInternalIpMap[machine]
+                row.append(internalIpAddress)
 
                 if machine in test.machineResults:
                     result = test.machineResults[machine]
@@ -625,11 +625,13 @@ class TestLooperHttpServer(object):
             ('Branches', '/branches')
             ]
 
-        if self.cloud_connection is not None:
+        if self.cloud_connection.isSpotEnabled():
             nav_links += [
                 ('Spot Requests', '/spotRequests'),
-                ('Workers', '/machines')
                 ]
+            nav_links += [
+                    ('Workers', '/machines')
+                    ]
 
         if self.enable_advanced_views:
             nav_links += [

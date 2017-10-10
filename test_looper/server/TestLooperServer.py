@@ -8,6 +8,7 @@ import time
 import test_looper.core.SimpleServer as SimpleServer
 import test_looper.core.socket_util as socket_util
 import test_looper.core.TestResult as TestResult
+import test_looper.core.cloud.MachineInfo as MachineInfo
 
 class LockWithTimer(object):
     def __init__(self):
@@ -41,19 +42,16 @@ class LockWithTimer(object):
         self.lock.__exit__(*args)
 
 
-WorkerInfo = collections.namedtuple('WorkerInfo',
-                                    'machineId internalIp coreCount instanceType')
-
 HeartbeatArguments = collections.namedtuple('HeartbeatArguments',
                                             'commitId testId machineId')
 
 
 class Session(object):
-    def __init__(self, testManager, ec2Connection, socket, address):
+    def __init__(self, testManager, cloud_connection, socket, address):
         self.socket = socket
         self.address = address
         self.testManager = testManager
-        self.ec2Connection = ec2Connection
+        self.cloud_connection = cloud_connection
 
 
     def __call__(self):
@@ -97,7 +95,7 @@ class Session(object):
 
         try:
             if requestType == 'getTask':
-                self.getTask(WorkerInfo(**args))
+                self.getTask(MachineInfo.MachineInfo.fromJson(args))
             elif requestType == 'publishTestResult':
                 self.publishTestResult(args)
             elif requestType == 'heartbeat':
@@ -120,20 +118,20 @@ class Session(object):
             self.writeString(heartbeatResponse)
 
         if is_new_machine:
-            self.ec2Connection.tagInstance(args.machineId)
+            self.cloud_connection.tagInstance(args.machineId)
 
 
-    def getTask(self, workerInfo):
+    def getTask(self, machineInfo):
         commit = None
 
         with self.testManager.lock:
-            if workerInfo.machineId is not None:
-                is_new_machine = self.testManager.recordMachineObservation(workerInfo.machineId)
+            if machineInfo.machineId is not None:
+                is_new_machine = self.testManager.recordMachineObservation(machineInfo.machineId)
 
             try:
                 t0 = time.time()
                 commit, testDefinition, testResult = \
-                    self.testManager.getTask(workerInfo)
+                    self.testManager.getTask(machineInfo)
 
                 if commit:
                     testName = testDefinition.testName
@@ -158,8 +156,8 @@ class Session(object):
                               traceback.format_exc())
                 self.writeString(json.dumps(None))
 
-        if is_new_machine and self.ec2Connection:
-            self.ec2Connection.tagInstance(workerInfo.machineId)
+        if is_new_machine and self.cloud_connection:
+            self.cloud_connection.tagInstance(machineInfo.machineId)
 
 
     def publishTestResult(self, testResultAsJson):
@@ -168,15 +166,15 @@ class Session(object):
             is_new_machine = self.testManager.recordMachineObservation(result.machine)
             self.testManager.recordMachineResult(result)
 
-        if is_new_machine and self.ec2Connection:
-            self.ec2Connection.tagInstance(result.machine)
+        if is_new_machine and self.cloud_connection:
+            self.cloud_connection.tagInstance(result.machine)
 
-        if not result.success and self.ec2Connection:
+        if not result.success and self.cloud_connection:
             logging.info("Test result from client at %s: %s, machine: %s",
                          self.address,
                          result,
                          result.machine)
-            isAlive = self.ec2Connection.isMachineAlive(result.machine)
+            isAlive = self.cloud_connection.isMachineAlive(result.machine)
 
             if not isAlive:
                 testId = result.testId
@@ -199,7 +197,7 @@ class TestLooperServer(SimpleServer.SimpleServer):
     #if we modify this protocol version, the loopers should reboot and pull a new copy of the code
     protocolVersion = '2.2.6'
 
-    def __init__(self, port, testManager, httpServer, ec2Connection):
+    def __init__(self, port, testManager, httpServer, cloud_connection):
         """
         Initialize a TestLooperServer
         """
@@ -208,7 +206,7 @@ class TestLooperServer(SimpleServer.SimpleServer):
         self.port_ = port
         self.testManager = testManager
         self.httpServer = httpServer
-        self.ec2Connection = ec2Connection
+        self.cloud_connection = cloud_connection
 
 
     def port(self):
@@ -245,6 +243,6 @@ class TestLooperServer(SimpleServer.SimpleServer):
     def _onConnect(self, socket, address):
         logging.debug("Accepting connection from %s", address)
         threading.Thread(target=Session(self.testManager,
-                                        self.ec2Connection,
+                                        self.cloud_connection,
                                         socket,
                                         address)).start()

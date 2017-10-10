@@ -12,20 +12,8 @@ import test_looper.core.TestScriptDefinition as TestScriptDefinition
 
 HEARTBEAT_INTERVAL = TestLooperClient.TestLooperClient.HEARTBEAT_INTERVAL
 
-
 class TestInterruptException(Exception):
     pass
-
-TestLooperMachineInfo = collections.namedtuple(
-    'TestLooperMachineInfo',
-    [
-        'machineName',
-        'internalIpAddress',
-        'coreCount',
-        'availabilityZone',
-        'instanceType'
-    ]
-    )
 
 TestLooperSettings = collections.namedtuple(
     'TestLooperSettings',
@@ -44,11 +32,11 @@ class TestLooperWorker(object):
 
     def __init__(self,
                  testLooperSettings,
-                 testLooperMachineInfo,
+                 machineInfo,
                  timeToSleepWhenThereIsNoWork=2.0
                 ):
         self.settings = testLooperSettings
-        self.ownMachineInfo = testLooperMachineInfo
+        self.ownMachineInfo = machineInfo
         self.timeToSleepWhenThereIsNoWork = timeToSleepWhenThereIsNoWork
         self.stopEvent = threading.Event()
 
@@ -70,7 +58,7 @@ class TestLooperWorker(object):
                     socketErrorCount = 0
                 except TestLooperClient.ProtocolMismatchException:
                     logging.info("protocol mismatch observed on %s: %s",
-                                 self.ownMachineInfo.machineName,
+                                 self.ownMachineInfo.machineId,
                                  traceback.format_exc())
                     return self.settings.osInteractions.protocolMismatchObserved()
                 except socket.error:
@@ -86,7 +74,7 @@ class TestLooperWorker(object):
                     logging.error(
                         "Exception %s on %s: %s",
                         type(e),
-                        self.ownMachineInfo.machineName,
+                        self.ownMachineInfo.machineId,
                         traceback.format_exc()
                         )
                     raise
@@ -96,29 +84,24 @@ class TestLooperWorker(object):
 
         finally:
             logging.info("Machine %s is exiting main testing loop",
-                         self.ownMachineInfo.machineName)
+                         self.ownMachineInfo.machineId)
 
 
     def mainTestingIteration(self):
         logging.info("Machine %s is starting a new test loop iteration",
-                     self.ownMachineInfo.machineName)
+                     self.ownMachineInfo.machineId)
         self.heartbeatResponse = TestResult.TestResult.HEARTBEAT_RESPONSE_ACK
         self.testLooperClient = self.settings.testLooperClientFactory()
 
-        task = self.testLooperClient.getTask(
-            self.ownMachineInfo.machineName,
-            self.ownMachineInfo.internalIpAddress,
-            self.ownMachineInfo.coreCount,
-            self.ownMachineInfo.instanceType
-            )
+        task = self.testLooperClient.getTask(self.ownMachineInfo)
 
         if task is None:
             logging.info("Machine %s has nothing to do. Waiting.",
-                         self.ownMachineInfo.machineName)
+                         self.ownMachineInfo.machineId)
             return self.timeToSleepWhenThereIsNoWork
 
         logging.info("Machine %s is starting task %s",
-                     self.ownMachineInfo.machineName,
+                     self.ownMachineInfo.machineId,
                      task)
         self.run_task(task)
         return 0
@@ -127,7 +110,7 @@ class TestLooperWorker(object):
     def run_task(self, task):
         test = TestResult.TestResult.fromJson(task['test'])
         logging.info("Machine %s is working on testId %s, test %s, for commit %s",
-                     self.ownMachineInfo.machineName,
+                     self.ownMachineInfo.machineId,
                      test.testId,
                      test,
                      test.commitId)
@@ -137,10 +120,10 @@ class TestLooperWorker(object):
             if test.testName == 'build':
                 result = self.run_build_task(test, task['testScriptDefinition'])
             else:
-                assert self.ownMachineInfo.machineName in test.machineToInternalIpMap, \
+                assert self.ownMachineInfo.machineId in test.machineToInternalIpMap, \
                     (test.machine,
                      test.machineToInternalIpMap,
-                     self.ownMachineInfo.machineName)
+                     self.ownMachineInfo.machineId)
 
                 testScriptDefinition = TestScriptDefinition.TestScriptDefinition.fromJson(
                     task['testScriptDefinition']
@@ -156,7 +139,7 @@ class TestLooperWorker(object):
             result = self.create_test_result(False, test, error_message)
 
         logging.info("Machine %s publishing test results: %s",
-                     self.ownMachineInfo.machineName,
+                     self.ownMachineInfo.machineId,
                      result)
         self.testLooperClient.publishTestResult(result)
 
@@ -190,7 +173,7 @@ class TestLooperWorker(object):
             logging.info("Failed to build commit: %s", commit_id)
             self.settings.artifactStorage.uploadTestArtifacts(
                 testId, 
-                self.ownMachineInfo.machineName, 
+                self.ownMachineInfo.machineId, 
                 build_output_dir
                 )
 
@@ -221,7 +204,7 @@ class TestLooperWorker(object):
                 return self.sendHeartbeat(self.testLooperClient, target_test.testId, commit_id)
 
             logging.info("Machine %s is starting run for %s. Command: %s",
-                         self.ownMachineInfo.machineName,
+                         self.ownMachineInfo.machineId,
                          commit_id,
                          command)
 
@@ -239,10 +222,10 @@ class TestLooperWorker(object):
                                       test_result)
             if not is_success:
                 heartbeat()
-                logging.info("machine %s uploading artifacts", self.ownMachineInfo.machineName)
+                logging.info("machine %s uploading artifacts", self.ownMachineInfo.machineId)
                 self.settings.artifactStorage.uploadTestArtifacts(
                     target_test.testId,
-                    self.ownMachineInfo.machineName,
+                    self.ownMachineInfo.machineId,
                     test_output_dir
                     )
 
@@ -255,7 +238,7 @@ class TestLooperWorker(object):
                                                 test.testId,
                                                 test.commitId,
                                                 [], [],
-                                                self.ownMachineInfo.machineName,
+                                                self.ownMachineInfo.machineId,
                                                 time.time())
         if message:
             result.recordLogMessage(message)
@@ -265,7 +248,7 @@ class TestLooperWorker(object):
     def sendHeartbeat(self, testLooperClient, testId, commitId):
         if self.heartbeatResponse != TestResult.TestResult.HEARTBEAT_RESPONSE_ACK:
             logging.info('Machine %s skipping heartbeat because it already received "%s"',
-                         self.ownMachineInfo.machineName,
+                         self.ownMachineInfo.machineId,
                          self.heartbeatResponse)
             # don't hearbeat again if you already got a response other
             # than ACK
@@ -273,11 +256,11 @@ class TestLooperWorker(object):
 
         self.heartbeatResponse = testLooperClient.heartbeat(testId,
                                                             commitId,
-                                                            self.ownMachineInfo.machineName)
+                                                            self.ownMachineInfo.machineId)
         if self.heartbeatResponse != TestResult.TestResult.HEARTBEAT_RESPONSE_ACK:
             logging.info(
                 "Machine %s is raising TestInterruptException due to heartbeat response: %s",
-                self.ownMachineInfo.machineName,
+                self.ownMachineInfo.machineId,
                 self.heartbeatResponse
                 )
             raise TestInterruptException(self.heartbeatResponse)
@@ -340,7 +323,7 @@ class TestLooperWorker(object):
     def runTestUsingScript(self, script, env_overrides, heartbeat, output_dir, docker_image):
         test_logfile = os.path.join(output_dir, 'test_out.log')
         logging.info("Machine %s is logging to %s with",
-                     self.ownMachineInfo.machineName,
+                     self.ownMachineInfo.machineId,
                      test_logfile)
         success = False
         try:
@@ -354,7 +337,7 @@ class TestLooperWorker(object):
                 )
         except TestInterruptException:
             logging.info("TestInterruptException in machine: %s. Heartbeat response: %s",
-                         self.ownMachineInfo.machineName,
+                         self.ownMachineInfo.machineId,
                          self.heartbeatResponse)
             if self.stopEvent.is_set():
                 return
@@ -380,7 +363,7 @@ class TestLooperWorker(object):
         except:
             logging.error(
                 "Machine %s failed to read performance test data: %s",
-                self.ownMachineInfo.machineName,
+                self.ownMachineInfo.machineId,
                 traceback.format_exc()
                 )
             test_result.recordLogMessage("Failed to read performance tests")

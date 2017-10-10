@@ -16,7 +16,6 @@ class AwsArtifactStorage(object):
         self.aws_region = ec2_config['aws_region']
 
     def testResultKeysFor(self, testId):
-        ec2 = self.aws_ec2_connection
         keys = list(self.get_test_result_bucket().list(prefix=testId))
 
         result = []
@@ -31,9 +30,9 @@ class AwsArtifactStorage(object):
         return result
 
     def testContentsHtml(self, testId, key):        
-        ec2 = self.aws_ec2_connection
+        bucket = self.get_test_result_bucket()
 
-        keys = list(ec2.openTestResultBucket().list(prefix=testId + "/" + key))
+        keys = list(bucket.list(prefix=testId + "/" + key))
 
         logging.info("Prefix = %s. keys = %s. key = %s", testId, keys, key)
 
@@ -45,7 +44,7 @@ class AwsArtifactStorage(object):
     def connection(self):
         return boto.s3.connect_to_region(self.aws_region)
 
-    def uploadTestArtifacts(self, testId, machineName, testOutputDir):
+    def uploadTestArtifacts(self, testId, machineId, testOutputDir):
         bucket = self.get_test_result_bucket()
 
         def uploadFile(path, semaphore):
@@ -56,7 +55,7 @@ class AwsArtifactStorage(object):
                     headers['Content-Type'] = 'text/plain'
                 if path.endswith('.gz'):
                     headers['Content-Encoding'] = 'gzip'
-                key = bucket.new_key(testId + "/" + machineName + '/' + os.path.split(path)[-1])
+                key = bucket.new_key(testId + "/" + machineId + '/' + os.path.split(path)[-1])
                 key.set_contents_from_filename(path, headers=headers)
             except:
                 logging.error("Failed to upload %s:\n%s", path, traceback.format_exc())
@@ -144,7 +143,7 @@ class LocalArtifactStorage(object):
     def download_build(self, key_name, dest):
         self.filecopy(dest, os.path.join(self.build_storage_path, key_name))
 
-    def uploadTestArtifacts(self, testId, machineName, testOutputDir):
+    def uploadTestArtifacts(self, testId, machineId, testOutputDir):
         try:
             os.makedirs(os.path.join(self.test_artifacts_storage_path, testId))
         except OSError:
@@ -153,7 +152,7 @@ class LocalArtifactStorage(object):
         def uploadFile(path, semaphore):
             try:
                 logging.info("Uploading %s", path)
-                target_path = testId + "/" + machineName + '-' + os.path.split(path)[-1]
+                target_path = testId + "/" + machineId + '-' + os.path.split(path)[-1]
 
                 self.filecopy(
                     os.path.join(self.test_artifacts_storage_path, target_path),

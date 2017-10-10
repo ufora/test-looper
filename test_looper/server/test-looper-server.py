@@ -1,7 +1,6 @@
 #!/usr/bin/env python
 
 import argparse
-import boto
 import json
 import logging
 import os
@@ -20,24 +19,61 @@ from test_looper.server.TestLooperHttpServerEventLog import TestLooperHttpServer
 import test_looper.server.TestLooperServer as TestLooperServer
 import test_looper.server.TestManager as TestManager
 import test_looper.core.ArtifactStorage as ArtifactStorage
-import test_looper.core.cloud.Ec2Connection as Ec2Connection
+import test_looper.core.cloud.FromConfig
 
-def configureBoto():
-    if not boto.config.has_section('Boto'):
-        boto.config.add_section('Boto')
-    if not boto.config.has_option('Boto', 'metadata_service_timeout'):
-        boto.config.set('Boto', 'metadata_service_timeout', '1')
-    if not boto.config.has_option('Boto', 'metadata_service_num_attempts'):
-        boto.config.set('Boto', 'metadata_service_num_attempts', '1')
-    if not boto.config.has_option('Boto', 'http_socket_timeout'):
-        boto.config.set('Boto', 'http_socket_timeout', '1')
+def createArgumentParser():
+    parser = argparse.ArgumentParser(
+        description="Handles test-looper connections and assign test jobs to loopers."
+        )
+
+    parser.add_argument('config',
+                        help="Path to configuration file")
+
+    parser.add_argument("-v",
+                        "--verbose",
+                        action='store_true',
+                        help="Set logging level to verbose")
+
+    parser.add_argument("--local",
+                        action='store_true',
+                        help="Run locally without EC2")
+
+    parser.add_argument("--auth",
+                        choices=['full', 'write', 'none'],
+                        default='full',
+                        help=("Authentication requirements.\n"
+                              "Full: no unauthenticated access\n"
+                              "Write: must authenticate to write\n"
+                              "None: open, unauthenticated access"))
+
+    return parser
+
+def loadConfiguration(configFile):
+    with open(configFile, 'r') as fin:
+        return json.loads(fin.read())
+
+def configureLogging(verbose=False):
+    if logging.getLogger().handlers:
+        logging.getLogger().handlers = []
+
+    loglevel = logging.DEBUG if verbose else logging.INFO
+    logging.getLogger().setLevel(loglevel)
+
+    handler = logging.StreamHandler(stream=sys.stderr)
+
+    handler.setLevel(loglevel)
+    handler.setFormatter(
+        logging.Formatter(
+            '%(asctime)s %(levelname)s %(filename)s:%(lineno)s@%(funcName)s %(name)s - %(message)s'
+            )
+        )
+    logging.getLogger().addHandler(handler)
 
 def main():
     parsedArgs = createArgumentParser().parse_args()
     config = loadConfiguration(parsedArgs.config)
     configureLogging(verbose=parsedArgs.verbose)
-    configureBoto()
-
+    
     port = config['server']['port']
     logging.info("Starting test-looper server on port %d", port)
 
@@ -57,13 +93,8 @@ def main():
 
     http_port = config['server'].get('http_port', 80)
 
-    if 'cloud' in config:
-        if config['cloud']['type'] == 'AWS':
-            cloud_connection = Ec2Connection.Ec2Connection.fromConfig(config)
-        else:
-            raise Exception("The only cloud we know about right now is AWS")
-    cloud_connection = None
-
+    cloud_connection = test_looper.core.cloud.FromConfig.fromConfig(config)
+    
     httpServer = TestLooperHttpServer.TestLooperHttpServer(
         testManager,
         cloud_connection,
@@ -95,79 +126,6 @@ def main():
     serverThread.start()
     while serverThread.is_alive():
         time.sleep(0.5)
-
-
-def createArgumentParser():
-    parser = argparse.ArgumentParser(
-        description="Handles test-looper connections and assign test jobs to loopers."
-        )
-
-    parser.add_argument('config',
-                        help="Path to configuration file")
-
-    parser.add_argument("-v",
-                        "--verbose",
-                        action='store_true',
-                        help="Set logging level to verbose")
-
-    parser.add_argument("--local",
-                        action='store_true',
-                        help="Run locally without EC2")
-
-    parser.add_argument("--auth",
-                        choices=['full', 'write', 'none'],
-                        default='full',
-                        help=("Authentication requirements.\n"
-                              "Full: no unauthenticated access\n"
-                              "Write: must authenticate to write\n"
-                              "None: open, unauthenticated access"))
-
-    return parser
-
-
-def loadConfiguration(configFile):
-    with open(configFile, 'r') as fin:
-        return json.loads(fin.read())
-
-
-def configureLogging(verbose=False):
-    if logging.getLogger().handlers:
-        logging.getLogger().handlers = []
-
-    loglevel = logging.DEBUG if verbose else logging.INFO
-    logging.getLogger().setLevel(loglevel)
-
-    handler = logging.StreamHandler(stream=sys.stderr)
-
-    handler.setLevel(loglevel)
-    handler.setFormatter(
-        logging.Formatter(
-            '%(asctime)s %(levelname)s %(filename)s:%(lineno)s@%(funcName)s %(name)s - %(message)s'
-            )
-        )
-    logging.getLogger().addHandler(handler)
-
-
-def getInstanceMetadata():
-    return boto.utils.get_instance_metadata(timeout=2.0, num_retries=1)
-
-
-def getInstancePrivateIp():
-    logging.info('Retrieving local IP address from instance metadata')
-    metadata = getInstanceMetadata()
-    return metadata['local-ipv4'] if metadata else socket.gethostbyname(socket.gethostname())
-
-
-def getInstanceRegion():
-    logging.info('Retrieving availability zone from instance metadata')
-    metadata = getInstanceMetadata()
-    if not metadata:
-        return ''
-
-    placement = metadata['placement']
-    az = placement['availability-zone']
-    return az[:-1]
-
 
 if __name__ == "__main__":
     main()

@@ -364,12 +364,6 @@ class Commit(object):
             return 0
         return stats.runningCount + stats.passCount + stats.failCount
 
-    def isUnderTestAndFailureRateIsHighEnoughToStopTesting(self):
-        return self.isUnderTest and (
-                self.fullPassesCompleted() > 4 and self.passRate() < .25
-            or  self.fullPassesCompleted() > 10 and self.passRate() < .5
-            )
-
     def passRate(self):
         passRateByTestType = \
                 [self.passRateForTestGroup(group) for group in self.statsByType.iterkeys()]
@@ -383,21 +377,3 @@ class Commit(object):
     def totalElapsed(self):
         totalMinutesByType = [s.totalMinutes for s in self.statsByType.itervalues()]
         return sum(totalMinutesByType) if totalMinutesByType else 0.0
-
-    @staticmethod
-    def wilsonScoreInterval(prob, n):
-        # Wilson score interval
-        # http://www.evanmiller.org/how-not-to-sort-by-average-rating.html
-        # http://stackoverflow.com/questions/10029588/python-implementation-of-the-wilson-score-interval
-
-        if n == 0:
-            return 0.0, 1.0
-
-        # TODO: We should calculate the z-score to use for the interval from a
-        # 'confidence' parameter passed in.
-        z = 1.6 #1.0 = 85%, 1.96 = 95%
-
-        lower = (prob + z*z/(2*n) - z * math.sqrt((prob*(1-prob)+z*z/(4*n))/n))/(1+z*z/n)
-        upper = (prob + z*z/(2*n) + z * math.sqrt((prob*(1-prob)+z*z/(4*n))/n))/(1+z*z/n)
-
-        return lower, upper
