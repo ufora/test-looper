@@ -74,7 +74,8 @@ class DockerImage(object):
         if not has_image:
             if create_missing:
                 docker.build(dockerfile_dir)
-                docker.push()
+                if docker_repo is not None:
+                    docker.push()
             else:
                 raise MissingImageError(docker_image)
 
@@ -147,7 +148,7 @@ class DockerImage(object):
 
 
     def image_exists(self):
-        return call_quiet("{docker} image inspect {image}".format(docker=self.binary,
+        return call_quiet("{docker} inspect {image}".format(docker=self.binary,
                                                    image=self.image)) == 0
 
     def pull(self):
@@ -259,6 +260,12 @@ class DockerImage(object):
                 env=env or '',
                 image=self.image,
                 command=command)
+            )
+
+    def subprocessRunnerFor(self, dockerargs, commands, onOut, onErr):
+        return SubprocessRunner.SubprocessRunner(
+            [self.binary, "run"] + dockerargs + [self.image] + commands,
+            onOut, onErr
             )
 
 
