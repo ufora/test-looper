@@ -1,6 +1,6 @@
-import test_looper.server.source_control.LocalGitRepo as LocalGitRepo
-import test_looper.server.source_control.Bitbucket as Bitbucket
-import test_looper.server.source_control.Github as Github
+import test_looper.core.source_control.LocalGitRepo as LocalGitRepo
+import test_looper.core.source_control.Bitbucket as Bitbucket
+import test_looper.core.source_control.Github as Github
 
 def configureGithub(src_ctrl_config):
     oauth_key = src_ctrl_config.get('oauth_key') or os.getenv(TEST_LOOPER_OAUTH_KEY)

@@ -3,7 +3,7 @@ import logging
 import random
 import time
 import traceback
-
+import simplejson
 import test_looper.core.TestResult as TestResult
 
 import test_looper.server.BlockingMachines as BlockingMachines
@@ -146,6 +146,9 @@ class TestManager(object):
 
     def should_test(self, commit, testName, workerInfo):
         test_def = commit.getTestDefinitionFor(testName)
+        if test_def is None:
+            return False
+
         under_max_test_count = (
             commit.isTargetedTest(testName) or
             commit.statsByType[testName].completedCount < self.settings.max_test_count
@@ -397,7 +400,10 @@ class TestManager(object):
                     try:
                         json = simplejson.loads(data)
                     except:
-                        logging.error("Contents of test definitions for %s are not valid json." % commitId)
+                        logging.error("Contents of test definitions for %s are not valid json.\n%s" % 
+                            (commitId, traceback.format_exc()))
+
+                        raise UserWarning("Invalid Json")
                         json = {}
 
                 self.testDb.setTestScriptDefinitionsForCommit(commitId, json)

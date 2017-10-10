@@ -130,7 +130,12 @@ class LocalArtifactStorage(object):
                         break
 
     def testResultKeysFor(self, testId):
-        return os.listdir(os.path.join(self.test_artifacts_storage_path, testId))
+        path = os.path.join(self.test_artifacts_storage_path, testId)
+        
+        if not os.path.exists(path):
+            return []
+
+        return os.listdir(path)
 
     def upload_build(self, key_name, file_name):
         tgt = os.path.join(self.build_storage_path, key_name)

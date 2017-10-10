@@ -105,6 +105,23 @@ class DockerImage(object):
             ]
 
 
+    @staticmethod
+    def removeRunningDockerContainers():
+        logging.info("Removing all running docker containers")
+
+        subprocess.check_output("docker ps -q -f label=test_looper_worker | xargs --no-run-if-empty docker stop",
+                                shell=True)
+        subprocess.check_output("docker ps -aq -f label=test_looper_worker | xargs --no-run-if-empty docker rm",
+                                shell=True)
+
+
+    @staticmethod
+    def removeDanglingDockerImages():
+        cmd = 'docker images -qf dangling=true -f label=test_looper_worker | xargs --no-run-if-empty docker rmi'
+        output = subprocess.check_output(cmd, shell=True)
+        logging.info("Deleted dangling docker images: %s", output)
+
+
     @classmethod
     def from_dockerfile_as_string(cls, docker_repo, dockerfile_as_string, create_missing=False):
         dockerfile_hash = hash_string(dockerfile_as_string)
