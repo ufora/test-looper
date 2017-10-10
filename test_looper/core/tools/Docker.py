@@ -48,7 +48,7 @@ class MissingImageError(Exception):
         return "No docker image with id '%s'" % self.image_id
 
 
-class Docker(object):
+class DockerImage(object):
     @property
     def binary(self):
         return "docker"
@@ -69,7 +69,7 @@ class Docker(object):
         docker_image = "{docker_repo}:{hash}".format(docker_repo=docker_repo,
                                                      hash=dockerfile_dir_hash)
 
-        docker = Docker(docker_image)
+        docker = DockerImage(docker_image)
         has_image = docker.pull()
         if not has_image:
             if create_missing:
@@ -80,6 +80,31 @@ class Docker(object):
 
         return docker
 
+    def subprocessCommandsToRun(self, command, directories, build_env):
+        volumes = []
+        env_vars = []
+
+        for path in directories:
+            path = os.path.abspath(path)
+
+            volumes += ["-v", "%s:%s" % (path,path)]
+
+        for var, val in build_env.items():
+            env_vars += ["--env", "%s=%s" % (var,val)]
+
+        return [
+            self.binary,
+            "run",
+            "--rm"] +  volumes + env_vars + [
+            "-w", os.getcwd(),
+            "--label", "test_looper_worker",
+            self.image,
+            "/bin/bash",
+            "-c",
+            command
+            ]
+
+
     @classmethod
     def from_dockerfile_as_string(cls, docker_repo, dockerfile_as_string, create_missing=False):
         dockerfile_hash = hash_string(dockerfile_as_string)
@@ -89,10 +114,9 @@ class Docker(object):
         else:
             docker_image = "test_looper:{hash}".format(hash=dockerfile_hash)
 
-        docker = Docker(docker_image)
+        docker = DockerImage(docker_image)
 
-        has_image = docker.pull()
-        if not has_image:
+        if not docker.image_exists():
             if create_missing:
                 logging.info("Building docker image %s from source...", docker_image)
 
@@ -105,17 +129,26 @@ class Docker(object):
         return docker
 
 
+    def image_exists(self):
+        return call_quiet("{docker} image inspect {image}".format(docker=self.binary,
+                                                   image=self.image)) == 0
+
     def pull(self):
         return call("{docker} pull {image}".format(docker=self.binary,
                                                    image=self.image)) == 0
 
+    
+    def disable_build_cache(self):
+        return False
 
     def build(self, dockerfile_dir):
         subprocess.check_call(
-            "{docker} build --label test_looper_worker --no-cache -t {image} {path}"
+            "{docker} build --label test_looper_worker {cache_builds} -t {image} {path}"
                 .format(docker=self.binary,
                         image=self.image,
-                        path=dockerfile_dir),
+                        path=dockerfile_dir,
+                        cache_builds="--no-cache" if self.disable_build_cache() else ""
+                        ),
             shell=True,
             stdout=sys.stdout,
             stderr=sys.stderr
@@ -133,11 +166,12 @@ class Docker(object):
                 print m
 
             proc = SubprocessRunner.SubprocessRunner(
-                ["{docker} build --label test_looper_worker --no-cache -t {image} - < {tmpfile}"
+                ["{docker} build --label test_looper_worker {cache_builds} -t {image} - < {tmpfile}"
                     .format(
                         docker=self.binary,
                         image=self.image,
-                        tmpfile=tmp.name
+                        tmpfile=tmp.name,
+                        cache_builds="--no-cache" if self.disable_build_cache() else ""
                         )],
                 onStdOut,
                 onStdOut,

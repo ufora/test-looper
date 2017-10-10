@@ -21,10 +21,15 @@ import test_looper.worker.TestLooperClient as TestLooperClient
 import test_looper.core.tools.Docker as Docker
 
 
-TestLooperDirectories = collections.namedtuple(
-    'TestLooperDirectories',
-    ['repo_dir', 'test_data_dir', 'build_cache_dir', 'ccache_dir']
-    )
+class TestLooperDirectories:
+    def __init__(self, repo_dir, test_data_dir, build_cache_dir, ccache_dir):
+        self.repo_dir = repo_dir
+        self.test_data_dir = test_data_dir
+        self.build_cache_dir = build_cache_dir
+        self.ccache_dir = ccache_dir
+
+    def to_expose(self):
+        return [self.repo_dir, self.test_data_dir, self.build_cache_dir, self.ccache_dir]
 
 class TestLooperOsInteractions(object):
     def __init__(self, test_looper_directories, source_control, docker_repo):
@@ -64,11 +69,14 @@ class TestLooperOsInteractions(object):
         logging.info("Clearing data directory: %s", self.directories.test_data_dir)
         assert self.directories.test_data_dir is not None
         assert self.directories.test_data_dir != ''
-        cmd = 'rm -rf %s/*'
-        output = subprocess.check_output(cmd % self.directories.test_data_dir,
-                                         shell=True)
-        logging.info("Cleared data directory: %s", output)
+
+        self.clearDirectoryAsDocker(self.directories.test_data_dir)
         self.clearOldTestResults()
+        
+    def clearDirectoryAsDocker(self, path):
+        image = Docker.DockerImage("ubuntu:16.04")
+        image.run("rm -rf %s/*" % path, volumes={path:path})
+
 
     @staticmethod
     def extract_package(package_file, target_dir):
@@ -154,12 +162,23 @@ class TestLooperOsInteractions(object):
             env = dict(os.environ)
             env.update(build_env)
 
-            print >> build_log, "Inherited Environment Variables:"
+            print >> build_log, "********************************************"
+
+            print >> build_log, "TestLooper Environment Variables:"
             for e in sorted(build_env):
                 print >> build_log, "\t%s=%s" % (e, env[e])
+            print >> build_log
 
-            print >> build_log, "Running command ", command
+
+            if docker_image is not None:
+                print >> build_log, "DockerImage is ", docker_image.image
             build_log.flush()
+
+            print >> build_log, "TestLooper Running command ", command
+            build_log.flush()
+
+            print >> build_log, "********************************************"
+            print >> build_log
 
             logging.info("Running command: '%s'. Log: %s", command, log_filename)
 
@@ -171,27 +190,11 @@ class TestLooperOsInteractions(object):
             if docker_image is None:
                 subprocess = SubprocessRunner.SubprocessRunner(command, onOut, onErr, shell=True)
             else:
-                volumes = []
-                env_vars = []
-                for dirname in ['repo_dir', 'test_data_dir', 'build_cache_dir', 'ccache_dir']:
-                    path = os.path.abspath(getattr(self.directories, dirname))
-
-                    volumes += ["-v", "%s:%s" % (path,path)]
-
-                for var, val in build_env.items():
-                    env_vars += ["--env", "%s=%s" % (var,val)]
-
-                cmds = [
-                    docker_image.binary,
-                    "run",
-                    "--rm"] +  volumes + env_vars + [
-                    "-w", os.getcwd(),
-                    "--label", "test_looper_worker",
-                    docker_image.image,
-                    "/bin/bash",
-                    "-c",
-                    command
-                    ]
+                cmds = docker_image.subprocessCommandsToRun(
+                    command, 
+                    self.directories.to_expose(),
+                    build_env
+                    )
                 
                 try:
                     subprocess = SubprocessRunner.SubprocessRunner(cmds, onOut, onErr, shell=False)
@@ -275,7 +278,6 @@ class TestLooperOsInteractions(object):
                 stderr=f,
                 shell=True)
 
-
     @staticmethod
     def ensureDirectoryExists(path):
         try:
@@ -296,7 +298,6 @@ class TestLooperOsInteractions(object):
         self.ensureDirectoryExists(testOutputDir)
         return testOutputDir
 
-
     @staticmethod
     def extractPerformanceTests(outPerformanceTestsFile, testName):
         if os.path.exists(outPerformanceTestsFile):
@@ -312,20 +313,8 @@ class TestLooperOsInteractions(object):
 
 
     @staticmethod
-    def deleteFileIfItExists(filename):
-        subprocess.call(['rm -rf %s' % filename], shell=True)
-
-
-    @staticmethod
-    def writeTextToFile(filename, text):
-        subprocess.call(['''sh -c "echo '%s' > %s"''' % (text, filename)], shell=True)
-
-
-    @staticmethod
     def pickPerformanceTestFileLocation(testOutputDir):
         return os.path.join(testOutputDir, 'performanceMeasurements.json')
-
-
 
     def build(self, commit_id, build_command, env, output_dir, timeout, heartbeat, docker_image):
         build_log = os.path.join(output_dir, 'build.log')
@@ -383,7 +372,7 @@ class TestLooperOsInteractions(object):
                 else:
                     image_name = self.docker_repo + "/" + dockerConf["tag"]
 
-                d = Docker.Docker(image_name)
+                d = Docker.DockerImage(image_name)
 
                 if not d.pull():
                     raise Exception("Couldn't find docker explicitly named image %s" % d.image)
@@ -395,12 +384,13 @@ class TestLooperOsInteractions(object):
                 if source is None:
                     raise Exception("No file found at %s in commit %s" % (dockerConf["dockerfile"], commit_id))
 
-                return Docker.Docker.from_dockerfile_as_string(self.docker_repo, source, create_missing=True)
+                return Docker.DockerImage.from_dockerfile_as_string(self.docker_repo, source, create_missing=True)
 
             raise Exception("No docker configuration was provided. Test should define one of " + 
                     "native, tag, or dockerfile"
                     )
         except Exception as e:
+            self.ensureDirectoryExists(output_dir)
             with open(os.path.join(output_dir,"docker_configuration_error.log"),"w") as f:
                 print >> f, "Failed to get a docker image configured by %s:\n\n%s" % (
                     dockerConf,
