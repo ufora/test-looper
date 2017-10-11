@@ -62,10 +62,13 @@ class TestLooperOsInteractions(object):
         if not self.git_repo.isInitialized():
             self.git_repo.cloneFrom(self.source_control.cloneUrl())
 
+    def scopedDockerCleanup(self):
+        return Docker.DockerContainerCleanup()
+
     def cleanup(self):
         self.killLeftoverProcesses()
-        Docker.DockerImage.removeRunningDockerContainers()
         Docker.DockerImage.removeDanglingDockerImages()
+
         logging.info("Clearing data directory: %s", self.directories.test_data_dir)
         assert self.directories.test_data_dir is not None
         assert self.directories.test_data_dir != ''
@@ -75,7 +78,7 @@ class TestLooperOsInteractions(object):
         
     def clearDirectoryAsDocker(self, path):
         image = Docker.DockerImage("ubuntu:16.04")
-        image.run("rm -rf %s/*" % path, volumes={path:path})
+        image.run("rm -rf %s/*" % path, volumes={path:path}, options="--rm")
 
 
     @staticmethod
@@ -139,8 +142,6 @@ class TestLooperOsInteractions(object):
         return self.directories.test_data_dir
 
     def run_command(self, command, log_filename, build_env, timeout, heartbeat, docker_image):
-        logging.info("build_env: %s", build_env)
-
         with open(log_filename, 'a') as build_log:
             env = dict(os.environ)
             env.update(build_env)
@@ -166,7 +167,11 @@ class TestLooperOsInteractions(object):
             print >> build_log, "********************************************"
             print >> build_log
 
-            logging.info("Running command: '%s'. Log: %s", command, log_filename)
+            logging.info("Running command: '%s'. Log: %s. Docker Image: %s", 
+                command, 
+                log_filename,
+                docker_image.image if docker_image is not None else "<none>"
+                )
 
             def onOut(msg):
                 print >> build_log, msg
@@ -303,10 +308,12 @@ class TestLooperOsInteractions(object):
         return os.path.join(testOutputDir, 'performanceMeasurements.json')
 
     def build(self, commit_id, build_command, env, output_dir, timeout, heartbeat, docker_image):
+        self.ensureDirectoryExists(output_dir)
+
         build_log = os.path.join(output_dir, 'build.log')
         build_env = {
             'BUILD_COMMIT': commit_id,
-            'OUTPUT_DIR': output_dir,
+            'BUILD_OUTPUT_DIR': output_dir,
             'CCACHE_DIR': self.directories.ccache_dir
             }
         build_env.update(env)

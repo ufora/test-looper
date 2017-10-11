@@ -6,6 +6,35 @@ import subprocess
 import sys
 import tempfile
 import logging
+import docker
+
+
+class DockerContainerCleanup(object):
+    def __init__(self):
+        self.running_containers = []
+
+    def __enter__(self, *args):
+        docker_client = docker.from_env()
+
+        self.running_container_ids = set([c.id for c in docker_client.containers.list()])
+
+    def __exit__(self, *args):
+        docker_client = docker.from_env()
+        all_containers = docker_client.containers.list()
+
+        logging.info("Checking docker containers. We started with %s containers, and have %s now",
+            len(self.running_container_ids),
+            len(all_containers)
+            )
+
+        for c in all_containers:
+            if c.id not in self.running_container_ids:
+                try:
+                    logging.info("Removing left-behind docker container %s", c)
+                    c.remove(force=True)
+                except:
+                    logging.error("Failed to remove docker container %s", c.id)
+
 
 def call(command, **kwargs):
     if not kwargs.get('stdout'):
@@ -81,22 +110,27 @@ class DockerImage(object):
 
         return docker
 
-    def subprocessCommandsToRun(self, command, directories, build_env):
-        volumes = []
-        env_vars = []
+    def subprocessCommandsToRun(self, command, directories, build_env, expose_docker_socket=True, net_host=True):
+        options = []
 
         for path in directories:
             path = os.path.abspath(path)
 
-            volumes += ["-v", "%s:%s" % (path,path)]
+            options += ["-v", "%s:%s" % (path,path)]
+
+        if expose_docker_socket:
+            options += ["-v", "/var/run/docker.sock:/var/run/docker.sock"]
 
         for var, val in build_env.items():
-            env_vars += ["--env", "%s=%s" % (var,val)]
+            options += ["--env", "%s=%s" % (var,val)]
+
+        if net_host:
+            options += ["--net=host"]
 
         return [
             self.binary,
             "run",
-            "--rm"] +  volumes + env_vars + [
+            "--rm"] +  options + [
             "-w", os.getcwd(),
             "--label", "test_looper_worker",
             self.image,
@@ -104,17 +138,6 @@ class DockerImage(object):
             "-c",
             command
             ]
-
-
-    @staticmethod
-    def removeRunningDockerContainers():
-        logging.info("Removing all running docker containers")
-
-        subprocess.check_output("docker ps -q -f label=test_looper_worker | xargs --no-run-if-empty docker stop",
-                                shell=True)
-        subprocess.check_output("docker ps -aq -f label=test_looper_worker | xargs --no-run-if-empty docker rm",
-                                shell=True)
-
 
     @staticmethod
     def removeDanglingDockerImages():

@@ -30,6 +30,12 @@ def createArgumentParser():
         action='store_true',
         default=False
         )
+    parser.add_argument(
+        '-v',
+        '--volume',
+        help="Add a volume mapping",
+        default=None
+        )
 
     parser.add_argument(
         'args',
@@ -46,6 +52,8 @@ if __name__ == "__main__":
 
     image = Docker.DockerImage.from_dockerfile_as_string(args.docker_repo, dockerfile_contents, create_missing=args.create_missing)
     
+    print "Built docker image successfully. Image name is %s" % image.image
+
     interactive = args.interactive
 
     if not args.args:
@@ -54,7 +62,12 @@ if __name__ == "__main__":
     else:
         to_run = args.args
 
-    dockerargs = ["--rm"]
+    dockerargs = ["--rm", "-v", "/var/run/docker.sock:/var/run/docker.sock", "--net=host"]
+
+    if args.volume:
+        dockerargs.append("-v")
+        dockerargs.append("%s:%s" % (args.volume, args.volume))
+
     if interactive:
         dockerargs.append("-it")
 

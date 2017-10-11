@@ -403,7 +403,6 @@ class TestManager(object):
                         logging.error("Contents of test definitions for %s are not valid json.\n%s" % 
                             (commitId, traceback.format_exc()))
 
-                        raise UserWarning("Invalid Json")
                         json = {}
 
                 self.testDb.setTestScriptDefinitionsForCommit(commitId, json)

@@ -90,7 +90,7 @@ class SubprocessRunner(object):
             )
         self.subprocessErrThread.start()
 
-        logging.info("SubprocessRunner subprocess.Popen call starting with arguments %s",
+        logging.debug("SubprocessRunner subprocess.Popen call starting with arguments %s",
                      self.subprocessArguments)
 
         subprocessEvent = threading.Event()

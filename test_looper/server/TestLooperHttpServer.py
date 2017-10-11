@@ -252,8 +252,10 @@ class TestLooperHttpServer(object):
                 self.commonHeader() +
                 markdown.markdown("# Test\n") +
                 markdown.markdown("Test: %s\n" % testId) +
-                ("<br>Branches: %s\n<br>" % joinLinks(
-                    self.branchLink(b.branchName) for b in commit.branches).render()
+                ("<br>Branches: %s\n<br>" % 
+                        (lambda x: x.render() if not isinstance(x,str) else x)(
+                            joinLinks(self.branchLink(b.branchName) for b in commit.branches)
+                            )
                 ) +
                 markdown.markdown("## Artifacts\n") +
                 HtmlGeneration.grid(grid) + (
@@ -1024,7 +1026,7 @@ class TestLooperHttpServer(object):
                 markdown.markdown("# Branch " + branchName) + "\n\n" +
                 '<p>Click the <span class="glyphicon glyphicon-plus" aria-hidden="true"></span>/'
                 '<span class="glyphicon glyphicon-minus" aria-hidden="true"></span> buttons '
-                'to increse/decrease the amount of testing on a given commit or test suite. '
+                'to increase/decrease the amount of testing on a given commit or test suite. '
                 'If both a test suite and a commit are selected within a branch'
                 ", only the cross section will received extra test coverage.</p><br>" +
                 "Jump to %s<br/>" % HtmlGeneration.Link(self.currentUrl() + "#perf",

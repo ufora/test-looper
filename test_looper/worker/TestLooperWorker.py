@@ -116,35 +116,31 @@ class TestLooperWorker(object):
                      test.commitId)
         self.settings.osInteractions.cleanup()
 
-        try:
-            if test.testName == 'build':
-                result = self.run_build_task(test, task['testScriptDefinition'])
-            else:
-                assert self.ownMachineInfo.machineId in test.machineToInternalIpMap, \
-                    (test.machine,
-                     test.machineToInternalIpMap,
-                     self.ownMachineInfo.machineId)
-
+        with self.settings.osInteractions.scopedDockerCleanup():
+            try:
                 testScriptDefinition = TestScriptDefinition.TestScriptDefinition.fromJson(
                     task['testScriptDefinition']
                     )
-                assert testScriptDefinition.testName == test.testName
 
-                result = self.run_test_task(test, testScriptDefinition)
-        except TestLooperClient.ProtocolMismatchException:
-            raise
-        except:
-            error_message = "Test failed because of exception: %s" % traceback.format_exc()
-            logging.error(error_message)
-            result = self.create_test_result(False, test, error_message)
+                if test.testName == 'build':
+                    result = self._run_build_task(test, testScriptDefinition)
+                else:
+                    result = self._run_test_task(test, testScriptDefinition)
 
-        logging.info("Machine %s publishing test results: %s",
-                     self.ownMachineInfo.machineId,
-                     result)
-        self.testLooperClient.publishTestResult(result)
+            except TestLooperClient.ProtocolMismatchException:
+                raise
+            except:
+                error_message = "Test failed because of exception: %s" % traceback.format_exc()
+                logging.error(error_message)
+                result = self.create_test_result(False, test, error_message)
 
-    def run_build_task(self, test, test_definition):
-        build_command = test_definition["command"]
+            logging.info("Machine %s publishing test results: %s",
+                         self.ownMachineInfo.machineId,
+                         result)
+            self.testLooperClient.publishTestResult(result)
+
+    def _run_build_task(self, test, test_definition):
+        build_command = test_definition.testCommand
         testId = test.testId
         commit_id = test.commitId
 
@@ -155,13 +151,16 @@ class TestLooperWorker(object):
             return self.sendHeartbeat(self.testLooperClient, testId, commit_id)
 
         os_interactions = self.settings.osInteractions
-        build_output_dir = os_interactions.createNextTestDirForCommit(commit_id)
 
-        image = os_interactions.getDockerImage(test.commitId, test_definition.get("docker"), build_output_dir)
+        test_directory = os_interactions.createNextTestDirForCommit(commit_id)
+
+        build_output_dir = os.path.join(test_directory, "output")
+
+        image = os_interactions.getDockerImage(test.commitId, test_definition.docker, build_output_dir)
 
         is_success = image and os_interactions.build(commit_id,
                                            build_command,
-                                           self.test_env_overrides(test, build_output_dir),
+                                           self.test_env_overrides(test, test_directory, build_output_dir),
                                            build_output_dir,
                                            self.settings.timeout,
                                            heartbeat,
@@ -180,7 +179,7 @@ class TestLooperWorker(object):
         return self.create_test_result(is_success, test)
 
 
-    def run_test_task(self, target_test, test_definition):
+    def _run_test_task(self, target_test, test_definition):
         commit_id = target_test.commitId
         command = test_definition.testCommand
         test_dir = self.settings.osInteractions.createNextTestDirForCommit(commit_id)
@@ -188,7 +187,6 @@ class TestLooperWorker(object):
         package_file = self.download_build(commit_id, test_dir)
         package_dir = self.settings.osInteractions.extract_package(package_file, test_dir)
 
-        logging.info("")
         logging.info("package_dir is %s", package_dir)
 
         test_output_dir = os.path.join(test_dir, 'output')
@@ -198,7 +196,8 @@ class TestLooperWorker(object):
         with self.settings.osInteractions.directoryScope(package_dir):
             self.settings.osInteractions.ensureDirectoryExists(test_output_dir)
 
-            env_overrides = self.test_env_overrides(target_test, test_output_dir)
+            env_overrides = self.test_env_overrides(target_test, test_dir, test_output_dir)
+            env_overrides["TEST_SRC_DIR"] = package_dir
 
             def heartbeat():
                 return self.sendHeartbeat(self.testLooperClient, target_test.testId, commit_id)
@@ -304,11 +303,12 @@ class TestLooperWorker(object):
         return package_file
 
 
-    def test_env_overrides(self, test, test_output_dir):
+    def test_env_overrides(self, test, test_data_root, test_output_dir):
         return  {
             'REVISION': test.commitId,
             'TEST_REPO': self.settings.repoName,
-            'OUTPUT_DIR': test_output_dir,
+            'TEST_ROOT_DIR': test_data_root,
+            'TEST_OUTPUT_DIR': test_output_dir,
             'CORE_DUMP_DIR': self.settings.coreDumpsDir,
             'PERFORMANCE_TEST_RESULTS_FILE': self.perf_test_output_file, # back-compat
             'TEST_LOOPER_PERFORMANCE_TEST_RESULTS_FILE': self.perf_test_output_file,
