@@ -230,6 +230,16 @@ def callAndReturnResultAndOutput(args, timeout=60.0, shell=False, env=None):
 
     return result, stdOut, stdErr
 
+def callAndReturnResultAndMergedOutput(args, timeout=60.0, shell=False, env=None):
+    output = []
+
+    sub_process = SubprocessRunner(args, output.append, output.append, shell=shell, env=env)
+    sub_process.start()
+    result = sub_process.wait(timeout)
+    sub_process.stop()
+
+    return result, output
+
 def callAndReturnResultAndOutputMerged(args, timeout=60.0, shell=False, env=None):
     out = []
 

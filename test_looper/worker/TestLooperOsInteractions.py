@@ -324,6 +324,8 @@ class TestLooperOsInteractions(object):
 
 
     def cache_build(self, commit_id, build_package):
+        self.ensureDirectoryExists(self.directories.build_cache_dir)
+        
         while self.is_build_cache_full():
             self.remove_oldest_cached_build()
         cache_dir = os.path.join(self.directories.build_cache_dir, commit_id)
