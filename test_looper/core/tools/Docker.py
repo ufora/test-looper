@@ -4,10 +4,9 @@ import os
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import subprocess
 import sys
-import tempfile
 import logging
 import docker
-
+import test_looper.core.tools.DockerWatcher as DockerWatcher
 
 class DockerContainerCleanup(object):
     def __init__(self):
@@ -98,17 +97,17 @@ class DockerImage(object):
         docker_image = "{docker_repo}:{hash}".format(docker_repo=docker_repo,
                                                      hash=dockerfile_dir_hash)
 
-        docker = DockerImage(docker_image)
-        has_image = docker.pull()
+        image = DockerImage(docker_image)
+        has_image = image.pull()
         if not has_image:
             if create_missing:
-                docker.build(dockerfile_dir)
+                image.build(dockerfile_dir)
                 if docker_repo is not None:
-                    docker.push()
+                    image.push()
             else:
                 raise MissingImageError(docker_image)
 
-        return docker
+        return image
 
     def subprocessCommandsToRun(self, command, directories, build_env, expose_docker_socket=True, net_host=True):
         options = []
@@ -141,10 +140,9 @@ class DockerImage(object):
 
     @staticmethod
     def removeDanglingDockerImages():
-        cmd = 'docker images -qf dangling=true -f label=test_looper_worker | xargs --no-run-if-empty docker rmi'
-        output = subprocess.check_output(cmd, shell=True)
-        logging.info("Deleted dangling docker images: %s", output)
-
+        client = docker.from_env()
+        for c in client.images.list(filters={'dangling':True,'label':'test_looper_worker'}):
+            client.images.remove(c)
 
     @classmethod
     def from_dockerfile_as_string(cls, docker_repo, dockerfile_as_string, create_missing=False):
@@ -235,6 +233,26 @@ class DockerImage(object):
             stdout=sys.stdout,
             stderr=sys.stderr
             )
+
+
+    def runWithWatcher(self, args, **kwargs):
+        kwargs = dict(kwargs)
+        if 'volumes' in kwargs:
+            volumes = kwargs['volumes']
+            del kwargs['volumes']
+        else:
+            volumes = {}
+
+        watcher = DockerWatcher.DockerWatcher()
+
+        client = docker.from_env()
+        image = client.images.get(self.image)
+
+        volumes[watcher.socket_dir] = "/var/run"
+
+        container = client.containers.run(image, args, volumes=volumes, detach=True, **kwargs)
+
+        return container, watcher
 
 
     def run(self,
