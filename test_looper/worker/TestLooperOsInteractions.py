@@ -66,7 +66,6 @@ class TestLooperOsInteractions(object):
         return Docker.DockerContainerCleanup()
 
     def cleanup(self):
-        self.killLeftoverProcesses()
         Docker.DockerImage.removeDanglingDockerImages()
 
         logging.info("Clearing data directory: %s", self.directories.test_data_dir)
@@ -91,32 +90,6 @@ class TestLooperOsInteractions(object):
             logging.info("Extracting package to %s", package_dir)
             tar.extractall(package_dir)
             return package_dir
-
-    def killLeftoverProcesses(self):
-        """Kill all processes in our session that are in a different process group.
-        TestLooperOsInteractions starts child processes in new process groups.
-        """
-
-        self_and_parents = []
-        p = psutil.Process()
-        
-        while p is not None:
-            self_and_parents.append(os.getpgid(p.pid))
-            p = p.parent()
-
-
-        allProcIds = [int(pid) for pid in os.listdir('/proc') if pid.isdigit()]
-        pidsToKill = [
-            pid for pid in allProcIds
-            if os.getsid(pid) == self.ownSessionId and os.getpgid(pid) != self.ownProcGroupId
-                and pid not in self_and_parents
-            ]
-
-        logging.info("Killing running processes: %s", pidsToKill)
-        for procGroup in set([os.getpgid(pid) for pid in pidsToKill]):
-            if procGroup not in self_and_parents:
-                os.killpg(procGroup, signal.SIGKILL)
-
 
     def clearOldTestResults(self):
         maxSize = 15*1024*1024 #15GB
