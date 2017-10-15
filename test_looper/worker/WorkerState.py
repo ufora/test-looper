@@ -31,7 +31,7 @@ class TestLooperDirectories:
     def to_expose(self):
         return [self.repo_dir, self.test_data_dir, self.build_cache_dir, self.ccache_dir]
 
-class TestLooperOsInteractions(object):
+class WorkerState(object):
     def __init__(self, test_looper_directories, source_control, docker_repo):
         self.directories = test_looper_directories
 
@@ -230,18 +230,6 @@ class TestLooperOsInteractions(object):
         logging.error("Failed to reset repo after %d attempts", attempts)
         return False
 
-
-    @staticmethod
-    def updateSubmodules(log_filename):
-        with open(log_filename, 'a') as f:
-            command = 'git submodule deinit -f . && git submodule init && git submodule update'
-            f.write(command + '\n')
-            subprocess.check_call(
-                command,
-                stdout=f,
-                stderr=f,
-                shell=True)
-
     @staticmethod
     def ensureDirectoryExists(path):
         try:
@@ -275,11 +263,6 @@ class TestLooperOsInteractions(object):
         else:
             return []
 
-
-    @staticmethod
-    def pickPerformanceTestFileLocation(testOutputDir):
-        return os.path.join(testOutputDir, 'performanceMeasurements.json')
-
     def build(self, commit_id, build_command, env, output_dir, timeout, heartbeat, docker_image):
         self.ensureDirectoryExists(output_dir)
 
@@ -308,7 +291,6 @@ class TestLooperOsInteractions(object):
 
     def is_build_cache_full(self):
         return len(os.listdir(self.directories.build_cache_dir)) >= self.max_build_cache_depth
-
 
     def remove_oldest_cached_build(self):
         def full_path(p):

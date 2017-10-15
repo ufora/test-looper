@@ -18,7 +18,7 @@ import os
 import test_looper.core.cloud.FromConfig
 import test_looper.worker.TestLooperClient as TestLooperClient
 import test_looper.worker.TestLooperWorker as TestLooperWorker
-import test_looper.worker.TestLooperOsInteractions as TestLooperOsInteractions
+import test_looper.worker.WorkerState as WorkerState
 import test_looper.core.source_control.SourceControlFromConfig as SourceControlFromConfig
 import test_looper.core.ArtifactStorage as ArtifactStorage
 
@@ -41,14 +41,14 @@ def initLogging():
 
 
 def createTestWorker(config, machineInfo):
-    directories = TestLooperOsInteractions.TestLooperDirectories(
+    directories = WorkerState.TestLooperDirectories(
         repo_dir=config['worker']['working_repo'],
         test_data_dir=config['worker']['test_data_dir'],
         build_cache_dir=config['worker']['build_cache_dir'],
         ccache_dir=config['worker']['ccache_dir']
         )
     
-    osInteractions = TestLooperOsInteractions.TestLooperOsInteractions(
+    osInteractions = WorkerState.WorkerState(
         directories, 
         source_control=SourceControlFromConfig.getFromConfig(config["source_control"]),
         docker_repo=config.get("docker_repo"),
