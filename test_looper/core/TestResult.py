@@ -3,7 +3,7 @@ import logging
 
 class TestResultOnMachine(object):
     def __init__(self, success, testId, commitId, logMessages, performanceResults, machine, finishTime):
-        """Create a MachineResult.
+        """Create a TestResultOnMachine.
 
         successs - a bool
         logMessages - a list of log messages in case of failure

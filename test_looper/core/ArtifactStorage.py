@@ -103,14 +103,17 @@ class LocalArtifactStorage(object):
         self.build_storage_path = config["build_storage_path"]
         self.test_artifacts_storage_path = config["test_artifacts_storage_path"]
 
+    def testContents(self, testId, key):  
+        with open(os.path.join(self.test_artifacts_storage_path, testId, key), "r") as f:
+            return f.read()
+
     def testContentsHtml(self, testId, key):  
         if ".log" in key:
             cherrypy.response.headers['Content-Type'] = 'text/plain'        
         if key.endswith(".gz"):
             cherrypy.response.headers['Content-Encoding'] = 'gzip'      
 
-        with open(os.path.join(self.test_artifacts_storage_path, testId, key), "r") as f:
-            return f.read()
+        return self.testContents(testId, key)
     
     def filecopy(self, dest_path, src_path):
         dirname = os.path.split(dest_path)[0]

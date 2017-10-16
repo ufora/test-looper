@@ -1,0 +1,124 @@
+import unittest
+import tempfile
+import os
+import shutil
+import logging
+import sys
+import gzip
+
+import test_looper.worker.WorkerState as WorkerState
+import test_looper.core.tools.Git as Git
+import test_looper.core.ArtifactStorage as ArtifactStorage
+import test_looper.core.source_control.LocalGitRepo as LocalGitRepo
+import test_looper.core.cloud.MachineInfo as MachineInfo
+
+own_dir = os.path.split(__file__)[0]
+
+def configureLogging(verbose=False):
+    if logging.getLogger().handlers:
+        logging.getLogger().handlers = []
+
+    loglevel = logging.DEBUG if verbose else logging.INFO
+    logging.getLogger().setLevel(loglevel)
+
+    handler = logging.StreamHandler(stream=sys.stderr)
+
+    handler.setLevel(loglevel)
+    handler.setFormatter(
+        logging.Formatter(
+            '%(asctime)s %(levelname)s %(filename)s:%(lineno)s@%(funcName)s %(name)s - %(message)s'
+            )
+        )
+    logging.getLogger().addHandler(handler)
+
+def mirror_into(src_dir, dest_dir):
+    for p in os.listdir(src_dir):
+        if os.path.isdir(p):
+            if os.path.exists(os.path.join(dest_dir, p)):
+                shutil.rmtree(os.path.join(dest_dir, p))
+            shutil.copytree(os.path.join(src_dir, p), os.path.join(dest_dir, p), symlinks=True)
+        else:
+            shutil.copy2(os.path.join(src_dir, p), os.path.join(dest_dir, p))
+    for p in os.listdir(dest_dir):
+        if not os.path.exists(os.path.join(src_dir, p)) and not p.startswith("."):
+            if os.path.isfile(os.path.join(src_dir, p)):
+                os.remove(os.path.join(src_dir, p))
+            else:
+                shutil.rmtree(os.path.join(src_dir, p))
+
+class WorkerStateTests(unittest.TestCase):
+    def setUp(self):
+        self.testdir = tempfile.mkdtemp()
+
+    def get_repo(self, repo_name):
+        #create a new git repo
+        source_repo = Git.Git(os.path.join(self.testdir, "source_repo"))
+        source_repo.init()
+
+        mirror_into(
+            os.path.join(own_dir,"test_projects", repo_name), 
+            source_repo.path_to_repo
+            )
+
+        c = source_repo.commit("a message")
+
+        return source_repo, c
+
+    def get_worker(self, repo_name):
+        source_repo, c = self.get_repo(repo_name)
+        
+        worker = WorkerState.WorkerState(
+            os.path.join(self.testdir, "worker"),
+            LocalGitRepo.LocalGitRepo(source_repo, "testDefinitions.json"),
+            ArtifactStorage.LocalArtifactStorage({
+                "build_storage_path": os.path.join(self.testdir, "build_artifacts"),
+                "test_artifacts_storage_path": os.path.join(self.testdir, "test_artifacts")
+                }),
+            MachineInfo.MachineInfo("worker1", "worker1.ip", 4, "worker_zone", "worker_machine_type")
+            )
+
+        return source_repo, c, worker
+
+
+    def test_git(self):
+        #create a new git repo
+        source_repo = Git.Git(os.path.join(self.testdir, "source_repo"))
+        source_repo.init()
+
+        source_repo.writeFile("a_file.txt", "contents")
+        c1 = source_repo.commit("a message")
+        source_repo.writeFile("a_file.txt", "contents2")
+        c2 = source_repo.commit("a message 2")
+        source_repo.writeFile("a_file.txt", "contents3")
+        c3 = source_repo.commit("a message 3")
+
+        revs = [x[0] for x in source_repo.commitsInRevList("HEAD ^HEAD^^")]
+        self.assertEqual(revs, [c3,c2])
+
+    def test_git_copy_dir(self):
+        source_repo, c = self.get_repo("simple_project")
+        self.assertTrue("ubuntu" in source_repo.getFileContents(c, "Dockerfile.txt"))
+
+    def test_worker_basic(self):
+        repo, commit, worker = self.get_worker("simple_project")
+
+        result = worker.runTest("testId", commit, "build", lambda *args: None)
+
+        self.assertTrue(result.success)
+
+        self.assertTrue(len(os.listdir(worker.artifactStorage.build_storage_path)) == 1)
+
+        self.assertTrue(
+            worker.runTest("testId2", commit, "good", lambda *args: None).success
+            )
+
+        self.assertFalse(
+            worker.runTest("testId3", commit, "bad", lambda *args: None).success
+            )
+
+        keys = worker.artifactStorage.testResultKeysFor("testId3")
+        self.assertTrue(len(keys) == 1)
+
+        data = worker.artifactStorage.testContents("testId3", keys[0])
+
+        self.assertTrue(len(data) > 0)

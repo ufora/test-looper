@@ -29,33 +29,33 @@ def createArgumentParser():
                         help="Configuration file")
     return parser
 
-def initLogging():
-    logging.getLogger().setLevel(logging.INFO)
-    ch = logging.StreamHandler()
-    ch.setFormatter(
+def configureLogging(verbose=False):
+    if logging.getLogger().handlers:
+        logging.getLogger().handlers = []
+
+    loglevel = logging.DEBUG if verbose else logging.INFO
+    logging.getLogger().setLevel(loglevel)
+
+    handler = logging.StreamHandler(stream=sys.stderr)
+
+    handler.setLevel(loglevel)
+    handler.setFormatter(
         logging.Formatter(
             '%(asctime)s %(levelname)s %(filename)s:%(lineno)s@%(funcName)s %(name)s - %(message)s'
             )
         )
-    logging.getLogger().addHandler(ch)
+    logging.getLogger().addHandler(handler)
 
 
 def createTestWorker(config, machineInfo):
-    directories = WorkerState.TestLooperDirectories(
-        repo_dir=config['worker']['working_repo'],
-        test_data_dir=config['worker']['test_data_dir'],
-        build_cache_dir=config['worker']['build_cache_dir'],
-        ccache_dir=config['worker']['ccache_dir']
-        )
-    
-    osInteractions = WorkerState.WorkerState(
-        directories, 
-        source_control=SourceControlFromConfig.getFromConfig(config["source_control"]),
-        docker_repo=config.get("docker_repo"),
-        )
-    
-    osInteractions.initializeTestLooperEnvironment()
+    artifactStorage = ArtifactStorage.storageFromConfig(config['artifacts'])
 
+    osInteractions = WorkerState.WorkerState(
+        config['worker']['path'], 
+        source_control=SourceControlFromConfig.getFromConfig(config["source_control"]),
+        artifactStorage=artifactStorage
+        )
+    
     def createTestLooperClient():
         return TestLooperClient.TestLooperClient(
             host=config['server']['address'],
@@ -67,7 +67,6 @@ def createTestWorker(config, machineInfo):
         testLooperClientFactory=createTestLooperClient,
         artifactsFileName=config['worker']['test_artifacts'],
         timeout=config['worker']['test_timeout'],
-        artifactStorage=ArtifactStorage.storageFromConfig(config['artifacts']),
         coreDumpsDir=config['worker']['core_dump_dir'],
         repoName=config['worker']['repo_name']
         )
@@ -79,7 +78,7 @@ def loadConfiguration(configFile):
         return json.loads(fin.read())
 
 if __name__ == "__main__":
-    initLogging()
+    configureLogging()
 
     args = createArgumentParser().parse_args()
     config = loadConfiguration(args.config)

@@ -50,8 +50,39 @@ class Git(object):
         
         self.git_repo_lock = threading.RLock()
 
+    def writeFile(self, name, text):
+        with open(os.path.join(self.path_to_repo, name), "w") as f:
+            f.write(text)
+
+    def pullLatest(self):
+        return self.subprocessCheckCall(['git fetch origin'], shell=True) == 0
+
+    def resetToCommit(self, revision):
+        logging.info("Resetting to revision %s", revision)
+
+        if not self.pullLatest():
+            return False
+
+        return self.subprocessCheckCall('git reset --hard ' + revision, shell=True) == 0
+
+    def commit(self, msg):
+        """Commit the current state of the repo and return the commit id"""
+        assert self.subprocessCheckCall(["git", "add", "."]) == 0
+        assert self.subprocessCheckCall(["git", "commit", "-m", msg]) == 0
+        return self.subprocessCheckOutput(["git", "log", "-n", "1", '--format=format:%H'])
+
     def isInitialized(self):
         return os.path.exists(os.path.join(self.path_to_repo, ".git"))
+
+    def init(self):
+        if not os.path.exists(self.path_to_repo):
+            os.makedirs(self.path_to_repo)
+
+        with self.git_repo_lock:
+            if self.subprocessCheckCall('git init .', shell=True) != 0:
+                msg = "Failed to init repo at %s" % self.path_to_repo
+                logging.error(msg)
+                raise Exception(msg)
 
     def cloneFrom(self, sourceRepo):
         if not os.path.exists(self.path_to_repo):

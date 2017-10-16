@@ -51,7 +51,7 @@ class OutOfProcessDownloader:
     the result passed to them as a file descriptor and a bytecount containing the answer.
     """
 
-    def __init__(self, actuallyRunOutOfProcess, childPipes=None, dontImportSetup=False):
+    def __init__(self, actuallyRunOutOfProcess, childPipes=None, dontImportSetup=False, verbose=False):
         self.hasStarted = False
         self.isChild = False
         self.childSubprocess = None
@@ -60,6 +60,7 @@ class OutOfProcessDownloader:
         self.lock = threading.Lock()
         self.writeQueue = Queue.Queue()
         self.actuallyRunOutOfProcess = actuallyRunOutOfProcess
+        self.verbose = verbose
 
         if childPipes is None:
             self.createNewPipes_()
@@ -96,10 +97,12 @@ class OutOfProcessDownloader:
 
         if self.actuallyRunOutOfProcess:
             def onStdout(msg):
-                logging.info("OutOfProcessDownloader Out> %s", msg)
+                if self.verbose:
+                    logging.info("OutOfProcessDownloader Out> %s", msg)
 
             def onStderr(msg):
-                logging.info("OutOfProcessDownloader Err> %s", msg)
+                if self.verbose:
+                    logging.info("OutOfProcessDownloader Err> %s", msg)
 
             self.childSubprocess = SubprocessRunner.SubprocessRunner(
                 [sys.executable, __file__, str(self.childWriteFD), str(self.childReadFD)],

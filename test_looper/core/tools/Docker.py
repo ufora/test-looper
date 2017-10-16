@@ -37,10 +37,6 @@ class DockerContainerCleanup(object):
 
 
 def call(command, **kwargs):
-    if not kwargs.get('stdout'):
-        kwargs['stdout'] = sys.stdout
-    if not kwargs.get('stderr'):
-        kwargs['stderr'] = sys.stderr
     return subprocess.call(command, shell=True, **kwargs)
 
 
@@ -110,13 +106,13 @@ class DockerImage(object):
 
         return image
 
-    def subprocessCommandsToRun(self, command, directories, build_env, expose_docker_socket=True, net_host=True):
+    def subprocessCommandsToRun(self, command, workingDir, directories, build_env, expose_docker_socket=True, net_host=True):
         options = []
 
-        for path in directories:
+        for path,target in directories.iteritems():
             path = os.path.abspath(path)
 
-            options += ["-v", "%s:%s" % (path,path)]
+            options += ["-v", "%s:%s" % (path,target)]
 
         if expose_docker_socket:
             options += ["-v", "/var/run/docker.sock:/var/run/docker.sock"]
@@ -131,7 +127,7 @@ class DockerImage(object):
             self.binary,
             "run",
             "--rm"] +  options + [
-            "-w", os.getcwd(),
+            "-w", workingDir,
             "--label", "test_looper_worker",
             self.image,
             "/bin/bash",

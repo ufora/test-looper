@@ -1,0 +1,12 @@
+{
+"docker": {
+    "dockerfile": "Dockerfile.txt"
+    },
+"build": {
+    "command": "cp $REPO_DIR/*.py $BUILD_DIR"
+    },
+"tests": [
+    {"name": "good", "command": "./script.py 0"},
+    {"name": "bad", "command": "./script.py 1"}
+    ]
+}

@@ -143,8 +143,9 @@ class Session(object):
 
                     self.writeString(
                         json.dumps({
-                            "test": testResult.toJson(),
-                            'testScriptDefinition': testDefinition.toJson()
+                            "commitId": commit,
+                            'testId': testResult.testId,
+                            'testName': testName
                             })
                         )
                 else:
