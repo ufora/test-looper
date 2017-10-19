@@ -6,6 +6,7 @@ import subprocess
 import sys
 import logging
 import docker
+import tempfile
 import test_looper.core.tools.DockerWatcher as DockerWatcher
 
 class DockerContainerCleanup(object):

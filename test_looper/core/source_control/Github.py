@@ -8,33 +8,26 @@ import simplejson
 from test_looper.core.TestScriptDefinition import TestScriptDefinition
 from test_looper.core.tools.Git import Git
 
-def verify_webhook_request(headers, body, secret):
-    signature = "sha1=" + hmac.new(secret, body, hashlib.sha1).hexdigest()
-    if ('X-GitHub-Event' not in headers or 'X-HUB-SIGNATURE' not in headers or
-            headers['X-HUB-SIGNATURE'] != signature):
-        return None
-
-    if headers['X-GitHub-Event'] != 'push':
-        return {}
-
-    payload = simplejson.loads(body)
-    return {
-        'branch': payload['ref'].split('/')[-1],
-        'repo': payload['repository']['name']
-        }
-
-class Github(Git):
+class Github(object):
     def __init__(self,
+                 path_to_local_repo,
                  oauth_key,
                  oauth_secret,
                  access_token,
                  webhook_secret,
                  owner,
                  repo,
-                 test_definitions_path):
+                 test_definitions_path,
+                 github_url = "https://github.com",
+                 github_login_url = "https://github.com",
+                 github_api_url = "https://api.github.com",
+                 auth_disabled = False
+                 ):
         assert access_token is not None
 
-        super(Github, self).__init__()
+        self.auth_disabled = auth_disabled
+
+        self.source_repo = Git(path_to_local_repo)
 
         self.oauth_key = oauth_key
         self.oauth_secret = oauth_secret
@@ -43,19 +36,65 @@ class Github(Git):
         self.owner = owner
         self.repo = repo
         self.test_definitions_path = test_definitions_path
-            
+        self.github_url = github_url
+        self.github_api_url = github_api_url
+        self.github_login_url = github_login_url
+
+    def verify_webhook_request(self, headers, payload):
+        if not self.auth_disabled:
+            signature = "sha1=" + hmac.new(self.webhook_secret, body, hashlib.sha1).hexdigest()
+            if ('X-GitHub-Event' not in headers or 'X-HUB-SIGNATURE' not in headers or
+                    headers['X-HUB-SIGNATURE'] != signature):
+                return None
+
+        if headers['X-GitHub-Event'] != 'push':
+            return {}
+
+        return {
+            'branch': payload['ref'].split('/')[-1],
+            'repo': payload['repository']['name']
+            }
+
+
+    def cloneUrl(self):
+        return self.github_url + "/" + self.owner + "/" + self.repo + ".git"
+
+    def listBranches(self):
+        self.source_repo.fetchOrigin()
+
+        return [b[len("origin/"):] for b in self.source_repo.listBranches() if b.startswith("origin/")]
+
+    def commitsBetweenCommitIds(self, c1, c2):
+        print "Checking commits between ", c1, c2
+
+        self.source_repo.fetchOrigin()
+
+        return self.source_repo.commitsInRevList(c1 + " ^" + c2)
+        
+    def commitsBetweenBranches(self, branch, baseline):
+        self.source_repo.fetchOrigin()
+        
+        return self.source_repo.commitsInRevList("origin/%s ^origin/%s" % (branch, baseline))
+
+    def getTestScriptDefinitionsForCommit(self, commitId):
+        self.source_repo.fetchOrigin()
+        
+        return self.source_repo.getFileContents(commitId, self.test_definitions_path)
 
     ###########
     ## OAuth
     def authenticationUrl(self):
+        if self.auth_disabled:
+            return None
+
         """Return the url to which we should direct unauthorized users"""
-        return "https://github.com/login/oauth/authorize?scope=read:org&client_id=" + \
+        return self.github_login_url + "/login/oauth/authorize?scope=read:org&client_id=" + \
             self.oauth_key
 
 
     def getAccessTokenFromAuthCallbackCode(self, code):
         response = requests.post(
-            'https://github.com/login/oauth/access_token',
+            self.github_login_url + '/login/oauth/access_token',
             headers={
                 'accept': 'application/json'
                 },
@@ -63,27 +102,34 @@ class Github(Git):
                 'client_id': self.oauth_key,
                 'client_secret': self.oauth_secret,
                 'code': code
-                }
+                },
+            verify=False
             )
 
-        return simplejson.loads(response.text)['access_token']
+        result = simplejson.loads(response.text)
+
+        if 'access_token' not in result:
+            logging.error("didn't find 'access_token' in %s", response.text)
+
+        return result['access_token']
+
     ## OAuth
     ###########
 
 
-    def verify_webhook_request(self, headers, body):
-        return verify_webhook_request(headers, body, self.webhook_secret)
-
-
     def authorize_access_token(self, access_token):
+        if self.auth_disabled:
+            return True
+
         logging.info("Checking access token %s", access_token)
 
         response = requests.get(
-            "https://api.github.com/applications/%s/tokens/%s" % (
+            self.github_api_url + "/applications/%s/tokens/%s" % (
                 self.oauth_key, access_token
                 ),
             auth=requests.auth.HTTPBasicAuth(self.oauth_key,
-                                             self.oauth_secret)
+                                             self.oauth_secret),
+            verify=False
             )
         if not response.ok:
             logging.info(
@@ -101,11 +147,12 @@ class Github(Git):
             return False
 
         response = requests.get(
-            "https://api.github.com/orgs/%s/members/%s?access_token=%s" % (
+            self.github_api_url + "/orgs/%s/members/%s?access_token=%s" % (
                 self.owner,
                 user['user']['login'],
                 access_token
-                )
+                ),
+            verify=False
             )
         if response.status_code == 204:
             return True
@@ -118,39 +165,16 @@ class Github(Git):
         return False
 
 
-    @staticmethod
-    def getUserNameFromToken(access_token):
+    def getUserNameFromToken(self, access_token):
         """Given a github access token, find out what user the token is assigned to."""
+        if self.auth_disabled:
+            return "user"
+
         return simplejson.loads(
-            requests.get("https://api.github.com/user?access_token=" + access_token).text
+            requests.get(self.github_api_url + "/user?access_token=" + access_token, verify=False).text
             )['login']
 
 
     def commit_url(self, commit_id):
-        return "https://github.com/%s/%s/commit/%s" % (self.owner, self.repo, commit_id)
-
-
-    def getServerAuthParameters(self):
-        """Return authorization parameters for GitHub API request using the server
-        credentials"""
-        return "access_token=" + self.access_token
-
-    def getTestScriptDefinitionsForCommit(self, commitId):
-        responseTestDefinitions = requests.get(
-            "https://api.github.com/repos/%s/%s/contents/%s?ref=%s&%s" % (
-                self.owner,
-                self.repo,
-                self.test_definitions_path,
-                commitId,
-                self.getServerAuthParameters()
-                )
-            )
-
-
-        testDefinitionsJson = simplejson.loads(responseTestDefinitions.text)
-
-        if 'message' in testDefinitionsJson and testDefinitionsJson['message'] == "Not Found":
-            return None
-
-        return base64.b64decode(testDefinitionsJson['content'])
+        return self.github_url + "/%s/%s/commit/%s" % (self.owner, self.repo, commit_id)
 

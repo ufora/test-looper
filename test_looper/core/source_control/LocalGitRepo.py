@@ -27,8 +27,11 @@ class LocalGitRepo(object):
         return [b for b in self.source_repo.listBranches() if 
             not b.startswith("origin/") and not b.startswith("remotes/")]
 
-    def commitsInRevList(self, revlist):
-        return self.source_repo.commitsInRevList(revlist)
+    def commitsBetweenCommitIds(self, c1, c2):
+        return self.source_repo.commitsInRevList(c1 + " ^" + c2)
+        
+    def commitsBetweenBranches(self, branch, baseline):
+        return self.source_repo.commitsInRevList("%s ^%s" % (branch, baseline))
 
     def getTestScriptDefinitionsForCommit(self, commitId):
         return self.source_repo.getFileContents(commitId, self.test_definitions_path)

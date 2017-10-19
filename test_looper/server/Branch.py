@@ -4,14 +4,14 @@ import test_looper.server.SequentialFailureRates as SequentialFailureRates
 
 class Branch(object):
     """Models a set of commits (usually from a git branch)"""
-    def __init__(self, testDb, branchName, commitRevlist):
+    def __init__(self, testDb, branchName, baselineBranchName):
         self.testDb = testDb
         self.branchName = branchName
+        self.baselineBranchName = baselineBranchName
         self.commits = {}
         self.commitsInOrder = []
         self.commitIdToIndex = {}
 
-        self.commitRevlist = commitRevlist
         self.isUnderTest_ = None
         self.sequentialFailuresCache10 = None
         self.sequentialFailuresCache100 = None
@@ -90,9 +90,9 @@ class Branch(object):
 
 
     # TestManager
-    def updateRevList(self, revList, testManager):
-        if revList != self.commitRevlist:
-            self.commitRevlist = revList
+    def updateRevList(self, newBaseline, testManager):
+        if self.baselineBranchName != newBaseline:
+            self.baselineBranchName = newBaseline
             self.updateCommitsUnderTest(testManager)
 
     @staticmethod
@@ -183,7 +183,7 @@ class Branch(object):
         if lock:
             lock.release()
         t0 = time.time()
-        commitIdsParentsAndTitles = testManager.src_ctrl.commitsInRevList(self.commitRevlist)
+        commitIdsParentsAndTitles = testManager.src_ctrl.commitsBetweenBranches(self.branchName, self.baselineBranchName)
 
         if lock:
             lock.acquire()

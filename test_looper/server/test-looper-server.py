@@ -13,7 +13,6 @@ import time
 import test_looper.core.source_control.SourceControlFromConfig as SourceControlFromConfig
 from test_looper.server.RedisJsonStore import RedisJsonStore
 from test_looper.server.TestDatabase import TestDatabase
-import test_looper.server.TestLooperEc2Connection as TestLooperEc2Connection
 import test_looper.server.TestLooperHttpServer as TestLooperHttpServer
 from test_looper.server.TestLooperHttpServerEventLog import TestLooperHttpServerEventLog
 import test_looper.server.TestLooperServer as TestLooperServer
@@ -96,6 +95,7 @@ def main():
     cloud_connection = test_looper.core.cloud.FromConfig.fromConfig(config)
     
     httpServer = TestLooperHttpServer.TestLooperHttpServer(
+        config['server']['web_address'],
         testManager,
         cloud_connection,
         ArtifactStorage.storageFromConfig(config['artifacts']),

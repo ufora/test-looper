@@ -87,6 +87,8 @@ class Git(object):
         Resulting objects are tuples of
             (hash, (parent1_hash, parent2_hash, ...), title, branchName)
         """
+        logging.info("Checking commit range %s", commitRange)
+
         with self.git_repo_lock:
             if not commitRange:
                 return []
@@ -109,9 +111,11 @@ class Git(object):
 
             def parseCommitLine(line):
                 splitLine = line.split(' -- ')
-                if len(splitLine) != 2:
+                if len(splitLine) < 2:
                     logging.warn("Got a confusing commit line: %s", line)
                     return None
+                if len(splitLine) > 2:
+                    splitLine = [splitLine[0], ' -- '.join(splitLine[1:])]
 
                 hashes = splitLine[0].split(' ')
                 if len(hashes) < 2:
@@ -124,7 +128,7 @@ class Git(object):
                     splitLine[1]     # commit title
                     )
 
-            commitTuples = [parseCommitLine(l) for l in lines if self.isValidBranchName_(l)]
+            commitTuples = [parseCommitLine(l) for l in lines]
             return [c for c in commitTuples if c is not None]
 
     def getFileContents(self, commit, path):
@@ -139,6 +143,12 @@ class Git(object):
         with self.git_repo_lock:
             if self.subprocessCheckCall('git fetch', shell=True) != 0:
                 logging.error("Failed to fetch from origin!")
+
+
+    def pullOrigin(self):
+        with self.git_repo_lock:
+            if self.subprocessCheckCall('git pull', shell=True) != 0:
+                logging.error("Failed to pull from origin!")
 
 
     @staticmethod

@@ -56,8 +56,7 @@ class TestManager(object):
 
     def getCommitByCommitId(self, commitId):
         if not commitId in self.commits:
-            revList = "%s ^%s^^" % (commitId, commitId)
-            commitId, parentHashes, commitTitle = self.src_ctrl.commitsInRevList(revList)[0]
+            commitId, parentHashes, commitTitle = self.src_ctrl.commitsBetweenCommitIds(commitId, commitId + "^^")[0]
             self.commits[commitId] = self.createCommit(commitId, parentHashes, commitTitle)
         return self.commits[commitId]
 
@@ -337,7 +336,8 @@ class TestManager(object):
             if b not in self.branches:
                 self.branches[b] = Branch.Branch(self.testDb,
                                                  b,
-                                                 "%s ^%s^" % (b, self.settings.baseline_branch))
+                                                 self.settings.baseline_branch
+                                                 )
 
         for b in set(self.branches.keys()) - branchNames:
             branch = self.branches[b]
@@ -347,9 +347,9 @@ class TestManager(object):
             del self.branches[b]
 
         if self.settings.baseline_branch != 'origin/master' and self.settings.baseline_depth == 0:
-            bottom_commit = "%s ^origin/master" % (self.settings.baseline_branch,)
+            bottom_commit = "master"
         else:
-            bottom_commit = "{baseline} ^{baseline}{carrets}".format(
+            bottom_commit = "{baseline}{carrets}".format(
                 baseline=self.settings.baseline_branch,
                 carrets='^'*self.settings.baseline_depth
                 )

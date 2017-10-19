@@ -10,6 +10,7 @@ import threading
 import markdown
 import urllib
 import pytz
+import simplejson
 
 import test_looper.core.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
@@ -32,6 +33,7 @@ def joinLinks(linkList):
 
 class TestLooperHttpServer(object):
     def __init__(self,
+                 address,
                  testManager,
                  cloud_connection,
                  artifactStorage,
@@ -49,7 +51,7 @@ class TestLooperHttpServer(object):
                      write: need authentication for "write" operations
                      full: must authenticate to access anything
         """
-
+        self.address = address
         self.testManager = testManager
         self.cloud_connection = cloud_connection
         self.accessTokenHasPermission = {}
@@ -151,7 +153,7 @@ class TestLooperHttpServer(object):
 
         cherrypy.session.pop('github_login')
 
-        raise cherrypy.HTTPRedirect("/")
+        raise cherrypy.HTTPRedirect(self.address + "/")
 
 
     @cherrypy.expose
@@ -171,8 +173,10 @@ class TestLooperHttpServer(object):
 
         cherrypy.session['github_access_token'] = access_token
 
+        print "redirecting to ", cherrypy.session.pop('redirect_after_authentication', None)
+
         raise cherrypy.HTTPRedirect(
-            cherrypy.session.pop('redirect_after_authentication', None) or '/'
+            cherrypy.session.pop('redirect_after_authentication', None) or self.address + "/"
             )
 
 
@@ -182,7 +186,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def index(self):
-        raise cherrypy.HTTPRedirect("/branches")
+        raise cherrypy.HTTPRedirect(self.address + "/branches")
 
 
     @cherrypy.expose
@@ -475,7 +479,7 @@ class TestLooperHttpServer(object):
 
         instancesByIp[machineId].terminate()
 
-        raise cherrypy.HTTPRedirect("/machines")
+        raise cherrypy.HTTPRedirect(self.address + "/machines")
 
     @cherrypy.expose
     def machine(self, machineId):
@@ -672,12 +676,12 @@ class TestLooperHttpServer(object):
             branch = self.testManager.branches[branchName]
             branch.setIsUnderTest(not branch.isUnderTest)
 
-        raise cherrypy.HTTPRedirect("/branches")
+        raise cherrypy.HTTPRedirect(self.address + "/branches")
 
     @cherrypy.expose
     def refresh(self):
         self.refreshBranches(block=True)
-        raise cherrypy.HTTPRedirect("/branches")
+        raise cherrypy.HTTPRedirect(self.address + "/branches")
 
     @cherrypy.expose
     def refreshNonblocking(self):
@@ -767,7 +771,7 @@ class TestLooperHttpServer(object):
                 branch.setTargetedTestList([])
                 branch.setTargetedCommitIds([])
 
-        raise cherrypy.HTTPRedirect("/branches")
+        raise cherrypy.HTTPRedirect(self.address + "/branches")
 
 
     @cherrypy.expose
@@ -898,7 +902,7 @@ class TestLooperHttpServer(object):
                     )
 
         raise cherrypy.HTTPRedirect(
-            "/branch?branchName=%s&testGroupsToExpand=%s" % (branchName, testGroupsToExpand)
+            self.address + "/branch?branchName=%s&testGroupsToExpand=%s" % (branchName, testGroupsToExpand)
             )
 
 
@@ -920,7 +924,7 @@ class TestLooperHttpServer(object):
                     branch.targetedCommitIds() + [commitId]
                     )
 
-        raise cherrypy.HTTPRedirect("/branch?branchName=" + branchName)
+        raise cherrypy.HTTPRedirect(self.address + "/branch?branchName=" + branchName)
 
     @staticmethod
     def errRateVal(testCount, successCount):
@@ -1552,7 +1556,7 @@ class TestLooperHttpServer(object):
 
         self.addLogMessage("Canceled all spot requests.")
 
-        raise cherrypy.HTTPRedirect("/spotRequests")
+        raise cherrypy.HTTPRedirect(self.address + "/spotRequests")
 
     @cherrypy.expose
     def cancelSpotRequests(self, requestIds):
@@ -1572,7 +1576,7 @@ class TestLooperHttpServer(object):
         self.addLogMessage("Cancelling spot requests: %s", requestIds)
 
         self.cloud_connection.cancelSpotRequests(requestIds)
-        raise cherrypy.HTTPRedirect("/spotRequests")
+        raise cherrypy.HTTPRedirect(self.address + "/spotRequests")
 
 
     @cherrypy.expose
@@ -1613,20 +1617,24 @@ class TestLooperHttpServer(object):
                            instanceType,
                            maxPrice)
 
-        raise cherrypy.HTTPRedirect("/spotRequests")
+        raise cherrypy.HTTPRedirect(self.address + "/spotRequests")
 
     @cherrypy.expose
     def githubReceivedAPush(self):
         return self.webhook()
 
     @cherrypy.expose
-    def webhook(self):
+    def webhook(self, *args, **kwds):
         if 'Content-Length' not in cherrypy.request.headers:
             raise cherrypy.HTTPError(400, "Missing Content-Length header")
-        rawbody = cherrypy.request.body.read(int(cherrypy.request.headers['Content-Length']))
 
-        event = self.src_ctrl.verify_webhook_request(cherrypy.request.headers,
-                                                     rawbody)
+        if cherrypy.request.headers['Content-Type'] == "application/x-www-form-urlencoded":
+            payload = simplejson.loads(cherrypy.request.body_params['payload'])
+        else:
+            payload = simplejson.loads(cherrypy.request.body.read(int(cherrypy.request.headers['Content-Length'])))
+
+        event = self.src_ctrl.verify_webhook_request(cherrypy.request.headers, payload)
+
         if not event:
             logging.error("Invalid webhook request")
             raise cherrypy.HTTPError(400, "Invalid webhook request")
