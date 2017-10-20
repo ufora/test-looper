@@ -63,7 +63,7 @@ class Github(object):
     def listBranches(self):
         self.source_repo.fetchOrigin()
 
-        return [b[len("origin/"):] for b in self.source_repo.listBranches() if b.startswith("origin/")]
+        return self.source_repo.listBranchesForRemote("origin")
 
     def commitsBetweenCommitIds(self, c1, c2):
         print "Checking commits between ", c1, c2

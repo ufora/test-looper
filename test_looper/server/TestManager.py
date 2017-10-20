@@ -332,14 +332,26 @@ class TestManager(object):
             lock.acquire()
 
         t0 = time.time()
+
+        logging.info(
+            "Comparing new branchlist of %s to existing branchlist of %s with baseline branch of %s", 
+            sorted(branchNames),
+            sorted(self.branches),
+            self.settings.baseline_branch
+            )
+
         for b in branchNames:
             if b not in self.branches:
+                logging.info("Create a new branch %s", b)
+
                 self.branches[b] = Branch.Branch(self.testDb,
                                                  b,
                                                  self.settings.baseline_branch
                                                  )
 
         for b in set(self.branches.keys()) - branchNames:
+            logging.info("Removing branch %s", b)
+            
             branch = self.branches[b]
             for c in branch.commits.itervalues():
                 c.branches.discard(branch)
@@ -347,7 +359,7 @@ class TestManager(object):
             del self.branches[b]
 
         if self.settings.baseline_branch != 'origin/master' and self.settings.baseline_depth == 0:
-            bottom_commit = "master"
+            bottom_commit = "origin/master"
         else:
             bottom_commit = "{baseline}{carrets}".format(
                 baseline=self.settings.baseline_branch,
@@ -355,12 +367,16 @@ class TestManager(object):
                 )
 
         if self.settings.baseline_branch not in self.branches:
+            logging.info("Recreating baseline branch %s", self.settings.baseline_branch)
+
             self.branches[self.settings.baseline_branch] = Branch.Branch(
                 self.testDb,
                 self.settings.baseline_branch,
                 bottom_commit
                 )
         else:
+            logging.info("Resetting baseline branch %s bottom commit", self.settings.baseline_branch)
+
             self.branches[self.settings.baseline_branch].updateRevList(
                 bottom_commit,
                 self

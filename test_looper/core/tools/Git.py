@@ -102,13 +102,18 @@ class Git(object):
             
     def listBranches(self):
         with self.git_repo_lock:
-            output = self.subprocessCheckOutput('git branch -a', shell=True).strip().split('\n')
+            output = self.subprocessCheckOutput('git branch -rl', shell=True).strip().split('\n')
             
             output = [l.strip() for l in output if l]
             output = [l[1:] if l[0] == '*' else l for l in output if l]
             output = [l.strip() for l in output if l]
 
             return [l for l in output if l and self.isValidBranchName_(l)]
+            
+    def listBranchesForRemote(self, remote):
+        with self.git_repo_lock:
+            res = os.listdir(os.path.join(self.path_to_repo,".git","refs","remotes",remote))
+            return [r for r in res if r != "HEAD"]
 
     def commitsInRevList(self, commitRange):
         """
