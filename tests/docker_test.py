@@ -10,7 +10,7 @@ test_dir = os.path.join(os.path.split(os.path.split(test_looper.__file__)[0])[0]
 dockerfile = """
 FROM ufora/build:19b4ea8ffab4050b2db9d96262a976e1
 
-RUN pip install docker
+RUN pip install docker==2.0.0
 """
 
 class DockerTests(unittest.TestCase):

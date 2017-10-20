@@ -11,6 +11,7 @@ import test_looper.core.tools.Git as Git
 import test_looper.core.ArtifactStorage as ArtifactStorage
 import test_looper.core.source_control.LocalGitRepo as LocalGitRepo
 import test_looper.core.cloud.MachineInfo as MachineInfo
+import test_looper.core.SubprocessRunner as SubprocessRunner
 
 own_dir = os.path.split(__file__)[0]
 
@@ -50,6 +51,9 @@ class WorkerStateTests(unittest.TestCase):
     def setUp(self):
         self.testdir = tempfile.mkdtemp()
 
+    def get_fds(self):
+        return os.listdir("/proc/%s/fd" % os.getpid())
+
     def get_repo(self, repo_name):
         #create a new git repo
         source_repo = Git.Git(os.path.join(self.testdir, "source_repo"))
@@ -80,7 +84,7 @@ class WorkerStateTests(unittest.TestCase):
         return source_repo, c, worker
 
 
-    def test_git(self):
+    def test_git_not_leaking_fds(self):
         #create a new git repo
         source_repo = Git.Git(os.path.join(self.testdir, "source_repo"))
         source_repo.init()
@@ -94,6 +98,13 @@ class WorkerStateTests(unittest.TestCase):
 
         revs = [x[0] for x in source_repo.commitsInRevList("HEAD ^HEAD^^")]
         self.assertEqual(revs, [c3,c2])
+
+        fds = len(self.get_fds())
+        for i in xrange(10):
+            source_repo.commitsInRevList("HEAD ^HEAD^^")
+        fds2 = len(self.get_fds())
+
+        self.assertEqual(fds, fds2)
 
     def test_git_copy_dir(self):
         source_repo, c = self.get_repo("simple_project")
@@ -122,3 +133,21 @@ class WorkerStateTests(unittest.TestCase):
         data = worker.artifactStorage.testContents("testId3", keys[0])
 
         self.assertTrue(len(data) > 0)
+
+    def test_worker_doesnt_leak_fds(self):
+        repo, commit, worker = self.get_worker("simple_project")
+
+        result = worker.runTest("testId", commit, "build", lambda *args: None)
+
+        fds = len(self.get_fds())
+        for _ in xrange(10):
+            worker.runTest("testId2", commit, "good", lambda *args: None)
+        fds2 = len(self.get_fds())
+        
+        self.assertEqual(fds, fds2)
+
+    def test_SR_doesnt_leak(self):
+        fds = len(self.get_fds())
+        for _ in xrange(10):
+            SubprocessRunner.callAndReturnOutput("ps",shell=True)
+        self.assertEqual(len(self.get_fds()), fds)

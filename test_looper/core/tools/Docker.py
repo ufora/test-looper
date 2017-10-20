@@ -2,7 +2,6 @@ import collections
 from hashlib import md5
 import os
 import test_looper.core.SubprocessRunner as SubprocessRunner
-import subprocess
 import sys
 import logging
 import docker
@@ -34,20 +33,6 @@ class DockerContainerCleanup(object):
                     c.remove(force=True)
                 except:
                     logging.error("Failed to remove docker container %s", c.id)
-
-
-def call(command, **kwargs):
-    return subprocess.call(command, shell=True, **kwargs)
-
-
-def call_quiet(command):
-    with open(os.devnull, "w") as devnull:
-        return call(command, stdout=devnull, stderr=devnull)
-
-
-def check_output(command):
-    return subprocess.check_output(command, shell=True)
-
 
 def hash_files_in_path(path):
     h = md5()
@@ -166,28 +151,30 @@ class DockerImage(object):
 
 
     def image_exists(self):
-        return call_quiet("{docker} inspect {image}".format(docker=self.binary,
-                                                   image=self.image)) == 0
+        return SubprocessRunner.callAndReturnResultWithoutOutput(
+            "{docker} inspect {image}".format(docker=self.binary,image=self.image),
+            shell=True
+            ) == 0
 
     def pull(self):
-        return call("{docker} pull {image}".format(docker=self.binary,
-                                                   image=self.image)) == 0
+        return SubprocessRunner.callAndReturnResultWithoutOutput(
+            "{docker} pull {image}".format(docker=self.binary, image=self.image),
+            shell=True
+            ) == 0
 
     
     def disable_build_cache(self):
         return False
 
     def build(self, dockerfile_dir):
-        subprocess.check_call(
+        SubprocessRunner.callAndReturnResultWithoutOutput(
             "{docker} build --label test_looper_worker {cache_builds} -t {image} {path}"
                 .format(docker=self.binary,
                         image=self.image,
                         path=dockerfile_dir,
                         cache_builds="--no-cache" if self.disable_build_cache() else ""
                         ),
-            shell=True,
-            stdout=sys.stdout,
-            stderr=sys.stderr
+            shell=True
             )
 
     def buildFromString(self, dockerfile_text,timeout=None):
@@ -223,12 +210,10 @@ class DockerImage(object):
     def push(self):
         assert self.docker_repo is not None
 
-        subprocess.check_call(
+        SubprocessRunner.callAndReturnResultWithoutOutput(
             "{docker} push {image}"
                 .format(docker=self.binary, image=self.image),
-            shell=True,
-            stdout=sys.stdout,
-            stderr=sys.stderr
+            shell=True
             )
 
 
@@ -260,25 +245,21 @@ class DockerImage(object):
             options=None,
             stdout=None,
             stderr=None):
-        def caller(command):
-            return call(command, stdout=stdout, stderr=stderr)
-
-        return self._run(caller, command, name, volumes, env, options)
+        return self._run(command, name, volumes, env, options)
 
 
     def call(self, command, volumes=None, env=None, options=None):
         options = options or ''
         options += ' --rm'
 
-        return self._run(check_output,
-                         command,
+        return self._run(command,
                          name=None,
                          volumes=volumes,
                          env=env,
                          options=options)
 
 
-    def _run(self, call_func, command, name=None, volumes=None, env=None, options=None):
+    def _run(self, command, name=None, volumes=None, env=None, options=None):
         name = name or ''
         if name:
             name = '--name=' + name
@@ -289,7 +270,7 @@ class DockerImage(object):
         if isinstance(volumes, collections.Mapping):
             volumes = ' '.join('--volume %s:%s' % (k, volumes[k]) for k in volumes)
 
-        return call_func(
+        return SubprocessRunner.callAndReturnResultWithoutOutput(
             "{docker} run {options} {name} {volumes} {env} {image} {command}".format(
                 docker=self.binary,
                 options=options or '',
@@ -297,7 +278,8 @@ class DockerImage(object):
                 volumes=volumes or '',
                 env=env or '',
                 image=self.image,
-                command=command)
+                command=command),
+            shell=True
             )
 
     def subprocessRunnerFor(self, dockerargs, commands, onOut, onErr):
@@ -308,10 +290,14 @@ class DockerImage(object):
 
 
     def stop(self, container_name):
-        return call_quiet("{docker} stop {name} > /dev/null".format(docker=self.binary,
-                                                                    name=container_name))
+        return SubprocessRunner.callAndReturnResultWithoutOutput(
+            "{docker} stop {name}".format(docker=self.binary, name=container_name),
+            shell=True
+            )
 
 
     def remove(self, container_name):
-        return call_quiet("{docker} rm {name} > /dev/null".format(docker=self.binary,
-                                                                  name=container_name))
+        return SubprocessRunner.callAndReturnResultWithoutOutput(
+            "{docker} rm {name}".format(docker=self.binary, name=container_name),
+            shell=True
+            )

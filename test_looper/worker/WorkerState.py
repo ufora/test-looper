@@ -5,7 +5,6 @@ import os
 import shutil
 import signal
 import simplejson
-import subprocess
 import sys
 import tarfile
 import threading
@@ -123,32 +122,32 @@ class WorkerState(object):
             def onErr(msg):
                 print >> build_log, msg
             
-            if docker_image is None:
-                subprocess = SubprocessRunner.SubprocessRunner(command, onOut, onErr, shell=True)
-            else:
-                cmds = docker_image.subprocessCommandsToRun(
-                    command, 
-                    "/test_looper/src",
-                    {self.directories.build_dir: "/test_looper/build",
-                     self.directories.repo_dir: "/test_looper/src",
-                     self.directories.output_dir: "/test_looper/output",
-                     self.directories.ccache_dir: "/test_looper/ccache"
-                     },
-                    env
-                    )
-                
-                try:
-                    subprocess = SubprocessRunner.SubprocessRunner(cmds, onOut, onErr, shell=False)
+            assert docker_image is not None
 
-                    result = self.runSubprocess_(subprocess,
-                                                timeout,
-                                                heartbeat)
-                    if not result:
-                        logging.error("Command failed.")
-                    return result
-                except:
-                    logging.error("Failed running %s", " ".join(cmds))
-                    raise
+            cmds = docker_image.subprocessCommandsToRun(
+                command, 
+                "/test_looper/src",
+                {self.directories.build_dir: "/test_looper/build",
+                 self.directories.repo_dir: "/test_looper/src",
+                 self.directories.output_dir: "/test_looper/output",
+                 self.directories.ccache_dir: "/test_looper/ccache"
+                 },
+                env
+                )
+            
+            try:
+                subprocess = SubprocessRunner.SubprocessRunner(cmds, onOut, onErr, shell=False)
+
+                result = self.runSubprocess_(subprocess,
+                                            timeout,
+                                            heartbeat
+                                            )
+                if not result:
+                    logging.error("Command failed.")
+                return result
+            except:
+                logging.error("Failed running %s", " ".join(cmds))
+                raise
 
 
     def runSubprocess_(self, proc, timeout, heartbeatFunction):
@@ -158,32 +157,37 @@ class WorkerState(object):
         
         proc.start()
 
-        t = threading.Thread(target=waiter)
-        t.start()
-
-        t0 = time.time()
-        interrupted = False
-        is_timeout = False
         try:
-            while t.isAlive() and time.time() - t0 < timeout:
+            t = threading.Thread(target=waiter)
+            t.start()
+
+            t0 = time.time()
+            interrupted = False
+            is_timeout = False
+            try:
+                while t.isAlive() and time.time() - t0 < timeout:
+                    heartbeatFunction()
+                    t.join(self.heartbeatInterval)
+            except:
+                interrupted = True
+
+            if not interrupted:
+                # don't call heartbeatFunction if it already raised an
+                # exception.
                 heartbeatFunction()
-                t.join(self.heartbeatInterval)
-        except:
-            interrupted = True
 
-        if not interrupted:
-            # don't call heartbeatFunction if it already raised an
-            # exception.
-            heartbeatFunction()
+            if t.isAlive():
+                is_timeout = True
+                logging.warn("Process still running after %s seconds. Terminating...",
+                             time.time() - t0)
+                os.killpg(proc.pid, signal.SIGTERM)
+                proc.wait()
+            
+            t.join()
 
-        if t.isAlive():
-            is_timeout = True
-            logging.warn("Process still running after %s seconds. Terminating...",
-                         time.time() - t0)
-            os.killpg(proc.pid, signal.SIGTERM)
-            proc.wait()
-        t.join()
-        return not is_timeout and proc.wait() == 0
+            return not is_timeout and proc.wait() == 0
+        finally:
+            proc.stop()
 
     def resetToCommit(self, revision):
         return self.git_repo.resetToCommit(revision)
@@ -297,6 +301,28 @@ class WorkerState(object):
         if message:
             result.recordLogMessage(message)
         return result
+
+    def dockerImageFor(self, commitId, testName):
+        self.git_repo.resetToCommit(commitId)
+        
+        defs = self.testDefinitionFor(commitId, testName)[0]
+
+        return self.getDockerImage(
+            commitId, 
+            defs.docker, 
+            self.directories.output_dir
+            )
+
+    def testDefinitionFor(self, commitId, testName):
+        json = simplejson.loads(self.source_control.getTestScriptDefinitionsForCommit(commitId))
+
+        testScriptDefinitions = [x for x in 
+            TestScriptDefinition.TestScriptDefinition.testSetFromJson(json)
+                if x.testName == testName
+            ]
+
+        return testScriptDefinitions
+
 
     def runTest(self, testId, commitId, testName, heartbeat):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
