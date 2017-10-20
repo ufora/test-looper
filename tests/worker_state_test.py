@@ -112,7 +112,7 @@ class WorkerStateTests(unittest.TestCase):
 
     def test_worker_basic(self):
         repo, commit, worker = self.get_worker("simple_project")
-
+        
         result = worker.runTest("testId", commit, "build", lambda *args: None)
 
         self.assertTrue(result.success)
@@ -137,17 +137,19 @@ class WorkerStateTests(unittest.TestCase):
     def test_worker_doesnt_leak_fds(self):
         repo, commit, worker = self.get_worker("simple_project")
 
+        fds = len(self.get_fds())
+
         result = worker.runTest("testId", commit, "build", lambda *args: None)
 
-        fds = len(self.get_fds())
-        for _ in xrange(10):
+        for _ in xrange(2):
             worker.runTest("testId2", commit, "good", lambda *args: None)
+        
         fds2 = len(self.get_fds())
         
         self.assertEqual(fds, fds2)
 
     def test_SR_doesnt_leak(self):
         fds = len(self.get_fds())
-        for _ in xrange(10):
+        for _ in xrange(2):
             SubprocessRunner.callAndReturnOutput("ps",shell=True)
         self.assertEqual(len(self.get_fds()), fds)

@@ -9,6 +9,7 @@ import sys
 import tarfile
 import threading
 import time
+import requests
 import traceback
 import virtualenv
 import psutil
@@ -35,8 +36,10 @@ class TestLooperDirectories:
                 self.build_cache_dir, self.ccache_dir, self.output_dir]
 
 class WorkerState(object):
-    def __init__(self, worker_directory, source_control, artifactStorage, machineInfo, timeout=900):
+    def __init__(self, worker_directory, source_control, artifactStorage, machineInfo, timeout=900, verbose=False):
         assert isinstance(worker_directory, str)
+
+        self.verbose = verbose
 
         self.timeout = timeout
 
@@ -67,9 +70,6 @@ class WorkerState(object):
     def initializeGitRepo(self):
         if not self.git_repo.isInitialized():
             self.git_repo.cloneFrom(self.source_control.cloneUrl())
-
-    def scopedDockerCleanup(self):
-        return Docker.DockerContainerCleanup()
 
     def cleanup(self):
         Docker.DockerImage.removeDanglingDockerImages()
@@ -116,78 +116,45 @@ class WorkerState(object):
                 docker_image.image if docker_image is not None else "<none>"
                 )
 
-            def onOut(msg):
-                print >> build_log, msg
-
-            def onErr(msg):
-                print >> build_log, msg
-            
             assert docker_image is not None
 
-            cmds = docker_image.subprocessCommandsToRun(
-                command, 
-                "/test_looper/src",
-                {self.directories.build_dir: "/test_looper/build",
-                 self.directories.repo_dir: "/test_looper/src",
-                 self.directories.output_dir: "/test_looper/output",
-                 self.directories.ccache_dir: "/test_looper/ccache"
-                 },
-                env
+            container, watcher = docker_image.runWithWatcher(
+                ["/bin/bash", "-c", command],
+                volumes={
+                    self.directories.build_dir: "/test_looper/build",
+                    self.directories.repo_dir: "/test_looper/src",
+                    self.directories.output_dir: "/test_looper/output",
+                    self.directories.ccache_dir: "/test_looper/ccache"
+                    },
+                environment=env,
+                working_dir="/test_looper/src"
                 )
-            
-            try:
-                subprocess = SubprocessRunner.SubprocessRunner(cmds, onOut, onErr, shell=False)
-
-                result = self.runSubprocess_(subprocess,
-                                            timeout,
-                                            heartbeat
-                                            )
-                if not result:
-                    logging.error("Command failed.")
-                return result
-            except:
-                logging.error("Failed running %s", " ".join(cmds))
-                raise
-
-
-    def runSubprocess_(self, proc, timeout, heartbeatFunction):
-        # subprocess doesn't have time wait...
-        def waiter():
-            proc.wait()
-        
-        proc.start()
-
-        try:
-            t = threading.Thread(target=waiter)
-            t.start()
 
             t0 = time.time()
-            interrupted = False
-            is_timeout = False
-            try:
-                while t.isAlive() and time.time() - t0 < timeout:
+            ret_code = None
+            while ret_code is None:
+                try:
+                    ret_code = container.wait(timeout=self.heartbeatInterval)
+                except requests.exceptions.ReadTimeout:
                     heartbeatFunction()
-                    t.join(self.heartbeatInterval)
-            except:
-                interrupted = True
+                    if time.time() - t0 > timeout:
+                        ret_code = 1
+                        container.stop()
 
-            if not interrupted:
-                # don't call heartbeatFunction if it already raised an
-                # exception.
-                heartbeatFunction()
+            print >> build_log, container.logs()
 
-            if t.isAlive():
-                is_timeout = True
-                logging.warn("Process still running after %s seconds. Terminating...",
-                             time.time() - t0)
-                os.killpg(proc.pid, signal.SIGTERM)
-                proc.wait()
-            
-            t.join()
+            for c in watcher.containers_booted:
+                c.remove(force=True)
 
-            return not is_timeout and proc.wait() == 0
-        finally:
-            proc.stop()
+            container.remove(force=True)
+
+            watcher.shutdown()
+
+        if self.verbose:
+            with open(log_filename, 'r') as f:
+                print f.read()
+
+        return ret_code == 0
 
     def resetToCommit(self, revision):
         return self.git_repo.resetToCommit(revision)
@@ -331,35 +298,34 @@ class WorkerState(object):
 
         self.cleanup()
 
-        with self.scopedDockerCleanup():
-            try:
-                json = simplejson.loads(self.source_control.getTestScriptDefinitionsForCommit(commitId))
+        try:
+            json = simplejson.loads(self.source_control.getTestScriptDefinitionsForCommit(commitId))
 
-                testScriptDefinitions = [x for x in 
-                    TestScriptDefinition.TestScriptDefinition.testSetFromJson(json)
-                        if x.testName == testName
-                    ]
-                if not testScriptDefinitions:
-                    return self.create_test_result(False, testId, commitId, "No test named " + testName)
-                if len(testScriptDefinitions) > 1:
-                    return self.create_test_result(False, testId, commitId, "Multiple tests named " + testName)
-                testScriptDefinition = testScriptDefinitions[0]
-                                
-                if testName == 'build':
-                    result = self._run_build_task(testId, commitId, testScriptDefinition, heartbeat)
-                else:
-                    result = self._run_test_task(testId, commitId, testScriptDefinition, heartbeat)
+            testScriptDefinitions = [x for x in 
+                TestScriptDefinition.TestScriptDefinition.testSetFromJson(json)
+                    if x.testName == testName
+                ]
+            if not testScriptDefinitions:
+                return self.create_test_result(False, testId, commitId, "No test named " + testName)
+            if len(testScriptDefinitions) > 1:
+                return self.create_test_result(False, testId, commitId, "Multiple tests named " + testName)
+            testScriptDefinition = testScriptDefinitions[0]
+                            
+            if testName == 'build':
+                result = self._run_build_task(testId, commitId, testScriptDefinition, heartbeat)
+            else:
+                result = self._run_test_task(testId, commitId, testScriptDefinition, heartbeat)
 
-            except TestLooperClient.ProtocolMismatchException:
-                raise
-            except:
-                error_message = "Test failed because of exception: %s" % traceback.format_exc()
-                logging.error(error_message)
-                result = self.create_test_result(False, testId, commitId, error_message)
+        except TestLooperClient.ProtocolMismatchException:
+            raise
+        except:
+            error_message = "Test failed because of exception: %s" % traceback.format_exc()
+            logging.error(error_message)
+            result = self.create_test_result(False, testId, commitId, error_message)
 
-            logging.info("Machine %s publishing test results: %s",
-                         self.machineInfo.machineId,
-                         result)
+        logging.info("Machine %s publishing test results: %s",
+                     self.machineInfo.machineId,
+                     result)
 
         return result
 
@@ -376,8 +342,7 @@ class WorkerState(object):
             test_definition.docker, 
             self.directories.output_dir
             )
-        print time.time() - t0, " to get image"
-
+        
         if (    not image or
                 not self._build(testId, commitId, build_command, heartbeat, image) or
                 not self._upload_build(commitId)

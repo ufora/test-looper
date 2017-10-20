@@ -3,7 +3,7 @@
     "dockerfile": "Dockerfile.txt"
     },
 "build": {
-    "command": "cp $REPO_DIR/*.py $BUILD_DIR"
+    "command": "pwd; ls -alh .; cp $REPO_DIR/*.py $BUILD_DIR"
     },
 "tests": [
     {"name": "good", "command": "./script.py 0"},
