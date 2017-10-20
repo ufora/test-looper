@@ -21,6 +21,7 @@ import test_looper.worker.TestLooperClient as TestLooperClient
 import test_looper.core.tools.Docker as Docker
 import test_looper.core.TestScriptDefinition as TestScriptDefinition
 import test_looper.core.TestResult as TestResult
+import test_looper
 
 class TestLooperDirectories:
     def __init__(self, worker_directory):
@@ -37,6 +38,8 @@ class TestLooperDirectories:
 
 class WorkerState(object):
     def __init__(self, worker_directory, source_control, artifactStorage, machineInfo, timeout=900, verbose=False):
+        import test_looper.worker.TestLooperWorker
+
         assert isinstance(worker_directory, str)
 
         self.verbose = verbose
@@ -136,7 +139,7 @@ class WorkerState(object):
                 try:
                     ret_code = container.wait(timeout=self.heartbeatInterval)
                 except requests.exceptions.ReadTimeout:
-                    heartbeatFunction()
+                    heartbeat()
                     if time.time() - t0 > timeout:
                         ret_code = 1
                         container.stop()
@@ -476,13 +479,17 @@ class WorkerState(object):
                 heartbeat,
                 docker_image=docker_image
                 )
-        except TestInterruptException:
+        except test_looper.worker.TestLooperWorker.TestInterruptException:
             logging.info("TestInterruptException in machine: %s. Heartbeat response: %s",
                          self.machineInfo.machineId,
                          self.heartbeatResponse)
             if self.stopEvent.is_set():
                 return
             success = self.heartbeatResponse == TestResult.TestResult.HEARTBEAT_RESPONSE_DONE
+        except:
+            import traceback
+            logging.error(traceback.format_exc())
+            return False
 
         return success
 

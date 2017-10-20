@@ -6,11 +6,22 @@ import httplib
 import tempfile
 import os
 import re
+import select
 
 class SocketWrapper:
     def __init__(self, sock):
         self.sock = sock
         self.buf = ""
+
+    @staticmethod
+    def is_upgrade(msg):
+        headers = msg.split("\n")
+        for h in headers:
+            if h == "":
+                return False
+            if h.strip().upper() == "Connection: Upgrade".upper():
+                return True
+        return False
 
     def readline(self):
         while True:
@@ -126,7 +137,7 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
 
     def handle(self):
         msg = SocketWrapper(self.request).read_http_request()
-        
+
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.connect("/var/run/docker.sock")
 
@@ -134,14 +145,30 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
 
         s = SocketWrapper(sock)
 
-        res = s.readHttpResponse()
-        self.request.sendall(res)
+        if SocketWrapper.is_upgrade(msg):
+            res = s.readHttpResponse()
+            self.request.sendall(res)
+            
+            while True:
+                readers,writers,closed = select.select([self.request, sock], [], [self.request, sock])
+
+                if self.request in readers:
+                    data = self.request.recv(1024)
+                    sock.sendall(data)
+                if sock in readers:
+                    data = sock.recv(1024)
+                    if not data:
+                        break
+                    self.request.sendall(data)
+        else:
+            res = s.readHttpResponse()
+            self.request.sendall(res)
 
         sock.close()
 
     def modify_msg(self, msg):
         lines = msg.split("\r\n")
-        
+
         result = re.match("POST /[^/]+/containers/([0-9a-f]+)/start.*", lines[0].strip())
         if result:
             containerID = result.group(1)
@@ -167,7 +194,7 @@ class DockerWatcher:
     @property
     def containers_booted(self):
         return [docker.from_env().containers.get(c) for c in self._containers_booted]
-    
+
     def shutdown(self):
         self.server.shutdown()
         self.server.server_close()

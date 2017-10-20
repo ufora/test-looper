@@ -12,6 +12,7 @@ import test_looper.core.ArtifactStorage as ArtifactStorage
 import test_looper.core.source_control.LocalGitRepo as LocalGitRepo
 import test_looper.core.cloud.MachineInfo as MachineInfo
 import test_looper.core.SubprocessRunner as SubprocessRunner
+import docker
 
 own_dir = os.path.split(__file__)[0]
 
@@ -153,3 +154,17 @@ class WorkerStateTests(unittest.TestCase):
         for _ in xrange(2):
             SubprocessRunner.callAndReturnOutput("ps",shell=True)
         self.assertEqual(len(self.get_fds()), fds)
+
+    def test_doesnt_leak_dockers(self):
+        container_count = len(docker.from_env().containers.list())
+
+        repo, commit, worker = self.get_worker("simple_project")
+
+        worker.verbose = True
+
+        worker.runTest("testId", commit, "build", lambda *args: None)
+
+        self.assertTrue(worker.runTest("testId2", commit, "docker", lambda *args: None).success)
+        
+        self.assertEqual(container_count, len(docker.from_env().containers.list()))
+        
