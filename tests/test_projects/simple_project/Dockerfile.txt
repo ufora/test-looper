@@ -5,6 +5,6 @@ RUN apt-get update
 RUN apt-get install -y python-pip
 RUN apt-get install -y python-nose
 RUN pip install numpy
-RUN pip install docker==2.0.0
+RUN pip install docker==2.5.0
 
 RUN echo "some text" > /some_file

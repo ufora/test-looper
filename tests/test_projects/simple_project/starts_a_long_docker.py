@@ -18,8 +18,6 @@ container = docker.from_env().containers.run(
 	name="test_sql_server"
 	)
 
-print "booted container ", container, container.status
-
 def query(query):
 	return container.exec_run(
 		["/opt/mssql-tools/bin/sqlcmd", 

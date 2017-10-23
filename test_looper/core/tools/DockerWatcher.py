@@ -7,6 +7,10 @@ import tempfile
 import os
 import re
 import select
+import traceback
+import logging
+import simplejson
+
 
 class SocketWrapper:
     def __init__(self, sock):
@@ -54,23 +58,27 @@ class SocketWrapper:
         while True:
             l = self.readline()
             if not l:
-                return None
+                return None, None
+            
             lines.append(l)
             if len(lines) > 1 and lines[-1] == "\r\n":
-                return "".join(lines)
+                return "".join(lines), ""
 
             if lines[-1].startswith("Content-Length: "):
                 length = int(lines[-1][len("Content-Length: "):])
+                lines.pop()
 
-                lines.append(self.readline())
-                if lines[-1] is None:
-                    return None
+                sep = self.readline()
+                if sep is None:
+                    return None, None
 
                 if length:
-                    lines.append(self.read(length))
-                    if lines[-1] is None:
-                        return None
-                return "".join(lines)
+                    data = self.read(length)
+                    assert len(data) == length
+
+                    return "".join(lines), data
+
+                return "".join(lines), ""
 
     def readChunkedTransferEncoding(self):
         lines = []
@@ -129,51 +137,89 @@ class SocketWrapper:
         return "".join(lines)                   
 
 class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
-    def __init__(self, containers_booted, *args):
-        self.containers_booted = containers_booted
+    def __init__(self, watcher, *args):
+        self.watcher = watcher
 
         SocketServer.BaseRequestHandler.__init__(self, *args)
 
-
     def handle(self):
-        msg = SocketWrapper(self.request).read_http_request()
+        try:
+            header, data = SocketWrapper(self.request).read_http_request()
 
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        sock.connect("/var/run/docker.sock")
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            sock.connect("/var/run/docker.sock")
 
-        sock.sendall(self.modify_msg(msg))
+            header, data = self.modify_msg(header, data)
 
-        s = SocketWrapper(sock)
+            out_msg = header + "Content-Length: %s\r\n\r\n" % len(data) + data
 
-        if SocketWrapper.is_upgrade(msg):
-            res = s.readHttpResponse()
-            self.request.sendall(res)
-            
-            while True:
-                readers,writers,closed = select.select([self.request, sock], [], [self.request, sock])
+            sock.sendall(out_msg)
 
-                if self.request in readers:
-                    data = self.request.recv(1024)
-                    sock.sendall(data)
-                if sock in readers:
-                    data = sock.recv(1024)
-                    if not data:
-                        break
-                    self.request.sendall(data)
-        else:
-            res = s.readHttpResponse()
-            self.request.sendall(res)
+            s = SocketWrapper(sock)
 
-        sock.close()
+            if SocketWrapper.is_upgrade(header):
+                res = s.readHttpResponse()
+                self.request.sendall(res)
+                
+                while True:
+                    readers,writers,closed = select.select([self.request, sock], [], [self.request, sock])
 
-    def modify_msg(self, msg):
-        lines = msg.split("\r\n")
+                    if self.request in readers:
+                        data = self.request.recv(1024)
+                        sock.sendall(data)
+                    if sock in readers:
+                        data = sock.recv(1024)
+                        if not data:
+                            break
+                        self.request.sendall(data)
+            else:
+                res = s.readHttpResponse()
+                self.request.sendall(res)
+        except:
+            logging.error("DockerWatcher failed in read loop:\n%s", traceback.format_exc())
+            print traceback.format_exc()
+        finally:
+            sock.close()
+
+    def modify_msg(self, header, data):
+        lines = header.split("\r\n")
 
         result = re.match("POST /[^/]+/containers/([0-9a-f]+)/start.*", lines[0].strip())
         if result:
             containerID = result.group(1)
-            self.containers_booted.append(containerID)
-        return msg
+            self.watcher._containers_booted.append(containerID)
+            return header, data
+
+        result = re.match("POST /([^/]+)/containers/create(|\?name=/?[a-zA-Z0-9_-]+) (.*)", lines[0].strip())
+        if result:
+            api = result.group(1)
+            name = result.group(2)
+            post = result.group(3)
+            if name != "":
+                name = name[6:]
+            else:
+                name = None
+
+            data_json = simplejson.loads(data)
+            if name is not None:
+                data_json["Name"] = name
+
+            self.watcher.processCreate(data_json)
+
+            if "Name" in data_json:
+                name = data_json["Name"]
+                del data_json["Name"]
+            else:
+                name = None
+
+            if name is not None:
+                lines[0] = "POST /{api}/containers/create?name={name} {post}".format(api=api,name=name,post=post)
+            else:
+                lines[0] = "POST /{api}/containers/create  {post}".format(api=api,post=post)
+
+            return "\r\n".join(lines), simplejson.dumps(data_json)
+
+        return header, data
 
 class Server(SocketServer.ThreadingMixIn, SocketServer.UnixStreamServer):
     pass
@@ -184,12 +230,29 @@ class DockerWatcher:
         self.socket_name = os.path.join(self.socket_dir, "docker.sock")
         self._containers_booted = []
 
-        self.server = Server(self.socket_name, lambda *args: DockerSocketRequestHandler(self._containers_booted, *args))
+        self.server = Server(self.socket_name, lambda *args: DockerSocketRequestHandler(self, *args))
         self.server.daemon_threads = True
 
         self.thread = threading.Thread(target=lambda: self.server.serve_forever(poll_interval=.1))
         self.thread.daemon=True
         self.thread.start()
+
+        self.target_network = None
+        self.name_prefix = None
+
+    def processCreate(self, createJson):
+        if self.name_prefix is not None:
+            if "Name" in createJson:
+                if createJson["Name"][:1] == "/":
+                    if self.name_prefix == "/":
+                        createJson["Name"] = self.name_prefix + "_" + createJson["Name"][:1]
+                    else:
+                        createJson["Name"] = "/" + self.name_prefix + createJson["Name"][:1]
+                else:
+                    createJson["Name"] = self.name_prefix + createJson["Name"]
+
+        if self.target_network is not None:
+            createJson["HostConfig"]["NetworkMode"] = self.target_network
 
     @property
     def containers_booted(self):
@@ -200,4 +263,21 @@ class DockerWatcher:
         self.server.server_close()
         self.thread.join()
 
+
+    def run(self, image, args, **kwargs):
+        kwargs = dict(kwargs)
+        if 'volumes' in kwargs:
+            volumes = kwargs['volumes']
+            del kwargs['volumes']
+        else:
+            volumes = {}
+
+        client = docker.from_env()
+        image = client.images.get(image.image)
+
+        volumes[self.socket_dir] = "/var/run"
+
+        container = client.containers.run(image, args, volumes=volumes, detach=True, **kwargs)
+
+        return container
 

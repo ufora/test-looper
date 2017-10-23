@@ -216,27 +216,6 @@ class DockerImage(object):
             shell=True
             )
 
-
-    def runWithWatcher(self, args, **kwargs):
-        kwargs = dict(kwargs)
-        if 'volumes' in kwargs:
-            volumes = kwargs['volumes']
-            del kwargs['volumes']
-        else:
-            volumes = {}
-
-        watcher = DockerWatcher.DockerWatcher()
-
-        client = docker.from_env()
-        image = client.images.get(self.image)
-
-        volumes[watcher.socket_dir] = "/var/run"
-
-        container = client.containers.run(image, args, volumes=volumes, detach=True, **kwargs)
-
-        return container, watcher
-
-
     def run(self,
             command='',
             name=None,

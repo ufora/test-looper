@@ -71,7 +71,7 @@ class WorkerStateTests(unittest.TestCase):
 
     def get_worker(self, repo_name):
         source_repo, c = self.get_repo(repo_name)
-        
+
         worker = WorkerState.WorkerState(
             os.path.join(self.testdir, "worker"),
             LocalGitRepo.LocalGitRepo(source_repo, "testDefinitions.json"),
@@ -160,11 +160,24 @@ class WorkerStateTests(unittest.TestCase):
 
         repo, commit, worker = self.get_worker("simple_project")
 
-        worker.verbose = True
-
         worker.runTest("testId", commit, "build", lambda *args: None)
 
-        self.assertTrue(worker.runTest("testId2", commit, "docker", lambda *args: None).success)
+        self.assertTrue(
+            worker.runTest("testId2", commit, "docker", lambda *args: None).success,
+            worker.get_failure_log("testId2")
+            )
         
         self.assertEqual(container_count, len(docker.from_env().containers.list()))
         
+    def test_subdocker_retains_network(self):
+        container_count = len(docker.from_env().containers.list())
+
+        repo, commit, worker = self.get_worker("simple_project")
+
+        self.assertTrue(worker.runTest("testId", commit, "build", lambda *args: None).success)
+
+        
+        self.assertTrue(
+            worker.runTest("testId2", commit, "docker", lambda *args: None).success,
+            worker.get_failure_log("testId2")
+            )

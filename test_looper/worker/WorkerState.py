@@ -13,12 +13,14 @@ import requests
 import traceback
 import virtualenv
 import psutil
+import tempfile
 
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.tools.Git as Git
 import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.worker.TestLooperClient as TestLooperClient
 import test_looper.core.tools.Docker as Docker
+import test_looper.core.tools.DockerWatcher as DockerWatcher
 import test_looper.core.TestScriptDefinition as TestScriptDefinition
 import test_looper.core.TestResult as TestResult
 import test_looper
@@ -65,6 +67,28 @@ class WorkerState(object):
         self.initializeGitRepo()
 
         self.cleanup()
+
+    def untarString(self, contents):
+        tempdir = tempfile.mkdtemp()
+
+        with open(os.path.join(tempdir, "out.log.gz"), "wb") as f:
+            f.write(contents)
+
+        args = "gunzip %s" % f.name
+
+        res,out = SubprocessRunner.callAndReturnResultAndMergedOutput(args,shell=True)
+        if res != 0:
+            assert False
+
+        for f in os.listdir(tempdir):
+            with open(os.path.join(tempdir,f),"r") as textfile:
+                return textfile.read()
+
+    def get_failure_log(self, testId):
+        keys = self.artifactStorage.testResultKeysFor(testId)
+        for k in keys:
+            res = self.artifactStorage.testContents(testId, k)
+            return self.untarString(res)
 
     @staticmethod
     def directoryScope(directoryScope):
@@ -121,7 +145,10 @@ class WorkerState(object):
 
             assert docker_image is not None
 
-            container, watcher = docker_image.runWithWatcher(
+            watcher = DockerWatcher.DockerWatcher()
+
+            container = watcher.run(
+                docker_image,
                 ["/bin/bash", "-c", command],
                 volumes={
                     self.directories.build_dir: "/test_looper/build",
@@ -338,8 +365,6 @@ class WorkerState(object):
         if self.artifactStorage.build_exists(commitId):
             return self.create_test_result(True, testId, commitId)
 
-        import time
-        t0 = time.time()
         image = self.getDockerImage(
             commitId, 
             test_definition.docker, 
