@@ -36,7 +36,7 @@ class DockerTests(unittest.TestCase):
             
             container.wait()
 
-            self.assertEqual(len(watcher.containers_booted), 2)
+            self.assertEqual(len(watcher.containers_booted), 2, container.logs())
 
             self.assertEqual(
                 sorted([c.status for c in watcher.containers_booted]), 
@@ -92,6 +92,62 @@ class DockerTests(unittest.TestCase):
                     [0,0,0,0], 
                     str(results) + " != [0,0,0,0]\n\n" + 
                     "\n".join(["*******\n" + x for x in [l.logs(stdout=True,stderr=True) for l in [listener1, listener2, sender1, sender2]]])
+                    )
+
+        containers2 = docker_client.containers.list(all=True)
+
+        self.assertEqual(len(containers), len(containers2))
+        
+    def test_internally_booted_subdocker_network_isolation(self):
+        image = Docker.DockerImage.from_dockerfile_as_string(None, dockerfile, create_missing=True)
+        
+        containers = docker_client.containers.list(all=True)
+
+        with DockerWatcher.DockerWatcher("namespace_1") as watcher1:
+            with DockerWatcher.DockerWatcher("namespace_2") as watcher2:
+                listener1 = watcher1.run(
+                    image, 
+                    ["python", "/test_dir/test_projects/simple_project/socket_listener_in_new_container.py", image.image, "child", "8000", "listener1"],
+                    volumes={test_dir:"/test_dir"},
+                    name="listener"
+                    )
+                listener2 = watcher2.run(
+                    image, 
+                    ["python", "/test_dir/test_projects/simple_project/socket_listener_in_new_container.py", image.image, "child", "8000", "listener2"],
+                    volumes={test_dir:"/test_dir"}, 
+                    name="listener"
+                    )
+
+                time.sleep(2.0)
+                
+                sender1 = watcher1.run(
+                    image, 
+                    ["python", "/test_dir/test_projects/simple_project/socket_sender.py", "child", "8000", "listener1"],
+                    volumes={test_dir:"/test_dir"},
+                    name="sender"
+                    )
+                sender2 = watcher2.run(
+                    image, 
+                    ["python", "/test_dir/test_projects/simple_project/socket_sender.py", "child", "8000", "listener2"],
+                    volumes={test_dir:"/test_dir"},
+                    name="sender"
+                    )
+
+                results = [
+                    listener1.wait(),
+                    listener2.wait(),
+                    sender1.wait(),
+                    sender2.wait()
+                    ]
+
+                self.assertEqual(
+                    results, 
+                    [0,0,0,0], 
+                    str(results) + " != [0,0,0,0]\n\n" + 
+                    "\n".join(["*******\n" + x for x in [l.logs(stdout=True,stderr=True) for l in [
+                        listener1, listener2, 
+                        sender1, sender2
+                        ]]])
                     )
 
         containers2 = docker_client.containers.list(all=True)

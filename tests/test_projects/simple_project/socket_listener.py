@@ -17,6 +17,9 @@ This is test code, so we exit(1) if we exceed 10 seconds without getting a messa
 
 def killer():
     time.sleep(10)
+    print "Didn't get a message in 10 seconds. Exiting."
+    sys.stdout.flush()
+    sys.stderr.flush()
     os._exit(1)
 
 t = threading.Thread(target=killer)
