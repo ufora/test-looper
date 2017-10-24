@@ -14,6 +14,10 @@ import test_looper.core.cloud.MachineInfo as MachineInfo
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import docker
 
+docker_client = docker.from_env()
+docker_client.containers.list()
+
+
 own_dir = os.path.split(__file__)[0]
 
 def configureLogging(verbose=False):
@@ -138,11 +142,16 @@ class WorkerStateTests(unittest.TestCase):
     def test_worker_doesnt_leak_fds(self):
         repo, commit, worker = self.get_worker("simple_project")
 
-        fds = len(self.get_fds())
-
         result = worker.runTest("testId", commit, "build", lambda *args: None)
 
-        for _ in xrange(2):
+        #need to use the connection pools because they can leave some sockets open
+        for _ in xrange(3):
+            worker.runTest("testId2", commit, "good", lambda *args: None)
+
+        fds = len(self.get_fds())
+
+        #but want to verify we're not actually leaking FDs once we're in a steadystate
+        for _ in xrange(3):
             worker.runTest("testId2", commit, "good", lambda *args: None)
         
         fds2 = len(self.get_fds())
@@ -156,7 +165,7 @@ class WorkerStateTests(unittest.TestCase):
         self.assertEqual(len(self.get_fds()), fds)
 
     def test_doesnt_leak_dockers(self):
-        container_count = len(docker.from_env().containers.list())
+        container_count = len(docker_client.containers.list())
 
         repo, commit, worker = self.get_worker("simple_project")
 
@@ -167,10 +176,10 @@ class WorkerStateTests(unittest.TestCase):
             worker.get_failure_log("testId2")
             )
         
-        self.assertEqual(container_count, len(docker.from_env().containers.list()))
+        self.assertEqual(container_count, len(docker_client.containers.list()))
         
     def test_subdocker_retains_network(self):
-        container_count = len(docker.from_env().containers.list())
+        container_count = len(docker_client.containers.list())
 
         repo, commit, worker = self.get_worker("simple_project")
 

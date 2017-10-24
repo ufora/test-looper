@@ -145,40 +145,32 @@ class WorkerState(object):
 
             assert docker_image is not None
 
-            watcher = DockerWatcher.DockerWatcher()
+            with DockerWatcher.DockerWatcher() as watcher:
+                container = watcher.run(
+                    docker_image,
+                    ["/bin/bash", "-c", command],
+                    volumes={
+                        self.directories.build_dir: "/test_looper/build",
+                        self.directories.repo_dir: "/test_looper/src",
+                        self.directories.output_dir: "/test_looper/output",
+                        self.directories.ccache_dir: "/test_looper/ccache"
+                        },
+                    environment=env,
+                    working_dir="/test_looper/src"
+                    )
 
-            container = watcher.run(
-                docker_image,
-                ["/bin/bash", "-c", command],
-                volumes={
-                    self.directories.build_dir: "/test_looper/build",
-                    self.directories.repo_dir: "/test_looper/src",
-                    self.directories.output_dir: "/test_looper/output",
-                    self.directories.ccache_dir: "/test_looper/ccache"
-                    },
-                environment=env,
-                working_dir="/test_looper/src"
-                )
+                t0 = time.time()
+                ret_code = None
+                while ret_code is None:
+                    try:
+                        ret_code = container.wait(timeout=self.heartbeatInterval)
+                    except requests.exceptions.ReadTimeout:
+                        heartbeat()
+                        if time.time() - t0 > timeout:
+                            ret_code = 1
+                            container.stop()
 
-            t0 = time.time()
-            ret_code = None
-            while ret_code is None:
-                try:
-                    ret_code = container.wait(timeout=self.heartbeatInterval)
-                except requests.exceptions.ReadTimeout:
-                    heartbeat()
-                    if time.time() - t0 > timeout:
-                        ret_code = 1
-                        container.stop()
-
-            print >> build_log, container.logs()
-
-            for c in watcher.containers_booted:
-                c.remove(force=True)
-
-            container.remove(force=True)
-
-            watcher.shutdown()
+                print >> build_log, container.logs()
 
         if self.verbose:
             with open(log_filename, 'r') as f:

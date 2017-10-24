@@ -105,7 +105,12 @@ class OutOfProcessDownloader:
                     logging.info("OutOfProcessDownloader Err> %s", msg)
 
             self.childSubprocess = SubprocessRunner.SubprocessRunner(
-                [sys.executable, __file__, str(self.childWriteFD), str(self.childReadFD)],
+                [sys.executable, 
+                    __file__, 
+                    str(self.childWriteFD), 
+                    str(self.childReadFD),
+                    pickle.dumps(sys.path)
+                    ],
                 onStdout,
                 onStderr
                 )
@@ -325,6 +330,7 @@ class OutOfProcessDownloadProxy:
 
 
 def main(argv):
+    sys.path = pickle.loads(argv[3])
     runner = OutOfProcessDownloader(True, (int(argv[1]), int(argv[2])))
     runner.executeChild_()
 

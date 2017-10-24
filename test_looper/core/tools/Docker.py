@@ -8,17 +8,18 @@ import docker
 import tempfile
 import test_looper.core.tools.DockerWatcher as DockerWatcher
 
+docker_client = docker.from_env()
+docker_client.containers.list()
+
+
 class DockerContainerCleanup(object):
     def __init__(self):
         self.running_containers = []
 
     def __enter__(self, *args):
-        docker_client = docker.from_env()
-
         self.running_container_ids = set([c.id for c in docker_client.containers.list()])
 
     def __exit__(self, *args):
-        docker_client = docker.from_env()
         all_containers = docker_client.containers.list()
 
         logging.info("Checking docker containers. We started with %s containers, and have %s now",
@@ -122,9 +123,8 @@ class DockerImage(object):
 
     @staticmethod
     def removeDanglingDockerImages():
-        client = docker.from_env()
-        for c in client.images.list(filters={'dangling':True,'label':'test_looper_worker'}):
-            client.images.remove(c)
+        for c in docker_client.images.list(filters={'dangling':True,'label':'test_looper_worker'}):
+            docker_client.images.remove(c)
 
     @classmethod
     def from_dockerfile_as_string(cls, docker_repo, dockerfile_as_string, create_missing=False):

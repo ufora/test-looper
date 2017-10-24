@@ -10,6 +10,10 @@ import select
 import traceback
 import logging
 import simplejson
+import uuid
+
+docker_client = docker.from_env()
+docker_client.containers.list()
 
 
 class SocketWrapper:
@@ -215,7 +219,7 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
             if name is not None:
                 lines[0] = "POST /{api}/containers/create?name={name} {post}".format(api=api,name=name,post=post)
             else:
-                lines[0] = "POST /{api}/containers/create  {post}".format(api=api,post=post)
+                lines[0] = "POST /{api}/containers/create {post}".format(api=api,post=post)
 
             return "\r\n".join(lines), simplejson.dumps(data_json)
 
@@ -225,7 +229,7 @@ class Server(SocketServer.ThreadingMixIn, SocketServer.UnixStreamServer):
     pass
 
 class DockerWatcher:
-    def __init__(self):
+    def __init__(self, name_prefix="test_looper"):
         self.socket_dir = tempfile.mkdtemp()
         self.socket_name = os.path.join(self.socket_dir, "docker.sock")
         self._containers_booted = []
@@ -237,32 +241,52 @@ class DockerWatcher:
         self.thread.daemon=True
         self.thread.start()
 
-        self.target_network = None
-        self.name_prefix = None
+        self.target_network = docker_client.networks.create(
+            name_prefix + "_" + str(uuid.uuid4()), 
+            driver="bridge"
+            )
+
+        self.name_prefix = name_prefix
+
+    def __enter__(self, *args):
+        return self
+
+    def __exit__(self, *args):
+        self.shutdown()
 
     def processCreate(self, createJson):
         if self.name_prefix is not None:
             if "Name" in createJson:
-                if createJson["Name"][:1] == "/":
-                    if self.name_prefix == "/":
-                        createJson["Name"] = self.name_prefix + "_" + createJson["Name"][:1]
-                    else:
-                        createJson["Name"] = "/" + self.name_prefix + createJson["Name"][:1]
-                else:
-                    createJson["Name"] = self.name_prefix + createJson["Name"]
+                createJson["Name"] = self.mangleName_(createJson["Name"])
 
-        if self.target_network is not None:
-            createJson["HostConfig"]["NetworkMode"] = self.target_network
+        createJson["HostConfig"]["NetworkMode"] = self.target_network.id
+
+
+    def mangleName_(self, name):
+        if self.name_prefix is None:
+            return name
+
+        if name[:1] == "/":
+            if self.name_prefix[1:] == "/":
+                return self.name_prefix + "_" + name[1:]
+            else:
+                return "/" + self.name_prefix + name[1:]
+        else:
+            return self.name_prefix + name
 
     @property
     def containers_booted(self):
-        return [docker.from_env().containers.get(c) for c in self._containers_booted]
+        return [docker_client.containers.get(c) for c in self._containers_booted]
 
     def shutdown(self):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join()
 
+        for c in self.containers_booted:
+            c.remove(force=True)
+
+        self.target_network.remove()
 
     def run(self, image, args, **kwargs):
         kwargs = dict(kwargs)
@@ -272,12 +296,23 @@ class DockerWatcher:
         else:
             volumes = {}
 
-        client = docker.from_env()
-        image = client.images.get(image.image)
+        if 'name' in kwargs:
+            unmangled_name = kwargs['name']
+            kwargs['name'] = self.mangleName_(kwargs['name'])
+        else:
+            unmangled_name = None
+
+        image = docker_client.images.get(image.image)
 
         volumes[self.socket_dir] = "/var/run"
 
-        container = client.containers.run(image, args, volumes=volumes, detach=True, **kwargs)
+        container = docker_client.containers.create(image, args, volumes=volumes, **kwargs)
+
+        self.target_network.connect(container, aliases=[unmangled_name] if unmangled_name else [])
+
+        container.start()
+
+        self._containers_booted.append(container.id)
 
         return container
 
