@@ -24,7 +24,7 @@ def configureLogging(verbose=False):
     if logging.getLogger().handlers:
         logging.getLogger().handlers = []
 
-    loglevel = logging.DEBUG if verbose else logging.INFO
+    loglevel = logging.INFO if verbose else logging.ERROR
     logging.getLogger().setLevel(loglevel)
 
     handler = logging.StreamHandler(stream=sys.stderr)
@@ -36,6 +36,8 @@ def configureLogging(verbose=False):
             )
         )
     logging.getLogger().addHandler(handler)
+
+configureLogging()
 
 def mirror_into(src_dir, dest_dir):
     for p in os.listdir(src_dir):
@@ -63,7 +65,7 @@ class WorkerStateTests(unittest.TestCase):
         #create a new git repo
         source_repo = Git.Git(os.path.join(self.testdir, "source_repo"))
         source_repo.init()
-
+        
         mirror_into(
             os.path.join(own_dir,"test_projects", repo_name), 
             source_repo.path_to_repo
@@ -138,6 +140,20 @@ class WorkerStateTests(unittest.TestCase):
         data = worker.artifactStorage.testContents("testId3", keys[0])
 
         self.assertTrue(len(data) > 0)
+
+    def test_worker_cant_run_tests_without_build(self):
+        repo, commit, worker = self.get_worker("simple_project")
+        
+        result = worker.runTest("testId", commit, "good", lambda *args: None)
+
+        self.assertFalse(result.success)
+
+    def test_worker_build_artifacts_go_to_correct_place(self):
+        repo, commit, worker = self.get_worker("simple_project")
+        
+        result = worker.runTest("testId", commit, "check_build_output", lambda *args: None)
+
+        self.assertFalse(result.success)
 
     def test_worker_doesnt_leak_fds(self):
         repo, commit, worker = self.get_worker("simple_project")

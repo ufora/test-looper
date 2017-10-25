@@ -28,14 +28,15 @@ import test_looper
 class TestLooperDirectories:
     def __init__(self, worker_directory):
         self.repo_dir = os.path.join(worker_directory, "repo")
+        self.repo_copy_dir = os.path.join(worker_directory, "repo_copy")
         self.build_dir = os.path.join(worker_directory, "build")
         self.output_dir = os.path.join(worker_directory, "output")
         self.test_data_dir = os.path.join(worker_directory, "test_data")
         self.build_cache_dir = os.path.join(worker_directory, "build_cache")
         self.ccache_dir = os.path.join(worker_directory, "ccache")
 
-    def to_expose(self):
-        return [self.repo_dir, self.build_dir, self.test_data_dir, 
+    def all(self):
+        return [self.repo_dir, self.repo_copy_dir, self.build_dir, self.test_data_dir, 
                 self.build_cache_dir, self.ccache_dir, self.output_dir]
 
 class WorkerState(object):
@@ -52,7 +53,7 @@ class WorkerState(object):
 
         self.machineInfo = machineInfo
 
-        for path in self.directories.to_expose():
+        for path in self.directories.all():
             self.ensureDirectoryExists(path)
 
         self.max_build_cache_depth = 10
@@ -103,7 +104,8 @@ class WorkerState(object):
         self.clearDirectoryAsDocker(
             self.directories.test_data_dir, 
             self.directories.output_dir, 
-            self.directories.build_dir
+            self.directories.build_dir, 
+            self.directories.repo_copy_dir
             )
         
     @staticmethod
@@ -128,7 +130,7 @@ class WorkerState(object):
                 print >> build_log, "DockerImage is ", docker_image.image
             build_log.flush()
 
-            print >> build_log, "Working Directory: ", os.getcwd()
+            print >> build_log, "Working Directory: /test_looper/src"
             build_log.flush()
 
             print >> build_log, "TestLooper Running command ", command
@@ -151,7 +153,7 @@ class WorkerState(object):
                     ["/bin/bash", "-c", command],
                     volumes={
                         self.directories.build_dir: "/test_looper/build",
-                        self.directories.repo_dir: "/test_looper/src",
+                        self.directories.repo_copy_dir: "/test_looper/src",
                         self.directories.output_dir: "/test_looper/output",
                         self.directories.ccache_dir: "/test_looper/ccache"
                         },
@@ -179,7 +181,19 @@ class WorkerState(object):
         return ret_code == 0
 
     def resetToCommit(self, revision):
-        return self.git_repo.resetToCommit(revision)
+        if not self.git_repo.resetToCommit(revision):
+            return False
+
+        #make a copy of the git_repo in the working directory, minus the .git directory
+        for p in os.listdir(self.directories.repo_dir):
+            if p != ".git":
+                if SubprocessRunner.callAndReturnResultWithoutOutput(
+                        ["cp", "-r", os.path.join(self.directories.repo_dir, p), self.directories.repo_copy_dir]
+                        ) != 0:
+                    logging.error("Failed to copy %s into the repo_copy_dir", p)
+                    return False
+
+        return True
 
     @staticmethod
     def ensureDirectoryExists(path):
@@ -315,10 +329,10 @@ class WorkerState(object):
 
     def runTest(self, testId, commitId, testName, heartbeat):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
-        if not self.git_repo.resetToCommit(commitId):
-            return self.create_test_result(False, testId, commitId, "Failed to checkout commit")
-
         self.cleanup()
+
+        if not self.resetToCommit(commitId):
+            return self.create_test_result(False, testId, commitId, "Failed to checkout code")
 
         try:
             json = simplejson.loads(self.source_control.getTestScriptDefinitionsForCommit(commitId))
@@ -396,9 +410,13 @@ class WorkerState(object):
 
 
     def _run_test_task(self, testId, commitId, test_definition, heartbeat):
+        if not self.artifactStorage.build_exists(commitId):
+            return self.create_test_result(False, testId, commitId, "can't run tests because the build doesn't exist")
+
         command = test_definition.testCommand
         
         path = self._download_build(commitId)
+
         self.extract_package(path, self.directories.build_dir)
 
         image = self.getDockerImage(commitId, test_definition.docker, self.directories.output_dir)
@@ -476,9 +494,7 @@ class WorkerState(object):
             'BUILD_DIR': "/test_looper/build",
             'OUTPUT_DIR': "/test_looper/output",
             'CCACHE_DIR': "/test_looper/ccache",
-            'TEST_LOOPER_TEST_ID': testId,
-            'TEST_LOOPER_MULTIBOX_OWN_IP': self.machineInfo.internalIpAddress,
-            'AWS_AVAILABILITY_ZONE' : self.machineInfo.availabilityZone
+            'TEST_LOOPER_TEST_ID': testId
             }
 
     def runTestUsingScript(self, script, env_overrides, heartbeat, docker_image):

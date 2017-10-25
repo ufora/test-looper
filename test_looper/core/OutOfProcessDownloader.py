@@ -1,10 +1,14 @@
+import sys
+import cPickle as pickle
+
+if __name__ == '__main__':
+    sys.path = pickle.loads(sys.argv[3])
+
 import logging
 import traceback
 import time
 import threading
-import sys
 import os
-import cPickle as pickle
 import Queue as Queue
 
 import test_looper.core.ManagedThread as ManagedThread
@@ -330,7 +334,6 @@ class OutOfProcessDownloadProxy:
 
 
 def main(argv):
-    sys.path = pickle.loads(argv[3])
     runner = OutOfProcessDownloader(True, (int(argv[1]), int(argv[2])))
     runner.executeChild_()
 

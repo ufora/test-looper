@@ -171,8 +171,6 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
                 if self.request in readers:
                     data = self.request.recv(64)
                     
-                    #print id(sock), ">>  ", repr(data)
-
                     requestBuf.write(data)
 
                     shouldBail = len(data) == 0
@@ -188,9 +186,6 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
                             else:
                                 out_msg = header + "\r\n\r\n"
 
-
-                            #print "container->host", "%10.4f" % (time.time() % 100 + 1000), repr(out_msg)
-
                             sock.sendall(out_msg)
 
                             response_handlers.append(on_response_message)
@@ -199,18 +194,15 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
                                 sock.sendall(requestBuf.buf)
                                 self.request.sendall(responseBuf.buf)
 
-                                return self.bidirectional()
+                                return self.bidirectional(sock)
                         else:
                             break
 
                     if shouldBail:
-                        #print "done with ", id(sock)
                         return
 
                 if sock in readers:
                     data = sock.recv(64)
-
-                    #print id(sock), "  <<", repr(data)
 
                     responseBuf.write(data)
 
@@ -218,8 +210,6 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
                         response = responseBuf.popHttpResponse()
 
                         if response:
-                            #print "host->container", "%10.4f" % (time.time() % 100 + 1000), repr(response)
-
                             on_message = response_handlers.pop(0)
                             on_message(response)
 
@@ -229,7 +219,6 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
                             break
 
                     if not data:
-                        #print "done with ", id(sock)
                         return
                     
         except:
@@ -309,10 +298,7 @@ class DockerSocket:
         self.thread.start()
 
     def shutdown(self):
-        #print "shutting down server", "%10.4f" % (time.time() % 100 + 1000)
-
         self.stop[0] = True
-
 
         self.server.shutdown()
         self.server.server_close()

@@ -84,6 +84,7 @@ class Git(object):
                 logging.error(msg)
                 raise Exception(msg)
 
+
     def cloneFrom(self, sourceRepo):
         if not os.path.exists(self.path_to_repo):
             os.makedirs(self.path_to_repo)

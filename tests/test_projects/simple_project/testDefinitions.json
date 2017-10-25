@@ -3,11 +3,12 @@
     "dockerfile": "Dockerfile.txt"
     },
 "build": {
-    "command": "pwd; ls -alh .; cp $REPO_DIR/*.py $BUILD_DIR"
+    "command": "touch $BUILD_DIR/build_file"
     },
 "tests": [
     {"name": "good", "command": "./script.py 0"},
     {"name": "bad", "command": "./script.py 1"},
-    {"name": "docker", "command": "./starts_a_long_docker.py"}
+    {"name": "docker", "command": "./starts_a_long_docker.py"},
+    {"name": "check_build_output", "command": "echo $BUILD_DIR/build_file"}
     ]
 }
