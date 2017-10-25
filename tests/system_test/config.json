@@ -3,16 +3,18 @@
         "port": 1234,
         "http_port": 8081,
         "address": "localhost",
-        "redis_prefix": "nativepython_48_",
+        "web_address": "http://localhost:8081",
+        "redis_prefix": "",
+        "redis_port": 1111,
         "enable_advanced_views": true
         },
     "artifacts": {
         "type": "local_disk",
-        "test_artifacts_storage_path": "/home/braxton/code/test-looper-install/test_artifacts",
-        "build_storage_path": "/home/braxton/code/test-looper-install/build_storage"
+        "test_artifacts_storage_path": "$TEST_LOOPER_INSTALL/test_artifacts",
+        "build_storage_path": "$TEST_LOOPER_INSTALL/build_storage"
         },
     "worker": {
-        "path": "/home/braxton/code/test-looper-install/worker",
+        "path": "$TEST_LOOPER_INSTALL/worker",
         "test_artifacts": "artifacts.tar.gz",
         "test_timeout": 900,
         "core_dump_dir": "cores",
@@ -20,8 +22,7 @@
         },
     "source_control": {
         "type": "local_git",
-        "path_to_repo": "/home/braxton/code/nativepython",
+        "path_to_repo": "$TEST_LOOPER_INSTALL/repo",
         "test_definitions_path": "testDefinitions.json"
-        },
-    "test_definitions_default": null
+        }
 }

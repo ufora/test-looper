@@ -19,8 +19,10 @@ class LocalGitRepo(object):
             self.path_to_repo = path_or_repo.path_to_repo
             self.source_repo = path_or_repo
         else:
-            self.path_to_repo = path_or_repo
-            self.source_repo = Git(path_or_repo)
+            assert isinstance(path_or_repo, (str,unicode))
+
+            self.path_to_repo = str(path_or_repo)
+            self.source_repo = Git(self.path_to_repo)
 
         self.test_definitions_path = test_definitions_path
 
@@ -51,5 +53,4 @@ class LocalGitRepo(object):
         return None
 
     def cloneUrl(self):
-        assert isinstance(self.path_to_repo, str), type(self.path_to_repo)
         return self.path_to_repo

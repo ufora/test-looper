@@ -143,7 +143,7 @@ class Session(object):
 
                     self.writeString(
                         json.dumps({
-                            "commitId": commit,
+                            "commitId": commit.commitId,
                             'testId': testResult.testId,
                             'testName': testName
                             })

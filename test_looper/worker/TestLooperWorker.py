@@ -104,7 +104,7 @@ class TestLooperWorker(object):
                      commit_and_test
                      )
 
-        self.run_test(
+        self.run_task(
             commit_and_test["commitId"], 
             commit_and_test["testId"],
             commit_and_test["testName"]

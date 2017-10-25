@@ -100,8 +100,8 @@ class AwsArtifactStorage(object):
 
 class LocalArtifactStorage(object):
     def __init__(self, config):
-        self.build_storage_path = config["build_storage_path"]
-        self.test_artifacts_storage_path = config["test_artifacts_storage_path"]
+        self.build_storage_path = os.path.expandvars(config["build_storage_path"])
+        self.test_artifacts_storage_path = os.path.expandvars(config["test_artifacts_storage_path"])
 
     def testContents(self, testId, key):  
         with open(os.path.join(self.test_artifacts_storage_path, testId, key), "r") as f:

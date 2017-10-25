@@ -5,6 +5,7 @@ import boto
 import pprint
 import boto.s3.key
 import boto.utils
+import sys
 import json
 import multiprocessing
 import logging
@@ -16,6 +17,7 @@ import time
 import os
 
 import test_looper.core.cloud.FromConfig
+import test_looper.core.cloud.MachineInfo as MachineInfo
 import test_looper.worker.TestLooperClient as TestLooperClient
 import test_looper.worker.TestLooperWorker as TestLooperWorker
 import test_looper.worker.WorkerState as WorkerState
@@ -51,9 +53,15 @@ def createTestWorker(config, machineInfo):
     artifactStorage = ArtifactStorage.storageFromConfig(config['artifacts'])
 
     osInteractions = WorkerState.WorkerState(
-        config['worker']['path'], 
+        os.path.expandvars(config['worker']['path']), 
         source_control=SourceControlFromConfig.getFromConfig(config["source_control"]),
-        artifactStorage=artifactStorage
+        artifactStorage=artifactStorage,
+        machineInfo=MachineInfo.MachineInfo("localhost",
+                                          "localhost",
+                                          1,
+                                          "none",
+                                          "bare metal"
+                                          )
         )
     
     def createTestLooperClient():

@@ -80,7 +80,7 @@ def main():
 
     testManager = TestManager.TestManager(
         src_ctrl,
-        TestDatabase(RedisJsonStore(), config['server']['redis_prefix']),
+        TestDatabase(RedisJsonStore(port=config['server'].get('redis_port')), config['server']['redis_prefix']),
         TestLooperServer.LockWithTimer(),
         TestManager.TestManagerSettings(
             baseline_branch=config['server'].get('baseline_branch', 'master'),
@@ -100,7 +100,7 @@ def main():
         cloud_connection,
         ArtifactStorage.storageFromConfig(config['artifacts']),
         src_ctrl,
-        event_log=TestLooperHttpServerEventLog(RedisJsonStore()),
+        event_log=TestLooperHttpServerEventLog(RedisJsonStore(port=config['server'].get('redis_port'))),
         auth_level=parsedArgs.auth,
         httpPort=http_port,
         enable_advanced_views=config['server'].get('enable_advanced_views', False)

@@ -307,7 +307,7 @@ class DockerSocket:
 
 
 class DockerWatcher:
-    def __init__(self, name_prefix="test_looper"):
+    def __init__(self, name_prefix="test_looper_"):
         self._containers_booted = []
 
         self.serverthreads = []

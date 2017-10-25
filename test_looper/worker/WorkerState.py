@@ -43,7 +43,8 @@ class WorkerState(object):
     def __init__(self, worker_directory, source_control, artifactStorage, machineInfo, timeout=900, verbose=False):
         import test_looper.worker.TestLooperWorker
 
-        assert isinstance(worker_directory, str)
+        assert isinstance(worker_directory, (str,unicode)), worker_directory
+        worker_directory = str(worker_directory)
 
         self.verbose = verbose
 
@@ -173,6 +174,9 @@ class WorkerState(object):
                             container.stop()
 
                 print >> build_log, container.logs()
+                print >> build_log
+                print >> build_log, "Process exited with code ", ret_code
+                
 
         if self.verbose:
             with open(log_filename, 'r') as f:

@@ -59,7 +59,7 @@ def configureBitbucket(src_ctrl_config):
 
 def configureGit(config):
     return LocalGitRepo.LocalGitRepo(
-        path_to_repo=config.get('path_to_repo'),
+        path_or_repo=os.path.expandvars(config.get('path_to_repo')),
         test_definitions_path=config.get('test_definitions_path')
         )
 
