@@ -15,7 +15,6 @@
         },
     "worker": {
         "path": "$TEST_LOOPER_INSTALL/worker",
-        "test_artifacts": "artifacts.tar.gz",
         "test_timeout": 900,
         "core_dump_dir": "cores",
         "repo_name": "nativepython"

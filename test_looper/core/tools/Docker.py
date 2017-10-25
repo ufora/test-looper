@@ -249,15 +249,17 @@ class DockerImage(object):
         if isinstance(volumes, collections.Mapping):
             volumes = ' '.join('--volume %s:%s' % (k, volumes[k]) for k in volumes)
 
-        return SubprocessRunner.callAndReturnResultWithoutOutput(
-            "{docker} run {options} {name} {volumes} {env} {image} {command}".format(
+        cmd = "{docker} run {options} {name} {volumes} {env} {image} {command}".format(
                 docker=self.binary,
                 options=options or '',
                 name=name,
                 volumes=volumes or '',
                 env=env or '',
                 image=self.image,
-                command=command),
+                command=command)
+
+        return SubprocessRunner.callAndReturnResultWithoutOutput(
+            cmd,
             shell=True
             )
 

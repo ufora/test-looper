@@ -24,6 +24,7 @@ class Github(object):
                  auth_disabled = False
                  ):
         assert access_token is not None
+        assert path_to_local_repo is not None
 
         self.auth_disabled = auth_disabled
 

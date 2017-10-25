@@ -43,6 +43,8 @@ class SubprocessCheckOutput(object):
 
 class Git(object):
     def __init__(self, path_to_repo):
+        assert isinstance(path_to_repo, str)
+        
         self.path_to_repo = path_to_repo
         
         self.outOfProcessDownloaderPool = \

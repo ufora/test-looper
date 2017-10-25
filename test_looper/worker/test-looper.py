@@ -73,7 +73,6 @@ def createTestWorker(config, machineInfo):
     workerSettings = TestLooperWorker.TestLooperSettings(
         osInteractions=osInteractions,
         testLooperClientFactory=createTestLooperClient,
-        artifactsFileName=config['worker']['test_artifacts'],
         timeout=config['worker']['test_timeout'],
         coreDumpsDir=config['worker']['core_dump_dir'],
         repoName=config['worker']['repo_name']

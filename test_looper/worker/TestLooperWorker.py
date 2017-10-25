@@ -20,7 +20,6 @@ TestLooperSettings = collections.namedtuple(
     [
         'osInteractions',
         'testLooperClientFactory',
-        'artifactsFileName',
         'timeout',
         'coreDumpsDir',
         'repoName'

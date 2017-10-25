@@ -13,10 +13,10 @@ def configureGithub(src_ctrl_config):
     github_access_token = src_ctrl_config['access_token']
 
     src_ctrl_args = {
-        'path_to_local_repo': src_ctrl_config.get("path_to_local_repo"),
+        'path_to_local_repo': str(os.path.expandvars(src_ctrl_config["path_to_local_repo"])),
         'oauth_key': oauth_key,
         'oauth_secret': oauth_secret,
-        'webhook_secret': str(src_ctrl_config.get('webhook_secret')),
+        'webhook_secret': str(src_ctrl_config['webhook_secret']),
         'owner': src_ctrl_config['target_repo_owner'],
         'repo': src_ctrl_config['target_repo'],
         'test_definitions_path': src_ctrl_config['test_definitions_path'],
@@ -59,8 +59,8 @@ def configureBitbucket(src_ctrl_config):
 
 def configureGit(config):
     return LocalGitRepo.LocalGitRepo(
-        path_or_repo=os.path.expandvars(config.get('path_to_repo')),
-        test_definitions_path=config.get('test_definitions_path')
+        path_or_repo=os.path.expandvars(config['path_to_repo']),
+        test_definitions_path=config['test_definitions_path']
         )
 
 def getFromConfig(config):
