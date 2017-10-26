@@ -142,47 +142,52 @@ class WorkerState(object):
                 print >> build_log, "********************************************"
                 print >> build_log
 
-                logging.info("Running command: '%s'. Log: %s. Docker Image: %s", 
-                    command, 
-                    log_filename,
-                    docker_image.image if docker_image is not None else "<none>"
+            logging.info("Running command: '%s'. Log: %s. Docker Image: %s", 
+                command, 
+                log_filename,
+                docker_image.image if docker_image is not None else "<none>"
+                )
+
+            assert docker_image is not None
+
+            with DockerWatcher.DockerWatcher() as watcher:
+                assert log_filename.startswith(self.directories.output_dir)
+
+                log_filename_in_container = os.path.join("/test_looper/output", os.path.relpath(log_filename, self.directories.output_dir))
+
+                container = watcher.run(
+                    docker_image,
+                    ["/bin/bash", "-c", command, ">", log_filename_in_container, "2>&1"],
+                    volumes={
+                        self.directories.build_dir: "/test_looper/build",
+                        self.directories.repo_copy_dir: "/test_looper/src",
+                        self.directories.output_dir: "/test_looper/output",
+                        self.directories.ccache_dir: "/test_looper/ccache"
+                        },
+                    environment=env,
+                    working_dir="/test_looper/src"
                     )
 
-                assert docker_image is not None
+                t0 = time.time()
+                ret_code = None
+                extra_message = None
+                while ret_code is None:
+                    try:
+                        ret_code = container.wait(timeout=self.heartbeatInterval)
+                    except requests.exceptions.ReadTimeout:
+                        heartbeat()
+                        if time.time() - t0 > timeout:
+                            ret_code = 1
+                            container.stop()
+                            extra_message = "Test timed out, so we're stopping the test."
+                    except requests.exceptions.ConnectionError:
+                        heartbeat()
+                        if time.time() - t0 > timeout:
+                            ret_code = 1
+                            container.stop()
+                            extra_message = "Test timed out, so we're stopping the test."
 
-                with DockerWatcher.DockerWatcher() as watcher:
-                    container = watcher.run(
-                        docker_image,
-                        ["/bin/bash", "-c", command],
-                        volumes={
-                            self.directories.build_dir: "/test_looper/build",
-                            self.directories.repo_copy_dir: "/test_looper/src",
-                            self.directories.output_dir: "/test_looper/output",
-                            self.directories.ccache_dir: "/test_looper/ccache"
-                            },
-                        environment=env,
-                        working_dir="/test_looper/src"
-                        )
-
-                    t0 = time.time()
-                    ret_code = None
-                    extra_message = None
-                    while ret_code is None:
-                        try:
-                            ret_code = container.wait(timeout=self.heartbeatInterval)
-                        except requests.exceptions.ReadTimeout:
-                            heartbeat()
-                            if time.time() - t0 > timeout:
-                                ret_code = 1
-                                container.stop()
-                                extra_message = "Test timed out, so we're stopping the test."
-                        except requests.exceptions.ConnectionError:
-                            heartbeat()
-                            if time.time() - t0 > timeout:
-                                ret_code = 1
-                                container.stop()
-                                extra_message = "Test timed out, so we're stopping the test."
-
+                with open(log_filename, 'a') as build_log:
                     print >> build_log, container.logs()
                     print >> build_log
                     if extra_message:
