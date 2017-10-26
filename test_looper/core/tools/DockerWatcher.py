@@ -171,6 +171,8 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
                 if self.request in readers:
                     data = self.request.recv(64)
                     
+                    #print "  >>  ", repr(data)
+
                     requestBuf.write(data)
 
                     shouldBail = len(data) == 0
@@ -203,6 +205,8 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
 
                 if sock in readers:
                     data = sock.recv(64)
+
+                    #print "<<    ", repr(data)
 
                     responseBuf.write(data)
 
@@ -379,7 +383,15 @@ class DockerWatcher:
 
                 self.mappedVolumesByParentID[containerID] = new_binds_dict
 
-                self.target_network.connect(containerID, aliases=[unmangled_name] if unmangled_name else [])
+                try:
+                    self.target_network.connect(containerID, aliases=[unmangled_name] if unmangled_name else [])
+                except:
+                    logging.error(
+                        "FAILED connecting container %s to network %s:\n\n%s", 
+                        containerID, 
+                        self.target_network, 
+                        traceback.format_exc()
+                        )
 
             return onContainerIDKnown
 

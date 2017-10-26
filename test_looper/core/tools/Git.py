@@ -112,8 +112,18 @@ class Git(object):
             
     def listBranchesForRemote(self, remote):
         with self.git_repo_lock:
-            res = os.listdir(os.path.join(self.path_to_repo,".git","refs","remotes",remote))
-            return [r for r in res if r != "HEAD"]
+            lines = self.subprocessCheckOutput('git branch -r', shell=True).strip().split('\n')
+            print lines
+
+            lines = [l[:l.find(" -> ")].strip() if ' -> ' in l else l.strip() for l in lines]
+
+            print lines
+
+            lines = [l[7:].strip() for l in lines if l.startswith("origin/")]
+
+            print lines
+
+            return [r for r in lines if r != "HEAD"]
 
     def commitsInRevList(self, commitRange):
         """
@@ -208,3 +218,50 @@ class Git(object):
                 SubprocessCheckOutput(self.path_to_repo, args, kwds)
                 )
             )
+
+class LockedGit(Git):
+    def __init__(self, path):
+        Git.__init__(self, path)
+
+    def writeFile(self, name, text):
+        raise Exception("Can't commit in a Locked git repo")
+
+    def pullLatest(self):
+        pass
+
+    def resetToCommit(self, revision):
+        assert revision == "<working_copy>"
+        return True
+
+    def commit(self, msg):
+        raise Exception("Can't commit in a Locked git repo")
+
+    def isInitialized(self):
+        return True
+
+    def init(self):
+        raise Exception("Can't modify a Locked git repo")
+
+    def cloneFrom(self, sourceRepo):
+        raise Exception("Can't modify a Locked git repo")
+
+    def pruneRemotes(self):
+        raise Exception("Can't modify a Locked git repo")
+
+    def fetchOrigin(self):
+        pass
+
+    def pullOrigin(self):
+        pass
+
+    def getFileContents(self, commit, path):
+        assert commit == "<working_copy>"
+
+        path = os.path.join(self.path_to_repo, path)
+        if not os.path.exists(path):
+            return None
+            
+        with open(path,"r") as f:
+            return f.read()
+
+

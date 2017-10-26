@@ -80,7 +80,8 @@ class WorkerStateTests(unittest.TestCase):
 
         worker = WorkerState.WorkerState(
             os.path.join(self.testdir, "worker"),
-            LocalGitRepo.LocalGitRepo(source_repo, "testDefinitions.json"),
+            source_repo, 
+            "testDefinitions.json",
             ArtifactStorage.LocalArtifactStorage({
                 "build_storage_path": os.path.join(self.testdir, "build_artifacts"),
                 "test_artifacts_storage_path": os.path.join(self.testdir, "test_artifacts")

@@ -27,7 +27,6 @@ import test_looper
 
 class TestLooperDirectories:
     def __init__(self, worker_directory):
-        self.repo_dir = os.path.join(worker_directory, "repo")
         self.repo_copy_dir = os.path.join(worker_directory, "repo_copy")
         self.build_dir = os.path.join(worker_directory, "build")
         self.output_dir = os.path.join(worker_directory, "output")
@@ -36,15 +35,17 @@ class TestLooperDirectories:
         self.ccache_dir = os.path.join(worker_directory, "ccache")
 
     def all(self):
-        return [self.repo_dir, self.repo_copy_dir, self.build_dir, self.test_data_dir, 
+        return [self.repo_copy_dir, self.build_dir, self.test_data_dir, 
                 self.build_cache_dir, self.ccache_dir, self.output_dir]
 
 class WorkerState(object):
-    def __init__(self, worker_directory, source_control, artifactStorage, machineInfo, timeout=900, verbose=False):
+    def __init__(self, worker_directory, git_repo, test_definitions_path, artifactStorage, machineInfo, timeout=900, verbose=False):
         import test_looper.worker.TestLooperWorker
 
         assert isinstance(worker_directory, (str,unicode)), worker_directory
         worker_directory = str(worker_directory)
+
+        self.test_definitions_path = test_definitions_path
 
         self.verbose = verbose
 
@@ -60,13 +61,9 @@ class WorkerState(object):
         self.max_build_cache_depth = 10
         self.heartbeatInterval = TestLooperClient.TestLooperClient.HEARTBEAT_INTERVAL
 
-        self.source_control = source_control
-
         self.artifactStorage = artifactStorage
 
-        self.git_repo = Git.Git(self.directories.repo_dir)
-
-        self.initializeGitRepo()
+        self.git_repo = git_repo
 
         self.cleanup()
 
@@ -96,10 +93,6 @@ class WorkerState(object):
     def directoryScope(directoryScope):
         return DirectoryScope.DirectoryScope(directoryScope)
 
-    def initializeGitRepo(self):
-        if not self.git_repo.isInitialized():
-            self.git_repo.cloneFrom(self.source_control.cloneUrl())
-
     def cleanup(self):
         Docker.DockerImage.removeDanglingDockerImages()
         self.clearDirectoryAsDocker(
@@ -119,80 +112,98 @@ class WorkerState(object):
             )
 
     def _run_command(self, command, log_filename, env, timeout, heartbeat, docker_image):
-        with open(log_filename, 'a') as build_log:
-            print >> build_log, "********************************************"
+        tail_proc = None
+        
+        try:
+            with open(log_filename, 'a') as build_log:
+                if self.verbose:
+                    def printer(l):
+                        print l
+                    tail_proc = SubprocessRunner.SubprocessRunner(["tail", "-f",log_filename], printer, printer)
+                    tail_proc.start()
 
-            print >> build_log, "TestLooper Environment Variables:"
-            for e in sorted(env):
-                print >> build_log, "\t%s=%s" % (e, env[e])
-            print >> build_log
+                print >> build_log, "********************************************"
 
-            if docker_image is not None:
-                print >> build_log, "DockerImage is ", docker_image.image
-            build_log.flush()
+                print >> build_log, "TestLooper Environment Variables:"
+                for e in sorted(env):
+                    print >> build_log, "\t%s=%s" % (e, env[e])
+                print >> build_log
 
-            print >> build_log, "Working Directory: /test_looper/src"
-            build_log.flush()
+                if docker_image is not None:
+                    print >> build_log, "DockerImage is ", docker_image.image
+                build_log.flush()
 
-            print >> build_log, "TestLooper Running command ", command
-            build_log.flush()
+                print >> build_log, "Working Directory: /test_looper/src"
+                build_log.flush()
 
-            print >> build_log, "********************************************"
-            print >> build_log
+                print >> build_log, "TestLooper Running command ", command
+                build_log.flush()
 
-            logging.info("Running command: '%s'. Log: %s. Docker Image: %s", 
-                command, 
-                log_filename,
-                docker_image.image if docker_image is not None else "<none>"
-                )
+                print >> build_log, "********************************************"
+                print >> build_log
 
-            assert docker_image is not None
-
-            with DockerWatcher.DockerWatcher() as watcher:
-                container = watcher.run(
-                    docker_image,
-                    ["/bin/bash", "-c", command],
-                    volumes={
-                        self.directories.build_dir: "/test_looper/build",
-                        self.directories.repo_copy_dir: "/test_looper/src",
-                        self.directories.output_dir: "/test_looper/output",
-                        self.directories.ccache_dir: "/test_looper/ccache"
-                        },
-                    environment=env,
-                    working_dir="/test_looper/src"
+                logging.info("Running command: '%s'. Log: %s. Docker Image: %s", 
+                    command, 
+                    log_filename,
+                    docker_image.image if docker_image is not None else "<none>"
                     )
 
-                t0 = time.time()
-                ret_code = None
-                while ret_code is None:
-                    try:
-                        ret_code = container.wait(timeout=self.heartbeatInterval)
-                    except requests.exceptions.ReadTimeout:
-                        heartbeat()
-                        if time.time() - t0 > timeout:
-                            ret_code = 1
-                            container.stop()
+                assert docker_image is not None
 
-                print >> build_log, container.logs()
-                print >> build_log
-                print >> build_log, "Process exited with code ", ret_code
-                
+                with DockerWatcher.DockerWatcher() as watcher:
+                    container = watcher.run(
+                        docker_image,
+                        ["/bin/bash", "-c", command],
+                        volumes={
+                            self.directories.build_dir: "/test_looper/build",
+                            self.directories.repo_copy_dir: "/test_looper/src",
+                            self.directories.output_dir: "/test_looper/output",
+                            self.directories.ccache_dir: "/test_looper/ccache"
+                            },
+                        environment=env,
+                        working_dir="/test_looper/src"
+                        )
 
-        if self.verbose:
-            with open(log_filename, 'r') as f:
-                print f.read()
+                    t0 = time.time()
+                    ret_code = None
+                    extra_message = None
+                    while ret_code is None:
+                        try:
+                            ret_code = container.wait(timeout=self.heartbeatInterval)
+                        except requests.exceptions.ReadTimeout:
+                            heartbeat()
+                            if time.time() - t0 > timeout:
+                                ret_code = 1
+                                container.stop()
+                                extra_message = "Test timed out, so we're stopping the test."
+                        except requests.exceptions.ConnectionError:
+                            heartbeat()
+                            if time.time() - t0 > timeout:
+                                ret_code = 1
+                                container.stop()
+                                extra_message = "Test timed out, so we're stopping the test."
 
-        return ret_code == 0
+                    print >> build_log, container.logs()
+                    print >> build_log
+                    if extra_message:
+                        print >> build_log, extra_message
+                    print >> build_log, "Process exited with code ", ret_code
+                    build_log.flush()
+                    
+            return ret_code == 0
+        finally:
+            if tail_proc is not None:
+                tail_proc.stop()
 
     def resetToCommit(self, revision):
         if not self.git_repo.resetToCommit(revision):
             return False
 
         #make a copy of the git_repo in the working directory, minus the .git directory
-        for p in os.listdir(self.directories.repo_dir):
+        for p in os.listdir(self.git_repo.path_to_repo):
             if p != ".git":
                 if SubprocessRunner.callAndReturnResultWithoutOutput(
-                        ["cp", "-r", os.path.join(self.directories.repo_dir, p), self.directories.repo_copy_dir]
+                        ["cp", "-r", os.path.join(self.git_repo.path_to_repo, p), self.directories.repo_copy_dir]
                         ) != 0:
                     logging.error("Failed to copy %s into the repo_copy_dir", p)
                     return False
@@ -277,7 +288,7 @@ class WorkerState(object):
                 return d
 
             if 'dockerfile' in dockerConf:
-                source = self.source_control.source_repo.getFileContents(commitId, dockerConf["dockerfile"])
+                source = self.git_repo.getFileContents(commitId, dockerConf["dockerfile"])
                 if source is None:
                     raise Exception("No file found at %s in commit %s" % (dockerConf["dockerfile"], commitId))
 
@@ -310,8 +321,6 @@ class WorkerState(object):
         return result
 
     def dockerImageFor(self, commitId, testName):
-        self.git_repo.resetToCommit(commitId)
-        
         defs = self.testDefinitionFor(commitId, testName)[0]
 
         return self.getDockerImage(
@@ -321,7 +330,7 @@ class WorkerState(object):
             )
 
     def testDefinitionFor(self, commitId, testName):
-        json = simplejson.loads(self.source_control.getTestScriptDefinitionsForCommit(commitId))
+        json = simplejson.loads(self.git_repo.getFileContents(commitId, self.test_definitions_path))
 
         testScriptDefinitions = [x for x in 
             TestScriptDefinition.TestScriptDefinition.testSetFromJson(json)
@@ -335,11 +344,18 @@ class WorkerState(object):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
         self.cleanup()
 
+        if testName == "build" and self.artifactStorage.build_exists(commitId):
+            if self.verbose:
+                print "Build already exists."
+            return self.create_test_result(True, testId, commitId)
+
         if not self.resetToCommit(commitId):
             return self.create_test_result(False, testId, commitId, "Failed to checkout code")
 
         try:
-            json = simplejson.loads(self.source_control.getTestScriptDefinitionsForCommit(commitId))
+            contents = self.git_repo.getFileContents(commitId, self.test_definitions_path)
+
+            json = simplejson.loads(contents)
 
             testScriptDefinitions = [x for x in 
                 TestScriptDefinition.TestScriptDefinition.testSetFromJson(json)
@@ -372,9 +388,6 @@ class WorkerState(object):
     def _run_build_task(self, testId, commitId, test_definition, heartbeat):
         build_command = test_definition.testCommand
         
-        if self.artifactStorage.build_exists(commitId):
-            return self.create_test_result(True, testId, commitId)
-
         image = self.getDockerImage(
             commitId, 
             test_definition.docker, 
@@ -392,11 +405,13 @@ class WorkerState(object):
         if not is_success:
             logging.error("Failed to build commit: %s", commitId)
 
-            self.artifactStorage.uploadTestArtifacts(
-                testId, 
-                self.machineInfo.machineId, 
-                self.directories.output_dir
-                )
+        heartbeat()
+
+        self.artifactStorage.uploadTestArtifacts(
+            testId, 
+            self.machineInfo.machineId, 
+            self.directories.output_dir
+            )
 
         return self.create_test_result(is_success, testId, commitId)
 
@@ -445,14 +460,15 @@ class WorkerState(object):
                                       os.path.join(test_output_dir, self.perf_test_output_file),
                                       test_result)
 
-        if not is_success:
-            heartbeat()
-            logging.info("machine %s uploading artifacts", self.machineInfo.machineId)
-            self.artifactStorage.uploadTestArtifacts(
-                testId,
-                self.machineInfo.machineId,
-                self.directories.output_dir
-                )
+        heartbeat()
+        
+        logging.info("machine %s uploading artifacts", self.machineInfo.machineId)
+
+        self.artifactStorage.uploadTestArtifacts(
+            testId,
+            self.machineInfo.machineId,
+            self.directories.output_dir
+            )
 
         return test_result
 
@@ -494,10 +510,10 @@ class WorkerState(object):
     def environment_variables(self, testId, commitId):
         return  {
             'REVISION': commitId,
-            'REPO_DIR': "/test_looper/src",
-            'BUILD_DIR': "/test_looper/build",
-            'OUTPUT_DIR': "/test_looper/output",
-            'CCACHE_DIR': "/test_looper/ccache",
+            'TEST_SRC_DIR': "/test_looper/src",
+            'TEST_BUILD_DIR': "/test_looper/build",
+            'TEST_OUTPUT_DIR': "/test_looper/output",
+            'TEST_CCACHE_DIR': "/test_looper/ccache",
             'TEST_LOOPER_TEST_ID': testId
             }
 
@@ -507,29 +523,14 @@ class WorkerState(object):
                      self.machineInfo.machineId,
                      test_logfile)
         success = False
-        try:
-            success = self._run_command(
-                script,
-                test_logfile,
-                env_overrides,
-                self.timeout,
-                heartbeat,
-                docker_image=docker_image
-                )
-        except test_looper.worker.TestLooperWorker.TestInterruptException:
-            logging.info("TestInterruptException in machine: %s. Heartbeat response: %s",
-                         self.machineInfo.machineId,
-                         self.heartbeatResponse)
-            if self.stopEvent.is_set():
-                return
-            success = self.heartbeatResponse == TestResult.TestResult.HEARTBEAT_RESPONSE_DONE
-        except:
-            import traceback
-            logging.error(traceback.format_exc())
-            return False
-
-        return success
-
+        return self._run_command(
+            script,
+            test_logfile,
+            env_overrides,
+            self.timeout,
+            heartbeat,
+            docker_image=docker_image
+            )
 
     def capture_perf_results(self, test_name, perf_output_file, test_result):
         try:

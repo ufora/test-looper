@@ -52,9 +52,12 @@ def configureLogging(verbose=False):
 def createTestWorker(config, machineInfo):
     artifactStorage = ArtifactStorage.storageFromConfig(config['artifacts'])
 
+    source_control = SourceControlFromConfig.getFromConfig(config["source_control"])
+
     osInteractions = WorkerState.WorkerState(
         os.path.expandvars(config['worker']['path']), 
-        source_control=SourceControlFromConfig.getFromConfig(config["source_control"]),
+        git_repo=source_control.source_repo,
+        test_definitions_path=source_control.test_definitions_path,
         artifactStorage=artifactStorage,
         machineInfo=MachineInfo.MachineInfo("localhost",
                                           "localhost",

@@ -26,16 +26,16 @@ testDefinitions.json:
 
 Every test that we run has the following environment variables defined:
     REVISION: the current commit
-    REPO_DIR: path to a copy of the codebase. Guaranteed to be a clean copy that you can write into. Doesn't have a copy of .git
-    BUILD_DIR: 
+    TEST_SRC_DIR: path to a copy of the codebase. Guaranteed to be a clean copy that you can write into. Doesn't have a copy of .git
+    TEST_BUILD_DIR: 
         Directory into which the build artifacts should be placed by the build step. 
         These will be tarballed and stored. They will be untarballed and available for use by tests.
-    OUTPUT_DIR: 
+    TEST_OUTPUT_DIR: 
         Directory where test outputs and logs should go.
         Text files will be tarballed and gzipped.
         Other files will be uploaded as-is.
         Directories will be ignored.
-    CCACHE_DIR: 
+    TEST_CCACHE_DIR: 
         A persistent cache directory for use by 'ccache'
     TEST_LOOPER_TEST_ID: a unique identifier for the current test run
 
