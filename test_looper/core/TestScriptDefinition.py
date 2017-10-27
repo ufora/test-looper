@@ -63,6 +63,9 @@ class TestScriptDefinition(object):
     def testSetFromJson(json):
         build_definition = None
         
+        if json.get("looper_version", 0) < 1:
+            raise ValueError("TestDefinitions file is for earlier version of test looper")
+
         if isinstance(json, dict) and 'tests' in json:
             build_definition = json.get('build')
             docker = json.get('docker')

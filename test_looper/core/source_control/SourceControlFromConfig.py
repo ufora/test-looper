@@ -21,7 +21,8 @@ def configureGithub(src_ctrl_config):
         'repo': src_ctrl_config['target_repo'],
         'test_definitions_path': src_ctrl_config['test_definitions_path'],
         'access_token': github_access_token,
-        'auth_disabled': src_ctrl_config.get("auth_disabled", False)
+        'auth_disabled': src_ctrl_config.get("auth_disabled", False),
+        'clone_url': src_ctrl_config["clone_url"]
         }
 
     for item in ['github_url', 'github_login_url', 'github_api_url']:

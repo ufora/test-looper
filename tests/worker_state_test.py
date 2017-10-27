@@ -79,6 +79,7 @@ class WorkerStateTests(unittest.TestCase):
         source_repo, c = self.get_repo(repo_name)
 
         worker = WorkerState.WorkerState(
+            "test_looper_testing",
             os.path.join(self.testdir, "worker"),
             source_repo, 
             "testDefinitions.json",

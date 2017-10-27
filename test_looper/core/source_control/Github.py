@@ -17,6 +17,7 @@ class Github(object):
                  webhook_secret,
                  owner,
                  repo,
+                 clone_url,
                  test_definitions_path,
                  github_url = "https://github.com",
                  github_login_url = "https://github.com",
@@ -40,6 +41,7 @@ class Github(object):
         self.github_url = github_url
         self.github_api_url = github_api_url
         self.github_login_url = github_login_url
+        self.clone_url = clone_url
 
     def verify_webhook_request(self, headers, payload):
         if not self.auth_disabled:
@@ -58,7 +60,7 @@ class Github(object):
 
 
     def cloneUrl(self):
-        return self.github_url + "/" + self.owner + "/" + self.repo + ".git"
+        return self.clone_url + ":" + self.owner + "/" + self.repo + ".git"
 
     def listBranches(self):
         self.source_repo.fetchOrigin()

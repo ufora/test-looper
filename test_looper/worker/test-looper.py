@@ -17,6 +17,7 @@ import time
 import os
 
 import test_looper.core.cloud.FromConfig
+import test_looper.core.tools.Git as Git
 import test_looper.core.cloud.MachineInfo as MachineInfo
 import test_looper.worker.TestLooperClient as TestLooperClient
 import test_looper.worker.TestLooperWorker as TestLooperWorker
@@ -29,6 +30,10 @@ def createArgumentParser():
     parser = argparse.ArgumentParser()
     parser.add_argument('config',
                         help="Configuration file")
+    parser.add_argument('worker_count',
+                        type=int,
+                        default=1,
+                        help="Number of workers to run")
     return parser
 
 def configureLogging(verbose=False):
@@ -49,14 +54,19 @@ def configureLogging(verbose=False):
     logging.getLogger().addHandler(handler)
 
 
-def createTestWorker(config, machineInfo):
+def createTestWorker(config, machineInfo, worker_index):
     artifactStorage = ArtifactStorage.storageFromConfig(config['artifacts'])
 
     source_control = SourceControlFromConfig.getFromConfig(config["source_control"])
 
+    worker_path = str(os.path.join(os.path.expandvars(config['worker']['path']), worker_index))
+
+    git_repo=Git.Git(os.path.join(worker_path, "repo"))
+
     osInteractions = WorkerState.WorkerState(
-        os.path.expandvars(config['worker']['path']), 
-        git_repo=source_control.source_repo,
+        "test_looper_" + worker_index + "_", 
+        worker_path,
+        git_repo,
         test_definitions_path=source_control.test_definitions_path,
         artifactStorage=artifactStorage,
         machineInfo=MachineInfo.MachineInfo("localhost",
@@ -66,7 +76,9 @@ def createTestWorker(config, machineInfo):
                                           "bare metal"
                                           )
         )
-    
+
+    osInteractions.ensureGitRepoInitialized(source_control)
+
     def createTestLooperClient():
         return TestLooperClient.TestLooperClient(
             host=config['server']['address'],
@@ -98,24 +110,31 @@ if __name__ == "__main__":
     machineInfo = cloud_connection.getOwnMachineInfo()
 
     logging.info(
-        "Starting test-looper on %s with config: %s", 
+        "Starting test-looper on %s with %s workers and config\n%s", 
         machineInfo, 
-        pprint.PrettyPrinter().pprint(config)
+        args.worker_count,
+        pprint.PrettyPrinter().pformat(config)
         )
 
-    testLooperWorker = createTestWorker(config, machineInfo)
-    workerThread = threading.Thread(target=testLooperWorker.startTestLoop)
+    testLooperWorkers = [createTestWorker(config, machineInfo, str(ix)) for ix in xrange(args.worker_count)]
+    workerThreads = [threading.Thread(target=w.startTestLoop) for w in testLooperWorkers]
 
     def handleStopSignal(signum, _):
         logging.info("Signal received: %s. Stopping service.", signum)
-        if workerThread and workerThread.isAlive():
-            testLooperWorker.stop()
-            workerThread.join()
+        for w in testLooperWorker:
+            w.stop()
+
+        logging.info("Waiting for workers to shut down.", signum)
+
+        for thread in workerThreads:
+            thread.join()
 
     signal.signal(signal.SIGTERM, handleStopSignal) # handle kill
     signal.signal(signal.SIGINT, handleStopSignal)  # handle ctrl-c
 
-    workerThread.start()
-    while workerThread.is_alive():
-        time.sleep(0.5)
+    for w in workerThreads:
+        w.start()
+
+    while [w for w in workerThreads if w.is_alive()]:
+        time.sleep(0.1)
 

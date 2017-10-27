@@ -56,6 +56,7 @@ if __name__ == "__main__":
             })
 
         worker = WorkerState.WorkerState(
+            "test_looper_singleton",
             os.path.join(workdir, "worker"), 
             Git.LockedGit(repo),
             relpath,

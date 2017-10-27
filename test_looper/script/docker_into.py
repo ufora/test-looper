@@ -4,7 +4,10 @@ import argparse
 import os
 import sys
 import subprocess
+import dockerpty
+import docker
 import test_looper.core.tools.Docker as Docker
+import test_looper.core.tools.DockerWatcher as DockerWatcher
 
 def createArgumentParser():
     parser = argparse.ArgumentParser()
@@ -34,11 +37,19 @@ if __name__ == "__main__":
     
     print "Built docker image successfully. Image name is %s" % image.image
 
-    subprocess.call(
-        "docker run -it --privileged --rm --net=host --shm-size=1g -w /repo -v {repo}:/repo -v /var/run:/var/run -e TEST_SRC_DIR=/repo {image}"
-            .format(repo=repo,image=image.image),
-        shell=True,
-        stdout=sys.stdout,
-        stderr=sys.stderr
-        )
-
+    with DockerWatcher.DockerWatcher("interactive_") as watcher:
+        container = watcher.run(image, 
+            ["bash"], 
+            privileged=True,
+            shm_size="1G",
+            stdin_open=True,
+            working_dir="/repo",
+            volumes={repo:"/repo"},
+            environment={"TEST_SRC_DIR":"/repo"},
+            tty=True
+            )
+        client = docker.from_env()
+        client.__dict__["inspect_container"] = lambda c: client.api.inspect_container(c.id)
+        client.__dict__["attach_socket"] = lambda c,*args,**kwds: client.api.attach_socket(c.id, *args, **kwds)
+        client.__dict__["resize"] = lambda c,*args,**kwds: client.api.resize(c.id, *args, **kwds)
+        dockerpty.start(client, container)

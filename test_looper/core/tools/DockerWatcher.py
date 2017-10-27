@@ -14,7 +14,11 @@ import uuid
 import time
 
 docker_client = docker.from_env()
-docker_client.containers.list()
+#initialize the docker threadpool
+try:
+    docker_client.containers.list()
+except:
+    pass
 
 
 class HTTPRequestBuffer:
@@ -372,6 +376,7 @@ class DockerWatcher:
                 createJson["HostConfig"]["LogConfig"] = {"Type": "json-file", "Config": {}}
 
             def onContainerIDKnown(containerID):
+                logging.info("Container %s creating container %s", parentContainerId, containerID)
                 new_binds_dict = {}
                 for b in new_binds:
                     #note we're deliberately leaking the r/w flag, which means
@@ -425,6 +430,7 @@ class DockerWatcher:
 
     def shutdown(self):
         for c in self.containers_booted:
+            logging.info("DockerWatcher removing container %s", c)
             c.remove(force=True)
 
         self.target_network.remove()
@@ -468,4 +474,3 @@ class DockerWatcher:
             self._containers_booted.append(container.id)
 
             return container
-

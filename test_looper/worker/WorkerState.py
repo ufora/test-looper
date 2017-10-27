@@ -39,11 +39,15 @@ class TestLooperDirectories:
                 self.build_cache_dir, self.ccache_dir, self.output_dir]
 
 class WorkerState(object):
-    def __init__(self, worker_directory, git_repo, test_definitions_path, artifactStorage, machineInfo, timeout=900, verbose=False):
+    def __init__(self, name_prefix, worker_directory, git_repo, test_definitions_path, artifactStorage, machineInfo, timeout=900, verbose=False):
         import test_looper.worker.TestLooperWorker
+
+        self.name_prefix = name_prefix
 
         assert isinstance(worker_directory, (str,unicode)), worker_directory
         worker_directory = str(worker_directory)
+
+        self.worker_directory = worker_directory
 
         self.test_definitions_path = test_definitions_path
 
@@ -150,7 +154,7 @@ class WorkerState(object):
 
             assert docker_image is not None
 
-            with DockerWatcher.DockerWatcher() as watcher:
+            with DockerWatcher.DockerWatcher(self.name_prefix) as watcher:
                 assert log_filename.startswith(self.directories.output_dir)
 
                 log_filename_in_container = os.path.join("/test_looper/output", os.path.relpath(log_filename, self.directories.output_dir))
@@ -222,6 +226,11 @@ class WorkerState(object):
         except os.error as e:
             if e.errno != errno.EEXIST:
                 raise
+
+    def ensureGitRepoInitialized(self, source_control):
+        self.ensureDirectoryExists(self.git_repo.path_to_repo)
+        if not self.git_repo.isInitialized():
+            self.git_repo.cloneFrom(source_control.cloneUrl())
 
     def createNextTestDirForCommit(self, commitId):
         revisionDir = os.path.join(self.directories.test_data_dir, commitId)

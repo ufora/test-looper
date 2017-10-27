@@ -50,10 +50,12 @@ class TestLooperWorker(object):
         try:
             socketErrorCount = 0
             waitTime = 0
+            errorsInARow = 0
             while not self.stopEvent.is_set():
                 try:
                     waitTime = self.mainTestingIteration()
                     socketErrorCount = 0
+                    errorsInARow = 0
                 except TestLooperClient.ProtocolMismatchException:
                     logging.info("protocol mismatch observed on %s: %s",
                                  self.ownMachineInfo.machineId,
@@ -62,20 +64,27 @@ class TestLooperWorker(object):
                 except socket.error:
                     logging.info("Can't connect to server")
                     socketErrorCount += 1
+                    errorsInARow += 1
                     if socketErrorCount > 24:
                         return self.settings.osInteractions.abortTestLooper(
                             "Unable to communicate with server."
                             )
                     waitTime = 5.0
                 except Exception as e:
-                    waitTime = 1.0
+                    errorsInARow += 1
+                    if errorsInARow < 5:
+                        waitTime = 1.0
+                    else:
+                        waitTime = 10.0
+
                     logging.error(
-                        "Exception %s on %s: %s",
+                        "Exception %s on %s. errorsInARow==%s. Waiting for %s and trying again.: %s.",
                         type(e),
                         self.ownMachineInfo.machineId,
+                        errorsInARow,
+                        waitTime,
                         traceback.format_exc()
                         )
-                    raise
 
                 if waitTime > 0:
                     self.stopEvent.wait(waitTime)
