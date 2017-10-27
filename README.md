@@ -1,4 +1,4 @@
-#test-looper - The statistical CI
+# test-looper - The statistical CI
 
 Test-looper is a framework for testing code in GIT repositories. Tests can
 be run multiple times for any given commit, and for all commits in a branch,
@@ -25,19 +25,20 @@ testDefinitions.json:
             test outputs should be placed in OUTPUT_DIR
 
 Every test that we run has the following environment variables defined:
-    REVISION: the current commit
-    TEST_SRC_DIR: path to a copy of the codebase. Guaranteed to be a clean copy that you can write into. Doesn't have a copy of .git
-    TEST_BUILD_DIR: 
+
+*    REVISION: the current commit
+*    TEST_SRC_DIR: path to a copy of the codebase. Guaranteed to be a clean copy that you can write into. Doesn't have a copy of .git
+*    TEST_BUILD_DIR: 
         Directory into which the build artifacts should be placed by the build step. 
         These will be tarballed and stored. They will be untarballed and available for use by tests.
-    TEST_OUTPUT_DIR: 
+*    TEST_OUTPUT_DIR: 
         Directory where test outputs and logs should go.
         Text files will be tarballed and gzipped.
         Other files will be uploaded as-is.
         Directories will be ignored.
-    TEST_CCACHE_DIR: 
+*    TEST_CCACHE_DIR: 
         A persistent cache directory for use by 'ccache'
-    TEST_LOOPER_TEST_ID: a unique identifier for the current test run
+*    TEST_LOOPER_TEST_ID: a unique identifier for the current test run
 
 Tests are run in a dockerfile. All test runs have the docker socket mounted
 so that the container can boot sister containers. The docker socket is monitored
