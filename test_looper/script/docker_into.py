@@ -16,6 +16,27 @@ def createArgumentParser():
         'dockerfile', 
         help="The Dockerfile used to build the image"
         )
+
+    parser.add_argument(
+        '-p',
+        '--path',
+        dest='path',
+        default=None,
+        help="Path to expose as /repo. Defaults to the root of the git repo containing the dockerfile."
+        )
+
+    parser.add_argument(
+        '--port',
+        dest='ports',
+        action='append',
+        help="ports to expose"
+        )
+    
+    parser.add_argument(
+        "commands",
+        nargs=argparse.REMAINDER,
+        help="Commands to run before becoming an interactive session."
+        )
     
     return parser
 
@@ -28,7 +49,10 @@ def git_repo_containing(path):
 if __name__ == "__main__":
     args = createArgumentParser().parse_args()
     
-    repo = git_repo_containing(args.dockerfile)
+    if args.path:
+        repo = args.path
+    else:
+        repo = git_repo_containing(args.dockerfile)
 
     with open(args.dockerfile,"rb") as f:
         dockerfile_contents = f.read()
@@ -37,15 +61,25 @@ if __name__ == "__main__":
     
     print "Built docker image successfully. Image name is %s" % image.image
 
+    bash_args = []
+    if args.commands:
+        bash_args = ["-c", " ".join(args.commands) + "; bash"]
+
+    if args.ports is None:
+        args.ports = {}
+    else:
+        args.ports = dict([v.split(":") for v in args.ports])
+
     with DockerWatcher.DockerWatcher("interactive_") as watcher:
         container = watcher.run(image, 
-            ["bash"], 
+            ["bash"] + bash_args, 
             privileged=True,
             shm_size="1G",
             stdin_open=True,
             working_dir="/repo",
-            volumes={repo:"/repo"},
+            volumes={repo:"/repo","/home/%s/.bash_history" % os.getenv("USER"): "/root/.bash_history"},
             environment={"TEST_SRC_DIR":"/repo"},
+            ports=args.ports,
             tty=True
             )
         client = docker.from_env()
