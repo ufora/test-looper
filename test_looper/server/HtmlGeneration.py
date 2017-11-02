@@ -164,7 +164,7 @@ def link(linkTxt, linkUrl, hover_text=None):
 
 
 def stack(*elements):
-    return "".join(elements)
+    return "".join(str(x) for x in elements)
 
 def button(value, linkVal):
     return """

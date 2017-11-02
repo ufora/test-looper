@@ -61,35 +61,7 @@ class TestScriptDefinition(object):
 
     @staticmethod
     def testSetFromJson(json):
-        build_definition = None
-        
-        if json.get("looper_version", 0) < 1:
-            raise ValueError("TestDefinitions file is for earlier version of test looper")
-
-        if isinstance(json, dict) and 'tests' in json:
-            build_definition = json.get('build')
-            docker = json.get('docker')
-            
-            test_json = json['tests']
-        else:
-            test_json = None
-
-        if not isinstance(test_json, list):
-            raise ValueError("Unexpected test definitions file format: %s" % json)
-
-        definitions = [
-            TestScriptDefinition.fromJson(row, docker=docker)
-            for row in test_json
-            ]
-
-        if build_definition:
-            build_definition['name'] = 'build'
-            definitions.append(
-                TestScriptDefinition.fromJson(build_definition, docker=docker)
-                )
-
-        return definitions
-
+        return TestDefinitions.fromJson(json).getTestsAndBuild()
 
 
     def __repr__(self):
@@ -105,4 +77,55 @@ class TestScriptDefinition(object):
 
     def totalMachinesRequired(self):
         return self.machines['count']
+
+class TestDefinitions:
+    def __init__(self, docker, build, tests, environments):
+        self.docker = docker
+        self.build = build
+        self.tests = tests
+        self.environments = environments
+
+    def getTestsAndBuild(self):
+        res = [self.build] + list(self.tests.values())
+        return res
+
+    def all(self):
+        return {k.testName: k for k in [self.build] + list(self.tests.values()) + list(self.environments.values())}
+
+    @staticmethod
+    def fromJson(json):
+        build_definition = None
+        
+        if json.get("looper_version", 0) < 1:
+            raise ValueError("TestDefinitions file is for an earlier version of test looper")
+
+        if not isinstance(json, dict):
+            raise ValueError("testDefinitions.json should be an object")
+
+        for m in ['build', 'tests', 'docker']:
+            if not m in json:
+                raise ValueError("testDefinitions.json should have a member " + m)
+
+        build_definition = json.get('build')
+        docker = json.get('docker')
+        
+        tests = [
+            TestScriptDefinition.fromJson(row, docker=docker)
+            for row in json['tests']
+            ] if 'tests' in json else []
+
+        environments = [
+            TestScriptDefinition.fromJson(row, docker=docker)
+            for row in json['environments']
+            ] if 'environments' in json else []
+
+        build_definition['name'] = 'build'
+        build_definition = TestScriptDefinition.fromJson(build_definition, docker=docker)
+
+        return TestDefinitions(
+            docker, 
+            build_definition, 
+            {t.testName: t for t in tests}, 
+            {t.testName: t for t in environments}
+            )
 

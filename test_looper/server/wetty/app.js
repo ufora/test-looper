@@ -1,4 +1,5 @@
 var express = require('express');
+var url = require('url');
 var http = require('http');
 var https = require('https');
 var path = require('path');
@@ -8,42 +9,21 @@ var fs = require('fs');
 
 var opts = require('optimist')
     .options({
-        sslkey: {
-            demand: false,
-            description: 'path to SSL key'
-        },
-        sslcert: {
-            demand: false,
-            description: 'path to SSL certificate'
-        },
+        config: {
+            demand: true,
+            alias: "c",
+            description: 'path to the config.json'
+            },
         port: {
             demand: true,
-            alias: 'p',
-            description: 'wetty listen port'
-        },
-    }).boolean('allow_discovery').argv;
+            alias: "p",
+            description: 'port to listen on'
+            },
+        }).boolean('allow_discovery').argv;
+
+var port = opts.port
 
 var runhttps = false;
-var sshport = 22;
-var sshhost = 'localhost';
-var sshauth = 'password,keyboard-interactive';
-var globalsshuser = '';
-
-if (opts.sshport) {
-    sshport = opts.sshport;
-}
-
-if (opts.sshhost) {
-    sshhost = opts.sshhost;
-}
-
-if (opts.sshauth) {
-	sshauth = opts.sshauth
-}
-
-if (opts.sshuser) {
-    globalsshuser = opts.sshuser;
-}
 
 if (opts.sslkey && opts.sslcert) {
     runhttps = true;
@@ -65,32 +45,42 @@ app.get('/wetty', function(req, res) {
 app.use('/', express.static(path.join(__dirname, 'public')));
 
 if (runhttps) {
-    httpserv = https.createServer(opts.ssl, app).listen(opts.port, function() {
-        console.log('https on port ' + opts.port);
+    httpserv = https.createServer(opts.ssl, app).listen(port, function() {
+        console.log('https on port ' + port);
     });
 } else {
-    httpserv = http.createServer(app).listen(opts.port, function() {
-        console.log('http on port ' + opts.port);
+    httpserv = http.createServer(app).listen(port, function() {
+        console.log('http on port ' + port);
     });
 }
 
 var io = server(httpserv,{path: '/wetty/socket.io'});
 io.on('connection', function(socket){
-    var container = '';
     var request = socket.request;
     console.log((new Date()) + ' Connection accepted.');
-    if (match = request.headers.referer.match('/wetty\\?container=.+$')) {
-        container = match[0].replace('/wetty?container=', '');
-        console.log("Connecting to " + container)
-    } else {
-        console.log("Referer = " + request.headers.referer)
+
+    var query = url.parse(request.headers.referer, true).query;
+
+    var commit = query.commit
+    var test = query.test
+    var ports = query.ports
+
+    if (!(commit != null && test != null)) {
         socket.emit('output', "INVALID URL: " + request.headers.referer)
         socket.disconnect();
         return
     }
 
     var term;
-    term = pty.spawn('docker', ['exec','-it',container,'bash'], {
+    var args = ["invoke.py", opts.config, commit, test]
+
+    if (ports != null) {
+        args.Append('--ports=' + ports)
+    }
+
+    console.log("Invoking invoke.py with args " + JSON.stringify(args, null, 2))
+
+    term = pty.spawn('/usr/bin/python', args, {
         name: 'xterm-256color',
         cols: 80,
         rows: 30
@@ -103,13 +93,13 @@ io.on('connection', function(socket){
         console.log((new Date()) + " PID=" + term.pid + " ENDED")
     });
     socket.on('resize', function(data) {
-        console.log("got " + data.col + ", " + data.row)
         term.resize(data.col, data.row);
     });
     socket.on('input', function(data) {
         term.write(data);
     });
     socket.on('disconnect', function() {
-        term.end();
+        console.log("SHUTTING DOWN terminal")
+        term.kill("SIGTERM");
     });
 })

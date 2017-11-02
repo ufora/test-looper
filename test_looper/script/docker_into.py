@@ -13,16 +13,24 @@ def createArgumentParser():
     parser = argparse.ArgumentParser()
 
     parser.add_argument(
-        'dockerfile', 
-        help="The Dockerfile used to build the image"
+        '-d', 
+        dest='test_definitions',
+        help="Path to 'testDefinitions.json' to use",
+        required=True
         )
 
     parser.add_argument(
-        '-p',
-        '--path',
-        dest='path',
-        default=None,
-        help="Path to expose as /repo. Defaults to the root of the git repo containing the dockerfile."
+        '-c', 
+        dest='commit',
+        help="The commitish to use",
+        default=None
+        )
+
+    parser.add_argument(
+        '-t', 
+        dest='environment',
+        help="The test to invoke",
+        required=True
         )
 
     parser.add_argument(
@@ -49,10 +57,7 @@ def git_repo_containing(path):
 if __name__ == "__main__":
     args = createArgumentParser().parse_args()
     
-    if args.path:
-        repo = args.path
-    else:
-        repo = git_repo_containing(args.dockerfile)
+    repo = git_repo_containing(args.dockerfile)
 
     with open(args.dockerfile,"rb") as f:
         dockerfile_contents = f.read()
@@ -82,6 +87,7 @@ if __name__ == "__main__":
             ports=args.ports,
             tty=True
             )
+        
         client = docker.from_env()
         client.__dict__["inspect_container"] = lambda c: client.api.inspect_container(c.id)
         client.__dict__["attach_socket"] = lambda c,*args,**kwds: client.api.attach_socket(c.id, *args, **kwds)

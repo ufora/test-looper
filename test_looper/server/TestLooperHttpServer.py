@@ -558,8 +558,53 @@ class TestLooperHttpServer(object):
                                     None).withTextReplaced("Show all tests").render()
                     )
 
+            header = self.commonHeader() + markdown.markdown(header)
 
-            return self.commonHeader() + markdown.markdown(header) + HtmlGeneration.grid(grid)
+            buttons = []
+            env_vals = self.testManager.testDefinitionsForCommit(commitId).environments.values()
+            if env_vals:
+                buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Environments")))
+                for env in sorted(env_vals, key=lambda e: e.testName):
+                    buttons.append(
+                        HtmlGeneration.Link(self.bootTestOrEnvUrl(commitId, env.testName),
+                           env.testName,
+                           is_button=True,
+                           button_style=self.disable_if_cant_write('btn-danger btn-xs')
+                           )
+                        )
+                    buttons.append(HtmlGeneration.makeHtmlElement("&nbsp;"*2))
+                buttons.append(HtmlGeneration.makeHtmlElement("<br>"*2))
+
+            test_vals = self.testManager.testDefinitionsForCommit(commitId).tests.values()
+            if test_vals:
+                buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Tests")))
+                for test in sorted(test_vals, key=lambda e: e.testName):
+                    buttons.append(
+                        HtmlGeneration.Link(self.bootTestOrEnvUrl(commitId, test.testName),
+                           test.testName,
+                           is_button=True,
+                           button_style=self.disable_if_cant_write('btn-danger btn-xs')
+                           )
+                        )
+                    buttons.append(HtmlGeneration.makeHtmlElement("&nbsp;"*2))
+                buttons.append(HtmlGeneration.makeHtmlElement("<br>"*2))
+
+            return header + HtmlGeneration.HtmlElements(buttons).render() + HtmlGeneration.grid(grid)
+
+    def bootTestOrEnvUrl(self, commitId, testName):
+        addr = self.address
+        items = addr.split(":")
+        def isint(x):
+            try:
+                int(x)
+                return True
+            except:
+                return False
+        if isint(items[-1]):
+            addr = ":".join(items[:-1])
+
+        return addr + ":3000" + "/wetty?" + urllib.urlencode({'commit': commitId, 'test': testName})
+
 
     def gridForTestList_(self, sortedTests, commit=None, failuresOnly=False):
         grid = [["TEST", "TYPE", "RESULT", "STARTED", "MACHINE", "ELAPSED (MIN)",

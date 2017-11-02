@@ -99,7 +99,7 @@ class WorkerState(object):
 
     def cleanup(self):
         Docker.DockerImage.removeDanglingDockerImages()
-        self.clearDirectoryAsDocker(
+        self.clearDirectoryAsRoot(
             self.directories.test_data_dir, 
             self.directories.output_dir, 
             self.directories.build_dir, 
@@ -107,7 +107,7 @@ class WorkerState(object):
             )
         
     @staticmethod
-    def clearDirectoryAsDocker(*args):
+    def clearDirectoryAsRoot(*args):
         image = Docker.DockerImage("ubuntu:16.04")
         image.run(
             "rm -rf " + " ".join(["%s/*" % p for p in args]), 
@@ -283,34 +283,38 @@ class WorkerState(object):
                                 for p in os.listdir(self.directories.build_cache_dir)])
         shutil.rmtree(cached_builds[0][1])
 
+    @staticmethod
+    def getDockerImageFromRepo(git_repo, commitId, dockerConf):
+        if 'tag' in dockerConf:
+            tagname = dockerConf['tag']
+
+            for char in tagname:
+                if not (char.isalnum() or char in ".-_:"):
+                    raise Exception("Invalid tag name: " + tagname)
+
+            image_name = dockerConf["tag"]
+            
+            d = Docker.DockerImage(image_name)
+
+            if not d.pull():
+                raise Exception("Couldn't find docker explicitly named image %s" % d.image)
+
+            return d
+
+        if 'dockerfile' in dockerConf:
+            source = git_repo.getFileContents(commitId, dockerConf["dockerfile"])
+            if source is None:
+                raise Exception("No file found at %s in commit %s" % (dockerConf["dockerfile"], commitId))
+
+            return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True)
+
+        raise Exception("No docker configuration was provided. Test should define one of " + 
+                "'tag', or 'dockerfile'"
+                )
+
     def getDockerImage(self, commitId, dockerConf, output_dir):
         try:
-            if 'tag' in dockerConf:
-                tagname = dockerConf['tag']
-
-                for char in tagname:
-                    if not (char.isalnum() or char in ".-_:"):
-                        raise Exception("Invalid tag name: " + tagname)
-
-                image_name = dockerConf["tag"]
-                
-                d = Docker.DockerImage(image_name)
-
-                if not d.pull():
-                    raise Exception("Couldn't find docker explicitly named image %s" % d.image)
-
-                return d
-
-            if 'dockerfile' in dockerConf:
-                source = self.git_repo.getFileContents(commitId, dockerConf["dockerfile"])
-                if source is None:
-                    raise Exception("No file found at %s in commit %s" % (dockerConf["dockerfile"], commitId))
-
-                return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True)
-
-            raise Exception("No docker configuration was provided. Test should define one of " + 
-                    "'tag', or 'dockerfile'"
-                    )
+            return self.getDockerImageFromRepo(self.git_repo, commitId, dockerConf)
         except Exception as e:
             logging.error("Failed to produce docker image:\n%s", traceback.format_exc())
             self.ensureDirectoryExists(output_dir)

@@ -67,6 +67,26 @@ class Git(object):
 
         return self.subprocessCheckCall('git reset --hard ' + revision, shell=True) == 0
 
+    def resetToCommitInDirectory(self, revision, directory):
+        directory = os.path.abspath(directory)
+
+        logging.info("Resetting to revision %s in %s", revision, directory)
+
+        if not self.pullLatest():
+            return False
+
+        if self.subprocessCheckCall(
+                ['git', 'worktree', 'add', '--detach', '--no-checkout', directory]
+                ):
+            raise Exception("Failed to create working tree at %s" % directory)
+
+        if self.subprocessCheckCallAltDir(
+                directory,
+                "git reset --hard " + revision,
+                shell=True
+                ):
+            raise Exception("Failed to checkout revision %s" % revision)
+
     def commit(self, msg):
         """Commit the current state of the repo and return the commit id"""
         assert self.subprocessCheckCall(["git", "add", "."]) == 0
@@ -205,13 +225,16 @@ class Git(object):
         return name and '/HEAD' not in name and "(" not in name and "*" not in name
 
 
-    def subprocessCheckCall(self, *args, **kwds):
+    def subprocessCheckCallAltDir(self, altDir, *args, **kwds):
         return pickle.loads(
             self.outOfProcessDownloaderPool.executeAndReturnResultAsString(
-                SubprocessCheckCall(self.path_to_repo, args, kwds)
+                SubprocessCheckCall(altDir, args, kwds)
                 )
             )
 
+    def subprocessCheckCall(self, *args, **kwds):
+        return self.subprocessCheckCallAltDir(self.path_to_repo, *args, **kwds)
+        
     def subprocessCheckOutput(self, *args, **kwds):
         return pickle.loads(
             self.outOfProcessDownloaderPool.executeAndReturnResultAsString(

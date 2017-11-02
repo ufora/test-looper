@@ -403,42 +403,41 @@ class TestManager(object):
                 if testData:
                     commit.addTestResult(testData, updateDB=False)
 
+    def testDefinitionsForCommit(self, commitId):
+        json = self.testDb.getTestScriptDefinitionsForCommit(commitId)
+
+        if json is None:
+            data = self.src_ctrl.getTestScriptDefinitionsForCommit(commitId)
+
+            if data is None:
+                json = {}
+            else:
+                try:
+                    json = simplejson.loads(data)
+                except:
+                    logging.error("Contents of test definitions for %s are not valid json.\n%s" % 
+                        (commitId, traceback.format_exc()))
+
+                    json = {}
+
+            self.testDb.setTestScriptDefinitionsForCommit(commitId, json)
+
+        return TestScriptDefinition.TestDefinitions.fromJson(json)
+
     def createCommit(self, commitId, parentHashes, commitTitle):
         if commitId not in self.commits:
-            json = self.testDb.getTestScriptDefinitionsForCommit(commitId)
-
-            if json is None:
-                data = self.src_ctrl.getTestScriptDefinitionsForCommit(commitId)
-
-                if data is None:
-                    json = "default"
-                else:
-                    try:
-                        json = simplejson.loads(data)
-                    except:
-                        logging.error("Contents of test definitions for %s are not valid json.\n%s" % 
-                            (commitId, traceback.format_exc()))
-
-                        json = {}
-
-                self.testDb.setTestScriptDefinitionsForCommit(commitId, json)
-
             try:
-                if json == "default":
-                    json = self.settings.test_definitions_default
-
-                testScriptDefinitions = TestScriptDefinition.TestScriptDefinition.testSetFromJson(json)
+                testScriptDefinitions = self.testDefinitionsForCommit(commitId).getTestsAndBuild()
                 testScriptDefinitionsError = None
             except Exception as e:
-                testScriptDefinitions = []
+                testScriptDefinitions = None
                 testScriptDefinitionsError = e.message
-                
 
             self.commits[commitId] = Commit.Commit(self.testDb,
                                                    commitId,
                                                    parentHashes,
                                                    commitTitle,
-                                                   testScriptDefinitions,
+                                                   testScriptDefinitions or [],
                                                    testScriptDefinitionsError
                                                    )
 
