@@ -15,10 +15,13 @@ class TestScriptDefinition(object):
                  machines,
                  docker,
                  periodicTest=False,
-                 periodicTestPeriodInHours=defaultPeriodicTestPeriodInHours):
+                 periodicTestPeriodInHours=defaultPeriodicTestPeriodInHours,
+                 portExpose=None
+                 ):
         self.testName = testName
         self.testCommand = testCommand
         self.docker = docker
+        self.portExpose = portExpose
 
         if 'count' not in machines:
             machines['count'] = 1
@@ -43,7 +46,8 @@ class TestScriptDefinition(object):
             'machines': self.machines,
             'periodicTest': self.periodicTest,
             'periodicTestPeriodInHours': self.periodicTestPeriodInHours,
-            'docker': self.docker
+            'docker': self.docker,
+            'portExpose': self.portExpose
             }
 
     @staticmethod
@@ -56,7 +60,8 @@ class TestScriptDefinition(object):
             json['name'],
             json['command'],
             json.get('machines', {'count': 1, 'cores_min': 0}),
-            docker
+            docker,
+            portExpose=json.get("portExpose")
             )
 
     @staticmethod
@@ -66,11 +71,13 @@ class TestScriptDefinition(object):
 
     def __repr__(self):
         return ("TestScriptDefinition(testName=%s, testCommand=%s, machines=%s, "
-                "periodicTest=%s,periodicTestPeriodInHours=%s)") % (self.testName,
+                "periodicTest=%s,periodicTestPeriodInHours=%s,ports=%s)") % (self.testName,
                                                                     self.testCommand,
                                                                     self.machines,
                                                                     self.periodicTest,
-                                                                    self.periodicTestPeriodInHours)
+                                                                    self.periodicTestPeriodInHours,
+                                                                    self.portExpose
+                                                                    )
 
     def isSingleMachineTest(self):
         return self.totalMachinesRequired() == 1

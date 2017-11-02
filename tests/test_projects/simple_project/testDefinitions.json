@@ -13,6 +13,9 @@
     {"name": "check_build_output", "command": "echo $BUILD_DIR/build_file"}
     ],
 "environments": [
-    {"name": "env", "command": "pwd; echo 'hello'"}
+    {"name": "env", 
+     "command": "pwd; echo 'hello'",
+ 	 "portExpose": "http:8000"
+ 	 }
     ]
 }

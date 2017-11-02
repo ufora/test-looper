@@ -1,6 +1,7 @@
 #!/usr/bin/python2.7
 
 import argparse
+import random
 import tempfile
 import os
 import sys
@@ -39,9 +40,9 @@ def createArgumentParser():
         )
 
     parser.add_argument(
-        '--port',
+        '--ports',
         dest='ports',
-        action='append',
+        default=None,
         help="comma-separated list of ports to expose"
         )
     
@@ -50,6 +51,23 @@ def createArgumentParser():
 def loadConfiguration(configFile):
     with open(configFile, 'r') as fin:
         return json.loads(fin.read())
+
+def get_used_ports():
+    used = subprocess.check_output("lsof -i -P -n | grep LISTEN", shell=True)
+    results = []
+    for u in used:
+        try:
+            results.append(int(u.split(":")[1].split( )[0]))
+        except:
+            pass
+    return results
+
+def pick_random_open_port():
+    while True:
+        new_port = 3000 + int(10000 * random.random())
+        if new_port not in used_ports:
+            return new_port
+
 
 if __name__ == "__main__":
     args = createArgumentParser().parse_args()
@@ -95,17 +113,26 @@ if __name__ == "__main__":
     repo_dir = os.path.join(temp_dir, "repo")
 
     print "command = " + cmd
-    print "***********************************"
-
-    for i in xrange(10):
-        print
 
     repo.resetToCommitInDirectory(args.commit, os.path.join(temp_dir, "repo"))
 
     if args.ports:
+        type_and_port = args.ports.split(",")
+        used_ports = get_used_ports()
         ports = {}
+
+        for tp in type_and_port:
+            type, port = tp.split(":")
+            tgt = pick_random_open_port()
+            ports[tgt] = port
+
+            print "Exposed %s=%s in container on host as %s" % (type, port, tgt)
     else:
         ports = {}
+
+    print "***********************************"
+    for i in xrange(10):
+        print
 
     try:
         image = WorkerState.WorkerState.getDockerImageFromRepo(repo, args.commit, testDef.docker)
@@ -121,7 +148,7 @@ if __name__ == "__main__":
                 working_dir="/repo",
                 volumes={repo_dir:"/repo", os.path.join(own_dir, "exposed_in_invoke"): "/exposed_in_invoke"},
                 environment={"TEST_SRC_DIR":"/repo"},
-                ports=args.ports,
+                ports=ports,
                 tty=True
                 )
             

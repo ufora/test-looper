@@ -566,7 +566,7 @@ class TestLooperHttpServer(object):
                 buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Environments")))
                 for env in sorted(env_vals, key=lambda e: e.testName):
                     buttons.append(
-                        HtmlGeneration.Link(self.bootTestOrEnvUrl(commitId, env.testName),
+                        HtmlGeneration.Link(self.bootTestOrEnvUrl(commitId, env.testName, env.portExpose),
                            env.testName,
                            is_button=True,
                            button_style=self.disable_if_cant_write('btn-danger btn-xs')
@@ -580,7 +580,7 @@ class TestLooperHttpServer(object):
                 buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Tests")))
                 for test in sorted(test_vals, key=lambda e: e.testName):
                     buttons.append(
-                        HtmlGeneration.Link(self.bootTestOrEnvUrl(commitId, test.testName),
+                        HtmlGeneration.Link(self.bootTestOrEnvUrl(commitId, test.testName, test.portExpose),
                            test.testName,
                            is_button=True,
                            button_style=self.disable_if_cant_write('btn-danger btn-xs')
@@ -591,7 +591,7 @@ class TestLooperHttpServer(object):
 
             return header + HtmlGeneration.HtmlElements(buttons).render() + HtmlGeneration.grid(grid)
 
-    def bootTestOrEnvUrl(self, commitId, testName):
+    def bootTestOrEnvUrl(self, commitId, testName, ports):
         addr = self.address
         items = addr.split(":")
         def isint(x):
@@ -603,7 +603,10 @@ class TestLooperHttpServer(object):
         if isint(items[-1]):
             addr = ":".join(items[:-1])
 
-        return addr + ":3000" + "/wetty?" + urllib.urlencode({'commit': commitId, 'test': testName})
+        args = {'commit': commitId, 'test': testName}
+        if ports:
+            args["ports"] = ports
+        return addr + ":3000" + "/wetty?" + urllib.urlencode(args)
 
 
     def gridForTestList_(self, sortedTests, commit=None, failuresOnly=False):

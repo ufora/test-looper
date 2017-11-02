@@ -75,7 +75,8 @@ io.on('connection', function(socket){
     var args = ["invoke.py", opts.config, commit, test]
 
     if (ports != null) {
-        args.Append('--ports=' + ports)
+        args.push('--ports')
+        args.push(ports)
     }
 
     console.log("Invoking invoke.py with args " + JSON.stringify(args, null, 2))
