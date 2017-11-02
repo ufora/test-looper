@@ -76,7 +76,7 @@ class Git(object):
             return False
 
         if self.subprocessCheckCall(
-                ['git', 'worktree', 'add', '--detach', '--no-checkout', directory]
+                ['git', 'worktree', 'add', '--detach', directory]
                 ):
             raise Exception("Failed to create working tree at %s" % directory)
 

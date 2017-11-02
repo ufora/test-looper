@@ -79,7 +79,14 @@ if __name__ == "__main__":
     
     config = loadConfiguration(args.config)
 
-    repo = Git.Git(str(os.path.expandvars(config["source_control"]["path_to_repo"])))
+    if "path_to_repo" in config["source_control"]:
+        path = config["source_control"]["path_to_repo"]
+    else:
+        path = config["source_control"]["path_to_local_repo"]
+
+    path = os.path.expandvars(path)
+
+    repo = Git.Git(str(path))
 
     testDefsTxt = repo.getFileContents(args.commit, config["source_control"]["test_definitions_path"])
 
@@ -88,7 +95,7 @@ if __name__ == "__main__":
         print
         print
         print
-        print "Cannot get testDefinitions from the repo."
+        print "Cannot get testDefinitions from the repo at ", path, config["source_control"]["test_definitions_path"]
         print
         sys.exit(1)
 
@@ -124,7 +131,7 @@ if __name__ == "__main__":
         for tp in type_and_port:
             type, port = tp.split(":")
             tgt = pick_random_open_port()
-            ports[tgt] = port
+            ports[port] = tgt
 
             print "Exposed %s=%s in container on host as %s" % (type, port, tgt)
     else:
@@ -137,7 +144,7 @@ if __name__ == "__main__":
     try:
         image = WorkerState.WorkerState.getDockerImageFromRepo(repo, args.commit, testDef.docker)
             
-        bash_args = ["-c", cmd + '; cp /exposed_in_invoke/fancy_bashrc ~/.bashrc; echo "\n\n\n\n\nYou are now interactive\n\n"; bash']
+        bash_args = ["-c", "rm -rf /repo/.git; " + cmd + '; cp /exposed_in_invoke/fancy_bashrc ~/.bashrc; echo "\n\n\n\n\nYou are now interactive\n\n"; bash']
 
         with DockerWatcher.DockerWatcher("interactive_" + str(uuid.uuid4()) + "_") as watcher:
             container = watcher.run(image, 
