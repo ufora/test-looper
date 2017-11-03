@@ -53,6 +53,9 @@ class AwsArtifactStorage(object):
                 headers = {}
                 if '.log' in path:
                     headers['Content-Type'] = 'text/plain'
+                elif '.xml' in path:
+                    headers['Content-Type'] = 'text/xml'
+
                 if path.endswith('.gz'):
                     headers['Content-Encoding'] = 'gzip'
                 key = bucket.new_key(testId + "/" + machineId + '/' + os.path.split(path)[-1])
@@ -108,10 +111,14 @@ class LocalArtifactStorage(object):
             return f.read()
 
     def testContentsHtml(self, testId, key):  
-        if ".log" in key:
-            cherrypy.response.headers['Content-Type'] = 'text/plain'        
-        if key.endswith(".gz"):
-            cherrypy.response.headers['Content-Encoding'] = 'gzip'      
+        if key.endswith(".log.gz"):
+            cherrypy.response.headers['Content-Type'] = 'text/plain'
+            cherrypy.response.headers['Content-Encoding'] = 'gzip'
+            cherrypy.response.headers["Content-Disposition"] = "filename=\"" + key[:-3] + "\";"
+        else:
+            cherrypy.response.headers['Content-Type'] = 'application/octet-stream'
+            cherrypy.response.headers["Content-Disposition"] = "attachment; filename=\"" + key + "\";"
+
 
         return self.testContents(testId, key)
     

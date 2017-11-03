@@ -6,6 +6,7 @@ import sys
 import subprocess
 import dockerpty
 import docker
+import uuid
 import test_looper.core.tools.Docker as Docker
 import test_looper.core.tools.DockerWatcher as DockerWatcher
 
@@ -70,7 +71,7 @@ if __name__ == "__main__":
     else:
         args.ports = dict([v.split(":") for v in args.ports])
 
-    with DockerWatcher.DockerWatcher("interactive_") as watcher:
+    with DockerWatcher.DockerWatcher("interactive_" + str(uuid.uuid4())) as watcher:
         container = watcher.run(image, 
             ["bash"] + bash_args, 
             privileged=True,
