@@ -4,6 +4,7 @@ import subprocess
 import traceback
 import os
 import threading
+import time
 
 import test_looper.core.OutOfProcessDownloader as OutOfProcessDownloader
 
@@ -43,21 +44,30 @@ class SubprocessCheckOutput(object):
 
 class Git(object):
     def __init__(self, path_to_repo):
-        assert isinstance(path_to_repo, str)
+        assert isinstance(path_to_repo, (str, unicode))
         
-        self.path_to_repo = path_to_repo
+        self.path_to_repo = str(path_to_repo)
         
         self.outOfProcessDownloaderPool = \
             OutOfProcessDownloader.OutOfProcessDownloaderPool(1, dontImportSetup=True)
         
         self.git_repo_lock = threading.RLock()
 
+        self.testDefinitionLocationCache_ = {}
+
     def writeFile(self, name, text):
         with open(os.path.join(self.path_to_repo, name), "w") as f:
             f.write(text)
 
+    def listRemotes(self):
+        return [x.strip() for x in self.subprocessCheckOutput("git remote",shell=True).split("\n")]
+
     def pullLatest(self):
-        return self.subprocessCheckCall(['git fetch origin'], shell=True) == 0
+        remotes = self.listRemotes()
+        if "origin" in remotes:
+            return self.subprocessCheckCall(['git fetch origin'], shell=True) == 0
+        else:
+            return True
 
     def resetToCommit(self, revision):
         logging.info("Resetting to revision %s", revision)
@@ -73,7 +83,7 @@ class Git(object):
         logging.info("Resetting to revision %s in %s", revision, directory)
 
         if not self.pullLatest():
-            return False
+            raise Exception("Couldn't pull latest from origin")
 
         if self.subprocessCheckCall(
                 ['git', 'worktree', 'add', '--detach', directory]
@@ -122,7 +132,7 @@ class Git(object):
             
     def listBranches(self):
         with self.git_repo_lock:
-            output = self.subprocessCheckOutput('git branch -rl', shell=True).strip().split('\n')
+            output = self.subprocessCheckOutput('git branch --list', shell=True).strip().split('\n')
             
             output = [l.strip() for l in output if l]
             output = [l[1:] if l[0] == '*' else l for l in output if l]
@@ -133,15 +143,8 @@ class Git(object):
     def listBranchesForRemote(self, remote):
         with self.git_repo_lock:
             lines = self.subprocessCheckOutput('git branch -r', shell=True).strip().split('\n')
-            print lines
-
             lines = [l[:l.find(" -> ")].strip() if ' -> ' in l else l.strip() for l in lines]
-
-            print lines
-
             lines = [l[7:].strip() for l in lines if l.startswith("origin/")]
-
-            print lines
 
             return [r for r in lines if r != "HEAD"]
 
@@ -207,6 +210,28 @@ class Git(object):
             except:
                 return None
 
+    def commitExists(self, commitHash):
+        return commitHash in self.subprocessCheckOutput("git rev-parse --quiet --verify %s^{commit}" % commitHash, shell=True)
+
+    def getTestDefinitionsPath(self, commit):
+        """Breadth-first search through the git repo to find testDefinitions.json"""
+
+        if commit in self.testDefinitionLocationCache_:
+            return self.testDefinitionLocationCache_.get(commit)
+        
+        paths = sorted(
+            [p for p in (
+                self.subprocessCheckOutput(["git", "ls-files", "*/testDefinitions.json"]).split("\n")+
+                self.subprocessCheckOutput(["git", "ls-files", "testDefinitions.json"]).split("\n")
+                ) if "testDefinitions.json" in p]
+            )
+
+        if not paths:
+            self.testDefinitionLocationCache_[commit] = None
+        else:
+            self.testDefinitionLocationCache_[commit] = paths[0]
+
+        return self.testDefinitionLocationCache_[commit]
 
     def fetchOrigin(self):
         with self.git_repo_lock:

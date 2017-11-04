@@ -61,13 +61,10 @@ def createTestWorker(config, machineInfo, worker_index):
 
     worker_path = str(os.path.join(os.path.expandvars(config['worker']['path']), worker_index))
 
-    git_repo=Git.Git(os.path.join(worker_path, "repo"))
-
     osInteractions = WorkerState.WorkerState(
         "test_looper_" + worker_index + "_", 
         worker_path,
-        git_repo,
-        test_definitions_path=source_control.test_definitions_path,
+        source_control,
         artifactStorage=artifactStorage,
         machineInfo=MachineInfo.MachineInfo("localhost",
                                           "localhost",
@@ -76,8 +73,6 @@ def createTestWorker(config, machineInfo, worker_index):
                                           "bare metal"
                                           )
         )
-
-    osInteractions.ensureGitRepoInitialized(source_control)
 
     def createTestLooperClient():
         return TestLooperClient.TestLooperClient(
@@ -121,7 +116,7 @@ if __name__ == "__main__":
 
     def handleStopSignal(signum, _):
         logging.info("Signal received: %s. Stopping service.", signum)
-        for w in testLooperWorker:
+        for w in testLooperWorkers:
             w.stop()
 
         logging.info("Waiting for workers to shut down.", signum)

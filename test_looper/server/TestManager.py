@@ -20,7 +20,6 @@ class TestManagerSettings:
         self.max_test_count = max_test_count
         self.test_definitions_default = test_definitions_default
 
-
 class TestManager(object):
     def __init__(self, src_ctrl, test_db, lock, settings):
         self.src_ctrl = src_ctrl
@@ -30,8 +29,7 @@ class TestManager(object):
         self.mostRecentTouchByMachine = {}
         self.branches = {}
         self.commits = {}
-        self.periodicTestRunBranchCandidates = ['origin/master']
-
+        
         #dict from internalIpAddress to properties of blocking machines
         self.blockingMachines = BlockingMachines.BlockingMachines()
         self.lock = lock
@@ -56,10 +54,12 @@ class TestManager(object):
 
     def getCommitByCommitId(self, commitId):
         if not commitId in self.commits:
-            commitId, parentHashes, commitTitle = self.src_ctrl.commitsBetweenCommitIds(commitId, commitId + "^^")[0]
-            self.commits[commitId] = self.createCommit(commitId, parentHashes, commitTitle)
-        return self.commits[commitId]
+            repoName, commitHash = commitId.split("/")
 
+            commitId, parentHashes, commitTitle = self.src_ctrl.getRepo(repoName).commitsBetweenCommitIds(commitHash, commitHash + "^^")[0]
+
+            self.commits[commitId] = self.createCommit(repoName + "/" + commitHash, parentHashes, commitTitle)
+        return self.commits[commitId]
 
     def getTestById(self, testId):
         #we need to add indices to this object, so that this can be fast
@@ -79,36 +79,6 @@ class TestManager(object):
 
     def commitsInBranch(self, branchName):
         return self.branches[branchName].commits.values()
-
-    def getPeriodicTestsToRun(self):
-        result = []
-        for branch in self.branches.values():
-            if branch.branchName in self.periodicTestRunBranchCandidates and \
-                    len(branch.commitsInOrder) > 0:
-                mostRecentCommit = branch.commitsInOrder[0]
-                if mostRecentCommit.needsBuild():
-                    logging.info("%s needs build, branch: %s", mostRecentCommit, branch)
-                    continue
-                periodicTests = [
-                    t for t in mostRecentCommit.testScriptDefinitions if t.periodicTest
-                    ]
-                for periodicTest in periodicTests:
-                    lastTestRunStarted = mostRecentCommit.lastTestRunStarted(periodicTest.testName)
-                    if lastTestRunStarted is not None:
-                        logging.warn(
-                            "Test: %s, last run: %s, diff: %s, test period: %s",
-                            periodicTest,
-                            lastTestRunStarted,
-                            time.time() - lastTestRunStarted,
-                            periodicTest.periodicTestPeriodInHours * 60 * 60
-                            )
-                    if lastTestRunStarted is None or \
-                            time.time() - lastTestRunStarted > \
-                                (periodicTest.periodicTestPeriodInHours * 60 * 60):
-                        result.append((mostRecentCommit, periodicTest.testName))
-
-        return result
-
 
     def getPossibleCommitsAndTests(self, workerInfo=None):
         """Return a list consisting of all possible commit/test combinations we'd consider running.
@@ -294,12 +264,6 @@ class TestManager(object):
         """Returns the priority score for this commit"""
         commitLevel = commitLevelDict[commit.commitId]
 
-        #this is a log-probability measure of how 'suspicious' this commit is
-        suspiciousness = min(commit.suspiciousnessLevelForTest(testName), 10)
-
-        #note that we use a smaller power than "e" even though it's log probability. This compresses
-        #the spread of the tests so that we don't focus too much
-        weightPerNonTimedOutRun = 1 / (.5 + 1.5 ** suspiciousness) / 5.0
         if testName is None:
             return self.BASE_PRIORITY_UNKNOWN_COMMIT - commitLevel
         if testName == "build":
@@ -310,7 +274,7 @@ class TestManager(object):
             return self.BASE_PRIORITY_UNTESTED_COMMIT - commitLevel / 10000.0
         if commit.isTargetedTest(testName):
             return self.BASE_PRIORITY_TARGETED_COMMIT - commitLevel / 10000.0 - \
-                commit.totalNonTimedOutRuns(testName) * weightPerNonTimedOutRun
+                commit.totalNonTimedOutRuns(testName)
 
         return 0 - commitLevel / 10000.0 - commit.totalNonTimedOutRuns(testName) / 10.0
 
@@ -325,6 +289,7 @@ class TestManager(object):
             lock.release()
 
         t0 = time.time()
+
         branchNames = set(self.src_ctrl.listBranches())
         logging.info("listing branches took %.2f seconds", time.time() - t0)
 
@@ -358,31 +323,6 @@ class TestManager(object):
 
             del self.branches[b]
 
-        if self.settings.baseline_branch != 'origin/master' and self.settings.baseline_depth == 0:
-            bottom_commit = "origin/master"
-        else:
-            bottom_commit = "{baseline}{carrets}".format(
-                baseline=self.settings.baseline_branch,
-                carrets='^'*self.settings.baseline_depth
-                )
-
-        if self.settings.baseline_branch not in self.branches:
-            logging.info("Recreating baseline branch %s", self.settings.baseline_branch)
-
-            self.branches[self.settings.baseline_branch] = Branch.Branch(
-                self.testDb,
-                self.settings.baseline_branch,
-                bottom_commit
-                )
-        else:
-            logging.info("Resetting baseline branch %s bottom commit", self.settings.baseline_branch)
-
-            self.branches[self.settings.baseline_branch].updateRevList(
-                bottom_commit,
-                self
-                )
-        logging.info("creating new branches took %.2f seconds", time.time() - t0)
-
         t0 = time.time()
         self.pruneUnusedCommits()
         logging.info("pruning unused commits took %.2f seconds", time.time() - t0)
@@ -407,7 +347,10 @@ class TestManager(object):
         json = self.testDb.getTestScriptDefinitionsForCommit(commitId)
 
         if json is None:
-            data = self.src_ctrl.getTestScriptDefinitionsForCommit(commitId)
+            repoName, commitHash = commitId.split("/")
+
+            repo = self.src_ctrl.getRepo(repoName)
+            data = repo.getTestScriptDefinitionsForCommit(commitHash)
 
             if data is None:
                 json = {}
@@ -432,7 +375,6 @@ class TestManager(object):
             except Exception as e:
                 testScriptDefinitions = None
                 testScriptDefinitionsError = e.message
-
             self.commits[commitId] = Commit.Commit(self.testDb,
                                                    commitId,
                                                    parentHashes,

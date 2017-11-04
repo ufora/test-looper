@@ -376,9 +376,9 @@ class TestLooperHttpServer(object):
     def sourceLinkForCommit(self, commit):
         url = self.src_ctrl.commit_url(commit.commitId)
         if url:
-            return HtmlGeneration.link(commit.commitId[:7], url)
+            return HtmlGeneration.link(commit.commitHash[:7], url)
         else:
-            return HtmlGeneration.lightGrey(commit.commitId[:7])
+            return HtmlGeneration.lightGrey(commit.commitHash[:7])
 
 
     @cherrypy.expose
@@ -508,7 +508,9 @@ class TestLooperHttpServer(object):
 
 
     @cherrypy.expose
-    def commit(self, commitId, failuresOnly=False, testName=None):
+    def commit(self, repoName, commitHash, failuresOnly=False, testName=None):
+        commitId = repoName + "/" + commitHash
+
         self.authorize(read_only=True)
 
         with self.testManager.lock:
@@ -561,7 +563,13 @@ class TestLooperHttpServer(object):
             header = self.commonHeader() + markdown.markdown(header)
 
             buttons = []
-            env_vals = self.testManager.testDefinitionsForCommit(commitId).environments.values()
+            try:
+                defs = self.testManager.testDefinitionsForCommit(commitId)
+            except:
+                defs = None
+
+            env_vals = defs.environments.values() if defs else []
+
             if env_vals:
                 buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Environments")))
                 for env in sorted(env_vals, key=lambda e: e.testName):
@@ -575,7 +583,7 @@ class TestLooperHttpServer(object):
                     buttons.append(HtmlGeneration.makeHtmlElement("&nbsp;"*2))
                 buttons.append(HtmlGeneration.makeHtmlElement("<br>"*2))
 
-            test_vals = self.testManager.testDefinitionsForCommit(commitId).tests.values()
+            test_vals = defs.tests.values() if defs else []
             if test_vals:
                 buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Tests")))
                 for test in sorted(test_vals, key=lambda e: e.testName):
@@ -1025,14 +1033,14 @@ class TestLooperHttpServer(object):
             fork_commits = []
             for c in commits:
                 if lastCommit is not None and \
-                        lastCommit.parentId != c.commitId or commitsInStrand > 9:
+                        lastCommit.parentHash != c.commitHash or commitsInStrand > 9:
                     grid.append([])
                     commitsInStrand = 0
                 else:
                     commitsInStrand += 1
 
-                is_fork = len(fork_commits) > 0 and c.commitId == fork_commits[-1]
-                is_merge = len(c.parentIds) > 1
+                is_fork = len(fork_commits) > 0 and c.commitHash == fork_commits[-1]
+                is_merge = len(c.parentHashes) > 1
 
                 row = self.getBranchCommitRow(branch,
                                               c,
@@ -1050,7 +1058,7 @@ class TestLooperHttpServer(object):
                 row[1] = HtmlGeneration.whitespace*(4*len(fork_commits)) + row[1].render()
 
                 if is_merge:  # its's a merge commit
-                    fork_commits.append(c.parentIds[0])
+                    fork_commits.append(c.parentHashes[0])
 
                 grid.append(row)
                 if is_merge:

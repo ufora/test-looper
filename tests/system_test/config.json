@@ -20,8 +20,17 @@
         "repo_name": "nativepython"
         },
     "source_control": {
+        "type": "github",
+        "path_to_local_repos": "$TEST_LOOPER_INSTALL/repos",
+        "oauth_key": "asdf",
+        "oauth_secret": "asdf",
+        "webhook_secret": "asdf",
+        "owner": "user:braxtonmckee",
+        "access_token": "",
+        "auth_disabled": true
+        },
+    "source_control_2": {
         "type": "local_git",
-        "path_to_repo": "$TEST_LOOPER_INSTALL/repo",
-        "test_definitions_path": "testDefinitions.json"
+        "path_to_repos": "$TEST_LOOPER_INSTALL/repos"
         }
 }

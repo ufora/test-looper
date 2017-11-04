@@ -27,6 +27,7 @@ import test_looper
 
 class TestLooperDirectories:
     def __init__(self, worker_directory):
+        self.repo_cache = os.path.join(worker_directory, "repos")
         self.repo_copy_dir = os.path.join(worker_directory, "repo_copy")
         self.build_dir = os.path.join(worker_directory, "build")
         self.output_dir = os.path.join(worker_directory, "output")
@@ -36,10 +37,10 @@ class TestLooperDirectories:
 
     def all(self):
         return [self.repo_copy_dir, self.build_dir, self.test_data_dir, 
-                self.build_cache_dir, self.ccache_dir, self.output_dir]
+                self.build_cache_dir, self.ccache_dir, self.output_dir, self.repo_cache]
 
 class WorkerState(object):
-    def __init__(self, name_prefix, worker_directory, git_repo, test_definitions_path, artifactStorage, machineInfo, timeout=900, verbose=False):
+    def __init__(self, name_prefix, worker_directory, source_control, artifactStorage, machineInfo, timeout=900, verbose=False):
         import test_looper.worker.TestLooperWorker
 
         self.name_prefix = name_prefix
@@ -49,13 +50,13 @@ class WorkerState(object):
 
         self.worker_directory = worker_directory
 
-        self.test_definitions_path = test_definitions_path
-
         self.verbose = verbose
 
         self.timeout = timeout
 
         self.directories = TestLooperDirectories(worker_directory)
+
+        self.repos_by_name = {}
 
         self.machineInfo = machineInfo
 
@@ -67,9 +68,15 @@ class WorkerState(object):
 
         self.artifactStorage = artifactStorage
 
-        self.git_repo = git_repo
+        self.source_control = source_control
 
         self.cleanup()
+
+    def getRepoCacheByName(self, name):
+        if name not in self.repos_by_name:
+            self.repos_by_name[name] = Git.Git(str(os.path.join(self.directories.repo_cache, name)))
+        return self.repos_by_name[name]
+
 
     def untarString(self, contents):
         tempdir = tempfile.mkdtemp()
@@ -204,18 +211,23 @@ class WorkerState(object):
             if tail_proc is not None:
                 tail_proc.stop()
 
-    def resetToCommit(self, revision):
-        if not self.git_repo.resetToCommit(revision):
-            return False
+    def resetToCommit(self, commitId):
+        repoName, commitHash = commitId.split("/")
 
-        #make a copy of the git_repo in the working directory, minus the .git directory
-        for p in os.listdir(self.git_repo.path_to_repo):
-            if p != ".git":
-                if SubprocessRunner.callAndReturnResultWithoutOutput(
-                        ["cp", "-r", os.path.join(self.git_repo.path_to_repo, p), self.directories.repo_copy_dir]
-                        ) != 0:
-                    logging.error("Failed to copy %s into the repo_copy_dir", p)
-                    return False
+        git_repo = self.getRepoCacheByName(repoName)
+
+        if not git_repo.isInitialized():
+            git_repo.cloneFrom(self.source_control.getRepo(repoName).cloneUrl())
+
+        #check out a working copy
+        self.clearDirectoryAsRoot(self.directories.repo_copy_dir)
+
+        try:
+            git_repo.resetToCommitInDirectory(commitHash, self.directories.repo_copy_dir)
+            os.unlink(os.path.join(self.directories.repo_copy_dir, ".git"))
+        except:
+            logging.error(traceback.format_exc())
+            return False
 
         return True
 
@@ -226,11 +238,6 @@ class WorkerState(object):
         except os.error as e:
             if e.errno != errno.EEXIST:
                 raise
-
-    def ensureGitRepoInitialized(self, source_control):
-        self.ensureDirectoryExists(self.git_repo.path_to_repo)
-        if not self.git_repo.isInitialized():
-            self.git_repo.cloneFrom(source_control.cloneUrl())
 
     def createNextTestDirForCommit(self, commitId):
         revisionDir = os.path.join(self.directories.test_data_dir, commitId)
@@ -284,7 +291,7 @@ class WorkerState(object):
         shutil.rmtree(cached_builds[0][1])
 
     @staticmethod
-    def getDockerImageFromRepo(git_repo, commitId, dockerConf):
+    def getDockerImageFromRepo(git_repo, commitHash, dockerConf):
         if 'tag' in dockerConf:
             tagname = dockerConf['tag']
 
@@ -302,9 +309,9 @@ class WorkerState(object):
             return d
 
         if 'dockerfile' in dockerConf:
-            source = git_repo.getFileContents(commitId, dockerConf["dockerfile"])
+            source = git_repo.getFileContents(commitHash, dockerConf["dockerfile"])
             if source is None:
-                raise Exception("No file found at %s in commit %s" % (dockerConf["dockerfile"], commitId))
+                raise Exception("No file found at %s in commit %s" % (dockerConf["dockerfile"], commitHash))
 
             return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True)
 
@@ -313,8 +320,10 @@ class WorkerState(object):
                 )
 
     def getDockerImage(self, commitId, dockerConf, output_dir):
+        repoName, commitHash = commitId.split("/")
+        github_repo = self.getRepoCacheByName(repoName)
         try:
-            return self.getDockerImageFromRepo(self.git_repo, commitId, dockerConf)
+            return self.getDockerImageFromRepo(github_repo, commitHash, dockerConf)
         except Exception as e:
             logging.error("Failed to produce docker image:\n%s", traceback.format_exc())
             self.ensureDirectoryExists(output_dir)
@@ -338,17 +347,12 @@ class WorkerState(object):
             result.recordLogMessage(message)
         return result
 
-    def dockerImageFor(self, commitId, testName):
-        defs = self.testDefinitionFor(commitId, testName)[0]
-
-        return self.getDockerImage(
-            commitId, 
-            defs.docker, 
-            self.directories.output_dir
-            )
-
     def testDefinitionFor(self, commitId, testName):
-        json = simplejson.loads(self.git_repo.getFileContents(commitId, self.test_definitions_path))
+        repoName, commitHash = commitId.split("/")
+
+        path = self.getRepoCacheByName(repoName).getTestDefinitionsPath(commitHash)
+
+        json = simplejson.loads(self.getRepoCacheByName(repoName).getFileContents(commitHash, path))
 
         testScriptDefinitions = [x for x in 
             TestScriptDefinition.TestScriptDefinition.testSetFromJson(json)
@@ -362,7 +366,7 @@ class WorkerState(object):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
         self.cleanup()
 
-        if testName == "build" and self.artifactStorage.build_exists(commitId):
+        if testName == "build" and self.artifactStorage.build_exists(self.artifactKeyForCommit(commitId)):
             if self.verbose:
                 print "Build already exists."
             return self.create_test_result(True, testId, commitId)
@@ -371,14 +375,8 @@ class WorkerState(object):
             return self.create_test_result(False, testId, commitId, "Failed to checkout code")
 
         try:
-            contents = self.git_repo.getFileContents(commitId, self.test_definitions_path)
+            testScriptDefinitions = self.testDefinitionFor(commitId, testName)
 
-            json = simplejson.loads(contents)
-
-            testScriptDefinitions = [x for x in 
-                TestScriptDefinition.TestScriptDefinition.testSetFromJson(json)
-                    if x.testName == testName
-                ]
             if not testScriptDefinitions:
                 return self.create_test_result(False, testId, commitId, "No test named " + testName)
             if len(testScriptDefinitions) > 1:
@@ -447,7 +445,7 @@ class WorkerState(object):
 
 
     def _run_test_task(self, testId, commitId, test_definition, heartbeat):
-        if not self.artifactStorage.build_exists(commitId):
+        if not self.artifactStorage.build_exists(self.artifactKeyForCommit(commitId)):
             return self.create_test_result(False, testId, commitId, "can't run tests because the build doesn't exist")
 
         command = test_definition.testCommand
@@ -489,12 +487,16 @@ class WorkerState(object):
             )
 
         return test_result
+    
+    def artifactKeyForCommit(self, commitId):
+        repo, hash = commitId.split("/")
+        return repo + "_" + commitId
 
     def _upload_build(self, commitId):
         #upload all the data in our directory
         tarball_name = os.path.join(
             self.directories.build_cache_dir, 
-            commitId + ".tar"
+            "build_artifacts.tar"
             )
 
         if not os.path.exists(tarball_name):
@@ -503,7 +505,7 @@ class WorkerState(object):
                 ])
 
         try:
-            self.artifactStorage.upload_build(commitId, tarball_name)
+            self.artifactStorage.upload_build(self.artifactKeyForCommit(commitId), tarball_name)
             return True
         except:
             logging.error("Failed to upload package '%s' to %s\n%s",
@@ -520,14 +522,16 @@ class WorkerState(object):
 
     
     def _download_build(self, commitId):
-        path = os.path.join(self.directories.build_cache_dir, commitId + ".tar")
+        path = os.path.join(self.directories.build_cache_dir, "build_artifacts.tar")
         if not os.path.exists(path):
-            self.artifactStorage.download_build(commitId, path)
+            self.artifactStorage.download_build(self.artifactKeyForCommit(commitId), path)
         return path
 
     def environment_variables(self, testId, commitId):
+        repoName, commitHash = commitId.split("/")
         return  {
-            'REVISION': commitId,
+            'TEST_REPO': repoName,
+            'REVISION': commitHash,
             'TEST_SRC_DIR': "/test_looper/src",
             'TEST_BUILD_DIR': "/test_looper/build",
             'TEST_OUTPUT_DIR': "/test_looper/output",

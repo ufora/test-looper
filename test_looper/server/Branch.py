@@ -4,10 +4,11 @@ import test_looper.server.SequentialFailureRates as SequentialFailureRates
 
 class Branch(object):
     """Models a set of commits (usually from a git branch)"""
-    def __init__(self, testDb, branchName, baselineBranchName):
+    def __init__(self, testDb, branchName, baselineBranchNameInRepo):
         self.testDb = testDb
+        assert len(branchName.split("/")) > 1, "%s is not a valid repo/branchname" % branchName
         self.branchName = branchName
-        self.baselineBranchName = baselineBranchName
+        self.baselineBranchNameInRepo = baselineBranchNameInRepo
         self.commits = {}
         self.commitsInOrder = []
         self.commitIdToIndex = {}
@@ -16,10 +17,13 @@ class Branch(object):
         self.sequentialFailuresCache10 = None
         self.sequentialFailuresCache100 = None
         self.sequentialFailuresCache1000 = None
-        self.lastPeriodicTestRun = None
+
+    @property
+    def repoName(self):
+        return self.branchName.split("/")[0]
 
     def __repr__(self):
-        return "Branch(branchName='%s')" % self.branchName
+        return "Branch(%s)" % self.branchName
 
     def __str__(self):
         return self.__repr__()
@@ -89,50 +93,44 @@ class Branch(object):
                 self.sequentialFailuresCache1000[testName].add(stat.failCount, stat.completedCount)
 
 
-    # TestManager
-    def updateRevList(self, newBaseline, testManager):
-        if self.baselineBranchName != newBaseline:
-            self.baselineBranchName = newBaseline
-            self.updateCommitsUnderTest(testManager)
-
     @staticmethod
     def orderCommits(commits):
         #crappy n^2 way to order commits
 
         commitList = []
-        commitIdsUsed = set()
+        commitHashesUsed = set()
 
         allCommitIds = {}
         for c in commits:
-            allCommitIds[c.commitId] = c
+            allCommitIds[c.commitHash] = c
 
         while len(commitList) < len(commits):
             foundOne = False
 
             for c in commits:
-                if commitList and c.commitId == commitList[-1].parentId and c.commitId not in commitIdsUsed:
+                if commitList and c.commitHash == commitList[-1].parentHash and c.commitHash not in commitHashesUsed:
                     foundOne = True
                     commitList.append(c)
-                    commitIdsUsed.add(c.commitId)
+                    commitHashesUsed.add(c.commitHash)
 
                     break
 
             if not foundOne:
                 #pick a new leaf. A 'leaf' is a commit who is not yet used and which is not the
                 #parent of any commit remaining to be used
-                possibleLeafIds = set(allCommitIds.keys()) - commitIdsUsed
+                possibleLeafIds = set(allCommitIds.keys()) - commitHashesUsed
                 leaves = set(possibleLeafIds)
 
                 for c in commits:
-                    if c.commitId in possibleLeafIds:
-                        leaves.discard(c.parentId)
+                    if c.commitHash in possibleLeafIds:
+                        leaves.discard(c.parentHash)
 
                 if leaves:
-                    commitId = sorted(list(leaves))[0]
-                    c = allCommitIds[commitId]
+                    commitHash = sorted(list(leaves))[0]
+                    c = allCommitIds[commitHash]
 
                     commitList.append(c)
-                    commitIdsUsed.add(c.commitId)
+                    commitHashesUsed.add(c.commitHash)
 
                     foundOne = True
 
@@ -183,31 +181,53 @@ class Branch(object):
         if lock:
             lock.release()
         t0 = time.time()
-        commitIdsParentsAndTitles = testManager.src_ctrl.commitsBetweenBranches(self.branchName, self.baselineBranchName)
+
+        repoName, branchNameInRepo = self.branchName.split("/")
+        repo = testManager.src_ctrl.getRepo(repoName)
+
+        if branchNameInRepo == self.baselineBranchNameInRepo:
+            depth = testManager.settings.baseline_depth
+
+            commitHashesParentsAndTitles = \
+                repo.commitsBetweenBranches(
+                    branchNameInRepo, 
+                    branchNameInRepo + "^" * depth
+                    )
+        else:
+            commitHashesParentsAndTitles = \
+                repo.commitsBetweenBranches(
+                    branchNameInRepo, 
+                    self.baselineBranchNameInRepo
+                    )
 
         if lock:
             lock.acquire()
 
         t0 = time.time()
-        commitIds = set([c[0] for c in commitIdsParentsAndTitles])
+        commitHashes = set([c[0] for c in commitHashesParentsAndTitles])
+        existingCommitHashes = set([c.commitHash for c in self.commits.values()])
 
-        commitsToDiscard = set(self.commits.keys()) - commitIds
-        newCommitIds = commitIds - set(self.commits.keys())
+        for c in list(self.commits.values()):
+            if c.commitHash not in commitHashes:
+                c.branches.discard(self)
+                c.dirtyTestPriorityCache()
+                del self.commits[c.commitId]
 
-        for c in commitsToDiscard:
-            self.commits[c].branches.discard(self)
-            self.commits[c].dirtyTestPriorityCache()
-            del self.commits[c]
+        for commitHash, parentHashes, commitTitle in commitHashesParentsAndTitles:
+            if commitHash not in existingCommitHashes:
+                commitId = repoName+"/"+commitHash
 
-        for commitId, parentHashes, commitTitle in commitIdsParentsAndTitles:
-            if commitId in newCommitIds:
                 self.commits[commitId] = testManager.createCommit(commitId,
                                                                   parentHashes,
-                                                                  commitTitle)
+                                                                  commitTitle
+                                                                  )
                 self.commits[commitId].branches.add(self)
                 self.commits[commitId].dirtyTestPriorityCache()
 
-        self.commitsInOrder = [self.commits[c] for c, _, _ in commitIdsParentsAndTitles]
+        commitsByHash = {c.commitHash: c for c in self.commits.values()}
+
+        self.commitsInOrder = [commitsByHash[hash] for hash, _, _ in commitHashesParentsAndTitles]
+
         self.commitIdToIndex = {
             commit.commitId: index
             for index, commit in enumerate(self.commitsInOrder)
@@ -215,7 +235,7 @@ class Branch(object):
 
         diff = time.time() - t0
         if diff > .5:
-            logging.info("updating commits in memory took %s seconds", diff)
+            logging.info("updating %s commits in memory took %s seconds", len(commitsByHash), diff)
 
     # HttpServer
     def getPerfDataSummary(self):

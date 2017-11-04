@@ -72,30 +72,45 @@ def pick_random_open_port():
 if __name__ == "__main__":
     args = createArgumentParser().parse_args()
 
+    repoName, commitHash = args.commit.split("/")
+
     print "***********************************"
     print "WELCOME TO TEST LOOPER"
     print "***********************************"
-    print "invoking " + args.environment + " in commit " + args.commit
+    print "invoking " + args.environment + " on source from " + args.commit
     
     config = loadConfiguration(args.config)
 
-    if "path_to_repo" in config["source_control"]:
-        path = config["source_control"]["path_to_repo"]
+    if "path_to_repos" in config["source_control"]:
+        path = config["source_control"]["path_to_repos"]
     else:
-        path = config["source_control"]["path_to_local_repo"]
+        path = config["source_control"]["path_to_local_repos"]
 
     path = os.path.expandvars(path)
 
-    repo = Git.Git(str(path))
+    repo = Git.Git(os.path.join(path, repoName))
 
-    testDefsTxt = repo.getFileContents(args.commit, config["source_control"]["test_definitions_path"])
+    test_def_path = repo.getTestDefinitionsPath(commitHash)
+
+    if test_def_path is None:
+        print "********************************"
+        print
+        print
+        print
+        print "Couldn't find a testDefinitions.json file in the repo."
+        print os.path.listdir(path)
+        print
+        sys.exit(1)
+
+    testDefsTxt = repo.getFileContents(commitHash, test_def_path)
 
     if testDefsTxt is None:
         print "********************************"
         print
         print
         print
-        print "Cannot get testDefinitions from the repo at ", path, config["source_control"]["test_definitions_path"]
+        print "Couldn't find a testDefinitions.json file in the repo."
+        print os.path.listdir(path), test_def_path
         print
         sys.exit(1)
 
@@ -121,7 +136,7 @@ if __name__ == "__main__":
 
     print "command = " + cmd
 
-    repo.resetToCommitInDirectory(args.commit, os.path.join(temp_dir, "repo"))
+    repo.resetToCommitInDirectory(commitHash, os.path.join(temp_dir, "repo"))
 
     if args.ports:
         type_and_port = args.ports.split(",")
@@ -142,7 +157,7 @@ if __name__ == "__main__":
         print
 
     try:
-        image = WorkerState.WorkerState.getDockerImageFromRepo(repo, args.commit, testDef.docker)
+        image = WorkerState.WorkerState.getDockerImageFromRepo(repo, commitHash, testDef.docker)
             
         bash_args = ["-c", "rm -rf /repo/.git; " + cmd + '; cp /exposed_in_invoke/fancy_bashrc ~/.bashrc; echo "\n\n\n\n\nYou are now interactive\n\n"; bash']
 

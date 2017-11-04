@@ -11,15 +11,15 @@ export TEST_LOOPER_INSTALL=$PROJ_ROOT/tests/system_test/test_looper_install
 rm -rf $TEST_LOOPER_INSTALL
 mkdir $TEST_LOOPER_INSTALL
 
-mkdir $TEST_LOOPER_INSTALL/repo
-mkdir $TEST_LOOPER_INSTALL/repo_source
+mkdir -p $TEST_LOOPER_INSTALL/repos/repo1
+mkdir -p $TEST_LOOPER_INSTALL/repos/repo2
 mkdir $TEST_LOOPER_INSTALL/logs
 mkdir $TEST_LOOPER_INSTALL/redis
 
 export GIT_AUTHOR_DATE="1509599720 -0500"
 export GIT_COMMITTER_DATE="1509599720 -0500"
 
-(cd $TEST_LOOPER_INSTALL/repo_source
+(cd $TEST_LOOPER_INSTALL/repos/repo1
  git init .
  cp $PROJ_ROOT/tests/test_projects/simple_project/* -r .
  git add .
@@ -29,8 +29,14 @@ export GIT_COMMITTER_DATE="1509599720 -0500"
  git commit -m "second commit"
  )
 
-(cd $TEST_LOOPER_INSTALL/repo
- git clone $TEST_LOOPER_INSTALL/repo_source .
+(cd $TEST_LOOPER_INSTALL/repos/repo2
+ git init .
+ cp $PROJ_ROOT/tests/test_projects/simple_project/* -r .
+ git add .
+ git commit -m "initial commit in repo2"
+ echo "this is a file in repo2" > a_file_in_repo_2.txt
+ git add .
+ git commit -m "second commit in repo2"
  )
 
 echo "BOOTING REDIS"

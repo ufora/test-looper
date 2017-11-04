@@ -8,28 +8,23 @@ import traceback
 import os
 
 from test_looper.core.TestScriptDefinition import TestScriptDefinition
+from test_looper.core.source_control import SourceControl
+from test_looper.core.source_control import RemoteRepo
 from test_looper.core.tools.Git import Git
 
-class LocalGitRepo(object):
+class LocalGitRepo(RemoteRepo.RemoteRepo):
     def __init__(self,
-                 path_or_repo,
-                 test_definitions_path
+                 path_to_repo
                  ):
-        if isinstance(path_or_repo, Git):
-            self.path_to_repo = path_or_repo.path_to_repo
-            self.source_repo = path_or_repo
-        else:
-            assert isinstance(path_or_repo, (str,unicode))
+        super(LocalGitRepo, self).__init__(os.path.split(path_to_repo)[1])
 
-            self.path_to_repo = str(path_or_repo)
-            self.source_repo = Git(self.path_to_repo)
+        assert isinstance(path_to_repo, (str,unicode))
 
-        self.test_definitions_path = test_definitions_path
-
-    def authenticationUrl(self):
-        return None
+        self.path_to_repo = str(path_to_repo)
+        self.source_repo = Git(self.path_to_repo)
 
     def listBranches(self):
+        print "Branches are ", self.source_repo.listBranches(), " in ", self.path_to_repo
         return [b for b in self.source_repo.listBranches() if 
             not b.startswith("origin/") and not b.startswith("remotes/")]
 
@@ -40,14 +35,12 @@ class LocalGitRepo(object):
         return self.source_repo.commitsInRevList("%s ^%s" % (branch, baseline))
 
     def getTestScriptDefinitionsForCommit(self, commitId):
-        return self.source_repo.getFileContents(commitId, self.test_definitions_path)
+        path = self.source_repo.getTestDefinitionsPath(commitId)
 
-    def authorize_access_token(self, access_token):
-        logging.info("LocalGirRepo authorizing dummy access token %s", access_token)
-        return True
+        if path is None:
+            return None
 
-    def getUserNameFromToken(self, token):
-        return "user"
+        return self.source_repo.getFileContents(commitId, path)
 
     def commit_url(self, commit):
         return None

@@ -4,44 +4,85 @@ import hmac
 import logging
 import requests
 import simplejson
+import traceback
+import threading
+import os
 
+from test_looper.core.source_control import SourceControl
+from test_looper.core.source_control import GithubRepo
 from test_looper.core.TestScriptDefinition import TestScriptDefinition
 from test_looper.core.tools.Git import Git
 
-class Github(object):
+class Github(SourceControl.SourceControl):
     def __init__(self,
-                 path_to_local_repo,
+                 path_to_local_repos,
                  oauth_key,
                  oauth_secret,
                  access_token,
                  webhook_secret,
                  owner,
-                 repo,
-                 clone_url,
-                 test_definitions_path,
                  github_url = "https://github.com",
                  github_login_url = "https://github.com",
                  github_api_url = "https://api.github.com",
+                 github_clone_url = "git@github.com",
                  auth_disabled = False
                  ):
+        super(Github, self).__init__()
+
         assert access_token is not None
-        assert path_to_local_repo is not None
+        assert path_to_local_repos is not None
 
         self.auth_disabled = auth_disabled
 
-        self.source_repo = Git(path_to_local_repo)
+        self.path_to_local_repo_cache = path_to_local_repos
 
         self.oauth_key = oauth_key
         self.oauth_secret = oauth_secret
         self.access_token = access_token
         self.webhook_secret = webhook_secret
-        self.owner = owner
-        self.repo = repo
-        self.test_definitions_path = test_definitions_path
+        self.ownerType, self.ownerName = owner.split(":")
         self.github_url = github_url
         self.github_api_url = github_api_url
         self.github_login_url = github_login_url
-        self.clone_url = clone_url
+        self.github_clone_url = github_clone_url
+        self.lock = threading.Lock()
+        self.repos = {}
+
+    def shouldVerify(self):
+        return self.github_url == "https://github.com"
+
+    def listRepos(self):
+        url = self.github_api_url + '/%ss/%s/repos' % (self.ownerType, self.ownerName)
+
+        response = requests.get(
+            url,
+            headers={
+                'accept': 'application/json'
+                },
+            verify=self.shouldVerify()
+            )
+
+        res = []
+        try:
+            for r in simplejson.loads(response.content):
+                res.append(r["name"])
+        except:
+            logging.error(traceback.format_exc())
+            return []
+
+        return res
+
+    def getRepo(self, repoName):
+        with self.lock:
+            if repoName not in self.repos:
+                path = os.path.join(self.path_to_local_repo_cache, repoName)
+                self.repos[repoName] = GithubRepo.GithubRepo(self, path, self.ownerName, repoName)
+
+            repo = self.repos[repoName]
+
+        repo.ensureInitialized()
+
+        return repo
 
     def verify_webhook_request(self, headers, payload):
         if not self.auth_disabled:
@@ -57,32 +98,6 @@ class Github(object):
             'branch': payload['ref'].split('/')[-1],
             'repo': payload['repository']['name']
             }
-
-
-    def cloneUrl(self):
-        return self.clone_url + ":" + self.owner + "/" + self.repo + ".git"
-
-    def listBranches(self):
-        self.source_repo.fetchOrigin()
-
-        return self.source_repo.listBranchesForRemote("origin")
-
-    def commitsBetweenCommitIds(self, c1, c2):
-        print "Checking commits between ", c1, c2
-
-        self.source_repo.fetchOrigin()
-
-        return self.source_repo.commitsInRevList(c1 + " ^" + c2)
-        
-    def commitsBetweenBranches(self, branch, baseline):
-        self.source_repo.fetchOrigin()
-        
-        return self.source_repo.commitsInRevList("origin/%s ^origin/%s" % (branch, baseline))
-
-    def getTestScriptDefinitionsForCommit(self, commitId):
-        self.source_repo.fetchOrigin()
-        
-        return self.source_repo.getFileContents(commitId, self.test_definitions_path)
 
     ###########
     ## OAuth
@@ -106,7 +121,7 @@ class Github(object):
                 'client_secret': self.oauth_secret,
                 'code': code
                 },
-            verify=False
+            verify=self.shouldVerify()
             )
 
         result = simplejson.loads(response.text)
@@ -132,7 +147,7 @@ class Github(object):
                 ),
             auth=requests.auth.HTTPBasicAuth(self.oauth_key,
                                              self.oauth_secret),
-            verify=False
+            verify=self.shouldVerify()
             )
         if not response.ok:
             logging.info(
@@ -151,11 +166,11 @@ class Github(object):
 
         response = requests.get(
             self.github_api_url + "/orgs/%s/members/%s?access_token=%s" % (
-                self.owner,
+                self.ownerName,
                 user['user']['login'],
                 access_token
                 ),
-            verify=False
+            verify=self.shouldVerify()
             )
         if response.status_code == 204:
             return True
@@ -167,17 +182,17 @@ class Github(object):
             )
         return False
 
-
     def getUserNameFromToken(self, access_token):
         """Given a github access token, find out what user the token is assigned to."""
         if self.auth_disabled:
             return "user"
 
         return simplejson.loads(
-            requests.get(self.github_api_url + "/user?access_token=" + access_token, verify=False).text
+            requests.get(self.github_api_url + "/user?access_token=" + access_token, verify=self.shouldVerify()).text
             )['login']
 
 
     def commit_url(self, commit_id):
-        return self.github_url + "/%s/%s/commit/%s" % (self.owner, self.repo, commit_id)
+        repoName, commitHash = commit_id.split("/")
+        return self.github_url + "/%s/%s/commit/%s" % (self.ownerName, repoName, commitHash)
 

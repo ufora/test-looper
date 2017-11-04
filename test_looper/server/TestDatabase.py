@@ -31,7 +31,6 @@ class TestDatabase(object):
         filtered = [testId for testId in testIds if testId != testId]
         self.kvStore.set(self.dbPrefix + "commit_tests_" + commitId, filtered)
 
-
     def clearAllTestsForCommitId(self, commitId):
         ids = self.getTestIdsForCommit(commitId)
 

@@ -56,7 +56,8 @@ class TestResultOnMachine(object):
         return "TestResultOnMachine(machine=%s,test=%s,commit=%s,success=%s,logCount=%s,perfcount=%s)" % (
             self.machine,
             str(self.testId)[:10],
-            str(self.commitId)[:10],
+            str(self.commitId.split("/")[0]) +
+                str(self.commitId.split("/")[1])[:10],
             self.success,
             len(self.logMessages),
             len(self.performanceResults)

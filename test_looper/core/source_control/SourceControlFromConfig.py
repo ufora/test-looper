@@ -1,4 +1,4 @@
-import test_looper.core.source_control.LocalGitRepo as LocalGitRepo
+import test_looper.core.source_control.ReposOnDisk as ReposOnDisk
 import test_looper.core.source_control.Bitbucket as Bitbucket
 import test_looper.core.source_control.Github as Github
 import os
@@ -8,21 +8,14 @@ TEST_LOOPER_OAUTH_KEY = "TEST_LOOPER_OAUTH_KEY"
 TEST_LOOPER_OAUTH_SECRET = "TEST_LOOPER_OAUTH_SECRET"
 
 def configureGithub(src_ctrl_config):
-    oauth_key = src_ctrl_config['oauth_key']
-    oauth_secret = src_ctrl_config['oauth_secret']
-    github_access_token = src_ctrl_config['access_token']
-
     src_ctrl_args = {
-        'path_to_local_repo': str(os.path.expandvars(src_ctrl_config["path_to_local_repo"])),
-        'oauth_key': oauth_key,
-        'oauth_secret': oauth_secret,
+        'path_to_local_repos': str(os.path.expandvars(src_ctrl_config["path_to_local_repos"])),
+        'oauth_key': src_ctrl_config['oauth_key'],
+        'oauth_secret': src_ctrl_config['oauth_secret'],
         'webhook_secret': str(src_ctrl_config['webhook_secret']),
-        'owner': src_ctrl_config['target_repo_owner'],
-        'repo': src_ctrl_config['target_repo'],
-        'test_definitions_path': src_ctrl_config['test_definitions_path'],
-        'access_token': github_access_token,
-        'auth_disabled': src_ctrl_config.get("auth_disabled", False),
-        'clone_url': src_ctrl_config["clone_url"]
+        'owner': src_ctrl_config['owner'],
+        'access_token': src_ctrl_config['access_token'],
+        'auth_disabled': src_ctrl_config.get("auth_disabled", False)
         }
 
     for item in ['github_url', 'github_login_url', 'github_api_url']:
@@ -59,9 +52,8 @@ def configureBitbucket(src_ctrl_config):
     return Bitbucket.Bitbucket(**src_ctrl_args)
 
 def configureGit(config):
-    return LocalGitRepo.LocalGitRepo(
-        path_or_repo=os.path.expandvars(config['path_to_repo']),
-        test_definitions_path=config['test_definitions_path']
+    return ReposOnDisk.ReposOnDisk(
+        path_to_repos=os.path.expandvars(config['path_to_repos'])
         )
 
 def getFromConfig(config):
@@ -73,4 +65,3 @@ def getFromConfig(config):
         return configureBitbucket(config)
     else:
         raise Exception("unknown source control type: %s" % config['type'])
-    

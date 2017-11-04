@@ -15,16 +15,24 @@ class Commit(object):
     SUSPICIOUSNESS_CACHE_TIMEOUT = 30.0
 
     def __init__(self, 
-            testDb, 
+            testDb,
             commitId, 
-            parentIds, 
+            parentHashes, 
             subject, 
             testScriptDefinitions, 
             testScriptDefinitionsError
             ):
         self.testDb = testDb
+
+        #commitID is a combination of a reponame and a commitish
+        assert len(commitId.split("/")) == 2
+
+        for h in parentHashes:
+            assert "/" not in h
+
         self.commitId = commitId
-        self.parentIds = parentIds
+        self.repoName, self.commitHash = commitId.split("/")
+        self.parentHashes = parentHashes
         self.subject = subject
         self.branches = set()
         self.testScriptDefinitions = testScriptDefinitions
@@ -34,15 +42,21 @@ class Commit(object):
         self.statsByType = {}
         self.perfTests = {}
         self.isTargetedTestCache = {}
-        self.suspiciousnessLevelForTestCache = None
-        self.suspiciousnessLevelForTestCacheTime = None
 
         for definition in self.testScriptDefinitions:
             self.statsByType[definition.testName] = TestStats.TestStats()
 
     @property
+    def parentHash(self):
+        return self.parentHashes[-1]
+
+    @property
     def parentId(self):
-        return self.parentIds[-1]
+        return self.repoName + "/" + self.parentHash
+
+    @property
+    def parentIds(self):
+        return [self.repoName + "/" + h for h in self.parentHashes]
 
     def getTestDefinitionFor(self, testName):
         for testDef in self.testScriptDefinitions:
@@ -54,39 +68,6 @@ class Commit(object):
     def isPeriodicTest(self, testName):
         definition = self.getTestDefinitionFor(testName)
         return definition.periodicTest
-
-    def suspiciousnessLevelForTest(self, testName):
-        self.updateSuspiciousnessLevelCache()
-
-        if testName in self.suspiciousnessLevelForTestCache:
-            return self.suspiciousnessLevelForTestCache[testName]
-        else:
-            return 0.0
-
-    def updateSuspiciousnessLevelCache(self):
-        if (self.suspiciousnessLevelForTestCache is not None and
-                time.time() - self.suspiciousnessLevelForTestCacheTime <
-                        Commit.SUSPICIOUSNESS_CACHE_TIMEOUT):
-            return
-
-        self.suspiciousnessLevelForTestCache = {}
-        self.suspiciousnessLevelForTestCacheTime = time.time()
-
-        for testName in self.statsByType:
-            self.suspiciousnessLevelForTestCache[testName] = 0.0
-
-            for branch in self.branches:
-                rateAndIndex = branch.failureRateAndIndexForCommitIdAndTest(self.commitId, testName)
-
-                if rateAndIndex is not None:
-                    seqFailRate, index = rateAndIndex
-
-                    suspiciousness = seqFailRate.logLikelihoodImprovementFromAddingBreak(index)
-
-                    self.suspiciousnessLevelForTestCache[testName] = max(
-                        self.suspiciousnessLevelForTestCache[testName],
-                        suspiciousness
-                        )
 
     def clearTestResult(self, testName, testId):
         test_result = self.testsById[testId]
@@ -105,7 +86,6 @@ class Commit(object):
 
         #remove all perf tests that were part of this test
         self.removeTestPerfResults(test_result)
-
 
     def testChanged(self, testName, result):
         if testName in self.statsByType:
@@ -160,8 +140,8 @@ class Commit(object):
         return any(b.isUnderTest for b in self.branches)
 
     def __repr__(self):
-        return "Commit(commitId='%s', parentId='%s', subject='%s')" % \
-                (self.commitId, self.parentId, self.subject)
+        return "Commit(repo=%s, commitId='%s', parentHash='%s', subject='%s')" % \
+                (self.commitId.split("/")[0], self.commitId.split("/")[1], self.parentHash, self.subject)
 
     def __str__(self):
         return self.__repr__()
@@ -202,7 +182,6 @@ class Commit(object):
         for branch in self.branches:
             branch.dirtySequentialFailuresCache()
 
-
     def summarizePerfResults(self, prefix=None):
         prefix = prefix or ''
         perfTests = ((name, results) for name, results in self.perfTests.iteritems()
@@ -218,7 +197,6 @@ class Commit(object):
             summary[name] = test_summary
 
         return summary
-
 
     def summarizePerfResultsForTest(self, results):
         return {
@@ -299,7 +277,6 @@ class Commit(object):
     def buildInProgress(self):
         return 'build' in self.statsByType and self.statsByType['build'].runningCount > 0
 
-
     def fullPassesCompleted(self):
         """
         Determine how many passes of *all* tests have been completed on this commit.
@@ -311,25 +288,11 @@ class Commit(object):
             [s.completedCount for name, s in self.statsByType.iteritems() if name != 'build']
             )
 
-    def isSmokeTestCommitAndHasEnoughRuns(self):
-        return (not self.isUnderTest) and self.fullPassesCompleted() >= self.SMOKE_TEST_PASS_COUNT
-
     def totalCompletedTestRuns(self):
         ''' The total number of tests run in all categories.'''
         if not self.hasTestStats:
             return 0
         return sum([s.completedCount for name, s in self.statsByType.iteritems() if name != 'build'])
-
-    @property
-    def completedRatio(self):
-        ''' The ratio between # of tests run and total number of tests that need to be run. '''
-        if not self.hasTestStats:
-            return 0.0
-
-        testsRun = [s.completedCount + s.runningCount \
-                    for name, s in self.statsByType.iteritems() if name != 'build']
-        testsNeeded = self.totalPassesNeeded() * len(testsRun)
-        return sum(testsRun) / testsNeeded
 
     @property
     def hasTestStats(self):

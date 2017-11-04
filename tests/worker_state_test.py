@@ -9,7 +9,7 @@ import gzip
 import test_looper.worker.WorkerState as WorkerState
 import test_looper.core.tools.Git as Git
 import test_looper.core.ArtifactStorage as ArtifactStorage
-import test_looper.core.source_control.LocalGitRepo as LocalGitRepo
+import test_looper.core.source_control.ReposOnDisk as ReposOnDisk
 import test_looper.core.cloud.MachineInfo as MachineInfo
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import docker
@@ -63,7 +63,9 @@ class WorkerStateTests(unittest.TestCase):
 
     def get_repo(self, repo_name):
         #create a new git repo
-        source_repo = Git.Git(os.path.join(self.testdir, "source_repo"))
+        path = os.path.join(self.testdir, "repos", "source_repo")
+        os.makedirs(path)
+        source_repo = Git.Git(path)
         source_repo.init()
         
         mirror_into(
@@ -73,16 +75,15 @@ class WorkerStateTests(unittest.TestCase):
 
         c = source_repo.commit("a message")
 
-        return source_repo, c
+        return source_repo, ReposOnDisk.ReposOnDisk(os.path.join(self.testdir,"repos")), "source_repo/"+c
 
     def get_worker(self, repo_name):
-        source_repo, c = self.get_repo(repo_name)
+        source_repo, source_control, c = self.get_repo(repo_name)
 
         worker = WorkerState.WorkerState(
             "test_looper_testing",
             os.path.join(self.testdir, "worker"),
-            source_repo, 
-            "testDefinitions.json",
+            source_control,
             ArtifactStorage.LocalArtifactStorage({
                 "build_storage_path": os.path.join(self.testdir, "build_artifacts"),
                 "test_artifacts_storage_path": os.path.join(self.testdir, "test_artifacts")
@@ -116,7 +117,7 @@ class WorkerStateTests(unittest.TestCase):
         self.assertEqual(fds, fds2)
 
     def test_git_copy_dir(self):
-        source_repo, c = self.get_repo("simple_project")
+        source_repo, source_control, c = self.get_repo("simple_project")
         self.assertTrue("ubuntu" in source_repo.getFileContents(c, "Dockerfile.txt"))
 
     def test_worker_basic(self):
