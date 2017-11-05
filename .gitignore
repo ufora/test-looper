@@ -2,4 +2,4 @@
 dist/
 *.egg-info/
 test_looper/server/wetty/node_modules
-tests/system_test/test_looper_install
+test_looper_tests/system_test/test_looper_install

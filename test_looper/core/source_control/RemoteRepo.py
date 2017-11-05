@@ -20,10 +20,10 @@ class RemoteRepo(object):
         """a list of branchnames we export"""
         assert False, "subclasses implement"
 
-    def commitsBetweenCommitIds(self, c1, c2):
-        """a list of commits in between two commits"""
+    def commitsLookingBack(self, branch, depth):
+        """a list of commits looking at first parents going back 'depth'"""
         assert False, "subclasses implement"
-        
+
     def commitsBetweenBranches(self, branch, baseline):
         """a list of commits in between two branches"""
         assert False, "subclasses implement"
@@ -40,3 +40,5 @@ class RemoteRepo(object):
         """The clone url for a the repo"""
         assert False, "subclasses implement"
 
+    def refresh(self):
+        """Refresh the local repo view"""

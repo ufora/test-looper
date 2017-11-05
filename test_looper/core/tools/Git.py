@@ -148,6 +148,19 @@ class Git(object):
 
             return [r for r in lines if r != "HEAD"]
 
+    def hashParentsAndCommitTitleFor(self, commitId):
+        with self.git_repo_lock:
+            command = 'git --no-pager log -n 1 --topo-order {commitId} --format=format:"%H %P -- %s"'
+
+            data = self.subprocessCheckOutput(
+                ["git", "--no-pager", "log", "-n", "1", "--topo-order", commitId, '--format=format:%H %P -- %s']
+                ).strip()
+
+            commits, message = data.split(' -- ', 1)
+            commits = [c.strip() for c in commits.split(" ") if c.strip()]
+
+            return commits[0], commits[1:], message
+
     def commitsInRevList(self, commitRange):
         """
         Returns the list of commits in the specified range.
@@ -157,7 +170,7 @@ class Git(object):
             origin/master ^origin/master^^^^^^
 
         Resulting objects are tuples of
-            (hash, (parent1_hash, parent2_hash, ...), title, branchName)
+            (hash, (parent1_hash, parent2_hash, ...), title)
         """
         logging.info("Checking commit range %s", commitRange)
 

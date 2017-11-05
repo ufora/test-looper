@@ -196,3 +196,6 @@ class Github(SourceControl.SourceControl):
         repoName, commitHash = commit_id.split("/")
         return self.github_url + "/%s/%s/commit/%s" % (self.ownerName, repoName, commitHash)
 
+    def refresh(self):
+        for r in self.repos.values():
+            r.refresh()

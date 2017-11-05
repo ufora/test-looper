@@ -6,6 +6,7 @@ import logging
 import sys
 import gzip
 
+import test_looper_tests.common as common
 import test_looper.worker.WorkerState as WorkerState
 import test_looper.core.tools.Git as Git
 import test_looper.core.ArtifactStorage as ArtifactStorage
@@ -17,42 +18,9 @@ import docker
 docker_client = docker.from_env()
 docker_client.containers.list()
 
-
 own_dir = os.path.split(__file__)[0]
 
-def configureLogging(verbose=False):
-    if logging.getLogger().handlers:
-        logging.getLogger().handlers = []
-
-    loglevel = logging.INFO if verbose else logging.ERROR
-    logging.getLogger().setLevel(loglevel)
-
-    handler = logging.StreamHandler(stream=sys.stderr)
-
-    handler.setLevel(loglevel)
-    handler.setFormatter(
-        logging.Formatter(
-            '%(asctime)s %(levelname)s %(filename)s:%(lineno)s@%(funcName)s %(name)s - %(message)s'
-            )
-        )
-    logging.getLogger().addHandler(handler)
-
-configureLogging()
-
-def mirror_into(src_dir, dest_dir):
-    for p in os.listdir(src_dir):
-        if os.path.isdir(p):
-            if os.path.exists(os.path.join(dest_dir, p)):
-                shutil.rmtree(os.path.join(dest_dir, p))
-            shutil.copytree(os.path.join(src_dir, p), os.path.join(dest_dir, p), symlinks=True)
-        else:
-            shutil.copy2(os.path.join(src_dir, p), os.path.join(dest_dir, p))
-    for p in os.listdir(dest_dir):
-        if not os.path.exists(os.path.join(src_dir, p)) and not p.startswith("."):
-            if os.path.isfile(os.path.join(src_dir, p)):
-                os.remove(os.path.join(src_dir, p))
-            else:
-                shutil.rmtree(os.path.join(src_dir, p))
+common.configureLogging()
 
 class WorkerStateTests(unittest.TestCase):
     def setUp(self):
@@ -68,7 +36,7 @@ class WorkerStateTests(unittest.TestCase):
         source_repo = Git.Git(path)
         source_repo.init()
         
-        mirror_into(
+        common.mirror_into(
             os.path.join(own_dir,"test_projects", repo_name), 
             source_repo.path_to_repo
             )
@@ -118,7 +86,8 @@ class WorkerStateTests(unittest.TestCase):
 
     def test_git_copy_dir(self):
         source_repo, source_control, c = self.get_repo("simple_project")
-        self.assertTrue("ubuntu" in source_repo.getFileContents(c, "Dockerfile.txt"))
+        repo, commitHash = c.split("/")
+        self.assertTrue("ubuntu" in source_repo.getFileContents(commitHash, "Dockerfile.txt"))
 
     def test_worker_basic(self):
         repo, commit, worker = self.get_worker("simple_project")

@@ -26,26 +26,23 @@ class GithubRepo(RemoteRepo.RemoteRepo):
         return self.github.github_clone_url + ":" + self.owner + "/" + self.name + ".git"
 
     def listBranches(self):
-        self.source_repo.fetchOrigin()
-
         return self.source_repo.listBranchesForRemote("origin")
 
-    def commitsBetweenCommitIds(self, c1, c2):
-        print "Checking commits between ", c1, c2
-
-        self.source_repo.fetchOrigin()
-
-        return self.source_repo.commitsInRevList(c1 + " ^" + c2)
-        
     def commitsBetweenBranches(self, branch, baseline):
-        self.source_repo.fetchOrigin()
-        
         return self.source_repo.commitsInRevList("origin/%s ^origin/%s" % (branch, baseline))
 
+    def commitsLookingBack(self, branchOrHash, depth):
+        tuples = []
+
+        tuples.append(self.source_repo.hashParentsAndCommitTitleFor(branchOrHash))
+
+        while len(tuples) < depth and len(tuples[-1][1]):
+            firstParent = tuples[-1][1][0]
+            tuples.append(self.source_repo.hashParentsAndCommitTitleFor(firstParent))
+
+        return tuples
+
     def getTestScriptDefinitionsForCommit(self, commitHash):
-        if not self.source_repo.commitExists(commitHash):
-            self.source_repo.fetchOrigin()
-        
         test_definitions_path = self.source_repo.getTestDefinitionsPath(commitHash)
         if test_definitions_path is None:
             return None
@@ -59,3 +56,6 @@ class GithubRepo(RemoteRepo.RemoteRepo):
         if not self.source_repo.isInitialized():
             logging.info("Cloning copy of repo %s", self.cloneUrl())
             self.source_repo.cloneFrom(self.cloneUrl())
+
+    def refresh(self):
+        self.source_repo.fetchOrigin()

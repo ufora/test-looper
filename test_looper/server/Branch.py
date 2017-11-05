@@ -177,31 +177,23 @@ class Branch(object):
         return self.testDb.setTargetedCommitIdsForBranch(self.branchName, commitIds)
 
     # TestManager
-    def updateCommitsUnderTest(self, testManager, lock=None):
-        if lock:
-            lock.release()
+    def updateCommitsUnderTest(self, testManager):
         t0 = time.time()
 
         repoName, branchNameInRepo = self.branchName.split("/")
-        repo = testManager.src_ctrl.getRepo(repoName)
+        repo = testManager.source_control.getRepo(repoName)
 
         if branchNameInRepo == self.baselineBranchNameInRepo:
             depth = testManager.settings.baseline_depth
 
             commitHashesParentsAndTitles = \
-                repo.commitsBetweenBranches(
-                    branchNameInRepo, 
-                    branchNameInRepo + "^" * depth
-                    )
+                repo.commitsLookingBack(branchNameInRepo, depth)
         else:
             commitHashesParentsAndTitles = \
                 repo.commitsBetweenBranches(
                     branchNameInRepo, 
                     self.baselineBranchNameInRepo
                     )
-
-        if lock:
-            lock.acquire()
 
         t0 = time.time()
         commitHashes = set([c[0] for c in commitHashesParentsAndTitles])

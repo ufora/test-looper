@@ -6,7 +6,7 @@ PROJ_ROOT=`cd ../..; pwd`
 
 export PYTHONPATH=$PROJ_ROOT
 
-export TEST_LOOPER_INSTALL=$PROJ_ROOT/tests/system_test/test_looper_install
+export TEST_LOOPER_INSTALL=$PROJ_ROOT/test_looper_tests/system_test/test_looper_install
 
 rm -rf $TEST_LOOPER_INSTALL
 mkdir $TEST_LOOPER_INSTALL
@@ -21,7 +21,7 @@ export GIT_COMMITTER_DATE="1509599720 -0500"
 
 (cd $TEST_LOOPER_INSTALL/repos/repo1
  git init .
- cp $PROJ_ROOT/tests/test_projects/simple_project/* -r .
+ cp $PROJ_ROOT/test_looper_tests/test_projects/simple_project/* -r .
  git add .
  git commit -m "initial commit"
  echo "this is a file" > a_file.txt
@@ -31,7 +31,7 @@ export GIT_COMMITTER_DATE="1509599720 -0500"
 
 (cd $TEST_LOOPER_INSTALL/repos/repo2
  git init .
- cp $PROJ_ROOT/tests/test_projects/simple_project/* -r .
+ cp $PROJ_ROOT/test_looper_tests/test_projects/simple_project/* -r .
  git add .
  git commit -m "initial commit in repo2"
  echo "this is a file in repo2" > a_file_in_repo_2.txt
@@ -47,13 +47,13 @@ echo "BOOTING REDIS"
 	> $TEST_LOOPER_INSTALL/logs/redis_log.txt 2>&1 ) &
 
 echo "BOOTING WORKER"
-( python -u $PROJ_ROOT/test_looper/worker/test-looper.py $PROJ_ROOT/tests/system_test/config.json 4 > $TEST_LOOPER_INSTALL/logs/worker_log.txt 2>&1 )&
+( python -u $PROJ_ROOT/test_looper/worker/test-looper.py $PROJ_ROOT/test_looper_tests/system_test/config.json 4 > $TEST_LOOPER_INSTALL/logs/worker_log.txt 2>&1 )&
 
 echo "APP"
 ( export PYTHONPATH=$PROJ_ROOT; 
   cd $PROJ_ROOT/test_looper/server/wetty; 
-  node app.js -p 3000 -c $PROJ_ROOT/tests/system_test/config.json > $TEST_LOOPER_INSTALL/logs/wetty_log.txt 2>&1 
+  node app.js -p 3000 -c $PROJ_ROOT/test_looper_tests/system_test/config.json > $TEST_LOOPER_INSTALL/logs/wetty_log.txt 2>&1 
   )&
 
 echo "BOOTING SERVER"
-python -u $PROJ_ROOT/test_looper/server/test-looper-server.py $PROJ_ROOT/tests/system_test/config.json
+python -u $PROJ_ROOT/test_looper/server/test-looper-server.py $PROJ_ROOT/test_looper_tests/system_test/config.json

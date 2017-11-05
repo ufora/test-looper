@@ -28,22 +28,33 @@ class LocalGitRepo(RemoteRepo.RemoteRepo):
         return [b for b in self.source_repo.listBranches() if 
             not b.startswith("origin/") and not b.startswith("remotes/")]
 
-    def commitsBetweenCommitIds(self, c1, c2):
-        return self.source_repo.commitsInRevList(c1 + " ^" + c2)
-        
+    def commitsLookingBack(self, branchOrHash, depth):
+        tuples = []
+
+        tuples.append(self.source_repo.hashParentsAndCommitTitleFor(branchOrHash))
+
+        while len(tuples) < depth and len(tuples[-1][1]):
+            firstParent = tuples[-1][1][0]
+            tuples.append(self.source_repo.hashParentsAndCommitTitleFor(firstParent))
+
+        return tuples
+    
     def commitsBetweenBranches(self, branch, baseline):
         return self.source_repo.commitsInRevList("%s ^%s" % (branch, baseline))
 
-    def getTestScriptDefinitionsForCommit(self, commitId):
-        path = self.source_repo.getTestDefinitionsPath(commitId)
+    def getTestScriptDefinitionsForCommit(self, commitHash):
+        path = self.source_repo.getTestDefinitionsPath(commitHash)
 
         if path is None:
             return None
 
-        return self.source_repo.getFileContents(commitId, path)
+        return self.source_repo.getFileContents(commitHash, path)
 
     def commit_url(self, commit):
         return None
 
     def cloneUrl(self):
         return self.path_to_repo
+
+    def refresh(self):
+        self.source_repo.fetchOrigin()

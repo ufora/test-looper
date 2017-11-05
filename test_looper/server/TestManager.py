@@ -12,17 +12,15 @@ import test_looper.server.Branch as Branch
 import test_looper.server.Commit as Commit
 from test_looper.server.CommitAndTestToRun import CommitAndTestToRun
 
-
 class TestManagerSettings:
-    def __init__(self, baseline_branch, baseline_depth, max_test_count, test_definitions_default):
+    def __init__(self, baseline_branch, baseline_depth, max_test_count):
         self.baseline_branch = baseline_branch
         self.baseline_depth = baseline_depth
         self.max_test_count = max_test_count
-        self.test_definitions_default = test_definitions_default
 
 class TestManager(object):
-    def __init__(self, src_ctrl, test_db, lock, settings):
-        self.src_ctrl = src_ctrl
+    def __init__(self, source_control, test_db, lock, settings):
+        self.source_control = source_control
         self.testDb = test_db
         self.settings = settings
 
@@ -45,9 +43,6 @@ class TestManager(object):
         self.mostRecentTouchByMachine[machineId] = time.time()
         return new_machine
 
-    def refresh(self, lock=None):
-        self.updateBranchesUnderTest(lock)
-
     def initialize(self):
         self.updateBranchesUnderTest()
         self.loadTestResults(self.commits)
@@ -56,9 +51,12 @@ class TestManager(object):
         if not commitId in self.commits:
             repoName, commitHash = commitId.split("/")
 
-            commitId, parentHashes, commitTitle = self.src_ctrl.getRepo(repoName).commitsBetweenCommitIds(commitHash, commitHash + "^^")[0]
+            repo = self.source_control.getRepo(repoName)
+
+            _, parentHashes, commitTitle = repo.hashParentsAndCommitTitleFor(commitHash)
 
             self.commits[commitId] = self.createCommit(repoName + "/" + commitHash, parentHashes, commitTitle)
+
         return self.commits[commitId]
 
     def getTestById(self, testId):
@@ -206,7 +204,7 @@ class TestManager(object):
         where 'level' is 0 for leaf commits and increases by 1 at each parent."""
         commitLevel = {}
 
-        parentIds = set(c.parentId for c in self.commits.itervalues())
+        parentIds = set(c.parentId for c in self.commits.itervalues() if c.parentId is not None)
         leaves = set(commit for commit_id, commit in self.commits.iteritems()
                      if commit_id not in parentIds)
 
@@ -254,47 +252,43 @@ class TestManager(object):
 
         return sorted(commitsAndTestsToRun, key=lambda c: c.priority, reverse=True)
 
-    BASE_PRIORITY_UNKNOWN_COMMIT       = 10000000000000
-    BASE_PRIORITY_UNBUILT_COMMIT       = 1000000000
-    BASE_PRIORITY_PERIODIC_TEST_COMMIT = 1000000
-    BASE_PRIORITY_UNTESTED_COMMIT      = 100000
-    BASE_PRIORITY_TARGETED_COMMIT      = 1000
-
     def scoreCommitAndTest(self, commitLevelDict, commit, testName):
         """Returns the priority score for this commit"""
+        BASE_PRIORITY_UNKNOWN_COMMIT       = 10000000000000
+        BASE_PRIORITY_UNBUILT_COMMIT       = 1000000000
+        BASE_PRIORITY_PERIODIC_TEST_COMMIT = 1000000
+        BASE_PRIORITY_UNTESTED_COMMIT      = 100000
+        BASE_PRIORITY_TARGETED_COMMIT      = 1000
+
         commitLevel = commitLevelDict[commit.commitId]
 
         if testName is None:
-            return self.BASE_PRIORITY_UNKNOWN_COMMIT - commitLevel
+            return BASE_PRIORITY_UNKNOWN_COMMIT - commitLevel
         if testName == "build":
-            return self.BASE_PRIORITY_UNBUILT_COMMIT - commitLevel
+            return BASE_PRIORITY_UNBUILT_COMMIT - commitLevel
         if commit.isPeriodicTest(testName):
-            return self.BASE_PRIORITY_PERIODIC_TEST_COMMIT - commitLevel
+            return BASE_PRIORITY_PERIODIC_TEST_COMMIT - commitLevel
         if commit.totalNonTimedOutRuns(testName) == 0:
-            return self.BASE_PRIORITY_UNTESTED_COMMIT - commitLevel / 10000.0
+            return BASE_PRIORITY_UNTESTED_COMMIT - commitLevel / 10000.0
         if commit.isTargetedTest(testName):
-            return self.BASE_PRIORITY_TARGETED_COMMIT - commitLevel / 10000.0 - \
+            return BASE_PRIORITY_TARGETED_COMMIT - commitLevel / 10000.0 - \
                 commit.totalNonTimedOutRuns(testName)
 
         return 0 - commitLevel / 10000.0 - commit.totalNonTimedOutRuns(testName) / 10.0
 
-    def updateBranchesUnderTest(self, lock=None):
-        self.updateBranchList(lock)
+    def updateBranchesUnderTest(self):
+        self.updateBranchList()
 
         for branch in self.branches.values():
-            branch.updateCommitsUnderTest(self, lock)
+            branch.updateCommitsUnderTest(self)
 
-    def updateBranchList(self, lock=None):
-        if lock:
-            lock.release()
-
+    def updateBranchList(self):
         t0 = time.time()
 
-        branchNames = set(self.src_ctrl.listBranches())
+        self.source_control.refresh()
+        
+        branchNames = set(self.source_control.listBranches())
         logging.info("listing branches took %.2f seconds", time.time() - t0)
-
-        if lock:
-            lock.acquire()
 
         t0 = time.time()
 
@@ -349,7 +343,7 @@ class TestManager(object):
         if json is None:
             repoName, commitHash = commitId.split("/")
 
-            repo = self.src_ctrl.getRepo(repoName)
+            repo = self.source_control.getRepo(repoName)
             data = repo.getTestScriptDefinitionsForCommit(commitHash)
 
             if data is None:

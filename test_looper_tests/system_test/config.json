@@ -19,7 +19,7 @@
         "core_dump_dir": "cores",
         "repo_name": "nativepython"
         },
-    "source_control": {
+    "source_control_1": {
         "type": "github",
         "path_to_local_repos": "$TEST_LOOPER_INSTALL/repos",
         "oauth_key": "asdf",
@@ -29,7 +29,7 @@
         "access_token": "",
         "auth_disabled": true
         },
-    "source_control_2": {
+    "source_control": {
         "type": "local_git",
         "path_to_repos": "$TEST_LOOPER_INSTALL/repos"
         }

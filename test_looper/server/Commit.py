@@ -48,10 +48,14 @@ class Commit(object):
 
     @property
     def parentHash(self):
+        if not self.parentHashes:
+            return None
         return self.parentHashes[-1]
 
     @property
     def parentId(self):
+        if self.parentHash is None:
+            return None
         return self.repoName + "/" + self.parentHash
 
     @property

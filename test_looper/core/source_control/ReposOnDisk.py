@@ -53,3 +53,6 @@ class ReposOnDisk(SourceControl.SourceControl):
 
     def commit_url(self, commit_id):
         return None
+
+    def refresh(self):
+        pass
