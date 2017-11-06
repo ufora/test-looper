@@ -11,6 +11,7 @@ import markdown
 import urllib
 import pytz
 import simplejson
+import os
 
 import test_looper.core.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
@@ -41,7 +42,8 @@ class TestLooperHttpServer(object):
                  event_log,
                  auth_level,
                  httpPort,
-                 enable_advanced_views
+                 enable_advanced_views,
+                 wetty_port
                  ):
         """Initialize the TestLooperHttpServer
 
@@ -59,6 +61,7 @@ class TestLooperHttpServer(object):
         self.auth_level = auth_level
         self.src_ctrl = src_ctrl
         self.eventLog = event_log
+        self.wetty_port = wetty_port
         self.eventLog.addLogMessage("test-looper", "TestLooper initialized")
         self.defaultCoreCount = 4
         self.enable_advanced_views = enable_advanced_views
@@ -614,7 +617,7 @@ class TestLooperHttpServer(object):
         args = {'commit': commitId, 'test': testName}
         if ports:
             args["ports"] = ports
-        return addr + ":3000" + "/wetty?" + urllib.urlencode(args)
+        return addr + ":" + str(self.wetty_port) + "/wetty?" + urllib.urlencode(args)
 
 
     def gridForTestList_(self, sortedTests, commit=None, failuresOnly=False):
@@ -928,8 +931,7 @@ class TestLooperHttpServer(object):
         icon = "glyphicon-minus" if is_drilling else "glyphicon-plus"
         hover_text = "Run less of this commit" if is_drilling else "Run more of this commit"
         button_style = "btn-default btn-xs" + (" active" if is_drilling else "")
-        return HtmlGeneration.HtmlElements([
-            HtmlGeneration.Link(
+        return HtmlGeneration.Link(
                 "/toggleBranchCommitTargeting?branchName=%s&commitId=%s" % (
                     branch.branchName, commitId
                     ),
@@ -937,9 +939,7 @@ class TestLooperHttpServer(object):
                 is_button=True,
                 button_style=self.disable_if_cant_write(button_style),
                 hover_text=hover_text
-                ),
-            HtmlGeneration.HtmlString(HtmlGeneration.whitespace * 2)
-            ])
+                )
 
     @cherrypy.expose
     def toggleBranchTestTargeting(self, branchName, testType, testGroupsToExpand):
@@ -1004,106 +1004,162 @@ class TestLooperHttpServer(object):
                 return self.errorPage("Branch %s doesn't exist" % branchName)
 
             branch = self.testManager.branches[branchName]
-            commits = branch.commitsInOrder
-            ungroupedUniqueTestIds = sorted(set(t for c in commits for t in c.statsByType))
 
-            testGroupsToTests = {}
-            for testName in ungroupedUniqueTestIds:
-                group = testName.split(".")[0]
-                if group not in testGroupsToTests:
-                    testGroupsToTests[group] = []
-                testGroupsToTests[group].append(testName)
+            return self.testPageForCommits(branch.commitsInOrder, "Branch `" + branchName + "`", testGroupsToExpand, branch)
 
+    @cherrypy.expose
+    def revlist(self, repoName, revlist):
+        self.authorize(read_only=True)
 
-            testGroupsToExpand = [] if testGroupsToExpand is None else testGroupsToExpand.split(",")
-            def appropriateGroup(testName):
-                groupPrefix = testName.split(".")[0]
-                if groupPrefix in testGroupsToExpand:
-                    return testName
-                return groupPrefix
+        t0 = time.time()
+        with self.testManager.lock:
+            lock_time = time.time()
+            
+            repo = self.testManager.source_control.getRepo(repoName)
 
-            testGroups = sorted(list(set(appropriateGroup(x) for x in ungroupedUniqueTestIds)))
-            grid = self.createGridForBranch(branch,
-                                            testGroups,
-                                            ungroupedUniqueTestIds,
-                                            testGroupsToExpand)
+            commitHashesParentsAndTitles = repo.source_repo.commitsInRevList(revlist)
 
-            lastCommit = None
-            commitsInStrand = 0
-            fork_commits = []
-            for c in commits:
-                if lastCommit is not None and \
-                        lastCommit.parentHash != c.commitHash or commitsInStrand > 9:
-                    grid.append([])
-                    commitsInStrand = 0
-                else:
-                    commitsInStrand += 1
+            commitHashes = set([c[0] for c in commitHashesParentsAndTitles])
+            
+            commits = {}
+            for commitHash, parentHashes, commitTitle in commitHashesParentsAndTitles:
+                commitId = repoName+"/"+commitHash
 
-                is_fork = len(fork_commits) > 0 and c.commitHash == fork_commits[-1]
-                is_merge = len(c.parentHashes) > 1
+                commits[commitId] = self.testManager.createCommit(commitId,
+                                                                  parentHashes,
+                                                                  commitTitle
+                                                                  )
 
-                row = self.getBranchCommitRow(branch,
-                                              c,
-                                              testGroups,
-                                              ungroupedUniqueTestIds,
-                                              testGroupsToTests)
+            commitsByHash = {c.commitHash: c for c in commits.values()}
 
-                pipe = '|'
-                if is_fork:
-                    grid.append([self.gitGraph(len(fork_commits), '/')])
-                    fork_commits = fork_commits[:-1]
+            commitsInOrder = [commitsByHash[hash] for hash, _, _ in commitHashesParentsAndTitles]
+
+            return self.testPageForCommits(commitsInOrder, "Revlist `" + revlist + "`", None, None)
+
+    def testPageForCommits(self, commits, headerText, testGroupsToExpand, branch):
+        ungroupedUniqueTestIds = sorted(set(t for c in commits for t in c.statsByType))
+
+        testGroupsToTests = {}
+        for testName in ungroupedUniqueTestIds:
+            group = testName.split(".")[0]
+            if group not in testGroupsToTests:
+                testGroupsToTests[group] = []
+            testGroupsToTests[group].append(testName)
 
 
-                row = [self.gitGraph(len(fork_commits), '*')] + row
-                row[1] = HtmlGeneration.whitespace*(4*len(fork_commits)) + row[1].render()
+        testGroupsToExpand = [] if testGroupsToExpand is None else testGroupsToExpand.split(",")
+        def appropriateGroup(testName):
+            groupPrefix = testName.split(".")[0]
+            if groupPrefix in testGroupsToExpand:
+                return testName
+            return groupPrefix
 
-                if is_merge:  # its's a merge commit
-                    fork_commits.append(c.parentHashes[0])
+        testGroups = sorted(list(set(appropriateGroup(x) for x in ungroupedUniqueTestIds)))
+        grid = self.createGridForBranch(branch,
+                                        testGroups,
+                                        ungroupedUniqueTestIds,
+                                        testGroupsToExpand)
 
-                grid.append(row)
-                if is_merge:
-                    grid.append([HtmlGeneration.BoldTag(
-                        (HtmlGeneration.whitespace*2).join(pipe for _ in fork_commits) +
-                        HtmlGeneration.whitespace*2 + "\\"
-                        )])
-                lastCommit = c
+        commit_string = ""
+        detail_divs = ""
 
-            grid_time = time.time()
+        ids_to_resize = []
 
-            perfGrid = self.createBranchPerformanceGrid(branch, prefix=perfprefix)
+        branches = {}
 
-            perf_time = time.time()
-            perfSection = '<br/><p id="perf" />' + \
-                markdown.markdown("### Performance Results  ") + \
-                HtmlGeneration.link(
-                    "[clear filters]",
-                    self.currentUrl(remove_query_params=['perfprefix'])
-                    ).render() + \
-                HtmlGeneration.grid(perfGrid)
+        commit_hashes = {c.commitHash: c for c in commits}
+        children = {c.commitHash: [] for c in commits}
+        parents = {}
+
+        for c in commits:
+            parents[c.commitHash] = [p for p in c.parentHashes if p in commit_hashes]
+            for p in parents[c.commitHash]:
+                children[p].append(c.commitHash)
+        
+        for c in commits:
+            if not parents[c.commitHash]:
+                branchname = "branch_%s" % len(branches)
+
+                commit_string += 'var %s = gitgraph.branch("%s");\n' % (branchname, branchname)
+                branches[c.commitHash] = branchname
+
+        for commit_ix, c in enumerate(reversed(commits)):
+            commit_string +=  "//%s -- %s\n" % (commit_ix, c.commitHash)
+
+            parentsWeHave = parents[c.commitHash]
+
+            if len(parentsWeHave) == 0:
+                #push a commit onto the branch
+                our_branch = branches[c.commitHash]
+
+                commit_string += "%s.commit({sha1: '%s', message: '%s', detailId: 'commit_%s'});\n" % (
+                    branches[c.commitHash],
+                    c.commitHash, 
+                    c.subject.replace("'", "\\'"),
+                    c.commitHash
+                    )
+
+            elif len(parentsWeHave) == 1:
+                #push a commit onto the branch
+                our_branch = branches[(parentsWeHave[0], c.commitHash)]
+
+                commit_string += "%s.commit({sha1: '%s', message: '%s', detailId: 'commit_%s'});\n" % (
+                    our_branch,
+                    c.commitHash, 
+                    c.subject.replace("'", "\\'"),
+                    c.commitHash
+                    )
+            else:
+                our_branch = branches[(parentsWeHave[0], c.commitHash)]
+                other_branch = branches[(parentsWeHave[1], c.commitHash)]
+
+                commit_string += "%s.merge(%s, {sha1: '%s', message: '%s', detailId: 'commit_%s'}).delete();" % (other_branch, our_branch, 
+                    c.commitHash, 
+                    c.subject.replace("'", "\\'"),
+                    c.commitHash
+                    )
+
+            if len(children[c.commitHash]) == 0:
+                #nothing to do - this is terminal
+                pass
+            elif len(children[c.commitHash]) == 1:
+                #one child gets to use this branch
+                branches[(c.commitHash, children[c.commitHash][0])] = our_branch
+            else:
+                #this is a fork - one child gets to use the branch, and everyone else needs to get a fork
+                branches[(c.commitHash, children[c.commitHash][0])] = our_branch
+                for other_child in children[c.commitHash][1:]:
+                    branchname = "branch_%s" % len(branches)
+
+                    commit_string += 'var %s = %s.branch("%s");\n' % (branchname, our_branch, branchname)
+
+                    branches[(c.commitHash, other_child)] = branchname
 
 
-            header = (
-                markdown.markdown("# Branch " + branchName) + "\n\n" +
-                '<p>Click the <span class="glyphicon glyphicon-plus" aria-hidden="true"></span>/'
-                '<span class="glyphicon glyphicon-minus" aria-hidden="true"></span> buttons '
-                'to increase/decrease the amount of testing on a given commit or test suite. '
-                'If both a test suite and a commit are selected within a branch'
-                ", only the cross section will received extra test coverage.</p><br>" +
-                "Jump to %s<br/>" % HtmlGeneration.Link(self.currentUrl() + "#perf",
-                                                        "Performance Results").render()
-                )
 
-            grid = HtmlGeneration.grid(grid, header_rows=2)
-            rendering_time = time.time()
+        for c in commits:
+            gridrow = self.getBranchCommitRow(branch,
+                                          c,
+                                          testGroups,
+                                          ungroupedUniqueTestIds,
+                                          testGroupsToTests)
 
-            logging.info("branch page timing - Total: %.2f, lock: %.2f, grid: %.2f, "
-                         "perf_grid: %.2f, rendering: %.2f",
-                         rendering_time - t0,
-                         lock_time - t0,
-                         grid_time - lock_time,
-                         perf_time - grid_time,
-                         rendering_time - perf_time)
-            return self.commonHeader() + header + grid + perfSection
+            grid.append(gridrow)
+
+        header = (
+            markdown.markdown("# " + headerText) + "\n\n" +
+            '<p>Click the <span class="glyphicon glyphicon-plus" aria-hidden="true"></span>/'
+            '<span class="glyphicon glyphicon-minus" aria-hidden="true"></span> buttons '
+            'to increase/decrease the amount of testing on a given commit or test suite. '
+            'If both a test suite and a commit are selected within a branch'
+            ", only the cross section will received extra test coverage.</p><br>"
+            )
+        
+        grid = HtmlGeneration.grid(grid, header_rows=2, rowHeightOverride=33)
+        
+        canvas = HtmlGeneration.gitgraph_canvas_setup(commit_string, grid)
+
+        return self.commonHeader() + header + detail_divs + canvas
 
 
     @staticmethod
@@ -1248,43 +1304,53 @@ class TestLooperHttpServer(object):
             testGroupPrefix = testGroup.split(".")[0]
 
             if testGroup in ungroupedUniqueTestIds:
-                testHeaders.append(
-                    self.toggleBranchTargetedTestListLink(branch,
-                                                          testGroup,
-                                                          ",".join(testGroupsToExpand))
-                    )
-
-                if testGroupPrefix in testGroupsToExpand:
-                    testGroupExpandLinks.append(
-                        HtmlGeneration.link(
-                            testGroupPrefix,
-                            "/branch?branchName=%s&testGroupsToExpand=%s" % (
-                                branch.branchName,
-                                ",".join(set(testGroupsToExpand) - set((testGroupPrefix,)))
-                                )
-                            ) + (
-                                "." + testGroup[len(testGroupPrefix)+1:] if testGroup != testGroupPrefix else ""
-                            )
+                if branch:
+                    testHeaders.append(
+                        self.toggleBranchTargetedTestListLink(branch,
+                                                              testGroup,
+                                                              ",".join(testGroupsToExpand))
                         )
+                else:
+                    testHeaders.append("")
+
+                if branch:
+                    if testGroupPrefix in testGroupsToExpand:
+                        testGroupExpandLinks.append(
+                            HtmlGeneration.link(
+                                testGroupPrefix,
+                                "/branch?branchName=%s&testGroupsToExpand=%s" % (
+                                    branch.branchName,
+                                    ",".join(set(testGroupsToExpand) - set((testGroupPrefix,)))
+                                    )
+                                ) + (
+                                    "." + testGroup[len(testGroupPrefix)+1:] if testGroup != testGroupPrefix else ""
+                                )
+                            )
+                    else:
+                        testGroupExpandLinks.append(testGroup)
                 else:
                     testGroupExpandLinks.append(testGroup)
             else:
                 testHeaders.append("")
-                testGroupExpandLinks.append(
-                    HtmlGeneration.link(
-                        testGroup,
-                        "/branch?branchName=%s&testGroupsToExpand=%s" % (
-                            branch.branchName,
-                            ",".join(testGroupsToExpand + [testGroup])
+                if branch:
+                    testGroupExpandLinks.append(
+                        HtmlGeneration.link(
+                            testGroup,
+                            "/branch?branchName=%s&testGroupsToExpand=%s" % (
+                                branch.branchName,
+                                ",".join(testGroupsToExpand + [testGroup])
+                                )
                             )
                         )
-                    )
+                else:
+                    testGroupExpandLinks.append(testGroup)
+                
             testGroupExpandLinks[-1] = HtmlGeneration.pad(testGroupExpandLinks[-1], 20)
             testHeaders[-1] = HtmlGeneration.pad(testHeaders[-1], 20)
 
-        grid = [["", "", "", "", ""] + testHeaders + ["", "", ""]]
+        grid = [["", "", "", ""] + testHeaders + ["", "", ""]]
         grid.append(
-            ["", "COMMIT", "", "(running)", "FAIL RATE" + HtmlGeneration.whitespace*4] + \
+            ["COMMIT", "", "(running)", "FAIL RATE" + HtmlGeneration.whitespace*4] + \
             testGroupExpandLinks + \
             ["SOURCE", "", "branch"]
             )
@@ -1311,7 +1377,9 @@ class TestLooperHttpServer(object):
 
         row = [self.commitLink(commit)]
 
-        row.append(self.toggleBranchTargetedCommitIdLink(branch, commit.commitId))
+        if branch:
+            row.append(self.toggleBranchTargetedCommitIdLink(branch, commit.commitId))
+
         row.append(
             commit.totalRunningCount() if commit.totalRunningCount() != 0 else ""
             )
@@ -1342,14 +1410,15 @@ class TestLooperHttpServer(object):
                 #check if this point in the commit-sequence has a statistically different
                 #probability of failure from its peers and mark it if so.
 
-                level, direction = branch.commitIsStatisticallyNoticeableFailureRateBreak(
-                    commit.commitId,
-                    testGroup
-                    )
+                if branch:
+                    level, direction = branch.commitIsStatisticallyNoticeableFailureRateBreak(
+                        commit.commitId,
+                        testGroup
+                        )
 
-                if level:
-                    level = int(round(math.log(level, 10)))
-                    errRate = HtmlGeneration.emphasize_probability(errRate, level, direction)
+                    if level:
+                        level = int(round(math.log(level, 10)))
+                        errRate = HtmlGeneration.emphasize_probability(errRate, level, direction)
 
                 if stat.failCount and testGroup in ungroupedUniqueTestIds:
                     row.append(
@@ -1377,8 +1446,9 @@ class TestLooperHttpServer(object):
                     if commit.testScriptDefinitionsError is not None
             else HtmlGeneration.lightGrey("no tests") 
                     if len(commit.testScriptDefinitions) == 0
-            else self.clearCommitIdLink(commit.commitId,
-                                          "/branch?branchName=" + branch.branchName)
+            else self.clearCommitIdLink(commit.commitId, "/branch?branchName=" + branch.branchName)
+                    if branch
+            else ""
             )
 
         row.append(joinLinks(self.branchLink(b.branchName) for b in commit.branches))
@@ -1720,13 +1790,15 @@ class TestLooperHttpServer(object):
                 "engine.autoreload.on":False,
                 'server.socket_host': '0.0.0.0',
                 'server.socket_port': self.httpPort,
-                'server.show.tracebacks': False,
+                'server.show_tracebacks': False,
                 'request.show_tracebacks': False,
                 'tools.sessions.on': True,
                 }
             }
-
+        print "server is ", cherrypy.server
         cherrypy.config.update(config)
+        print "server is now ", cherrypy.server
+
         logging.info("STARTING HTTP SERVER")
 
         current_dir = os.path.dirname(__file__)
@@ -1740,12 +1812,23 @@ class TestLooperHttpServer(object):
             '/css': {
                 'tools.staticdir.on': True,
                 'tools.staticdir.dir': os.path.join(current_dir, 'css')
+                },
+            '/js': {
+                'tools.staticdir.on': True,
+                'tools.staticdir.dir': os.path.join(current_dir, 'content', 'js')
                 }
             })
+
+        cherrypy.server.socket_port = self.httpPort
 
         cherrypy.engine.autoreload.on = False
 
         cherrypy.engine.signals.subscribe()
+
+        print "***************"
+        print "config = ", cherrypy.config
+        print "server = ", cherrypy.server
+        print "engine = ", cherrypy.engine
 
         cherrypy.engine.start()
 

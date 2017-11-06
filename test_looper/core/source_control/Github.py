@@ -49,7 +49,7 @@ class Github(SourceControl.SourceControl):
         self.repos = {}
 
     def shouldVerify(self):
-        return self.github_url == "https://github.com"
+        return True
 
     def listRepos(self):
         url = self.github_api_url + '/%ss/%s/repos' % (self.ownerType, self.ownerName)
@@ -57,7 +57,8 @@ class Github(SourceControl.SourceControl):
         response = requests.get(
             url,
             headers={
-                'accept': 'application/json'
+                'accept': 'application/json',
+                'Authorization': "token " + self.access_token
                 },
             verify=self.shouldVerify()
             )
@@ -67,6 +68,7 @@ class Github(SourceControl.SourceControl):
             for r in simplejson.loads(response.content):
                 res.append(r["name"])
         except:
+            logging.error("GOT: %s", response.content)
             logging.error(traceback.format_exc())
             return []
 

@@ -24,10 +24,15 @@ class RemoteRepo(object):
 
         parents = list(tuples[-1][1])
 
+        seen = set()
+        seen.add(tuples[0][0])
+
         while len(tuples) < depth and parents:
-            tuples.append(self.source_repo.hashParentsAndCommitTitleFor(parents[0]))
+            if parents[0] not in seen:
+                tuples.append(self.source_repo.hashParentsAndCommitTitleFor(parents[0]))
+                seen.add(parents[0])
+                parents.extend(tuples[-1][1])
             parents.pop(0)
-            parents.extend(tuples[-1][1])
 
         return tuples
     

@@ -62,7 +62,7 @@ def createTestWorker(config, machineInfo, worker_index):
     worker_path = str(os.path.join(os.path.expandvars(config['worker']['path']), worker_index))
 
     osInteractions = WorkerState.WorkerState(
-        "test_looper_" + worker_index + "_", 
+        config['worker'].get('scope',"test_looper") + "_" + worker_index + "_",
         worker_path,
         source_control,
         artifactStorage=artifactStorage,

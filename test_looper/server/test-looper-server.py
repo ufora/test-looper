@@ -102,7 +102,8 @@ def main():
         event_log=TestLooperHttpServerEventLog(RedisJsonStore(port=config['server'].get('redis_port'))),
         auth_level=parsedArgs.auth,
         httpPort=http_port,
-        enable_advanced_views=config['server'].get('enable_advanced_views', False)
+        enable_advanced_views=config['server'].get('enable_advanced_views', False),
+        wetty_port=config['server']['wetty_port']
         )
 
     server = TestLooperServer.TestLooperServer(port,

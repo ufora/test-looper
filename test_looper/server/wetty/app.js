@@ -13,15 +13,10 @@ var opts = require('optimist')
             demand: true,
             alias: "c",
             description: 'path to the config.json'
-            },
-        port: {
-            demand: true,
-            alias: "p",
-            description: 'port to listen on'
-            },
+            }
         }).boolean('allow_discovery').argv;
 
-var port = opts.port
+var port = require(opts.config).server.wetty_port
 
 var runhttps = false;
 

@@ -20,6 +20,9 @@ ul.nav-pills {
     margin-bottom: 10px;
 }
 
+.gitgraph_box {
+display: inline-block;
+}
 
 .table-hscroll {
 width: 100%;

@@ -18,7 +18,7 @@ def configureGithub(src_ctrl_config):
         'auth_disabled': src_ctrl_config.get("auth_disabled", False)
         }
 
-    for item in ['github_url', 'github_login_url', 'github_api_url']:
+    for item in ['github_url', 'github_login_url', 'github_api_url', 'github_clone_url']:
         if item in src_ctrl_config:
             src_ctrl_args[item] = src_ctrl_config[item]
 

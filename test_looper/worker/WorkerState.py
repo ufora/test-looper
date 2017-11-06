@@ -221,7 +221,8 @@ class WorkerState(object):
 
         #check out a working copy
         self.clearDirectoryAsRoot(self.directories.repo_copy_dir)
-
+        shutil.rmtree(self.directories.repo_copy_dir)
+        
         try:
             git_repo.resetToCommitInDirectory(commitHash, self.directories.repo_copy_dir)
             os.unlink(os.path.join(self.directories.repo_copy_dir, ".git"))

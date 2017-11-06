@@ -16,9 +16,66 @@ headers = """
       integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7"
       crossorigin="anonymous"/>
 <link rel="stylesheet" href="/css/test-looper.css"/>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/gitgraph.js/1.11.4/gitgraph.css"/>
 </head>
 <body>
+<script src="/js/gitgraph.js"></script>
 <div class="container-fluid">
+"""
+
+def gitgraph_canvas_setup(commit_generation, to_the_right):
+    return """
+<div style="width:3000px">
+    <div style="display:inline-block; vertical-align: top">
+        <div style="height: 40px"></div>
+        <canvas id='gitGraph'></canvas>
+    </div>
+    <div style="width:1500px;display:inline-block">
+    """ + to_the_right + """
+    </div>
+</div>
+
+<script> 
+
+var templateConfig = {
+    branch: {
+        color: "#000000",
+        lineWidth: 3,
+        spacingX: 50,
+        mergeStyle: "straight",
+        labelRotation: 0,
+        mergeStyle: "bezier"
+        },
+    commit: {
+        spacingY: 33,
+        dot: {
+            size: 5,
+            strokeColor: "#000000",
+            strokeWidth: 2
+            },
+        message: {
+            display: false
+            }
+        },
+    arrow: {
+        active: false,
+        size: 0,
+        offset: 2.5
+        }
+    };
+
+var template = new GitGraph.Template( templateConfig );
+
+var gitgraph = new GitGraph({
+  template: template,
+  orientation: "vertical",
+  author: ""
+});
+
+gitgraph.template.commit.message.font = "normal 12pt Calibri";
+
+""" + commit_generation + """
+</script>
 """
 
 def render(x):
@@ -180,26 +237,30 @@ def elementTextLength(e):
     logging.info("Text length: %d, Element: %s", text_length, e)
     return text_length
 
-def grid(rows, header_rows=1):
+def grid(rows, header_rows=1, rowHeightOverride=None):
     """Given a list-of-lists (e.g. row of column values), format as a grid.
 
     We compute the width of each column (assuming null values if a column
     is not entirely populated).
     """
+    if rowHeightOverride is not None:
+        override_text = ' style="height:%spx"' % rowHeightOverride
+    else:
+        override_text = ""
 
     rows = [[makeHtmlElement(x) for x in row] for row in rows]
     col_count = len(rows[0])
 
     table_headers = "\n".join(
-        "<tr>%s</tr>" % "\n".join('<th class="fit">%s</th>' % h.render()
-                                  for h in row)
+        "<tr%s>%s</tr>" % (override_text, "\n".join('<th class="fit">%s</th>' % h.render()
+                                  for h in row))
         for row in rows[:header_rows])
 
     def format_row(row):
         if len(row) == 0:
             return '<tr class="blank_row"><td colspan="%d"/></tr>' % col_count
         else:
-            tr = "<tr>%s" % "\n".join('<td class="fit">%s</td>' % c.render()
+            tr = "<tr" + override_text + ">%s" % "\n".join('<td class="fit">%s</td>' % c.render()
                                       for c in row)
             if len(row) < col_count:
                 tr += '<td colspan="%d"/>' % (col_count - len(row))
