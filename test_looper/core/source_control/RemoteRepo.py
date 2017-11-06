@@ -11,17 +11,28 @@ def isValidRepoName(name):
     return True
 
 class RemoteRepo(object):
-    def __init__(self, name):
+    def __init__(self, name, source_repo):
         assert isValidRepoName(name)
 
         self.name = name
+        self.source_repo = source_repo
 
+    def commitsLookingBack(self, branchOrHash, depth):
+        tuples = []
+
+        tuples.append(self.source_repo.hashParentsAndCommitTitleFor(branchOrHash))
+
+        parents = list(tuples[-1][1])
+
+        while len(tuples) < depth and parents:
+            tuples.append(self.source_repo.hashParentsAndCommitTitleFor(parents[0]))
+            parents.pop(0)
+            parents.extend(tuples[-1][1])
+
+        return tuples
+    
     def listBranches(self):
         """a list of branchnames we export"""
-        assert False, "subclasses implement"
-
-    def commitsLookingBack(self, branch, depth):
-        """a list of commits looking at first parents going back 'depth'"""
         assert False, "subclasses implement"
 
     def commitsBetweenBranches(self, branch, baseline):

@@ -16,9 +16,8 @@ class GithubRepo(RemoteRepo.RemoteRepo):
                  owner,
                  repoName
                  ):
-        super(GithubRepo, self).__init__(repoName)
-        
-        self.source_repo = Git(path_to_local_repo)
+        super(GithubRepo, self).__init__(repoName, Git(path_to_local_repo))
+
         self.owner = owner
         self.github = github
 
@@ -30,17 +29,6 @@ class GithubRepo(RemoteRepo.RemoteRepo):
 
     def commitsBetweenBranches(self, branch, baseline):
         return self.source_repo.commitsInRevList("origin/%s ^origin/%s" % (branch, baseline))
-
-    def commitsLookingBack(self, branchOrHash, depth):
-        tuples = []
-
-        tuples.append(self.source_repo.hashParentsAndCommitTitleFor(branchOrHash))
-
-        while len(tuples) < depth and len(tuples[-1][1]):
-            firstParent = tuples[-1][1][0]
-            tuples.append(self.source_repo.hashParentsAndCommitTitleFor(firstParent))
-
-        return tuples
 
     def getTestScriptDefinitionsForCommit(self, commitHash):
         test_definitions_path = self.source_repo.getTestDefinitionsPath(commitHash)

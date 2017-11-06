@@ -16,29 +16,20 @@ class LocalGitRepo(RemoteRepo.RemoteRepo):
     def __init__(self,
                  path_to_repo
                  ):
-        super(LocalGitRepo, self).__init__(os.path.split(path_to_repo)[1])
-
         assert isinstance(path_to_repo, (str,unicode))
 
         self.path_to_repo = str(path_to_repo)
-        self.source_repo = Git(self.path_to_repo)
+        
+        source_repo = Git(self.path_to_repo)
+
+        super(LocalGitRepo, self).__init__(os.path.split(path_to_repo)[1], source_repo)
+
 
     def listBranches(self):
         print "Branches are ", self.source_repo.listBranches(), " in ", self.path_to_repo
         return [b for b in self.source_repo.listBranches() if 
             not b.startswith("origin/") and not b.startswith("remotes/")]
 
-    def commitsLookingBack(self, branchOrHash, depth):
-        tuples = []
-
-        tuples.append(self.source_repo.hashParentsAndCommitTitleFor(branchOrHash))
-
-        while len(tuples) < depth and len(tuples[-1][1]):
-            firstParent = tuples[-1][1][0]
-            tuples.append(self.source_repo.hashParentsAndCommitTitleFor(firstParent))
-
-        return tuples
-    
     def commitsBetweenBranches(self, branch, baseline):
         return self.source_repo.commitsInRevList("%s ^%s" % (branch, baseline))
 
