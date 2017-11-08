@@ -124,7 +124,7 @@ class DockerImage(object):
     @staticmethod
     def removeDanglingDockerImages():
         for c in docker_client.images.list(filters={'dangling':True,'label':'test_looper_worker'}):
-            docker_client.images.remove(c)
+            docker_client.images.remove(c.id)
 
     @classmethod
     def from_dockerfile_as_string(cls, docker_repo, dockerfile_as_string, create_missing=False):
