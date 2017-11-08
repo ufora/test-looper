@@ -20,6 +20,8 @@ mkdir $TEST_LOOPER_INSTALL/redis
 export GIT_AUTHOR_DATE="1509599720 -0500"
 export GIT_COMMITTER_DATE="1509599720 -0500"
 
+echo "building repos at "$TEST_LOOPER_INSTALL/repos
+
 (cd $TEST_LOOPER_INSTALL/repos/repo1
  git init .
  cp $PROJ_ROOT/test_looper_tests/test_projects/simple_project/* -r .
@@ -59,6 +61,8 @@ for m in 4 5 6 7 8;
  git commit -m "second commit in repo2"
  )
 }
+
+rebuild;
 
 echo "BOOTING REDIS"
 ( redis-server --port 1115 \

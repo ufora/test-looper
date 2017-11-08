@@ -21,6 +21,16 @@
         "repo_name": "nativepython",
         "scope":"test_looper_dev"
         },
+    "source_control_2": {
+        "type": "github",
+        "path_to_local_repos": "$TEST_LOOPER_INSTALL/repos",
+        "oauth_key": "",
+        "oauth_secret": "",
+        "webhook_secret": "",
+        "owner": "user:braxtonmckee",
+        "access_token": "",
+        "auth_disabled": true
+        },
     "source_control": {
         "type": "local_git",
         "path_to_repos": "$TEST_LOOPER_INSTALL/repos"

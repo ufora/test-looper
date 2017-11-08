@@ -15,7 +15,6 @@ import os
 
 import test_looper.core.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
-import test_looper.server.PerformanceDataset as PerformanceDataset
 
 import traceback
 
@@ -189,7 +188,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def index(self):
-        raise cherrypy.HTTPRedirect(self.address + "/branches")
+        raise cherrypy.HTTPRedirect(self.address + "/repos")
 
 
     @cherrypy.expose
@@ -209,27 +208,6 @@ class TestLooperHttpServer(object):
                         self.testResultDownloadUrl(testId, artifactName)
                         )
                     ])
-
-            perftestsGrid = []
-
-            perfResults = test.getPerformanceTestResults()
-            if perfResults:
-                perftestsGrid = [["TEST", "TIME", "METADATA"]]
-
-                for perftest in perfResults:
-                    row = []
-
-                    row.append(perftest.name)
-                    row.append(
-                        "" if perftest.timeElapsed is None else "%.2f" % perftest.timeElapsed
-                        )
-                    metadata = ""
-                    if perftest.metadata is not None:
-                        metadata = ", ".join("%s: %s" % (k, v)
-                                             for k, v in perftest.metadata.iteritems())
-                    row.append(metadata)
-
-                    perftestsGrid.append(row)
 
             machinesGrid = [["MACHINE", "INTERNAL IP", "SUCCESS", "HEARTBEAT"]]
 
@@ -268,22 +246,8 @@ class TestLooperHttpServer(object):
                 HtmlGeneration.grid(grid) + (
                     "<br>" * 3 + markdown.markdown("## Machine Assignments\n") +
                     HtmlGeneration.grid(machinesGrid)
-                    ) + (
-                        "" if not perftestsGrid else
-                        "<br>" * 3 + markdown.markdown("## Performance results\n") +
-                        HtmlGeneration.grid(perftestsGrid)
-                        )
+                    )
                 )
-
-    @cherrypy.expose
-    def testPrioritization(self):
-        self.authorize(read_only=True)
-        return (
-            self.commonHeader() +
-            HtmlGeneration.grid(
-                self.prioritizationGrid()
-                )
-            )
 
     @cherrypy.expose
     def test_contents(self, testId, key):
@@ -294,37 +258,6 @@ class TestLooperHttpServer(object):
 
     def testResultKeys(self, testId):
         return self.artifactStorage.testResultKeysFor(testId)
-
-    def prioritizationGrid(self):
-        with self.testManager.lock:
-            grid = [["COMMIT", "TEST", "SCORE", "LEVEL", "TOTAL_RUNS", "RUNNING",
-                     "TIMED OUT", "SMOKETEST", "BRANCH", "SUBJECT"]]
-
-            commitsAndTests = self.testManager.getPossibleCommitsAndTests()
-
-            candidates = self.testManager.prioritizeCommitsAndTests(commitsAndTests,
-                                                                    preferTargetedTests=False)
-
-            commitLevelDict = self.testManager.computeCommitLevels()
-
-            for commitAndTestToRun in candidates:
-                commit = commitAndTestToRun.commit
-                testName = commitAndTestToRun.testName
-                priority = commitAndTestToRun.priority
-                grid.append([
-                    self.commitLink(commit),
-                    testName,
-                    priority,
-                    commitLevelDict[commit.commitId],
-                    commit.totalNonTimedOutRuns(testName),
-                    commit.runningCount(testName),
-                    commit.timeoutCount(testName),
-                    str(not commit.isUnderTest),
-                    joinLinks(self.branchLink(b.branchName) for b in commit.branches),
-                    self.sourceLinkForCommit(commit)
-                    ])
-
-            return grid
 
     @staticmethod
     def commitLink(commit, failuresOnly=False, testName=None, length=7):
@@ -366,14 +299,14 @@ class TestLooperHttpServer(object):
                                    button_style=self.disable_if_cant_write('btn-danger btn-xs'))
 
 
-    def clearBranchLink(self, branch, redirect):
+    def clearBranchLink(self, branch):
         return self.small_clear_button(
-            "/clearBranch?" + urllib.urlencode({'branch':branch, 'redirect': redirect}),
+            "/clearBranch?" + urllib.urlencode({'branch':branch, 'redirect': self.redirect()}),
             )
 
-    def clearCommitIdLink(self, commitId, redirect):
+    def clearCommitIdLink(self, commitId):
         return self.small_clear_button(
-            "/clearCommit?" + urllib.urlencode({'commitId': commitId, 'redirect': redirect}),
+            "/clearCommit?" + urllib.urlencode({'commitId': commitId, 'redirect': self.redirect()}),
             )
 
     def sourceLinkForCommit(self, commit):
@@ -539,8 +472,7 @@ class TestLooperHttpServer(object):
 
             grid = self.gridForTestList_(sortedTests, commit=commit, failuresOnly=failuresOnly)
 
-            header = """## Commit %s: %s\n""" % (self.sourceLinkForCommit(commit).render(),
-                                                 commit.subject)
+            header = """## Commit `%s`: `%s`\n""" % (commit.commitHash[:10], commit.subject)
             for b in commit.branches:
                 header += """### Branch: %s\n""" % self.branchLink(b.branchName).render()
 
@@ -687,7 +619,7 @@ class TestLooperHttpServer(object):
             )
 
         nav_links = [
-            ('Branches', '/branches')
+            ('Repos', '/repos')
             ]
 
         if self.cloud_connection.isSpotEnabled():
@@ -700,8 +632,7 @@ class TestLooperHttpServer(object):
 
         if self.enable_advanced_views:
             nav_links += [
-                ('Activity Log', '/eventLogs'),
-                ('Test Queue', '/testPrioritization')
+                ('Activity Log', '/eventLogs')
                 ]
         
         headers += ['<ul class="nav nav-pills">'] + [
@@ -719,7 +650,8 @@ class TestLooperHttpServer(object):
         hover_text = "%s testing this branch" % ("Pause" if branch.isUnderTest else "Start")
         button_style = "btn-xs " + ("btn-success active" if branch.isUnderTest else "btn-default")
         return HtmlGeneration.Link(
-            "/toggleBranchUnderTest?branchName=" + branch.branchName,
+            "/toggleBranchUnderTest?" + 
+                urllib.urlencode({'branchName':branch.branchName, 'redirect': self.redirect()}),
             '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
             is_button=True,
             button_style=self.disable_if_cant_write(button_style),
@@ -728,19 +660,19 @@ class TestLooperHttpServer(object):
 
 
     @cherrypy.expose
-    def toggleBranchUnderTest(self, branchName):
+    def toggleBranchUnderTest(self, branchName, redirect):
         self.authorize(read_only=False)
 
         with self.testManager.lock:
             branch = self.testManager.branches[branchName]
             branch.setIsUnderTest(not branch.isUnderTest)
 
-        raise cherrypy.HTTPRedirect(self.address + "/branches")
+        raise cherrypy.HTTPRedirect(redirect)
 
     @cherrypy.expose
-    def refresh(self):
+    def refresh(self, redirect=None):
         self.refreshBranches(block=True)
-        raise cherrypy.HTTPRedirect(self.address + "/branches")
+        raise cherrypy.HTTPRedirect(redirect or self.address + "/repos")
 
     @cherrypy.expose
     def refreshNonblocking(self):
@@ -757,16 +689,20 @@ class TestLooperHttpServer(object):
         if block:
             refresh_thread.join()
 
+    def redirect(self):
+        qs = cherrypy.request.query_string
 
-    def branchesGrid(self):
+        return cherrypy.request.path_info + ("?" if qs else "") + qs
+
+    def branchesGrid(self, repoName):
         t0 = time.time()
         with self.testManager.lock:
             lock_time = time.time()
-            branches = self.testManager.distinctBranches()
+            branches = self.testManager.branchesForRepo(repoName)
             branch_list_time = time.time()
 
             refresh_button = HtmlGeneration.Link(
-                "/refresh",
+                "/refresh?" + urllib.urlencode({"redirect": self.redirect()}),
                 '<span class="glyphicon glyphicon-refresh " aria-hidden="true" />',
                 is_button=True,
                 button_style='btn-default btn-xs',
@@ -794,7 +730,7 @@ class TestLooperHttpServer(object):
 
                     row.append(passes)
                     row.append(str(totalRuns))
-                    row.append(self.clearBranchLink(b, "/branches"))
+                    row.append(self.clearBranchLink(b))
 
                 grid.append(row)
 
@@ -809,11 +745,36 @@ class TestLooperHttpServer(object):
             return grid
 
     @cherrypy.expose
-    def branches(self):
+    def repos(self):
         self.authorize(read_only=True)
 
-        grid = HtmlGeneration.grid(self.branchesGrid())
-        grid += HtmlGeneration.Link("/disableAllTargetedTests",
+        grid = HtmlGeneration.grid(self.reposGrid())
+        
+        return self.commonHeader() + grid
+
+    def reposGrid(self):
+        with self.testManager.lock:
+            repoNames = self.testManager.distinctRepoNames()
+
+            grid = [["REPO NAME", "BRANCH COUNT"]]
+
+            for r in sorted(repoNames):
+                branches = self.testManager.branchesForRepo(r)
+
+                grid.append([
+                    HtmlGeneration.link(r, "/branches?repoName=" + r),
+                    str(len(branches))
+                    ])
+
+            return grid
+
+    @cherrypy.expose
+    def branches(self, repoName):
+        self.authorize(read_only=True)
+
+        grid = HtmlGeneration.grid(self.branchesGrid(repoName))
+        grid += HtmlGeneration.Link("/disableAllTargetedTests?" + 
+                                        urllib.urlencode({'redirect': self.redirect()}),
                                     "Stop all drilling",
                                     is_button=True,
                                     button_style=self.disable_if_cant_write("btn-default")).render()
@@ -822,7 +783,7 @@ class TestLooperHttpServer(object):
 
 
     @cherrypy.expose
-    def disableAllTargetedTests(self):
+    def disableAllTargetedTests(self, redirect):
         self.authorize(read_only=False)
 
         with self.testManager.lock:
@@ -830,86 +791,7 @@ class TestLooperHttpServer(object):
                 branch.setTargetedTestList([])
                 branch.setTargetedCommitIds([])
 
-        raise cherrypy.HTTPRedirect(self.address + "/branches")
-
-
-    @cherrypy.expose
-    def branchPerformance(self, branchName, prefix=""):
-        self.authorize(read_only=True)
-
-        if not branchName in self.testManager.branches:
-            return self.errorPage("Branch %s not found" % branchName)
-
-        with self.testManager.lock:
-            commits = self.testManager.branches[branchName].commitsInOrder
-
-            dataBySeries = self.testManager.branches[branchName].getPerfDataSummary()
-
-            commitIds = list(reversed([x.commitId for x in commits]))
-
-
-        data = PerformanceDataset.PerformanceDataset(dataBySeries, commitIds)
-
-        seriesToDraw = data.groupSeriesData(prefix)
-
-        drillData = [["GROUP", "TEST COUNT", "COUNT DEGRADING", "COUNT IMPROVING"]]
-
-        for seriesName in sorted(seriesToDraw.keys()):
-            row = []
-            row.append(self.drillBranchPerformanceLink(branchName, seriesName))
-            row.append(str(len([x for x in dataBySeries if x.startswith(seriesName)])))
-            row.append(
-                str(len([
-                    x for x in dataBySeries
-                    if x.startswith(seriesName) and data.dataBySeries[x].performanceDegrades()
-                    ]))
-                )
-            row.append(
-                str(len([
-                    x for x in dataBySeries
-                    if x.startswith(seriesName) and data.dataBySeries[x].performanceImproves()
-                    ]))
-                )
-            drillData.append(row)
-
-        if prefix:
-            currentDrillContext = "Currently showing tests starting with "
-
-            prefixItems = prefix.split(".")
-
-            currentDrillContext += ".".join([
-                self.drillBranchPerformanceLink(
-                    branchName,
-                    ".".join(prefixItems[:ix+1]),
-                    prefixItems[ix]
-                    ).render()
-                for ix in range(len(prefixItems))
-                ])
-
-            currentDrillContext += "&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;" + \
-                self.drillBranchPerformanceLink(branchName, "", "[clear]").render()
-        else:
-            currentDrillContext = ""
-
-        return (
-            "<html>" +
-            self.commonHeader() +
-            markdown.markdown("#Branch Performance\n\n### branchname").replace(
-                "branchname",
-                self.branchLink(branchName).render()
-                ) +
-            currentDrillContext +
-            HtmlGeneration.grid(drillData) +
-            data.generateChartHtml(branchName, prefix, seriesToDraw) +
-            "</html>"
-            )
-
-    @staticmethod
-    def drillBranchPerformanceLink(branchName, seriesName, display=None):
-        return HtmlGeneration.link(
-            display if display is not None else seriesName,
-            "/branchPerformance?branchName=" + branchName + "&prefix=" + seriesName
-            )
+        raise cherrypy.HTTPRedirect(redirect)
 
     def toggleBranchTargetedTestListLink(self, branch, testType, testGroupsToExpand):
         is_drilling = testType in branch.targetedTestList()
@@ -994,7 +876,7 @@ class TestLooperHttpServer(object):
 
 
     @cherrypy.expose
-    def branch(self, branchName, testGroupsToExpand=None, perfprefix=None):
+    def branch(self, branchName, testGroupsToExpand=None):
         self.authorize(read_only=True)
 
         t0 = time.time()
@@ -1186,113 +1068,6 @@ class TestLooperHttpServer(object):
             ).replace('http://', 'https://')
 
 
-    def renderPerfSummary(self, summary, prior_summary):
-        try:
-            mean_time, stddev_time = summary['time']
-
-            if summary['count'] == 1:
-                text = "%13.2f" % mean_time if mean_time else ''
-            else:
-                text = "%3d@ %s &plusmn; %s" % (
-                    summary['count'],
-                    "%8.2f" % mean_time if mean_time else '',
-                    self.float_to_str(stddev_time)
-                    )
-            if prior_summary is None or prior_summary['count'] < 4:
-                return text
-
-            prior_mean, prior_stddev = prior_summary['time']
-            if abs(mean_time - prior_mean) < prior_stddev * 4 / (prior_summary['count'] ** .5):
-                return text
-
-            if mean_time < prior_mean:
-                return HtmlGeneration.greenBacking(text)
-            else:
-                return HtmlGeneration.redBacking(text)
-
-        except:
-            logging.warn("Exception rendering perfSummary: %s", traceback.format_exc())
-            return text
-
-
-    def createBranchPerformanceGrid(self, branch, prefix=None):
-        prefix = prefix or ''
-        perf_results = {}
-        headers = ["TEST"]
-        commitIndices = {}
-        for commit in branch.commitsInOrder:
-            headers.append(
-                HtmlGeneration.HtmlElements([
-                    HtmlGeneration.HtmlString('  '),
-                    self.commitLink(commit.commitId)
-                    ])
-                )
-            commitIndices[commit.commitId] = len(commitIndices)
-            commit_perf_summary = commit.summarizePerfResults(prefix)
-            for name, summary in commit_perf_summary.iteritems():
-                test_results = perf_results.get(name)
-                if test_results is None:
-                    test_results = []
-                    perf_results[name] = test_results
-                test_results.append((commit.commitId, summary))
-
-        grid = [headers]
-        for test_name in sorted(perf_results.iterkeys()):
-            testResults = [None] * len(commitIndices)
-            for commitId, summary in perf_results[test_name]:
-                testResults[commitIndices[commitId]] = summary
-
-            renderedResults = []
-            for i in xrange(len(testResults)):
-                if testResults[i] is None:
-                    renderedResults.append('')
-                else:
-                    try:
-                        priorResult = next(testResults[j]
-                                           for j in xrange(i+1, len(testResults))
-                                           if testResults[j] is not None)
-                    except StopIteration:
-                        priorResult = None
-
-                    renderedResults.append(
-                        self.renderPerfSummary(testResults[i], priorResult)
-                        )
-
-            grid.append([self.perfTestLinks(test_name)] + renderedResults)
-        return grid
-
-
-    @staticmethod
-    def perfTestLinks(test_name):
-        query_string = cherrypy.lib.httputil.parse_query_string(
-            cherrypy.request.query_string
-            )
-
-        split_name = test_name.split(".")
-        links = []
-        for i, segment in enumerate(split_name):
-            prefix = ".".join(split_name[:i+1])
-            query_string['perfprefix'] = prefix
-            links.append(HtmlGeneration.link(
-                segment,
-                cherrypy.url(
-                    qs="&".join("%s=%s" % (k, v) for k, v in query_string.iteritems()),
-                    relative=False
-                    )
-                ))
-
-        return HtmlGeneration.HtmlElements(
-            links[:1] + list(itertools.chain.from_iterable(
-                (HtmlGeneration.makeHtmlElement('.'), l) for l in links[1:]
-                ))
-            )
-
-
-    @staticmethod
-    def float_to_str(f):
-        return "%.2f" % f if f else ''
-
-
     def createGridForBranch(self,
                             branch,
                             testGroups,
@@ -1446,7 +1221,7 @@ class TestLooperHttpServer(object):
                     if commit.testScriptDefinitionsError is not None
             else HtmlGeneration.lightGrey("no tests") 
                     if len(commit.testScriptDefinitions) == 0
-            else self.clearCommitIdLink(commit.commitId, "/branch?branchName=" + branch.branchName)
+            else self.clearCommitIdLink(commit.commitId)
                     if branch
             else ""
             )
@@ -1690,8 +1465,6 @@ class TestLooperHttpServer(object):
         requestIds = requestIds.split(',')
 
         spotRequests = self.cloud_connection.getLooperSpotRequests()
-
-        print "requestIds:", requestIds, "type:", type(requestIds)
 
         invalidRequests = [r for r in requestIds if r not in spotRequests]
         if len(invalidRequests) > 0:

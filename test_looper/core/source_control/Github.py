@@ -54,12 +54,14 @@ class Github(SourceControl.SourceControl):
     def listRepos(self):
         url = self.github_api_url + '/%ss/%s/repos' % (self.ownerType, self.ownerName)
 
+        headers={'accept': 'application/json'}
+        
+        if self.access_token: 
+            headers['Authorization'] = "token " + self.access_token
+
         response = requests.get(
             url,
-            headers={
-                'accept': 'application/json',
-                'Authorization': "token " + self.access_token
-                },
+            headers=headers,
             verify=self.shouldVerify()
             )
 

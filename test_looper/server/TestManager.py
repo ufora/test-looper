@@ -72,6 +72,12 @@ class TestManager(object):
         self.testDb.clearAllTestsForCommitId(commitId)
         self.commits[commitId].clearTestResults()
 
+    def distinctRepoNames(self):
+        return set([x.split("/")[0] for x in self.branches.keys()])
+
+    def branchesForRepo(self, repoName):
+        return set([x for x in self.branches.keys() if x.split("/")[0] == repoName])
+
     def distinctBranches(self):
         return set(self.branches.keys())
 
@@ -286,7 +292,7 @@ class TestManager(object):
         t0 = time.time()
 
         self.source_control.refresh()
-        
+
         branchNames = set(self.source_control.listBranches())
         logging.info("listing branches took %.2f seconds", time.time() - t0)
 
