@@ -6,7 +6,7 @@ import requests
 import simplejson
 
 from test_looper.core.source_control import RemoteRepo
-from test_looper.core.TestScriptDefinition import TestScriptDefinition
+from test_looper.data_model.TestScriptDefinition import TestScriptDefinition
 from test_looper.core.tools.Git import Git
 
 class GithubRepo(RemoteRepo.RemoteRepo):

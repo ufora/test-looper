@@ -5,7 +5,7 @@ import logging
 import traceback
 
 import test_looper.core.socket_util as socket_util
-import test_looper.core.TestResult as TestResult
+import test_looper.data_model.TestResult as TestResult
 import test_looper.server.TestLooperServer as TestLooperServer
 
 class ProtocolMismatchException(Exception):

@@ -7,8 +7,8 @@ import sys
 import simplejson
 
 import test_looper_tests.common as common
-import test_looper.server.TestDatabase as TestDatabase
-import test_looper.server.TestManager as TestManager
+import test_looper.data_model.TestDatabase as TestDatabase
+import test_looper.data_model.TestManager as TestManager
 import test_looper.server.RedisJsonStore as RedisJsonStore
 import test_looper.core.tools.Git as Git
 import test_looper.core.ArtifactStorage as ArtifactStorage

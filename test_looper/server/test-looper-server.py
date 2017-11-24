@@ -12,11 +12,11 @@ import time
 
 import test_looper.core.source_control.SourceControlFromConfig as SourceControlFromConfig
 from test_looper.server.RedisJsonStore import RedisJsonStore
-from test_looper.server.TestDatabase import TestDatabase
+from test_looper.data_model.TestDatabase import TestDatabase
 import test_looper.server.TestLooperHttpServer as TestLooperHttpServer
 from test_looper.server.TestLooperHttpServerEventLog import TestLooperHttpServerEventLog
 import test_looper.server.TestLooperServer as TestLooperServer
-import test_looper.server.TestManager as TestManager
+import test_looper.data_model.TestManager as TestManager
 import test_looper.core.ArtifactStorage as ArtifactStorage
 import test_looper.core.cloud.FromConfig
 

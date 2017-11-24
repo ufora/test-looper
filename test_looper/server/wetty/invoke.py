@@ -14,7 +14,7 @@ import uuid
 import signal
 
 import test_looper.core.tools.Git as Git
-import test_looper.core.TestScriptDefinition as TestScriptDefinition
+import test_looper.data_model.TestScriptDefinition as TestScriptDefinition
 import test_looper.worker.WorkerState as WorkerState
 import test_looper.core.tools.Docker as Docker
 import test_looper.core.tools.DockerWatcher as DockerWatcher

@@ -4,13 +4,13 @@ import random
 import time
 import traceback
 import simplejson
-import test_looper.core.TestResult as TestResult
+import test_looper.data_model.TestResult as TestResult
 
-import test_looper.server.BlockingMachines as BlockingMachines
-import test_looper.core.TestScriptDefinition as TestScriptDefinition
-import test_looper.server.Branch as Branch
-import test_looper.server.Commit as Commit
-from test_looper.server.CommitAndTestToRun import CommitAndTestToRun
+import test_looper.data_model.BlockingMachines as BlockingMachines
+import test_looper.data_model.TestScriptDefinition as TestScriptDefinition
+import test_looper.data_model.Branch as Branch
+import test_looper.data_model.Commit as Commit
+from test_looper.data_model.CommitAndTestToRun import CommitAndTestToRun
 
 class TestManagerSettings:
     def __init__(self, baseline_branch, baseline_depth, max_test_count):

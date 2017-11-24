@@ -2,18 +2,11 @@ import logging
 import math
 import time
 
-import test_looper.server.TestStats as TestStats
-import test_looper.core.TestResult as TestResult
+import test_looper.data_model.TestStats as TestStats
+import test_looper.data_model.TestResult as TestResult
 
 class Commit(object):
     """Models a single Commit in the test database."""
-
-    DEEP_TEST_PASS_COUNT = 100
-    SMOKE_TEST_PASS_COUNT = 1
-    MAX_BUILD_ATTEMPTS = 1
-    MIN_PASS_RATE = 0.7
-    SUSPICIOUSNESS_CACHE_TIMEOUT = 30.0
-
     def __init__(self, 
             testDb,
             commitId, 
@@ -40,7 +33,6 @@ class Commit(object):
         self.testsById = {}
         self.testIdsByType = {}
         self.statsByType = {}
-        self.perfTests = {}
         self.isTargetedTestCache = {}
 
         for definition in self.testScriptDefinitions:
@@ -88,34 +80,9 @@ class Commit(object):
         for testId in self.testIdsByType[testName]:
             self.statsByType[testName].addTest(self.testsById[testId])
 
-        #remove all perf tests that were part of this test
-        self.removeTestPerfResults(test_result)
-
     def testChanged(self, testName, result):
         if testName in self.statsByType:
             self.statsByType[testName].dirtyCache()
-        self.addPerfResultsForTest(result)
-
-
-    def removeTestPerfResults(self, test_result):
-        for perf_result in test_result.getPerformanceTestResults():
-            self.perfTests[perf_result.name]['results'].remove(perf_result)
-            self.perfTests[perf_result.name]['summary'] = None
-
-
-    def addPerfResultsForTest(self, test_result):
-        for perf_result in test_result.getPerformanceTestResults():
-            results = self.perfTests.get(perf_result.name)
-            if results is None:
-                results = {
-                    'results': [],
-                    'summary': None
-                    }
-                self.perfTests[perf_result.name] = results
-
-            results['results'].append(perf_result)
-            results['summary'] = None
-
 
     def dirtyTestPriorityCache(self):
         self.isTargetedTestCache = {}
@@ -181,35 +148,9 @@ class Commit(object):
             self.statsByType[result.testName] = TestStats.TestStats()
 
         self.statsByType[result.testName].addTest(result)
-        self.addPerfResultsForTest(result)
 
         for branch in self.branches:
             branch.dirtySequentialFailuresCache()
-
-    def summarizePerfResults(self, prefix=None):
-        prefix = prefix or ''
-        perfTests = ((name, results) for name, results in self.perfTests.iteritems()
-                     if name.startswith(prefix))
-        summary = {}
-        for name, results in perfTests:
-            test_summary = results['summary']
-            if test_summary is None:
-                logging.info("computing perf summary for %s", name)
-                test_summary = results['summary'] = self.summarizePerfResultsForTest(
-                    results['results']
-                    )
-            summary[name] = test_summary
-
-        return summary
-
-    def summarizePerfResultsForTest(self, results):
-        return {
-            'count': len(results),
-            'time': self.mean_and_stddev([r.timeElapsed for r in results
-                                          if r.timeElapsed]),
-            'units': self.mean_and_stddev([r.metadata['n'] for r in results
-                                           if r.metadata and 'n' in r.metadata])
-            }
 
     @staticmethod
     def mean_and_stddev(values):
@@ -254,9 +195,6 @@ class Commit(object):
         # return the name of the least tested category
         return candidates[0][1]
 
-    def hasEnoughResultsToPublish(self):
-        return self.isBrokenBuild() or self.fullPassesCompleted() >= self.totalPassesNeeded()
-
     def clearTestResults(self):
         self.testsById = {}
         self.testIdsByType = {}
@@ -272,11 +210,7 @@ class Commit(object):
         buildStats = self.statsByType.get('build')
         return buildStats and \
                buildStats.completedCount >= Commit.MAX_BUILD_ATTEMPTS and \
-               buildStats.failCount == buildStats.completedCount
-
-    def totalPassesNeeded(self):
-        return Commit.DEEP_TEST_PASS_COUNT if self.isUnderTest \
-                                           else Commit.SMOKE_TEST_PASS_COUNT
+               buildStats.failCount == 1
 
     def buildInProgress(self):
         return 'build' in self.statsByType and self.statsByType['build'].runningCount > 0

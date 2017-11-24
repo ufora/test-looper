@@ -6,9 +6,9 @@ import time
 import traceback
 import threading
 
-import test_looper.core.TestResult as TestResult
+import test_looper.data_model.TestResult as TestResult
 import test_looper.worker.TestLooperClient as TestLooperClient
-import test_looper.core.TestScriptDefinition as TestScriptDefinition
+import test_looper.data_model.TestScriptDefinition as TestScriptDefinition
 
 HEARTBEAT_INTERVAL = TestLooperClient.TestLooperClient.HEARTBEAT_INTERVAL
 

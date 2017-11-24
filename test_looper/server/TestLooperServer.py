@@ -7,7 +7,7 @@ import time
 
 import test_looper.core.SimpleServer as SimpleServer
 import test_looper.core.socket_util as socket_util
-import test_looper.core.TestResult as TestResult
+import test_looper.data_model.TestResult as TestResult
 import test_looper.core.cloud.MachineInfo as MachineInfo
 
 class LockWithTimer(object):

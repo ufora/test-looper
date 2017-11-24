@@ -21,8 +21,8 @@ import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.worker.TestLooperClient as TestLooperClient
 import test_looper.core.tools.Docker as Docker
 import test_looper.core.tools.DockerWatcher as DockerWatcher
-import test_looper.core.TestScriptDefinition as TestScriptDefinition
-import test_looper.core.TestResult as TestResult
+import test_looper.data_model.TestScriptDefinition as TestScriptDefinition
+import test_looper.data_model.TestResult as TestResult
 import test_looper
 
 class TestLooperDirectories:

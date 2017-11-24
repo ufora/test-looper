@@ -4,7 +4,7 @@ import simplejson
 import traceback
 
 from test_looper.core.tools.Git import Git
-from test_looper.core.TestScriptDefinition import TestScriptDefinition
+from test_looper.data_model.TestScriptDefinition import TestScriptDefinition
 
 
 class Bitbucket(Git):

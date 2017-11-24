@@ -1,6 +1,6 @@
 import logging
-import test_looper.core.TestResult as TestResult
-from test_looper.core.TestScriptDefinition import TestScriptDefinition
+import test_looper.data_model.TestResult as TestResult
+from test_looper.data_model.TestScriptDefinition import TestScriptDefinition
 
 class TestDatabase(object):
     def __init__(self, kvStore, dbPrefix):

@@ -1,7 +1,7 @@
 import logging
 import time
 import uuid
-import test_looper.core.TestResult as TestResult
+import test_looper.data_model.TestResult as TestResult
 
 class BlockingMachines(object):
     """BlockingMachines - Models a set of worker machines waiting for test assignments."""
