@@ -6,37 +6,20 @@ import test_looper.data_model.TestStats as TestStats
 import test_looper.data_model.TestResult as TestResult
 
 class Commit(object):
-    """Models a single Commit in the test database."""
-    def __init__(self, 
-            testDb,
-            commitId, 
-            parentHashes, 
-            subject, 
-            testScriptDefinitions, 
-            testScriptDefinitionsError
-            ):
-        self.testDb = testDb
-
+    def __init__(self, commitId):
         #commitID is a combination of a reponame and a commitish
         assert len(commitId.split("/")) == 2
 
-        for h in parentHashes:
-            assert "/" not in h
-
         self.commitId = commitId
         self.repoName, self.commitHash = commitId.split("/")
-        self.parentHashes = parentHashes
-        self.subject = subject
-        self.branches = set()
-        self.testScriptDefinitions = testScriptDefinitions
-        self.testScriptDefinitionsError = testScriptDefinitionsError
-        self.testsById = {}
-        self.testIdsByType = {}
-        self.statsByType = {}
-        self.isTargetedTestCache = {}
 
-        for definition in self.testScriptDefinitions:
-            self.statsByType[definition.testName] = TestStats.TestStats()
+        #commit state
+        self.parentHashes = None
+        self.subject = None
+        self.testScriptDefinitions = None
+        self.testScriptDefinitionsError = None
+        self.buildStatsByName = None
+        self.testStatsByTestName = None
 
     @property
     def parentHash(self):
@@ -52,9 +35,20 @@ class Commit(object):
 
     @property
     def parentIds(self):
+        if self.parentHashes is None:
+            return None
         return [self.repoName + "/" + h for h in self.parentHashes]
 
+    def setState(self, testDefinitions, parentHashes, subject):
+        assert self.testScriptDefinitions is None, "we already have state set for this commit"
+
+        self.testScriptDefinitions = testScriptDefinitions
+        self.subject = subject
+        self.parentHashes = parentHashes
+
     def getTestDefinitionFor(self, testName):
+        assert self.testScriptDefinitions is not None, "can't ask for definitions before state is set"
+
         for testDef in self.testScriptDefinitions:
             if testDef.testName == testName:
                 return testDef

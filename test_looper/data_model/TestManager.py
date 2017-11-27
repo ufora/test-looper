@@ -28,7 +28,6 @@ class TestManager(object):
         self.branches = {}
         self.commits = {}
         
-        #dict from internalIpAddress to properties of blocking machines
         self.blockingMachines = BlockingMachines.BlockingMachines()
         self.lock = lock
 
@@ -84,7 +83,7 @@ class TestManager(object):
     def commitsInBranch(self, branchName):
         return self.branches[branchName].commits.values()
 
-    def getPossibleCommitsAndTests(self, workerInfo=None):
+    def getPossibleCommitsAndTests(self, workerInfo):
         """Return a list consisting of all possible commit/test combinations we'd consider running.
 
         Each item the list is a tuple

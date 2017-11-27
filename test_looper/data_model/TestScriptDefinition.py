@@ -6,105 +6,174 @@ Models a single unit-test script and the resources required to execute it.
 
 import logging
 
-class TestScriptDefinition(object):
-    defaultPeriodicTestPeriodInHours = 12
+class TestDependency(object):
+    """A block of well-specified data exposed as a dependency to a test or build."""
+    def __init__(self, exposedAs):
+        """exposedAs - a string identifying the name by which this dependency is exposed."""
+        self.exposedAs = exposedAs
 
+    @staticmethod
+    def fromJson(json):
+        whichCls = json['type']
+        if whichCls == "build":
+            return BuildTestDependency.fromJson(json)
+        if whichCls == "source":
+            return SourceTestDependency.fromJson(json)
+        if whichCls == "data":
+            return RawDataDependency.fromJson(json)
+
+        raise Exception("Unknown dependency type: " + str(whichCls))
+
+
+class BuildTestDependency(TestDependency):
+    """A build artifact from another test-looper test."""
+    def __init__(self, exposedAs, commitId, testName):
+        """exposedAs - a string identifying the name by which this dependency is exposed.
+        commitId - a repo/commitId identifying the specific source for this. If None, then the current commit.
+        testName - the name of the test to depend on
+        """
+        TestDependency.__init__(self, exposedAs)
+
+        self.commitId = commitId
+        self.testName = testName
+
+    @staticmethod
+    def fromJson(json):
+        return BuildTestDependency(
+            json['exposedAs'],
+            json['commitId'],
+            json['testName']
+            )
+
+    def toJson(self):
+        return {
+            'type': 'build',
+            'exposedAs': self.exposedAs,
+            'commitId': self.commitId,
+            'testName': self.testName
+            }
+
+class SourceTestDependency(TestDependency):
+    """A the source-code from some other repo."""
+    def __init__(self, exposedAs, commitId):
+        """exposedAs - a string identifying the name by which this dependency is exposed.
+        commitId - a repo/commitId identifying the specific source for this.
+        """
+        TestDependency.__init__(self, exposedAs)
+
+        self.commitId = commitId
+
+    @staticmethod
+    def fromJson(json):
+        return SourceTestDependency(
+            json['exposedAs'],
+            json['commitId']
+            )
+
+    def toJson(self):
+        return {
+            'type': 'source',
+            'exposedAs': self.exposedAs,
+            'commitId': self.commitId
+            }
+
+        
+class RawDataDependency(TestDependency):
+    """A zipped directory of data indexed by tarball.
+
+    The main test-looper infrastructure should be configured
+    with a set of locations it can look for these (e.g. S3 buckets,
+    file servers). Because the SHA hash identifies the data uniquely,
+    we don't need to specify the source location here.
+    """
+    def __init__(self, exposedAs, shaHash):
+        TestDependency.__init__(self, exposedAs)
+        
+        self.shaHash = shaHash
+
+    @staticmethod
+    def fromJson(json):
+        return RawDataDependency(
+            json['exposedAs'],
+            json['shaHash']
+            )
+
+    def toJson(self):
+        return {
+            'type': 'data',
+            'exposedAs': self.exposedAs,
+            'shaHash': self.shaHash
+            }
+
+        
+class TestDefinition(object):
     def __init__(self,
                  testName,
+                 testType,
                  testCommand,
-                 machines,
                  docker,
-                 periodicTest=False,
-                 periodicTestPeriodInHours=defaultPeriodicTestPeriodInHours,
-                 portExpose=None
+                 portExpose,
+                 dependencies
                  ):
+        """Initialize a single Test type.
+
+        testName - string giving the name of the test
+        testType - one of:
+            "build" - a script that produces a test artifact. This isn't supposed to ever fail, so if it
+                does, we assume it's a broken build.
+            "test" - a test of functionality. We may run this multiple times to verify a failure rate.
+            "environment" - a test environment that we can spin up to interrogate. May expose
+                some subset of services on various ports
+        docker - a "Docker" instance, describing the docker environment in which we should run the test
+        testCommand - the command to run that executes the test.
+        portExpose - None, or a dictionary of service names and ports.
+        dependencies - a list of test dependencies we depend on
+        """
         self.testName = testName
         self.testCommand = testCommand
+        self.testType = testType
         self.docker = docker
         self.portExpose = portExpose
+        self.dependencies = dependencies
 
-        if 'count' not in machines:
-            machines['count'] = 1
-
-        assert isinstance(machines['count'], int)
-        assert machines['count'] > 0
-        assert machines['count'] < 100
-
-        self.machines = machines
-        self.periodicTest = periodicTest
-
-        if isinstance(periodicTestPeriodInHours, str):
-            periodicTestPeriodInHours = float(periodicTestPeriodInHours)
-            logging.warn("casted %s to a float", periodicTestPeriodInHours)
-
-        self.periodicTestPeriodInHours = periodicTestPeriodInHours
 
     def toJson(self):
         return {
             'name': self.testName,
             'command': self.testCommand,
             'machines': self.machines,
-            'periodicTest': self.periodicTest,
-            'periodicTestPeriodInHours': self.periodicTestPeriodInHours,
             'docker': self.docker,
-            'portExpose': self.portExpose
+            'portExpose': self.portExpose,
+            'dependencies': [d.toJson() for d in self.dependencies]
             }
 
     @staticmethod
     def fromJson(json, docker=None):
         #allow individual tests to override their image configuration
-        if "docker" in json:
-            docker = json["docker"]
-
-        return TestScriptDefinition(
+        return TestDefinition(
             json['name'],
+            json['type'],
             json['command'],
-            json.get('machines', {'count': 1, 'cores_min': 0}),
-            docker,
-            portExpose=json.get("portExpose")
+            docker or json['docker'],
+            json.get("portExpose"),
+            [TestDependency.fromJson(d) for d in json['dependencies']] if 'dependencies' in json else []
             )
 
-    @staticmethod
-    def testSetFromJson(json):
-        return TestDefinitions.fromJson(json).getTestsAndBuild()
-
-
     def __repr__(self):
-        return ("TestScriptDefinition(testName=%s, testCommand=%s, machines=%s, "
-                "periodicTest=%s,periodicTestPeriodInHours=%s,ports=%s)") % (self.testName,
-                                                                    self.testCommand,
-                                                                    self.machines,
-                                                                    self.periodicTest,
-                                                                    self.periodicTestPeriodInHours,
-                                                                    self.portExpose
-                                                                    )
-
-    def isSingleMachineTest(self):
-        return self.totalMachinesRequired() == 1
-
-    def totalMachinesRequired(self):
-        return self.machines['count']
+        return "TestDefinition(%s)" % self.toJson()
 
 class TestDefinitions:
-    def __init__(self, docker, build, tests, environments):
-        self.docker = docker
-        self.build = build
-        self.tests = tests
-        self.environments = environments
-
-    def getTestsAndBuild(self):
-        res = [self.build] + list(self.tests.values())
-        return res
-
-    def all(self):
-        return {k.testName: k for k in [self.build] + list(self.tests.values()) + list(self.environments.values())}
+    def __init__(self, definitions):
+        """definitions - a dict from testName to the test definition"""
+        self.definitions = definitions
 
     @staticmethod
     def fromJson(json):
-        build_definition = None
-        
-        if json.get("looper_version", 0) < 1:
+        if json.get("looper_version", 0) < 2:
             raise ValueError("TestDefinitions file is for an earlier version of test looper")
+
+        if json.get("looper_version") == 2:
+            docker_base = json.get("docker")
 
         if not isinstance(json, dict):
             raise ValueError("testDefinitions.json should be an object")

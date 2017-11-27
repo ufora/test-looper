@@ -20,6 +20,7 @@ class BlockingMachines(object):
         # GPU instances ONLY run GPU tests
         if machines.get('gpu', False) and not workerInfo.isGpuInstance():
             return False
+        
         if not machines.get('gpu', False) and workerInfo.isGpuInstance():
             return False
 
