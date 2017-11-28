@@ -1,0 +1,4 @@
+run crash.py
+info threads
+thread apply all bt
+
