@@ -21,6 +21,12 @@ class GithubRepo(RemoteRepo.RemoteRepo):
         self.owner = owner
         self.github = github
 
+    def convertRefToHash(self, branchOrHash):
+        hashChar = "0123456789abcdefABCDEF"
+        if len(branchOrHash) != 40 or [x for x in branchOrHash if x not in hashChar]:
+            return "origin/" + branchOrHash
+        return branchOrHash
+
     def cloneUrl(self):
         return self.github.github_clone_url + ":" + self.owner + "/" + self.name + ".git"
 

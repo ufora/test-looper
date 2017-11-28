@@ -187,6 +187,8 @@ class WorkerState(object):
                         self.directories.build_output_dir: "/test_looper/build_output",
                         self.directories.ccache_dir: "/test_looper/ccache"
                         },
+                    privileged=True,
+                    shm_size="1G",
                     environment=env,
                     working_dir="/test_looper/src"
                     )

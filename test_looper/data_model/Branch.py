@@ -183,9 +183,9 @@ class Branch(object):
         repoName, branchNameInRepo = self.branchName.split("/")
         repo = testManager.source_control.getRepo(repoName)
 
+        depth = testManager.settings.baseline_depth
+        
         if branchNameInRepo == self.baselineBranchNameInRepo:
-            depth = testManager.settings.baseline_depth
-
             commitHashesParentsAndTitles = \
                 repo.commitsLookingBack(branchNameInRepo, depth)
         else:
@@ -194,6 +194,22 @@ class Branch(object):
                     branchNameInRepo, 
                     self.baselineBranchNameInRepo
                     )
+
+        if not commitHashesParentsAndTitles:
+            commitHashesParentsAndTitles = \
+                repo.commitsLookingBack(branchNameInRepo, depth)
+
+        while len(commitHashesParentsAndTitles) < depth and commitHashesParentsAndTitles:
+            #keep following the first parent...
+            if len(commitHashesParentsAndTitles[-1]) > 1 and commitHashesParentsAndTitles[-1][1]:
+                to_add = repo.source_repo.hashParentsAndCommitTitleFor(commitHashesParentsAndTitles[-1][1][0])
+            else:
+                to_add = None
+
+            if to_add:
+                commitHashesParentsAndTitles += [to_add]
+            else:
+                break
 
         t0 = time.time()
         commitHashes = set([c[0] for c in commitHashesParentsAndTitles])

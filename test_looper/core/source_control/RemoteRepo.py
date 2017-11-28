@@ -17,10 +17,13 @@ class RemoteRepo(object):
         self.name = name
         self.source_repo = source_repo
 
+    def convertRefToHash(self, branchOrHash):
+        return branchOrHash
+
     def commitsLookingBack(self, branchOrHash, depth):
         tuples = []
 
-        tuples.append(self.source_repo.hashParentsAndCommitTitleFor(branchOrHash))
+        tuples.append(self.source_repo.hashParentsAndCommitTitleFor(self.convertRefToHash(branchOrHash)))
 
         parents = list(tuples[-1][1])
 
