@@ -7,34 +7,42 @@ import test_looper.core.algebraic as algebraic
 import test_looper.core.algebraic_to_json as algebraic_to_json
 import logging
 
-TestDependency = algebraic.Alternative("TestDependency")
-TestDependency.Build = {'commitId': str, 'testName': str}
-TestDependency.Source = {'commitId': str}
-TestDependency.RawData = {'shaHash': str}
-
-TestDependency.add_common_field('exposedAs', str)
-
-
-TestEnvironment = algebraic.Alternative("TestEnvironment")
-TestEnvironment.Docker = {'dockerfile': str}
+TestEnvironment = algebraic.Alternative("TestEnvironment", Docker = {'dockerfile': str})
 
 TestDefinition = algebraic.Alternative("TestDefinition")
-TestDefinition.add_common_fields({
-    'name': str,
-    'env': str,
-    'command': str,
-    'dependencies': algebraic.List(TestDependency)
-    })
-TestDefinition.Build = {}
-TestDefinition.Test = {}
-TestDefinition.Environment = {
+
+TestDefinition.Build = {
+    "buildCommand": str,
+    "dependencies": algebraic.List(str)
+    }
+TestDefinition.Test = {
+    "testCommand": str,
+    "dependencies": algebraic.List(str)
+    }
+TestDefinition.Deployment = {
+    "setupCommand": str,
+    "dependencies": algebraic.List(str),
     'portExpose': algebraic.List((str,int))
     }
+TestDefinition.Environment = {
+    "environment": TestEnvironment,
+    "tests": algebraic.List(str)
+    }
+TestDefinition.ExternalEnvironment = {
+    "commitId": str,
+    "environmentName": str,
+    "tests": algebraic.List(str)
+    }
 
+TestDefinition.ImportBuild = {"commitId": str, 'buildName': str}
+TestDefinition.ImportSource = {"sourceCommitId": str}
+TestDefinition.ImportData = {"rawDataHash": str}
+TestDefinition.DependencyGroup = {"tests": algebraic.List(str)}
 
 TestDefinitions = algebraic.Alternative("TestDefinitions")
-
 TestDefinitions.Definitions = {
-    'environments': algebraic.List((str, TestEnvironment)),
-    'tests': algebraic.List(TestEnvironment),
+    'looper_version': int,
+    'definitions': algebraic.List((str,TestDefinition))
     }
+
+

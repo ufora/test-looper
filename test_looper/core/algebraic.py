@@ -86,18 +86,25 @@ class Alternative(object):
         self._name = name
         self._types = {}
         self._options = {}
-        self._instantiated = False
+        self._frozen = False
         self._methods = {}
         self._common_fields = {}
         
         for k, v in kwds.items():
             self.__setattr__(k,v)
 
+        self._unique_field_to_type = {}
+        self._types_with_unique_fields = set()
+
     def add_common_fields(self, fields):
+        assert not self._frozen, "can't modify an Alternative once it has been frozen"
+        
         for k,v in fields.items():
             self.add_common_field(k,v)
 
     def add_common_field(self, k, v):
+        assert not self._frozen, "can't modify an Alternative once it has been frozen"
+
         self._common_fields[k] = v
         for tname in self._types:
             self._types[tname][k] = v
@@ -111,7 +118,7 @@ class Alternative(object):
             self.__dict__[alt_name] = defs
             return
 
-        assert not self._instantiated, "can't modify an Alternative once it has been used"
+        assert not self._frozen, "can't modify an Alternative once it has been frozen"
 
         assert alt_name not in self._types, "already have a definition for " + alt_name
 
@@ -127,6 +134,22 @@ class Alternative(object):
         else:
             self._methods[alt_name] = defs
 
+    def _freeze(self):
+        self._frozen = True
+        for name, types in self._types.items():
+            typenames = tuple(sorted(types.keys()))
+            if typenames not in self._unique_field_to_type:
+                self._unique_field_to_type[typenames] = name
+                self._types_with_unique_fields.add(name)
+            else:
+                #multiple alternatives have exactly the same types
+                existing = self._unique_field_to_type[typenames]
+
+                if existing is not None:
+                    self._types_with_unique_fields.discard(existing)
+
+                self._unique_field_to_type[typenames] = None
+
     def __getattr__(self, attr):
         if attr[0] == "_":
             raise AttributeError(attr)
@@ -135,7 +158,9 @@ class Alternative(object):
             raise AttributeError(attr + " not a valid Alternative in %s" % sorted(self._types))
 
         if attr not in self._options:
-            self._options[attr] = makeAlternativeOption(self, attr, self._types[attr])
+            if not self._frozen:
+                self._freeze()
+            self._options[attr] = makeAlternativeOption(self, attr, self._types[attr], attr in self._types_with_unique_fields)
 
         return self._options[attr]
 
@@ -184,10 +209,30 @@ class AlternativeInstance(object):
     def __init__(self):
         object.__init__(self)
 
-def makeAlternativeOption(alternative, which, typedict):
+def default_initialize(tgt_type):
+    if tgt_type is str:
+        return str()
+    if tgt_type is int:
+        return 0
+    if tgt_type is float:
+        return 0.0
+    if tgt_type is bytes:
+        return bytes()
+    if isinstance(tgt_type, List):
+        return []
+    if isinstance(tgt_type, NullableAlternative):
+        return tgt_type.Null()
+
+    return None
+    
+
+def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
     class AlternativeOption(AlternativeInstance):
         _typedict = typedict
+        _fields_are_unique = fields_are_unique
         def __init__(self, *args, **fields):
+            _fill_in_missing = fields.pop("_fill_in_missing", False)
+
             AlternativeInstance.__init__(self)
 
             #make sure we don't modify caller dict
@@ -209,8 +254,14 @@ def makeAlternativeOption(alternative, which, typedict):
 
             for k in typedict:
                 if k not in fields:
-                    raise TypeError("missing field %s" % k)
-                instance = coerce_instance(fields[k], typedict[k])
+                    if _fill_in_missing:
+                        instance = default_initialize(typedict[k])
+                        if instance is None:
+                            raise TypeError("Can't default initialize %s" % k)
+                    else:
+                        raise TypeError("missing field %s" % k)
+                else:
+                    instance = coerce_instance(fields[k], typedict[k])
                 if instance is None:
                     raise TypeError("field %s needs a %s, not %s" % (k, typedict[k], fields[k]))
                 fields[k] = instance

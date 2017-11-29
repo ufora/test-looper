@@ -15,19 +15,36 @@
 import test_looper.core.algebraic as algebraic
 
 class Encoder:
-    """An algebraic <---> json encoder"""
-    
+    """An algebraic <---> json encoder.
+
+    The encoding is:
+        * primitive types (str, int, bool, float) are encoded directly
+        * Alternatives are encoded as objects. If the field list identifies the object uniquely, 
+            the object just contains the fields. Otherwise a "type" field is introduced  containing
+            the name of the type.
+        * Alternatives that have no fields may be encoded as a string giving the name of the
+            alternative.
+        * Lists are encoded as arrays
+        * Nullables are encoded as None or the object.
+    """    
     def to_json(self, value):
         if isinstance(value, algebraic.AlternativeInstance):
             if isinstance(value._alternative, algebraic.NullableAlternative):
                 if value.matches.Null:
                     return None
                 return self.to_json(value.val)
+            elif not value._fields:
+                return value._which
             else:
+                assert "_type" not in value._fields
+
                 json = {}
-                json['type'] = value._which
+                if not value._fields_are_unique:
+                    json["_type"] = value._which
+
                 for fieldname, val in value._fields.items():
                     json[fieldname] = self.to_json(val)
+                
                 return json
 
         elif isinstance(value, (list, tuple)):
@@ -55,26 +72,38 @@ class Encoder:
             return value
 
         if isinstance(algebraic_type, algebraic.Alternative):
-            assert isinstance(value, dict)
+            if isinstance(value, str):
+                assert hasattr(algebraic_type, value)
+                return getattr(algebraic_type, value)()
+            else:
+                assert isinstance(value, dict)
 
-            if 'type' not in value:
-                raise UserWarning(
-                    "Can't construct a %s without a given 'type' field" % algebraic_type
-                    )
-            if not isinstance(value['type'], str):
-                raise UserWarning('typenames have to be strings')
+                if '_type' in value:
+                    if not isinstance(value['_type'], str):
+                        raise UserWarning('typenames have to be strings')
 
-            if not hasattr(algebraic_type, value['type']):
-                raise UserWarning(
-                    "Can't find type %s in %s" % (value['type'], algebraic_type)
-                    )
+                    if not hasattr(algebraic_type, value['_type']):
+                        raise UserWarning(
+                            "Can't find type %s in %s" % (value['type'], algebraic_type)
+                            )
 
-            which_alternative = getattr(algebraic_type, value['type'])
+                    which_alternative = getattr(algebraic_type, value['_type'])
+                else:
+                    possible = list(algebraic_type._types)
+                    for fname in value:
+                        possible = [p for p in possible if fname in algebraic_type._types[p]]
+                        if not possible:
+                            raise UserWarning("Can't find a type with fieldnames " + str(sorted(value)))
 
-            subs = dict([(k, self.from_json(value[k], which_alternative._typedict[k])) 
-                            for k in value if k != 'type'])
+                    if len(possible) > 1:
+                        raise UserWarning("Type is ambiguous: %s could be any of %s" % (sorted(value), possible))
 
-            return which_alternative(**subs)
+                    which_alternative = getattr(algebraic_type, possible[0])
+
+                subs = dict([(k, self.from_json(value[k], which_alternative._typedict[k])) 
+                                for k in value if k != '_type'])
+
+                return which_alternative(_fill_in_missing=True, **subs)
 
         assert False, "Can't handle type %s" % algebraic_type
 
