@@ -1,0 +1,29 @@
+repos:
+  toc:bway-core-toc/34512123
+environments:
+  linux: 
+    import: toc/linux
+  windows: 
+    import: toc/windows
+  test_linux:
+    os: linux
+    image:
+      dockerfile: "asdf"
+      ami_script: "blah"
+    env:
+      MSSQL_VERSION:12.0
+  all_linux:
+    group: [linux, test_linux]
+builds:
+  build/test_linux:
+    10
+  build/test_linux:
+    command: "blah.sh"
+    dependencies:
+      asdf: "toc/build/linux"
+tests:
+  test/all_linux:
+    command: "blah.sh"
+    dependencies:
+      build: build/
+

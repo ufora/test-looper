@@ -16,19 +16,27 @@
 Basic infrastructure for typed union datastructures in python
 """
 
+from test_looper.core.hash import sha_hash
+
 _primitive_types = (str, int, bool, float, bytes)
 
 def valid_type(t):
     if isinstance(t, Alternative) or t in _primitive_types:
         return True
 
-    if isinstance(t, tuple) and t:
+    if isinstance(t, tuple):
         for sub_t in t:
             if not valid_type(sub_t):
                 return False
         return True
     
     if isinstance(t, List):
+        return True
+
+    if isinstance(t, Dict):
+        return True
+
+    if hasattr(t, "__algebraic__") and t.__algebraic__:
         return True
 
     return False
@@ -52,6 +60,15 @@ def coerce_instance(instance, to_type):
                 return None
             res.append(coerced)
         return tuple(res)
+    elif isinstance(to_type, Dict):
+        if not isinstance(instance, dict):
+            return None
+
+        res = {}
+        for k,v in instance.iteritems():
+            res[coerce_instance(k, to_type.keytype)] = coerce_instance(v, to_type.valtype)
+
+        return res
     elif isinstance(to_type, List):
         try:
             i = iter(instance)
@@ -61,7 +78,7 @@ def coerce_instance(instance, to_type):
         res = []
         while True:
             try:
-                val = coerce_instance(i.__next__(), to_type.subtype)
+                val = coerce_instance(i.next(), to_type.subtype)
                 if val is None:
                     return None
                 res.append(val)
@@ -117,6 +134,9 @@ class Alternative(object):
         if len(alt_name) >= 2 and alt_name[0] == "_" and alt_name[1] != "_":
             self.__dict__[alt_name] = defs
             return
+
+        if isinstance(defs, type(Alternative)) and issubclass(defs, AlternativeInstance):
+            defs = defs._typedict
 
         assert not self._frozen, "can't modify an Alternative once it has been frozen"
 
@@ -205,6 +225,13 @@ class List(object):
         self.subtype = subtype
         assert valid_type(subtype)
 
+class Dict(object):
+    def __init__(self, keytype, valtype):
+        self.keytype = keytype
+        self.valtype = valtype
+        assert valid_type(keytype)
+        assert valid_type(valtype)
+
 class AlternativeInstance(object):
     def __init__(self):
         object.__init__(self)
@@ -218,10 +245,14 @@ def default_initialize(tgt_type):
         return 0.0
     if tgt_type is bytes:
         return bytes()
+    if isinstance(tgt_type, Dict):
+        return {}
     if isinstance(tgt_type, List):
         return []
     if isinstance(tgt_type, NullableAlternative):
         return tgt_type.Null()
+    if hasattr(tgt_type, "__default_initializer__"):
+        return tgt_type.__default_initializer__()
 
     return None
     
@@ -270,6 +301,12 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
             self._which = which
             self._alternative = alternative
             self._hash = None
+            self._sha_hash_cache = None
+
+        def __sha_hash__(self):
+            if self._sha_hash_cache is None:
+                self._sha_hash_cache = Hash.sha_hash(self._fields)
+            return self._sha_hash_cache
 
         def __hash__(self):
             if self._hash is None:
@@ -288,6 +325,11 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
                 return boundinstancemethod(self._alternative._methods[attr], self)
 
             raise AttributeError("%s not found amongst %s" % (attr, ",".join(list(self._fields) + list(self._alternative._methods))))
+
+        def __setattr__(self, attr, val):
+            if attr[:1] != "_":
+                raise Exception("Field %s is read-only" % attr)
+            self.__dict__[attr] = val
 
         def __add__(self, other):
             if '__add__' in self._alternative._methods:
@@ -336,8 +378,6 @@ class AlternativeInstanceMatches(object):
     def __getattr__(self, attr):
         if self._instance._which == attr:
             return True
-        if attr not in self._instance._alternative._types:
-            raise AttributeError("Matcher %s would never match one of %s's fields %s" % (attr, self._instance._alternative._name, sorted(self._instance._alternative._types)))
         return False
 
 class NullableAlternative(Alternative):

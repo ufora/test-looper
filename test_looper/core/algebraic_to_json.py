@@ -50,16 +50,35 @@ class Encoder:
         elif isinstance(value, (list, tuple)):
             return [self.to_json(x) for x in value]
 
+        elif isinstance(value, dict):
+            return {self.to_json(k): self.to_json(v) for k,v in value.iteritems()}
+
         elif isinstance(value, algebraic._primitive_types):
+            return value
+        elif hasattr(type(value), "to_json"):
+            return type(value).to_json(value)
+        elif value is None:
             return value
         else:
             assert False, "Can't convert %s" % (value,)
 
     def from_json(self, value, algebraic_type):
+        if value is None:
+            return value
+
         if isinstance(algebraic_type, algebraic.NullableAlternative):
             if value is None:
                 return None
             return algebraic_type.Value(val=self.from_json(value, algebraic_type._subtype))
+
+        if isinstance(algebraic_type, tuple):
+            value = list(value)
+
+            assert len(algebraic_type) == len(value), "Can't convert %s to %s" % (value, algebraic_type)
+            return tuple([self.from_json(value[x], algebraic_type[x]) for x in xrange(len(value))])
+
+        if isinstance(algebraic_type, algebraic.Dict):
+            return {self.from_json(k, algebraic_type.keytype):self.from_json(v, algebraic_type.valtype) for k,v in value.iteritems()}
 
         if isinstance(algebraic_type, algebraic.List):
             #allow objects to be treated as lists of tuples
@@ -73,7 +92,7 @@ class Encoder:
 
         if isinstance(algebraic_type, algebraic.Alternative):
             if isinstance(value, str):
-                assert hasattr(algebraic_type, value)
+                assert hasattr(algebraic_type, value), "Algebraic type %s has no subtype %s" % (algebraic_type, value)
                 return getattr(algebraic_type, value)()
             else:
                 assert isinstance(value, dict)
@@ -103,7 +122,14 @@ class Encoder:
                 subs = dict([(k, self.from_json(value[k], which_alternative._typedict[k])) 
                                 for k in value if k != '_type'])
 
-                return which_alternative(_fill_in_missing=True, **subs)
+                try:
+                    return which_alternative(_fill_in_missing=True, **subs)
+                except:
+                    print "FAILING:", which_alternative, subs
+                    raise
+        
+        if hasattr(algebraic_type, "from_json"):
+            return algebraic_type.from_json(value)
 
-        assert False, "Can't handle type %s" % algebraic_type
+        assert False, "Can't handle type %s as value %s" % (algebraic_type,value)
 

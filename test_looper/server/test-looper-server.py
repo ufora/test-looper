@@ -11,7 +11,7 @@ import threading
 import time
 
 import test_looper.core.source_control.SourceControlFromConfig as SourceControlFromConfig
-from test_looper.server.RedisJsonStore import RedisJsonStore
+from test_looper.core.RedisJsonStore import RedisJsonStore
 from test_looper.data_model.TestDatabase import TestDatabase
 import test_looper.server.TestLooperHttpServer as TestLooperHttpServer
 from test_looper.server.TestLooperHttpServerEventLog import TestLooperHttpServerEventLog
