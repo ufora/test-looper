@@ -34,19 +34,17 @@ class TestManager(object):
 
         self.settings = settings
 
-    def clearResultsForTestIdCommitId(self, testId, commitId):
-        assert False, "not implemented"
-
     def recordMachineHeartbeat(self, machineId, curTimestamp):
         with self.database.transaction() as t:
-            existing = t.indexLookup(self.database.Machine, machineId=machine)
-            if not existing:
-                machine = self.database.Machine.New(machineId=machine)
-                machine.lastHearbeat=curTimestamp
+            machine = t.indexLookupAny(self.database.Machine, machineId=machineId)
+
+            if machine is None:
+                machine = self.database.Machine.New(machineId=machineId)
+                machine.lastHeartbeat=curTimestamp
                 machine.firstSeen=curTimestamp
                 return True
             else:
-                machine.lastHearbeat=curTimestamp
+                machine.lastHeartbeat=curTimestamp
                 return False
 
     def markRepoListDirty(self, curTimestamp):
@@ -54,6 +52,75 @@ class TestManager(object):
 
     def markBranchListDirty(self, reponame, curTimestamp):
         self.createTask(self.database.BackgroundTask.RefreshBranches(repo=reponame))
+
+    def recordTestResults(self, success, testId, curTimestamp):
+        with self.database.transaction() as t:
+            runningTest = self.database.RunningTest(testId)
+            
+            finished_test = self.database.CompletedTest.New(
+                test=runningTest.test,
+                startedTimestamp=runningTest.startedTimestamp,
+                endTimestamp=curTimestamp,
+                machine=runningTest.machine,
+                success=success
+                )
+            finished_test.test.activeRuns = finished_test.test.activeRuns - 1
+            finished_test.test.totalRuns = finished_test.test.totalRuns + 1
+
+            if success:
+                finished_test.test.successes = finished_test.test.successes + 1
+
+            runningTest.delete()
+
+            for dep in t.indexLookup(self.database.TestDependency, dependsOn=finished_test.test):
+                self._updateTestPriority(dep.test)
+
+    def testHeartbeat(self, testId, timestamp):
+        with self.database.transaction() as t:
+            test = self.database.RunningTest(testId)
+            assert test.test is not self.database.Test.Null
+
+            test.lastHeartbeat = timestamp
+
+    def startNewTest(self, machineId, timestamp):
+        """Allocates a new test and returns (commitId, testName, testId) or (None,None,None) if no work."""
+        self.recordMachineHeartbeat(machineId, timestamp)
+
+        with self.database.transaction() as t:
+            test = (t.indexLookupAny(self.database.Test, priority=self.database.TestPriority.FirstBuild())
+                 or t.indexLookupAny(self.database.Test, priority=self.database.TestPriority.FirstTest())
+                 or t.indexLookupAny(self.database.Test, priority=self.database.TestPriority.WantsMoreTests())
+                 )
+
+            if not test:
+                return None, None, None
+
+            for p in [
+                self.database.TestPriority.FirstBuild(),
+                self.database.TestPriority.FirstTest(),
+                self.database.TestPriority.WantsMoreTests(),
+                self.database.TestPriority.WaitingOnBuilds(),
+                self.database.TestPriority.UnresolvedDependencies()
+                ]:
+                if p == test.priority:
+                    assert test in t.indexLookup(self.database.Test, priority=p)
+                else:
+                    assert test not in t.indexLookup(self.database.Test, priority=p), (test.priority, p)
+
+            test.activeRuns = test.activeRuns + 1
+
+            runningTest = self.database.RunningTest.New(
+                test=test,
+                startedTimestamp=timestamp,
+                lastHeartbeat=timestamp,
+                machine=t.indexLookupOne(self.database.Machine, machineId=machineId)
+                )
+
+            self._updateTestPriority(test)
+
+            commitId = test.commitData.commit.repo.name + "/" + test.commitData.commit.hash
+
+            return (commitId, test.fullname, runningTest._identity)
 
     def createTask(self, task):
         with self.database.transaction():
@@ -75,6 +142,7 @@ class TestManager(object):
         try:
             self._processTask(testDef, curTimestamp)
         except:
+            traceback.print_exc()
             logging.error("Exception processing task %s:\n\n%s", testDef, traceback.format_exc())
         finally:
             with self.database.transaction():
@@ -133,7 +201,7 @@ class TestManager(object):
                 commit = repo.branchTopCommit(task.branch.branchname)
 
                 if commit:
-                    task.branch.head = self._lookupCommitByHash(t, task.branch.repo, commit)
+                    task.branch.head = self._lookupCommitByHash(task.branch.repo, commit)
 
         elif task.matches.UpdateCommitData:
             with self.database.transaction() as t:
@@ -146,54 +214,162 @@ class TestManager(object):
 
                     subject=hashParentsAndTitle[2]
                     parents=[
-                        self._lookupCommitByHash(t, task.commit.repo, p) 
+                        self._lookupCommitByHash(task.commit.repo, p) 
                             for p in hashParentsAndTitle[1]
                         ]
                     
-                    try:
-                        defText = repo.getTestScriptDefinitionsForCommit(task.commit.hash)
-                        all_tests = TestDefinitionScript.extract_tests_from_str(defText)
-                        
-                        for e in all_tests.values():
-                            fullname=commit.repo.name + "/" + commit.hash + "/" + e.name
-
-                            self.database.Test.New(
-                                commitData=commit.data,
-                                fullname=fullname,
-                                testDefinition=e
-                                )
-
-                        testDefinitionsError = ""
-
-                    except Exception as e:
-                        print e
-                        logging.warn("Got an error parsing tests for %s:\n%s", commit.hash, traceback.format_exc())
-                        testDefinitionsError=str(e)
-
                     commit.data = self.database.CommitData.New(
                         commit=commit,
                         subject=subject,
-                        parents=parents,
-                        testDefinitionsError=testDefinitionsError
+                        parents=parents
                         )
 
+                    if "[nft]" not in subject:
+                        try:
+                            defText = repo.getTestScriptDefinitionsForCommit(task.commit.hash)
+                            all_tests = TestDefinitionScript.extract_tests_from_str(defText)
+                            
+                            for e in all_tests.values():
+                                fullname=commit.repo.name + "/" + commit.hash + "/" + e.name
 
+                                self.createTest_(
+                                    commitData=commit.data,
+                                    fullname=fullname,
+                                    testDefinition=e
+                                    )
+                        except Exception as e:
+                            traceback.print_exc()
+
+                            logging.warn("Got an error parsing tests for %s:\n%s", commit.hash, traceback.format_exc())
+
+                            commit.data.testDefinitionsError=str(e)
+
+        elif task.matches.UpdateTestPriority:
+            with self.database.transaction() as t:
+                self._updateTestPriority(task.test)
         else:
             raise Exception("Unknown task: %s" % task)
 
-    def _lookupCommitByHash(self, transaction, repo, commitHash):
-        commits = [c for c in transaction.indexLookup(self.database.Commit, hash=commitHash)
-                    if c.repo == repo]
-        if not commits:
+    def _updateTestPriority(self, test):
+        t = self.database.current_transaction()
+
+        if t.indexLookup(self.database.UnresolvedTestDependency, test=test):
+            test.priority = self.database.TestPriority.UnresolvedDependencies()
+        elif self._testHasUnfinishedDeps(test):
+            test.priority = self.database.TestPriority.WaitingOnBuilds()
+        elif self._testHasFailedDeps(test):
+            test.priority = self.database.TestPriority.DependencyFailed()
+        elif self._testNeedsNoMoreBuilds(test):
+            test.priority = self.database.TestPriority.NoMoreTests()
+        elif test.testDefinition.matches.Build:
+            test.priority = self.database.TestPriority.FirstBuild()
+        elif test.totalRuns == 0:
+            test.priority = self.database.TestPriority.FirstTest()
+        else:
+            test.priority = self.database.TestPriority.WantsMoreTests()
+
+    def _testNeedsNoMoreBuilds(self, test):
+        if test.testDefinition.matches.Deployment:
+            needed = 0
+        elif test.testDefinition.matches.Build:
+            needed = 1
+        else:
+            needed = max(test.runsDesired, self.settings.max_test_count)
+
+        return test.totalRuns + test.activeRuns >= needed
+
+    def _testHasUnfinishedDeps(self, test):
+        deps = self.database.current_transaction().indexLookup(self.database.TestDependency, test=test)
+        unresolved_deps = self.database.current_transaction().indexLookup(self.database.UnresolvedTestDependency, test=test)
+
+        for dep in deps:
+            if dep.dependsOn.totalRuns == 0:
+                return True
+        return False
+
+    def _testHasFailedDeps(self, test):
+        for dep in self.database.current_transaction().indexLookup(self.database.TestDependency, test=test):
+            if dep.dependsOn.successes == 0:
+                return True
+        return False
+
+    def createTest_(self, commitData, fullname, testDefinition):
+        #make sure it's new
+        assert not self.database.current_transaction().indexLookup(self.database.Test, fullname=fullname)
+        
+        test = self.database.Test.New(
+            commitData=commitData, 
+            fullname=fullname, 
+            testDefinition=testDefinition, 
+            priority=self.database.TestPriority.UnresolvedDependencies()
+            )
+
+        #now first check whether this test has any unresolved dependencies
+        for depname, dep in testDefinition.dependencies.iteritems():
+            if dep.matches.ExternalBuild:
+                fullname_dep = "/".join([dep.repo, dep.commitHash, dep.name, dep.environment])
+                self.createTestDep_(test, fullname_dep)
+            elif dep.matches.InternalBuild:
+                fullname_dep = "/".join([commitData.commit.repo.name, commitData.commit.hash, dep.name, dep.environment])
+                self.createTestDep_(test, fullname_dep)
+            elif dep.matches.Source:
+                fullname_dep = "/".join([dep.repo, dep.commitHash, "source"])
+                self.createTestDep_(test, fullname_dep)
+
+        env = testDefinition.environment
+        if env.matches.Import:
+            self._lookupCommitByHash(env.repo, env.commitHash)
+            self.createTestDep_(test, "/".join([env.repo, env.commitHash, "source"]))
+
+        self._markTestFullnameCreated(fullname, test)
+        self._triggerTestPriorityUpdateIfNecessary(test)
+
+    def createTestDep_(self, test, fullname_dep):
+        dep_test = self.database.current_transaction().indexLookupAny(self.database.Test, fullname=fullname_dep)
+
+        if not dep_test:
+            self.database.UnresolvedTestDependency.New(test=test, dependsOnName=fullname_dep)
+        else:
+            self.database.TestDependency.New(test=test, dependsOn=dep_test)
+
+    def _markTestFullnameCreated(self, fullname, test_for_name=None):
+        for dep in self.database.current_transaction().indexLookup(self.database.UnresolvedTestDependency, dependsOnName=fullname):
+            test = dep.test
+            if test_for_name is not None:
+                #this is a real test. If we depended on a commit, this would have been
+                #None
+                self.database.TestDependency.New(test=test, dependsOn=test_for_name)
+
+            dep.delete()
+            self._triggerTestPriorityUpdateIfNecessary(test)
+                
+    def _triggerTestPriorityUpdateIfNecessary(self, test):
+        if not self.database.current_transaction().indexLookup(self.database.UnresolvedTestDependency, test=test):
+            self.database.DataTask.New(
+                task=self.database.BackgroundTask.UpdateTestPriority(test=test),
+                status=pending
+                )
+
+    def _lookupCommitByHash(self, repo, commitHash):
+        if isinstance(repo, str):
+            repo = self.database.current_transaction().indexLookupAny(self.database.Repo, name=repo)
+            if not repo:
+                logging.warn("Unknown repo %s", repo)
+            return repo
+
+        commit = self.database.current_transaction().indexLookupAny(self.database.Commit, repo_and_hash=(repo, commitHash))
+
+        if not commit:
             commit = self.database.Commit.New(repo=repo, hash=commitHash)
             self.database.DataTask.New(
                 task=self.database.BackgroundTask.UpdateCommitData(commit=commit),
                 status=pending
                 )
-        else:
-            commit = commits[0]
+            self._markTestFullnameCreated("/".join([repo.name, commitHash, "source"]))
 
         return commit
+
+
 
 
 

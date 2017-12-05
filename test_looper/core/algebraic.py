@@ -308,12 +308,12 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
 
         def __sha_hash__(self):
             if self._sha_hash_cache is None:
-                self._sha_hash_cache = sha_hash(self._fields)
+                self._sha_hash_cache = sha_hash(self._fields) + sha_hash(self._which)
             return self._sha_hash_cache
 
         def __hash__(self):
             if self._hash is None:
-                self._hash = hash(tuple(sorted(self._fields.items())))
+                self._hash = hash(tuple(sorted(self._fields.items()))) + hash(self._which)
             return self._hash
 
         @property

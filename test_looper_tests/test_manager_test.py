@@ -108,10 +108,32 @@ class MockRepo:
         assert "/" not in commitHash
         return self.source_control.commit_test_defs[self.repoName + "/" + commitHash]
 
-
-basic_yaml_file = """
+basic_yaml_file_repo1 = """
+environments:
+  linux: 
+    platform: linux
+    image:
+      dockerfile: "test_looper/Dockerfile.txt"
+    variables:
+      ENV_VAR: ENV_VAL
+  windows: 
+    platform: windows
+    image:
+      dockerfile: "test_looper/Dockerfile.txt"
+    variables:
+      ENV_VAR: ENV_VAL
+builds:
+  build/linux:
+    command: "build.sh"
+tests:
+  test/linux:
+    command: "test.sh"
+    dependencies:
+      build: build/linux
+"""
+basic_yaml_file_repo2 = """
 repos:
-  child: child-repo-name/repo_hash
+  child: repo2/repo_hash
 environments:
   linux: 
     import: child/linux
@@ -150,26 +172,61 @@ class TestManagerTests(unittest.TestCase):
     def test_manager_refresh(self):
         manager = self.get_manager()
 
-        manager.source_control.addCommit("repo1/c0", [], basic_yaml_file)
-        manager.source_control.addCommit("repo1/c1", ["repo1/c0"], basic_yaml_file)
-        manager.source_control.addCommit("repo2/c0", [], basic_yaml_file)
-        manager.source_control.addCommit("repo2/c1", ["repo2/c0"], basic_yaml_file)
+        manager.source_control.addCommit("repo1/c0", [], basic_yaml_file_repo1)
+        manager.source_control.addCommit("repo1/c1", ["repo1/c0"], basic_yaml_file_repo1)
+        manager.source_control.addCommit("repo2/c0", [], basic_yaml_file_repo2)
+        manager.source_control.addCommit("repo2/c1", ["repo2/c0"], basic_yaml_file_repo2)
 
         manager.source_control.setBranch("repo1/master", "repo1/c1")
         manager.source_control.setBranch("repo2/master", "repo2/c1")
 
 
-        ts = 0.0
-        manager.markRepoListDirty(ts)
+        ts = [0.0]
+        manager.markRepoListDirty(ts[0])
 
-        while True:
-            ts += 1.0
-            task = manager.performBackgroundWork(ts)
-            if task is None:
-                break
-            else:
-                print "did ", task
 
+        def consumeAllBackgroundWork():
+            while True:
+                ts[0] += 1.0
+                task = manager.performBackgroundWork(ts[0])
+                if task is None:
+                    return
+
+        def startAllNewTests():
+            tests = []
+            while len(tests) < 1000:
+                commitNameAndTest = manager.startNewTest("machine", ts[0])
+
+                if commitNameAndTest[0]:
+                    tests.append(commitNameAndTest)
+                else:
+                    return tests
+                ts[0] += 1
+
+            assert False
+
+        def doTestsInPhases():
+            counts = []
+
+            while True:
+                consumeAllBackgroundWork()
+                tests = startAllNewTests()
+                if not tests:
+                    return counts
+                counts.append([x[1] for x in tests])
+
+                for _,_,testId in tests:
+                    manager.testHeartbeat(testId, ts[0])
+                    ts[0] += .1
+
+                for _,_,testId in tests:
+                    manager.recordTestResults(True, testId, ts[0])
+                    ts[0] += .1
+
+        for ix, phase in enumerate(doTestsInPhases()):
+            print "phase ", ix
+            for p in phase:
+                print "\t", p
 
         #manager.initialize()
         #self.assertEqual(len(manager.branches), 2)

@@ -15,6 +15,17 @@ def setup_types(database):
     database.BackgroundTask.UpdateCommitData = {"commit": database.Commit}
     database.BackgroundTask.UpdateTestPriority = {"test": database.Test}
 
+
+    database.TestPriority = algebraic.Alternative("TestPriority")
+    database.TestPriority.UnresolvedDependencies = {}
+    database.TestPriority.DependencyFailed = {}
+    database.TestPriority.WaitingOnBuilds = {}
+    database.TestPriority.NoMoreTests = {}
+    database.TestPriority.FirstBuild = {}
+    database.TestPriority.FirstTest = {}
+    database.TestPriority.WantsMoreTests = {}
+
+
     database.DataTask.define(
         task=database.BackgroundTask,
         status=BackgroundTaskStatus
@@ -39,35 +50,30 @@ def setup_types(database):
         testDefinition=TestDefinition.TestDefinition,
         successes=int,
         totalRuns=int,
-        priority=database.TestPriority
+        activeRuns=int,
+        priority=database.TestPriority,
+        runsDesired=int
         )
 
     database.UnresolvedTestDependency.define(
         test=database.Test,
-        dependsOn=database.Test
+        dependsOnName=str
         )
 
-    database.ResolvedTestDependency.define(
+    database.TestDependency.define(
         test=database.Test,
         dependsOn=database.Test
         )
 
-    database.TestPriority.define(
-        testData=database.TestData,
-        priorityLevel=int
-        )
-
     database.RunningTest.define(
-        testData=database.TestData,
-        testId=str,
+        test=database.Test,
         startedTimestamp=float,
         lastHeartbeat=float,
         machine=database.Machine
         )
 
     database.CompletedTest.define(
-        testData=database.TestData,
-        testId=str,
+        test=database.Test,
         startedTimestamp=float,
         endTimestamp=float,
         machine=database.Machine,
@@ -88,13 +94,26 @@ def setup_types(database):
     database.Machine.define(
         machineId=str,
         firstSeen=float,
-        lastHearbeat=float
+        lastHeartbeat=float
         )
 
     database.addIndex(database.DataTask, 'status')
     database.addIndex(database.Machine, 'machineId')
+    database.addIndex(database.UnresolvedTestDependency, 'dependsOnName')
+    database.addIndex(database.UnresolvedTestDependency, 'test')
+    database.addIndex(database.TestDependency, 'test')
+    database.addIndex(database.TestDependency, 'dependsOn')
     database.addIndex(database.Repo, 'name')
     database.addIndex(database.Repo, 'isActive')
     database.addIndex(database.Branch, 'repo')
-    database.addIndex(database.Commit, 'hash')
+    database.addIndex(database.Commit, 'repo_and_hash', lambda o: (o.repo, o.hash))
     database.addIndex(database.Test, 'fullname')
+
+    database.addIndex(database.Test, 'priority', 
+            lambda o: o.priority if (
+                    not o.priority.matches.NoMoreTests 
+                and not o.priority.matches.UnresolvedDependencies
+                and not o.priority.matches.DependencyFailed
+                and not o.priority.matches.WaitingOnBuilds)
+                else None
+            )

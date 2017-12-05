@@ -57,7 +57,7 @@ class DatabaseObject(object):
 
     def __getattr__(self, name):
         if self.__dict__["_identity"] == "NULL":
-            raise Exception("Null object has no fields")
+            raise Exception("Null object of type %s has no fields" % type(self).__name__)
 
         if name[:1] == "_":
             raise AttributeError(name)
@@ -78,7 +78,7 @@ class DatabaseObject(object):
             raise Exception("Null object is not writeable")
 
         if name not in self.__types__:
-            raise AttributeError(name)
+            raise AttributeError("Database object of type %s has no attribute %s" % (type(self).__name__, name))
 
         if not hasattr(_cur_view, "view"):
             raise Exception("Please access properties from within a view or transaction.")
@@ -90,14 +90,13 @@ class DatabaseObject(object):
         if coerced_val is None:
             raise TypeError("Can't coerce %s to %s" % (val, self.__types__[name]))
 
-        _cur_view.view._set(type(self).__name__, self._identity, name, self.__types__[name], coerced_val)
+        _cur_view.view._set(self, type(self).__name__, self._identity, name, self.__types__[name], coerced_val)
 
     def delete(self):
         if self.__dict__["_identity"] is None:
             raise Exception("Null object is not writeable")
 
-        for name in self.__types__:
-            _cur_view.view._set(type(self).__name__, self._identity, name, self.__types__[name], None)
+        _cur_view.view._delete(self, type(self).__name__, self._identity, self.__types__.keys())
 
     @classmethod
     def define(cls, **types):
@@ -121,7 +120,7 @@ class DatabaseObject(object):
         if isinstance(obj, unicode):
             obj = str(obj)
 
-        assert isinstance(obj, str)
+        assert isinstance(obj, str), obj
 
         return cls(obj)
 
@@ -131,81 +130,35 @@ class DatabaseObject(object):
 def data_key(obj_typename, identity, field_name):
     return obj_typename + "-val:" + identity + ":" + field_name
 
-def index_key(obj_typename, field_name, value_hash):
+def index_key(obj_typename, field_name, value):
+    if isinstance(value, int):
+        value_hash = "int_" + str(value)
+    else:
+        value_hash = sha_hash(value).hexdigest
+
     return obj_typename + "-ix:" + field_name + ":" + value_hash
 
 
 class DatabaseView(object):
+    _writeable = False
+
     def __init__(self, db, transaction_id):
         object.__init__(self)
         self._db = db
         self._transaction_num = transaction_id
-        self._types = {}
-
-    def _get(self, obj_typename, identity, field_name, type):
-        key = data_key(obj_typename, identity, field_name)
-
-        db_val = self._db._get_versioned_object_data(key, self._transaction_num)
-
-        if db_val is None:
-            raise Exception("This object doesn't exist, or was deleted.")
-
-        return _encoder.from_json(db_val, type)
-
-    def _set(self, obj_typename, identity, field_name, type, val):
-        raise Exception("Views are static. Please open a transaction")
-
-    def _new(self, cls, kwds):
-        raise Exception("Views are static. Please open a transaction to create new objects.")
-
-    def __enter__(self):
-        assert not hasattr(_cur_view, 'view')
-        _cur_view.view = self
-        return self
-
-    def __exit__(self, type, val, tb):
-        del _cur_view.view
-
-    def indexLookupAny(self, type, **kwargs):
-        res = self.indexLookup(type, **kwargs)
-        if not res:
-            return None
-        return res[0]
-
-    def indexLookupOne(self, type, **kwargs):
-        res = self.indexLookup(type, **kwargs)
-        if not res:
-            raise Exception("No instances of %s found with %s" % (type, kwargs))
-        if len(res) != 1:
-            raise Exception("Multiple instances of %s found with %s" % (type, kwargs))
-        return res[0]
-
-    def indexLookup(self, type, **kwargs):
-        assert len(kwargs) == 1, "Can only lookup one index at a time."
-        tname, value = kwargs.items()[0]
-
-        if (type.__name__, tname) not in self._db._indices:
-            raise Exception("No index enabled for %s.%s" % (type.__name__, tname))
-
-        if not hasattr(_cur_view, "view"):
-            raise Exception("Please access indices from within a view.")
-
-        keyname = index_key(type.__name__, tname, sha_hash(value).hexdigest)
-
-        identities = self._db._get_versioned_object_data(keyname, self._transaction_num)
-        if not identities:
-            return ()
-
-        return tuple([type(str(x)) for x in identities])
-
-
-class DatabaseTransaction(DatabaseView):
-    def __init__(self, db, transaction_id):
-        DatabaseView.__init__(self, db, transaction_id)
         self._writes = {}
         self._reads = set()
+        self._readlog_disabled=False
+
+    def _get_dbkey(self, key):
+        if key in self._writes:
+            return self._writes[key]
+        return self._db._get_versioned_object_data(key, self._transaction_num)
 
     def _new(self, cls, kwds):
+        if not self._writeable:
+            raise Exception("Views are static. Please open a transaction.")
+
         identity = sha_hash(str(uuid.uuid4())).hexdigest
 
         o = cls(identity)
@@ -234,74 +187,125 @@ class DatabaseTransaction(DatabaseView):
 
             writes[data_key(cls.__name__, identity, kwd)] = coerced_val
 
-            if (cls.__name__, kwd) in self._db._indices:
-                ik = index_key(cls.__name__, kwd, sha_hash(val).hexdigest)
-                if ik in self._writes:
-                    self._writes[ik] = self._writes[ik] + (identity,)
-                else:
-                    existing = self._db._get_versioned_object_data(ik, self._transaction_num)
-                    if existing is None:
-                        existing = ()
-                    else:
-                        existing = tuple(existing)
-
-                    self._writes[ik] = existing + (identity,)
-
         self._writes.update(writes)
 
+        if cls.__name__ in self._db._indices:
+            for index_name, index_fun in self._db._indices[cls.__name__].iteritems():
+                with self._noreads():
+                    val = index_fun(o)
+
+                if val is not None:
+                    ik = index_key(cls.__name__, index_name, val)
+
+                    if ik in self._writes:
+                        self._writes[ik] = self._writes[ik] + (identity,)
+                    else:
+                        existing = self._get_dbkey(ik)
+                        if existing is None:
+                            existing = ()
+                        else:
+                            existing = tuple(existing)
+
+                        self._writes[ik] = existing + (identity,)
+
         return o        
+
+    def _noreads(self):
+        class Scope:
+            def __enter__(scope):
+                assert not self._readlog_disabled
+                self._readlog_disabled = True
+
+            def __exit__(scope, *args):
+                self._readlog_disabled = False
+
+        return Scope()
 
     def _get(self, obj_typename, identity, field_name, type):
         key = data_key(obj_typename, identity, field_name)
 
+        if not self._readlog_disabled:
+            self._reads.add(key)
+
         if key in self._writes:
             return self._writes[key]
 
-        self._reads.add(key)
-
-        db_val = self._db._get_versioned_object_data(key, self._transaction_num)
+        db_val = self._get_dbkey(key)
 
         if db_val is None:
             return db_val
 
         return _encoder.from_json(db_val, type)
 
-    def _set(self, obj_typename, identity, field_name, type, val):
+
+    def _delete(self, obj, obj_typename, identity, field_names):
+        existing_index_vals = self._compute_index_vals(obj, obj_typename)
+
+        for name in field_names:
+            key = data_key(obj_typename, identity, name)
+            self._writes[key] = None
+
+        self._update_indices(obj, obj_typename, identity, existing_index_vals, {})
+
+    def _set(self, obj, obj_typename, identity, field_name, type, val):
+        if not self._writeable:
+            raise Exception("Views are static. Please open a transaction.")
+
         key = data_key(obj_typename, identity, field_name)
 
-        if (obj_typename, field_name) in self._db._indices:
-            cur_value = _encoder.from_json(self._db._get_versioned_object_data(key, self._transaction_num), type)
-            
-            if cur_value is not None:
-                old_index_name = index_key(obj_typename, field_name, sha_hash(cur_value).hexdigest)
-                cur_index_list = tuple(self._db._get_versioned_object_data(old_index_name, self._transaction_num) or ())
-                self._writes[old_index_name] = tuple([x for x in cur_index_list if x != identity])
-            
-            if val is not None:
-                new_index_name = index_key(obj_typename, field_name, sha_hash(val).hexdigest)
-                new_index_list = tuple(self._db._get_versioned_object_data(new_index_name, self._transaction_num) or ())
-                self._writes[new_index_name] = new_index_list + (identity,)
+        existing_index_vals = self._compute_index_vals(obj, obj_typename)
 
-        self._reads.discard(key)
         self._writes[key] = val
+        
+        new_index_vals = self._compute_index_vals(obj, obj_typename)
+
+        self._update_indices(obj, obj_typename, identity, existing_index_vals, new_index_vals)
+
+    def _compute_index_vals(self, obj, obj_typename):
+        existing_index_vals = {}
+
+        if obj_typename in self._db._indices:
+            for index_name, index_fun in self._db._indices[obj_typename].iteritems():
+                with self._noreads():
+                    existing_index_vals[index_name] = index_fun(obj)
+
+        return existing_index_vals
+
+    def _update_indices(self, obj, obj_typename, identity, existing_index_vals, new_index_vals):
+        if obj_typename in self._db._indices:
+            for index_name, index_fun in self._db._indices[obj_typename].iteritems():
+                new_index_val = new_index_vals.get(index_name, None)
+                cur_index_val = existing_index_vals.get(index_name, None)
+
+                if cur_index_val != new_index_val:
+                    if cur_index_val is not None:
+                        old_index_name = index_key(obj_typename, index_name, cur_index_val)
+                        cur_index_list = tuple(self._get_dbkey(old_index_name) or ())
+                        self._writes[old_index_name] = tuple([x for x in cur_index_list if x != identity])
+
+                    if new_index_val is not None:
+                        new_index_name = index_key(obj_typename, index_name, new_index_val)
+                        new_index_list = tuple(self._get_dbkey(new_index_name) or ())
+                        self._writes[new_index_name] = new_index_list + (identity,)
 
     def indexLookup(self, type, **kwargs):
         assert len(kwargs) == 1, "Can only lookup one index at a time."
         tname, value = kwargs.items()[0]
 
-        if (type.__name__, tname) not in self._db._indices:
+        if type.__name__ not in self._db._indices or tname not in self._db._indices[type.__name__]:
             raise Exception("No index enabled for %s.%s" % (type.__name__, tname))
 
         if not hasattr(_cur_view, "view"):
             raise Exception("Please access indices from within a view.")
 
-        keyname = index_key(type.__name__, tname, sha_hash(value).hexdigest)
+        keyname = index_key(type.__name__, tname, value)
 
         if keyname in self._writes:
             identities = self._writes[keyname]
         else:
             identities = self._db._get_versioned_object_data(keyname, self._transaction_num)
-            self._reads.add(keyname)
+            if not self._readlog_disabled:
+                self._reads.add(keyname)
 
         if not identities:
             return ()
@@ -309,6 +313,9 @@ class DatabaseTransaction(DatabaseView):
         return tuple([type(str(x)) for x in identities])
 
     def commit(self):
+        if not self._writeable:
+            raise Exception("Views are static. Please open a transaction.")
+
         if self._writes:
             writes = {key: _encoder.to_json(v) for key, v in self._writes.iteritems()}
             tid = self._transaction_num
@@ -318,6 +325,7 @@ class DatabaseTransaction(DatabaseView):
     def nocommit(self):
         class Scope:
             def __enter__(scope):
+                assert not hasattr(_cur_view, 'view')
                 _cur_view.view = self
 
             def __exit__(self, *args):
@@ -331,8 +339,28 @@ class DatabaseTransaction(DatabaseView):
 
     def __exit__(self, type, val, tb):
         del _cur_view.view
-        if type is None:
+        if type is None and self._writes:
             self.commit()
+
+    def indexLookupAny(self, type, **kwargs):
+        res = self.indexLookup(type, **kwargs)
+        if not res:
+            return None
+        return res[0]
+
+    def indexLookupOne(self, type, **kwargs):
+        res = self.indexLookup(type, **kwargs)
+        if not res:
+            raise Exception("No instances of %s found with %s" % (type, kwargs))
+        if len(res) != 1:
+            raise Exception("Multiple instances of %s found with %s" % (type, kwargs))
+        return res[0]
+
+class DatabaseTransaction(DatabaseView):
+    _writeable = True
+
+
+
 
 class Database:
     def __init__(self, kvstore):
@@ -340,8 +368,8 @@ class Database:
         self._lock = threading.Lock()
         self._cur_transaction_num = kvstore.get("transaction_id") or 1
         self._types = {}
-        #type and property pairs
-        self._indices = set()
+        #typename -> indexname -> fun(object->value)
+        self._indices = {}
 
     def __str__(self):
         return "Database(%s)" % id(self)
@@ -349,8 +377,19 @@ class Database:
     def __repr__(self):
         return "Database(%s)" % id(self)
 
-    def addIndex(self, type, prop):
-        self._indices.add((type.__name__, prop))
+    def current_transaction(self):
+        if not hasattr(_cur_view, "view"):
+            return None
+        return _cur_view.view
+
+    def addIndex(self, type, prop, fun = None):
+        if type.__name__ not in self._indices:
+            self._indices[type.__name__] = {}
+
+        if fun is None:
+            fun = lambda o: getattr(o, prop)
+
+        self._indices[type.__name__][prop] = fun
 
     def __setattr__(self, typename, val):
         if typename[:1] == "_":
@@ -438,7 +477,7 @@ class Database:
     def _get(self, obj_typename, identity, field_name, type):
         raise Exception("Please open a transaction or a view")
 
-    def _set(self, obj_typename, identity, field_name, type, val):
+    def _set(self, obj, obj_typename, identity, field_name, type, val):
         raise Exception("Please open a transaction")
 
 

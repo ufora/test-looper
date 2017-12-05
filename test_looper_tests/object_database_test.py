@@ -182,6 +182,92 @@ class ObjectDatabaseTests(unittest.TestCase):
         with db.view() as v:
             self.assertEqual(v.indexLookup(db.Object,k=expr.Constant(value=123)), (o1,))
 
+    def test_index_functions(self):
+        mem_store = InMemoryJsonStore.InMemoryJsonStore()
+
+        db = object_database.Database(mem_store)
+        db.Object.define(k=int)
+        db.addIndex(db.Object, 'k')
+        db.addIndex(db.Object, 'k2', lambda o: o.k * 2)
+        
+        with db.transaction():
+            o1 = db.Object.New(k=10)
+
+        with db.view() as v:
+            self.assertEqual(v.indexLookup(db.Object,k=10), (o1,))
+            self.assertEqual(v.indexLookup(db.Object,k2=20), (o1,))
+            self.assertEqual(v.indexLookup(db.Object,k=20), ())
+
+    def test_index_functions_None_semantics(self):
+        mem_store = InMemoryJsonStore.InMemoryJsonStore()
+
+        db = object_database.Database(mem_store)
+        db.Object.define(k=int)
+        db.addIndex(db.Object, 'index', lambda o: True if o.k > 10 else None)
+        
+        with db.transaction() as v:
+            self.assertEqual(v.indexLookup(db.Object,index=True), ())
+            o1 = db.Object.New(k=10)
+            self.assertEqual(v.indexLookup(db.Object,index=True), ())
+            o1.k = 20
+            self.assertEqual(v.indexLookup(db.Object,index=True), (o1,))
+            o1.k = 10
+            self.assertEqual(v.indexLookup(db.Object,index=True), ())
+            o1.k = 20
+            self.assertEqual(v.indexLookup(db.Object,index=True), (o1,))
+            o1.delete()
+            self.assertEqual(v.indexLookup(db.Object,index=True), ())
+
+    def test_indices_update_during_transactions(self):
+        mem_store = InMemoryJsonStore.InMemoryJsonStore()
+
+        db = object_database.Database(mem_store)
+        db.Object.define(k=int)
+        db.addIndex(db.Object, 'k')
+        
+        with db.transaction() as v:
+            self.assertEqual(v.indexLookup(db.Object,k=10), ())
+            o1 = db.Object.New(k=10)
+
+            self.assertEqual(v.indexLookup(db.Object,k=10), (o1,))
+            
+            o1.k = 20
+
+            self.assertEqual(v.indexLookup(db.Object,k=10), ())
+            self.assertEqual(v.indexLookup(db.Object,k=20), (o1,))
+
+            o1.delete()
+
+            self.assertEqual(v.indexLookup(db.Object,k=10), ())
+            self.assertEqual(v.indexLookup(db.Object,k=20), ())
+
+    def test_index_transaction_conflicts(self):
+        mem_store = InMemoryJsonStore.InMemoryJsonStore()
+
+        db = object_database.Database(mem_store)
+        db.Object.define(k=int)
+        db.Other.define(k=int)
+        db.addIndex(db.Object, 'k')
+        
+        with db.transaction():
+            o1 = db.Object.New(k=10)
+            o2 = db.Object.New(k=20)
+            o3 = db.Object.New(k=30)
+
+        t1 = db.transaction()
+        t2 = db.transaction()
+
+        with t1.nocommit():
+            o2.k=len(t1.indexLookup(db.Object,k=10))
+
+        with t2.nocommit():
+            o1.k = 20
+
+        t2.commit()
+
+        with self.assertRaises(object_database.RevisionConflictException):
+            t1.commit()
+
     def test_default_constructor_for_list(self):
         mem_store = InMemoryJsonStore.InMemoryJsonStore()
 

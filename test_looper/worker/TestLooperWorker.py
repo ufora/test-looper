@@ -141,8 +141,6 @@ class TestLooperWorker(object):
             logging.info('Machine %s skipping heartbeat because it already received "%s"',
                          self.ownMachineInfo.machineId,
                          self.heartbeatResponse)
-            # don't hearbeat again if you already got a response other
-            # than ACK
             return
 
         self.heartbeatResponse = testLooperClient.heartbeat(testId,

@@ -77,16 +77,9 @@ class Session(object):
 
 
     def heartbeat(self, args):
-        is_new_machine = self.testManager.recordMachineObservation(args.machineId)
-        heartbeatResponse = self.testManager.heartbeat(args.testId,
-                                                       args.commitId,
-                                                       args.machineId)
+        self.testManager.testHeartbeat(args.testId, time.time())
 
-        self.writeString(heartbeatResponse)
-
-        if is_new_machine:
-            self.cloud_connection.tagInstance(args.machineId)
-
+        self.writeString("OK")
 
     def getTask(self, machineInfo):
         commit = None
@@ -96,21 +89,13 @@ class Session(object):
 
         try:
             t0 = time.time()
-            commit, testDefinition, testResult = \
-                self.testManager.getTask(machineInfo)
+            commitId, testName, testId = self.testManager.startNewTest(machineInfo.machineInfo)
 
-            if commit:
-                testName = testDefinition.testName
-                logging.info("Took %.2f sec to select test %s for worker %s.",
-                             time.time() - t0,
-                             testName,
-                             self.address)
-                testDefinition = commit.getTestDefinitionFor(testName)
-
+            if commitId:
                 self.writeString(
                     json.dumps({
-                        "commitId": commit.commitId,
-                        'testId': testResult.testId,
+                        "commitId": commitId,
+                        'testId': testId,
                         'testName': testName
                         })
                     )
@@ -129,36 +114,14 @@ class Session(object):
 
     def publishTestResult(self, testResultAsJson):
         result = TestResult.TestResultOnMachine.fromJson(testResultAsJson)
-        with self.testManager.lock:
-            is_new_machine = self.testManager.recordMachineObservation(result.machine)
-            self.testManager.recordMachineResult(result)
 
-        if is_new_machine and self.cloud_connection:
-            self.cloud_connection.tagInstance(result.machine)
-
-        if not result.success and self.cloud_connection:
-            logging.info("Test result from client at %s: %s, machine: %s",
-                         self.address,
-                         result,
-                         result.machine)
-            isAlive = self.cloud_connection.isMachineAlive(result.machine)
-
-            if not isAlive:
-                testId = result.testId
-                commitId = result.commitId
-                self.testManager.clearResultsForTestIdCommitId(testId, commitId)
-                logging.info("%s, %s returned an invalid test result, purged from db",
-                             testId,
-                             result.machine)
-
+        self.testManager.recordTestResults(result.success, result.testId, time.time())
 
     def readString(self):
         return socket_util.readString(self.socket)
 
-
     def writeString(self, s):
         return socket_util.writeString(self.socket, s)
-
 
 class TestLooperServer(SimpleServer.SimpleServer):
     #if we modify this protocol version, the loopers should reboot and pull a new copy of the code
