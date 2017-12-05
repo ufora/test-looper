@@ -20,6 +20,8 @@ def initialize_types(db):
         other=db.Object
         )
 
+    db.Counter.define(k=int)
+
 
 class ObjectDatabaseTests(unittest.TestCase):
     def test_basic(self):
@@ -110,4 +112,82 @@ class ObjectDatabaseTests(unittest.TestCase):
             with self.assertRaises(object_database.RevisionConflictException):
                 with t2:
                     root.obj.k = expr.Constant(value=root.obj.k.value + 1)
+    
+    def test_read_write_conflict(self):
+        mem_store = InMemoryJsonStore.InMemoryJsonStore()
+
+        db = object_database.Database(mem_store)
+        initialize_types(db)
+
+        with db.transaction():
+            o1 = db.Counter.New()
+            o2 = db.Counter.New()
+
+        t1 = db.transaction()
+        t2 = db.transaction()
+
+        with t1.nocommit():
+            o1.k = o2.k + 1
         
+        with t2.nocommit():
+            o2.k = o1.k + 1
+
+        t1.commit()
+
+        with self.assertRaises(object_database.RevisionConflictException):
+            t2.commit()
+        
+    def test_indices(self):
+        mem_store = InMemoryJsonStore.InMemoryJsonStore()
+
+        db = object_database.Database(mem_store)
+        initialize_types(db)
+        db.addIndex(db.Counter, 'k')
+
+        with db.view() as v:
+            self.assertEqual(v.indexLookup(db.Counter,k=20), ())
+            self.assertEqual(v.indexLookup(db.Counter,k=30), ())
+
+        with db.transaction():
+            o1 = db.Counter.New(k = 20)
+
+        with db.view() as v:
+            self.assertEqual(v.indexLookup(db.Counter,k=20), (o1,))
+            self.assertEqual(v.indexLookup(db.Counter,k=30), ())
+
+        with db.transaction():
+            o1.k = 30
+
+        with db.view() as v:
+            self.assertEqual(v.indexLookup(db.Counter,k=20), ())
+            self.assertEqual(v.indexLookup(db.Counter,k=30), (o1,))
+
+        with db.transaction():
+            o1.delete()
+
+        with db.view() as v:
+            self.assertEqual(v.indexLookup(db.Counter,k=20), ())
+            self.assertEqual(v.indexLookup(db.Counter,k=30), ())
+
+    def test_indices_of_algebraics(self):
+        mem_store = InMemoryJsonStore.InMemoryJsonStore()
+
+        db = object_database.Database(mem_store)
+        initialize_types(db)
+        db.addIndex(db.Object, 'k')
+
+        with db.transaction():
+            o1 = db.Object.New(k=expr.Constant(value=123))
+
+        with db.view() as v:
+            self.assertEqual(v.indexLookup(db.Object,k=expr.Constant(value=123)), (o1,))
+
+    def test_default_constructor_for_list(self):
+        mem_store = InMemoryJsonStore.InMemoryJsonStore()
+
+        db = object_database.Database(mem_store)
+        db.Object.define(x = algebraic.List(int))
+
+        with db.transaction():
+            n = db.Object.New()
+            self.assertEqual(len(n.x), 0)

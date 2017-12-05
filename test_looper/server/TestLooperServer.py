@@ -10,38 +10,6 @@ import test_looper.core.socket_util as socket_util
 import test_looper.data_model.TestResult as TestResult
 import test_looper.core.cloud.MachineInfo as MachineInfo
 
-class LockWithTimer(object):
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.initialLockTime = None
-
-
-    def acquire(self):
-        self.lock.acquire()
-        self.initialLockTime = time.time()
-
-
-    def release(self):
-        if time.time() - self.initialLockTime > 2.0:
-            logging.warn("Manager lock held for %s seconds.\n%s",
-                         time.time() - self.initialLockTime,
-                         "".join(traceback.format_stack()))
-        self.lock.release()
-
-
-    def __enter__(self):
-        self.lock.__enter__()
-        self.initialLockTime = time.time()
-
-
-    def __exit__(self, *args):
-        if time.time() - self.initialLockTime > 2.0:
-            logging.warn("Manager lock held for %s seconds.\n%s",
-                         time.time() - self.initialLockTime,
-                         "".join(traceback.format_stack()))
-        self.lock.__exit__(*args)
-
-
 HeartbeatArguments = collections.namedtuple('HeartbeatArguments',
                                             'commitId testId machineId')
 
@@ -109,13 +77,12 @@ class Session(object):
 
 
     def heartbeat(self, args):
-        with self.testManager.lock:
-            is_new_machine = self.testManager.recordMachineObservation(args.machineId)
-            heartbeatResponse = self.testManager.heartbeat(args.testId,
-                                                           args.commitId,
-                                                           args.machineId)
+        is_new_machine = self.testManager.recordMachineObservation(args.machineId)
+        heartbeatResponse = self.testManager.heartbeat(args.testId,
+                                                       args.commitId,
+                                                       args.machineId)
 
-            self.writeString(heartbeatResponse)
+        self.writeString(heartbeatResponse)
 
         if is_new_machine:
             self.cloud_connection.tagInstance(args.machineId)
@@ -124,38 +91,37 @@ class Session(object):
     def getTask(self, machineInfo):
         commit = None
 
-        with self.testManager.lock:
-            if machineInfo.machineId is not None:
-                is_new_machine = self.testManager.recordMachineObservation(machineInfo.machineId)
+        if machineInfo.machineId is not None:
+            is_new_machine = self.testManager.recordMachineObservation(machineInfo.machineId)
 
-            try:
-                t0 = time.time()
-                commit, testDefinition, testResult = \
-                    self.testManager.getTask(machineInfo)
+        try:
+            t0 = time.time()
+            commit, testDefinition, testResult = \
+                self.testManager.getTask(machineInfo)
 
-                if commit:
-                    testName = testDefinition.testName
-                    logging.info("Took %.2f sec to select test %s for worker %s.",
-                                 time.time() - t0,
-                                 testName,
-                                 self.address)
-                    testDefinition = commit.getTestDefinitionFor(testName)
+            if commit:
+                testName = testDefinition.testName
+                logging.info("Took %.2f sec to select test %s for worker %s.",
+                             time.time() - t0,
+                             testName,
+                             self.address)
+                testDefinition = commit.getTestDefinitionFor(testName)
 
-                    self.writeString(
-                        json.dumps({
-                            "commitId": commit.commitId,
-                            'testId': testResult.testId,
-                            'testName': testName
-                            })
-                        )
-                else:
-                    logging.debug("No tests assigned to client at %s", self.address)
-                    self.writeString(json.dumps(None))
-            except:
-                logging.error("Error getting the set of tests to run %s, %s",
-                              self.address,
-                              traceback.format_exc())
+                self.writeString(
+                    json.dumps({
+                        "commitId": commit.commitId,
+                        'testId': testResult.testId,
+                        'testName': testName
+                        })
+                    )
+            else:
+                logging.debug("No tests assigned to client at %s", self.address)
                 self.writeString(json.dumps(None))
+        except:
+            logging.error("Error getting the set of tests to run %s, %s",
+                          self.address,
+                          traceback.format_exc())
+            self.writeString(json.dumps(None))
 
         if is_new_machine and self.cloud_connection:
             self.cloud_connection.tagInstance(machineInfo.machineId)
@@ -209,15 +175,12 @@ class TestLooperServer(SimpleServer.SimpleServer):
         self.httpServer = httpServer
         self.cloud_connection = cloud_connection
 
-
     def port(self):
         return self.port_
-
 
     def initialize(self):
         with self.testManager.lock:
             self.testManager.initialize()
-
 
     def runListenLoop(self):
         logging.info("Starting TestLooperServer listen loop")
@@ -235,11 +198,9 @@ class TestLooperServer(SimpleServer.SimpleServer):
             self.httpServer.stop()
             logging.info("Listen loop stopped")
 
-
     def stop(self):
         super(TestLooperServer, self).stop()
         logging.info("successfully stopped TestLooperServer")
-
 
     def _onConnect(self, socket, address):
         logging.debug("Accepting connection from %s", address)

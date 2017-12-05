@@ -20,6 +20,15 @@ class DatabaseObject(object):
     _database = None
     Null = None
 
+    def __eq__(self, other):
+        if not isinstance(other, DatabaseObject):
+            return False
+        if not self._database is other._database:
+            return False
+        if not type(self) is type(other):
+            return False
+        return self._identity == other._identity
+
     def __init__(self, identity):
         object.__init__(self)
 
@@ -83,12 +92,12 @@ class DatabaseObject(object):
 
         _cur_view.view._set(type(self).__name__, self._identity, name, self.__types__[name], coerced_val)
 
-    def clear(self):
+    def delete(self):
         if self.__dict__["_identity"] is None:
             raise Exception("Null object is not writeable")
 
-        for t in self.__types__:
-            setattr(self, t, None)
+        for name in self.__types__:
+            _cur_view.view._set(type(self).__name__, self._identity, name, self.__types__[name], None)
 
     @classmethod
     def define(cls, **types):
@@ -116,6 +125,16 @@ class DatabaseObject(object):
 
         return cls(obj)
 
+    def __sha_hash__(self):
+        return sha_hash(self._identity) + sha_hash(type(self).__name__)
+
+def data_key(obj_typename, identity, field_name):
+    return obj_typename + "-val:" + identity + ":" + field_name
+
+def index_key(obj_typename, field_name, value_hash):
+    return obj_typename + "-ix:" + field_name + ":" + value_hash
+
+
 class DatabaseView(object):
     def __init__(self, db, transaction_id):
         object.__init__(self)
@@ -124,7 +143,7 @@ class DatabaseView(object):
         self._types = {}
 
     def _get(self, obj_typename, identity, field_name, type):
-        key = obj_typename + ":" + identity + ":" + field_name
+        key = data_key(obj_typename, identity, field_name)
 
         db_val = self._db._get_versioned_object_data(key, self._transaction_num)
 
@@ -147,6 +166,39 @@ class DatabaseView(object):
     def __exit__(self, type, val, tb):
         del _cur_view.view
 
+    def indexLookupAny(self, type, **kwargs):
+        res = self.indexLookup(type, **kwargs)
+        if not res:
+            return None
+        return res[0]
+
+    def indexLookupOne(self, type, **kwargs):
+        res = self.indexLookup(type, **kwargs)
+        if not res:
+            raise Exception("No instances of %s found with %s" % (type, kwargs))
+        if len(res) != 1:
+            raise Exception("Multiple instances of %s found with %s" % (type, kwargs))
+        return res[0]
+
+    def indexLookup(self, type, **kwargs):
+        assert len(kwargs) == 1, "Can only lookup one index at a time."
+        tname, value = kwargs.items()[0]
+
+        if (type.__name__, tname) not in self._db._indices:
+            raise Exception("No index enabled for %s.%s" % (type.__name__, tname))
+
+        if not hasattr(_cur_view, "view"):
+            raise Exception("Please access indices from within a view.")
+
+        keyname = index_key(type.__name__, tname, sha_hash(value).hexdigest)
+
+        identities = self._db._get_versioned_object_data(keyname, self._transaction_num)
+        if not identities:
+            return ()
+
+        return tuple([type(str(x)) for x in identities])
+
+
 class DatabaseTransaction(DatabaseView):
     def __init__(self, db, transaction_id):
         DatabaseView.__init__(self, db, transaction_id)
@@ -160,6 +212,18 @@ class DatabaseTransaction(DatabaseView):
 
         writes = {}
 
+        kwds = dict(kwds)
+        for tname, t in cls.__types__.iteritems():
+            if tname not in kwds:
+                kwds[tname] = algebraic.default_initialize(t)
+
+                if kwds[tname] is None:
+                    raise Exception("Can't default initialize %s.%s of type %s" % (
+                        cls.__name__,
+                        tname,
+                        t
+                        ))
+
         for kwd, val in kwds.iteritems():
             if kwd not in cls.__types__:
                 raise TypeError("Unknown field %s on %s" % (kwd, cls))
@@ -168,21 +232,27 @@ class DatabaseTransaction(DatabaseView):
             if coerced_val is None:
                 raise TypeError("Can't coerce %s to %s" % (val, cls.__types__[kwd]))
 
-            writes[cls.__name__ + ":" + identity + ":" + kwd] = coerced_val
+            writes[data_key(cls.__name__, identity, kwd)] = coerced_val
 
-        for tname, t in cls.__types__.iteritems():
-            if tname not in kwds:
-                val = algebraic.default_initialize(t)
-                if val is None:
-                    raise TypeError("Can't default initialize %s.%s of type %s" % (cls.__name__, tname, t))
-                writes[cls.__name__ + ":" + identity + ":" + tname] = val
+            if (cls.__name__, kwd) in self._db._indices:
+                ik = index_key(cls.__name__, kwd, sha_hash(val).hexdigest)
+                if ik in self._writes:
+                    self._writes[ik] = self._writes[ik] + (identity,)
+                else:
+                    existing = self._db._get_versioned_object_data(ik, self._transaction_num)
+                    if existing is None:
+                        existing = ()
+                    else:
+                        existing = tuple(existing)
+
+                    self._writes[ik] = existing + (identity,)
 
         self._writes.update(writes)
 
         return o        
 
     def _get(self, obj_typename, identity, field_name, type):
-        key = obj_typename + ":" + identity + ":" + field_name
+        key = data_key(obj_typename, identity, field_name)
 
         if key in self._writes:
             return self._writes[key]
@@ -197,23 +267,46 @@ class DatabaseTransaction(DatabaseView):
         return _encoder.from_json(db_val, type)
 
     def _set(self, obj_typename, identity, field_name, type, val):
-        key = obj_typename + ":" + identity + ":" + field_name
+        key = data_key(obj_typename, identity, field_name)
 
-        index_name = obj_typename + ":" + field_name
-        if index_name in self._db._indices:
+        if (obj_typename, field_name) in self._db._indices:
             cur_value = _encoder.from_json(self._db._get_versioned_object_data(key, self._transaction_num), type)
             
-            old_val_hash = sha_hash(cur_value).hexdigest
-            new_val_hash = sha_hash(val).hexdigest
-
-            cur_index_list = self._db._get_versioned_object_data(index_name + ":" + old_val_hash, self._transaction_num)
-            new_index_list = self._db._get_versioned_object_data(index_name + ":" + new_val_hash, self._transaction_num)
-
-            self._writes[index_name + ":" + old_val_hash] = tuple([x for x in cur_index_list if x != identity])
-            self._writes[index_name + ":" + new_val_hash] = new_index_list + (identity,)
+            if cur_value is not None:
+                old_index_name = index_key(obj_typename, field_name, sha_hash(cur_value).hexdigest)
+                cur_index_list = tuple(self._db._get_versioned_object_data(old_index_name, self._transaction_num) or ())
+                self._writes[old_index_name] = tuple([x for x in cur_index_list if x != identity])
+            
+            if val is not None:
+                new_index_name = index_key(obj_typename, field_name, sha_hash(val).hexdigest)
+                new_index_list = tuple(self._db._get_versioned_object_data(new_index_name, self._transaction_num) or ())
+                self._writes[new_index_name] = new_index_list + (identity,)
 
         self._reads.discard(key)
         self._writes[key] = val
+
+    def indexLookup(self, type, **kwargs):
+        assert len(kwargs) == 1, "Can only lookup one index at a time."
+        tname, value = kwargs.items()[0]
+
+        if (type.__name__, tname) not in self._db._indices:
+            raise Exception("No index enabled for %s.%s" % (type.__name__, tname))
+
+        if not hasattr(_cur_view, "view"):
+            raise Exception("Please access indices from within a view.")
+
+        keyname = index_key(type.__name__, tname, sha_hash(value).hexdigest)
+
+        if keyname in self._writes:
+            identities = self._writes[keyname]
+        else:
+            identities = self._db._get_versioned_object_data(keyname, self._transaction_num)
+            self._reads.add(keyname)
+
+        if not identities:
+            return ()
+        
+        return tuple([type(str(x)) for x in identities])
 
     def commit(self):
         if self._writes:
@@ -221,6 +314,15 @@ class DatabaseTransaction(DatabaseView):
             tid = self._transaction_num
             
             self._db._set_versioned_object_data(writes, tid, self._reads)
+
+    def nocommit(self):
+        class Scope:
+            def __enter__(scope):
+                _cur_view.view = self
+
+            def __exit__(self, *args):
+                del _cur_view.view
+        return Scope()
 
     def __enter__(self):
         assert not hasattr(_cur_view, 'view')
@@ -248,9 +350,19 @@ class Database:
         return "Database(%s)" % id(self)
 
     def addIndex(self, type, prop):
-        self._indices.add((type.__name__ + ":" + prop))
+        self._indices.add((type.__name__, prop))
+
+    def __setattr__(self, typename, val):
+        if typename[:1] == "_":
+            self.__dict__[typename] = val
+            return
+        
+        self._types[typename] = val
 
     def __getattr__(self, typename):
+        if typename[:1] == "_":
+            return self.__dict__[typename]
+
         if typename not in self._types:
             class cls(DatabaseObject):
                 pass

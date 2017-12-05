@@ -38,7 +38,7 @@ def sha_hash(val):
             h0 = h0 + sha_hash(i)
         return h0
     if isinstance(val, dict):
-        return sha_hash(tuple(sorted(self._fields.items())))
+        return sha_hash(tuple(sorted(val.items())))
     if isinstance(val, int):
         return Hash.from_integer(val)
     if isinstance(val, float):

@@ -42,6 +42,9 @@ def valid_type(t):
     return False
 
 def coerce_instance(instance, to_type):
+    if isinstance(instance, unicode):
+        instance = str(instance)
+    
     if isinstance(to_type, Alternative):
         if isinstance(instance, AlternativeInstance):
             if instance._alternative is to_type:
@@ -248,7 +251,7 @@ def default_initialize(tgt_type):
     if isinstance(tgt_type, Dict):
         return {}
     if isinstance(tgt_type, List):
-        return []
+        return ()
     if isinstance(tgt_type, NullableAlternative):
         return tgt_type.Null()
     if hasattr(tgt_type, "__default_initializer__"):
@@ -294,7 +297,7 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
                 else:
                     instance = coerce_instance(fields[k], typedict[k])
                 if instance is None:
-                    raise TypeError("field %s needs a %s, not %s" % (k, typedict[k], fields[k]))
+                    raise TypeError("field %s needs a %s, not %s of type %s" % (k, typedict[k], fields[k], type(fields[k])))
                 fields[k] = instance
 
             self._fields = fields
@@ -305,7 +308,7 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
 
         def __sha_hash__(self):
             if self._sha_hash_cache is None:
-                self._sha_hash_cache = Hash.sha_hash(self._fields)
+                self._sha_hash_cache = sha_hash(self._fields)
             return self._sha_hash_cache
 
         def __hash__(self):

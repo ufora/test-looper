@@ -7,7 +7,6 @@ import sys
 import simplejson
 
 import test_looper_tests.common as common
-import test_looper.data_model.TestDatabase as TestDatabase
 import test_looper.data_model.TestManager as TestManager
 import test_looper.core.InMemoryJsonStore as InMemoryJsonStore
 import test_looper.core.tools.Git as Git
@@ -28,6 +27,9 @@ class MockSourceControl:
         self.commit_test_defs = {}
         self.commit_parents = {}
         self.branch_to_commitId = {}
+
+    def listRepos(self):
+        return sorted(self.repos)
 
     def addCommit(self, commitId, parents, testDefs):
         assert len(commitId.split("/")) == 2
@@ -93,47 +95,54 @@ class MockRepo:
 
         return tuples
     
+    def listBranches(self):
+        return sorted([b.split("/")[1] for b in self.source_control.branch_to_commitId if b.startswith(self.repoName + "/")])
+
+    def branchTopCommit(self, branch):
+        return self.source_control.branch_to_commitId[self.repoName + "/" + branch].split("/")[1]
+
     def commitsBetweenBranches(self, branch1, branch2):
         assert False, (branch1, branch2)
 
     def getTestScriptDefinitionsForCommit(self, commitHash):
         assert "/" not in commitHash
-        return simplejson.dumps(self.source_control.commit_test_defs[self.repoName + "/" + commitHash])
+        return self.source_control.commit_test_defs[self.repoName + "/" + commitHash]
 
 
-basicTestDefs = {
-    "looper_version": 1,
-    "docker": {
-        "dockerfile": "Dockerfile.txt"
-        },
-    "build": {
-        "command": "touch $BUILD_DIR/build_file"
-        },
-    "tests": [
-        {"name": "good", "command": "./script.py 0"},
-        {"name": "bad", "command": "./script.py 1"},
-        {"name": "docker", "command": "./starts_a_long_docker.py"},
-        {"name": "check_build_output", "command": "echo $BUILD_DIR/build_file"}
-        ],
-    "environments": [
-        {"name": "env", 
-         "command": "pwd; echo 'hello'",
-         "portExpose": "http:8000"
-         }
-        ]
-    }
+basic_yaml_file = """
+repos:
+  child: child-repo-name/repo_hash
+environments:
+  linux: 
+    import: child/linux
+  windows: 
+    import: child/windows
+  test_linux:
+    platform: linux
+    image:
+      dockerfile: "test_looper/Dockerfile.txt"
+    variables:
+      ENV_VAR: ENV_VAL
+  all_linux:
+    group: [linux, test_linux]
+builds:
+  build/all_linux:
+    command: "build.sh $TEST_LOOPER_IMPORTS/child"
+    dependencies:
+      child: child/build/
+tests:
+  test/all_linux:
+    command: "test.sh $TEST_LOOPER_IMPORTS/build"
+    dependencies:
+      build: build/
+"""
 
 class TestManagerTests(unittest.TestCase):
     def get_manager(self):
         manager = TestManager.TestManager(
             MockSourceControl(), 
-            TestDatabase.TestDatabase(InMemoryJsonStore.InMemoryJsonStore(), ""),
-            threading.RLock(),
-            TestManager.TestManagerSettings(
-                "master",
-                20,
-                3
-                )
+            InMemoryJsonStore.InMemoryJsonStore(),
+            TestManager.TestManagerSettings.Settings(max_test_count=3)
             )
 
         return manager
@@ -141,16 +150,28 @@ class TestManagerTests(unittest.TestCase):
     def test_manager_refresh(self):
         manager = self.get_manager()
 
-        manager.source_control.addCommit("repo1/c0", [], basicTestDefs)
-        manager.source_control.addCommit("repo1/c1", ["repo1/c0"], basicTestDefs)
-        manager.source_control.addCommit("repo2/c0", [], basicTestDefs)
-        manager.source_control.addCommit("repo2/c1", ["repo2/c0"], basicTestDefs)
+        manager.source_control.addCommit("repo1/c0", [], basic_yaml_file)
+        manager.source_control.addCommit("repo1/c1", ["repo1/c0"], basic_yaml_file)
+        manager.source_control.addCommit("repo2/c0", [], basic_yaml_file)
+        manager.source_control.addCommit("repo2/c1", ["repo2/c0"], basic_yaml_file)
 
         manager.source_control.setBranch("repo1/master", "repo1/c1")
         manager.source_control.setBranch("repo2/master", "repo2/c1")
 
-        manager.initialize()
 
-        self.assertEqual(len(manager.branches), 2)
-        for b in manager.branches.values():
-            self.assertEqual(len(b.commits), 2)
+        ts = 0.0
+        manager.markRepoListDirty(ts)
+
+        while True:
+            ts += 1.0
+            task = manager.performBackgroundWork(ts)
+            if task is None:
+                break
+            else:
+                print "did ", task
+
+
+        #manager.initialize()
+        #self.assertEqual(len(manager.branches), 2)
+        #for b in manager.branches.values():
+        #    self.assertEqual(len(b.commits), 2)

@@ -4,44 +4,201 @@ import random
 import time
 import traceback
 import simplejson
+import threading
+import test_looper.core.object_database as object_database
+import test_looper.core.algebraic as algebraic
+
 import test_looper.data_model.TestResult as TestResult
+import test_looper.data_model.Types as Types
 
 import test_looper.data_model.BlockingMachines as BlockingMachines
-import test_looper.data_model.TestScriptDefinition as TestScriptDefinition
+import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.data_model.Branch as Branch
 import test_looper.data_model.Commit as Commit
 from test_looper.data_model.CommitAndTestToRun import CommitAndTestToRun
 
-class TestManagerSettings:
-    def __init__(self, baseline_branch, baseline_depth, max_test_count):
-        self.baseline_branch = baseline_branch
-        self.baseline_depth = baseline_depth
-        self.max_test_count = max_test_count
+pending = Types.BackgroundTaskStatus.Pending()
+running = Types.BackgroundTaskStatus.Running()
+
+TestManagerSettings = algebraic.Alternative("TestManagerSettings")
+TestManagerSettings.Settings = {
+    "max_test_count": int
+    }
 
 class TestManager(object):
-    def __init__(self, source_control, test_db, lock, settings):
+    def __init__(self, source_control, kv_store, settings):
         self.source_control = source_control
-        self.testDb = test_db
+
+        self.database = object_database.Database(kv_store)
+        Types.setup_types(self.database)
+
         self.settings = settings
 
-        self.mostRecentTouchByMachine = {}
-        self.branches = {}
-        self.commits = {}
-        
-        self.blockingMachines = BlockingMachines.BlockingMachines()
-        self.lock = lock
-
     def clearResultsForTestIdCommitId(self, testId, commitId):
-        self.testDb.clearResultsForTestIdCommitId(testId, commitId)
-        commit = self.commits[commitId]
-        test = commit.testsById[testId]
-        commit.clearTestResult(test.testName, testId)
+        assert False, "not implemented"
 
-    def recordMachineObservation(self, machineId):
-        new_machine = machineId not in self.mostRecentTouchByMachine
-        self.mostRecentTouchByMachine[machineId] = time.time()
-        return new_machine
+    def recordMachineHeartbeat(self, machineId, curTimestamp):
+        with self.database.transaction() as t:
+            existing = t.indexLookup(self.database.Machine, machineId=machine)
+            if not existing:
+                machine = self.database.Machine.New(machineId=machine)
+                machine.lastHearbeat=curTimestamp
+                machine.firstSeen=curTimestamp
+                return True
+            else:
+                machine.lastHearbeat=curTimestamp
+                return False
 
+    def markRepoListDirty(self, curTimestamp):
+        self.createTask(self.database.BackgroundTask.RefreshRepos())
+
+    def markBranchListDirty(self, reponame, curTimestamp):
+        self.createTask(self.database.BackgroundTask.RefreshBranches(repo=reponame))
+
+    def createTask(self, task):
+        with self.database.transaction():
+            self.database.DataTask.New(task=task, status=pending)
+
+    def performBackgroundWork(self, curTimestamp):
+        with self.database.transaction() as v:
+            task = v.indexLookupAny(
+                self.database.DataTask, 
+                status=pending
+                )
+            if task is None:
+                return None
+
+            task.status = running
+
+            testDef = task.task
+
+        try:
+            self._processTask(testDef, curTimestamp)
+        except:
+            logging.error("Exception processing task %s:\n\n%s", testDef, traceback.format_exc())
+        finally:
+            with self.database.transaction():
+                task.delete()
+
+        return testDef
+
+    def _processTask(self, task, curTimestamp):
+        if task.matches.RefreshRepos:
+            all_repos = set(self.source_control.listRepos())
+
+            with self.database.transaction() as t:
+                repos = t.indexLookup(self.database.Repo, isActive=True)
+
+                for r in repos:
+                    if r.name not in all_repos:
+                        r.delete()
+
+                existing = set([x.name for x in repos])
+
+                for new_repo_name in all_repos - existing:
+                    r = self.database.Repo.New(name=new_repo_name,isActive=True)
+                    self.database.DataTask.New(
+                        task=self.database.BackgroundTask.RefreshBranches(r),
+                        status=pending
+                        )
+
+        elif task.matches.RefreshBranches:
+            with self.database.transaction() as t:
+                repo = self.source_control.getRepo(task.repo.name)
+
+                branchnames = repo.listBranches()
+
+                branchnames_set = set(branchnames)
+
+                db_repo = task.repo
+
+                db_branches = t.indexLookup(self.database.Branch, repo=db_repo)
+
+                final_branches = tuple([x for x in db_branches if x.name in branchnames_set])
+                for branch in db_branches:
+                    if branch.name not in branchnames_set:
+                        branch.delete()
+
+                for newname in branchnames_set - set([x.name for x in db_branches]):
+                    newbranch = self.database.Branch.New(branchname=newname, repo=db_repo)
+
+                    self.database.DataTask.New(
+                        task=self.database.BackgroundTask.UpdateBranchTopCommit(newbranch),
+                        status=pending
+                        )
+
+        elif task.matches.UpdateBranchTopCommit:
+            with self.database.transaction() as t:
+                repo = self.source_control.getRepo(task.branch.repo.name)
+                commit = repo.branchTopCommit(task.branch.branchname)
+
+                if commit:
+                    task.branch.head = self._lookupCommitByHash(t, task.branch.repo, commit)
+
+        elif task.matches.UpdateCommitData:
+            with self.database.transaction() as t:
+                repo = self.source_control.getRepo(task.commit.repo.name)
+                
+                commit = task.commit
+
+                if commit.data is self.database.CommitData.Null:
+                    hashParentsAndTitle = repo.commitsLookingBack(commit.hash, 1)[0]
+
+                    subject=hashParentsAndTitle[2]
+                    parents=[
+                        self._lookupCommitByHash(t, task.commit.repo, p) 
+                            for p in hashParentsAndTitle[1]
+                        ]
+                    
+                    try:
+                        defText = repo.getTestScriptDefinitionsForCommit(task.commit.hash)
+                        all_tests = TestDefinitionScript.extract_tests_from_str(defText)
+                        
+                        for e in all_tests.values():
+                            fullname=commit.repo.name + "/" + commit.hash + "/" + e.name
+
+                            self.database.Test.New(
+                                commitData=commit.data,
+                                fullname=fullname,
+                                testDefinition=e
+                                )
+
+                        testDefinitionsError = ""
+
+                    except Exception as e:
+                        print e
+                        logging.warn("Got an error parsing tests for %s:\n%s", commit.hash, traceback.format_exc())
+                        testDefinitionsError=str(e)
+
+                    commit.data = self.database.CommitData.New(
+                        commit=commit,
+                        subject=subject,
+                        parents=parents,
+                        testDefinitionsError=testDefinitionsError
+                        )
+
+
+        else:
+            raise Exception("Unknown task: %s" % task)
+
+    def _lookupCommitByHash(self, transaction, repo, commitHash):
+        commits = [c for c in transaction.indexLookup(self.database.Commit, hash=commitHash)
+                    if c.repo == repo]
+        if not commits:
+            commit = self.database.Commit.New(repo=repo, hash=commitHash)
+            self.database.DataTask.New(
+                task=self.database.BackgroundTask.UpdateCommitData(commit=commit),
+                status=pending
+                )
+        else:
+            commit = commits[0]
+
+        return commit
+
+
+
+
+class Old:
     def initialize(self):
         self.updateBranchesUnderTest()
         self.loadTestResults(self.commits)

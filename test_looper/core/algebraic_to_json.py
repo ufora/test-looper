@@ -28,6 +28,9 @@ class Encoder:
         * Nullables are encoded as None or the object.
     """    
     def to_json(self, value):
+        if isinstance(value, unicode):
+            value = str(value)
+
         if isinstance(value, algebraic.AlternativeInstance):
             if isinstance(value._alternative, algebraic.NullableAlternative):
                 if value.matches.Null:
@@ -63,6 +66,9 @@ class Encoder:
             assert False, "Can't convert %s" % (value,)
 
     def from_json(self, value, algebraic_type):
+        if isinstance(value, unicode):
+            value = str(value)
+
         if value is None:
             return value
 
@@ -91,6 +97,9 @@ class Encoder:
             return value
 
         if isinstance(algebraic_type, algebraic.Alternative):
+            if isinstance(value, unicode):
+                value = str(value)
+
             if isinstance(value, str):
                 assert hasattr(algebraic_type, value), "Algebraic type %s has no subtype %s" % (algebraic_type, value)
                 return getattr(algebraic_type, value)()
@@ -114,6 +123,10 @@ class Encoder:
                         if not possible:
                             raise UserWarning("Can't find a type with fieldnames " + str(sorted(value)))
 
+
+                    if len(possible) > 1:
+                        possible = [p for p in possible if len(algebraic_type._types[p]) == len(value)]
+                    
                     if len(possible) > 1:
                         raise UserWarning("Type is ambiguous: %s could be any of %s" % (sorted(value), possible))
 

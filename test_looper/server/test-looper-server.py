@@ -12,7 +12,6 @@ import time
 
 import test_looper.core.source_control.SourceControlFromConfig as SourceControlFromConfig
 from test_looper.core.RedisJsonStore import RedisJsonStore
-from test_looper.data_model.TestDatabase import TestDatabase
 import test_looper.server.TestLooperHttpServer as TestLooperHttpServer
 from test_looper.server.TestLooperHttpServerEventLog import TestLooperHttpServerEventLog
 import test_looper.server.TestLooperServer as TestLooperServer
@@ -80,11 +79,8 @@ def main():
 
     testManager = TestManager.TestManager(
         src_ctrl,
-        TestDatabase(RedisJsonStore(port=config['server'].get('redis_port')), config['server']['redis_prefix']),
-        TestLooperServer.LockWithTimer(),
-        TestManager.TestManagerSettings(
-            baseline_branch=config['server'].get('baseline_branch', 'master'),
-            baseline_depth=config['server'].get('baseline_depth', 20),
+        RedisJsonStore(port=config['server'].get('redis_port')),
+        TestManager.TestManagerSettings.Settings(
             max_test_count=config['server'].get('max_test_count', 3)
             )
         )

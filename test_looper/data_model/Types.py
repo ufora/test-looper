@@ -2,13 +2,24 @@ import test_looper.core.algebraic as algebraic
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.data_model.TestDefinition as TestDefinition
 
-TestDefinitionsOrError = algebraic.Alternative("TestDefinitionsOrError")
-TestDefinitionsOrError.Tests = {"tests": TestDefinitionScript.TestDefinitionScript}
-TestDefinitionsOrError.Error = {"message": str}
-
-
+BackgroundTaskStatus = algebraic.Alternative("BackgroundTaskStatus")
+BackgroundTaskStatus.Pending = {}
+BackgroundTaskStatus.Running = {}
 
 def setup_types(database):
+    database.BackgroundTask = algebraic.Alternative("BackgroundTask")
+
+    database.BackgroundTask.RefreshRepos = {}
+    database.BackgroundTask.RefreshBranches = {"repo": database.Repo}
+    database.BackgroundTask.UpdateBranchTopCommit = {"branch": database.Branch}
+    database.BackgroundTask.UpdateCommitData = {"commit": database.Commit}
+    database.BackgroundTask.UpdateTestPriority = {"test": database.Test}
+
+    database.DataTask.define(
+        task=database.BackgroundTask,
+        status=BackgroundTaskStatus
+        )
+
     database.Commit.define(
         hash=str,
         repo=database.Repo,
@@ -16,19 +27,34 @@ def setup_types(database):
         )
 
     database.CommitData.define(
+        commit=database.Commit,
         parents=algebraic.List(database.Commit),
-        testDefinitions=TestDefinitionsOrError,
-        testsByType=algebraic.Dict(str, database.TestData)
+        subject=str,
+        testDefinitionsError=str
         )
 
-    database.TestData.define(
-        commit=database.Commit,
+    database.Test.define(
+        commitData=database.CommitData,
+        fullname=str,
         testDefinition=TestDefinition.TestDefinition,
         successes=int,
         totalRuns=int,
-        priority=int,
-        activeRuns=algebraic.List(database.RunningTest),
-        completedRuns=algebraic.List(database.CompletedTest)
+        priority=database.TestPriority
+        )
+
+    database.UnresolvedTestDependency.define(
+        test=database.Test,
+        dependsOn=database.Test
+        )
+
+    database.ResolvedTestDependency.define(
+        test=database.Test,
+        dependsOn=database.Test
+        )
+
+    database.TestPriority.define(
+        testData=database.TestData,
+        priorityLevel=int
         )
 
     database.RunningTest.define(
@@ -40,7 +66,7 @@ def setup_types(database):
         )
 
     database.CompletedTest.define(
-        testData=databse.TestData,
+        testData=database.TestData,
         testId=str,
         startedTimestamp=float,
         endTimestamp=float,
@@ -50,11 +76,25 @@ def setup_types(database):
 
     database.Repo.define(
         name=str,
-        branches=algebraic.List(database.Branch)
+        isActive=bool
         )
 
     database.Branch.define(
-        name=str,
+        branchname=str,
         repo=database.Repo,
         head=database.Commit
         )
+
+    database.Machine.define(
+        machineId=str,
+        firstSeen=float,
+        lastHearbeat=float
+        )
+
+    database.addIndex(database.DataTask, 'status')
+    database.addIndex(database.Machine, 'machineId')
+    database.addIndex(database.Repo, 'name')
+    database.addIndex(database.Repo, 'isActive')
+    database.addIndex(database.Branch, 'repo')
+    database.addIndex(database.Commit, 'hash')
+    database.addIndex(database.Test, 'fullname')
