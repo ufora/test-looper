@@ -29,6 +29,12 @@ class DatabaseObject(object):
             return False
         return self._identity == other._identity
 
+    def isNull(self):
+        return self is type(self).Null
+
+    def __hash__(self):
+        return hash(self._identity)
+
     def __init__(self, identity):
         object.__init__(self)
 
@@ -55,12 +61,36 @@ class DatabaseObject(object):
 
         return _cur_view.view._new(cls, kwds)
 
-    def __getattr__(self, name):
-        if self.__dict__["_identity"] == "NULL":
-            raise Exception("Null object of type %s has no fields" % type(self).__name__)
+    @classmethod
+    def lookupOne(cls, **kwargs):
+        return cls._database.current_transaction().indexLookupOne(cls, **kwargs)
 
+    @classmethod
+    def lookupAll(cls, **kwargs):
+        return cls._database.current_transaction().indexLookup(cls, **kwargs)
+
+    @classmethod
+    def lookupAny(cls, **kwargs):
+        return cls._database.current_transaction().indexLookupAny(cls, **kwargs)
+
+    def exists(self):
+        if not hasattr(_cur_view, "view"):
+            raise Exception("Please access properties from within a view or transaction.")
+
+        if _cur_view.view._db is not type(self)._database:
+            raise Exception("Please access properties from within a view or transaction created on the same database as the object.")
+
+        return _cur_view.view._exists(type(self).__name__, self._identity)
+
+    def __getattr__(self, name):
         if name[:1] == "_":
             raise AttributeError(name)
+
+        return self.get_field(name)
+
+    def get_field(self, name):
+        if self.__dict__["_identity"] == "NULL":
+            raise Exception("Null object of type %s has no fields" % type(self).__name__)
 
         if name not in self.__types__:
             raise AttributeError(name)
@@ -187,6 +217,8 @@ class DatabaseView(object):
 
             writes[data_key(cls.__name__, identity, kwd)] = coerced_val
 
+        writes[data_key(cls.__name__, identity, ".exists")] = True
+
         self._writes.update(writes)
 
         if cls.__name__ in self._db._indices:
@@ -237,6 +269,8 @@ class DatabaseView(object):
 
         return _encoder.from_json(db_val, type)
 
+    def _exists(self, obj, obj_typename, identity):
+        return self._get_dbkey(data_key(obj_typename, identity, ".exists")) is not None
 
     def _delete(self, obj, obj_typename, identity, field_names):
         existing_index_vals = self._compute_index_vals(obj, obj_typename)
@@ -244,6 +278,8 @@ class DatabaseView(object):
         for name in field_names:
             key = data_key(obj_typename, identity, name)
             self._writes[key] = None
+
+        self._writes[data_key(obj_typename, identity, ".exists")] = None
 
         self._update_indices(obj, obj_typename, identity, existing_index_vals, {})
 

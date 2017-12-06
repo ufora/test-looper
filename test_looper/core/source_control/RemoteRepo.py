@@ -45,10 +45,10 @@ class RemoteRepo(object):
         assert False, "subclasses implement"
 
     def branchTopCommit(self, branch):
-        commits = self.commitsBetweenBranches(branch, "branch^")
+        commits = self.commitsBetweenBranches(branch, branch + "^")
         if commits:
             assert len(commits) == 1
-            return commits[0]
+            return commits[0][0]
 
 
     def getTestScriptDefinitionsForCommit(self, commitId):

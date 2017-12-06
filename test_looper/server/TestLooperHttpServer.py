@@ -195,7 +195,7 @@ class TestLooperHttpServer(object):
     def test(self, testId):
         self.authorize(read_only=True)
 
-        with self.testManager.lock:
+        with self.testManager.database.view():
             test = self.testManager.getTestById(testId)
             if test is None:
                 return self.errorPage("Unknown testid %s" % testId)
@@ -232,14 +232,14 @@ class TestLooperHttpServer(object):
 
                 machinesGrid.append(row)
 
-            commit = self.testManager.commits[test.commitId]
+            commit = test.commit
             return (
                 self.commonHeader() +
                 markdown.markdown("# Test\n") +
                 markdown.markdown("Test: %s\n" % testId) +
                 ("<br>Branches: %s\n<br>" % 
                         (lambda x: x.render() if not isinstance(x,str) else x)(
-                            joinLinks(self.branchLink(b.branchName) for b in commit.branches)
+                            joinLinks(self.branchLink(b) for b in commit.branches)
                             )
                 ) +
                 markdown.markdown("## Artifacts\n") +
@@ -280,9 +280,13 @@ class TestLooperHttpServer(object):
             hover_text=None if isinstance(commit, basestring) else commit.subject
             )
 
-    @staticmethod
-    def branchLink(branch):
-        return HtmlGeneration.link(branch, "/branch?branchName=%s" % branch)
+    def branchLink(self, branch, testGroupsToExpand=None):
+        return HtmlGeneration.link(branch.branchname, self.branchUrl(Branch, testGroupsToExpand))
+
+    def branchUrl(self, branch, testGroupsToExpand=None):
+        args = {"reponame": branch.repo.name, "branchname": branch.branchname}
+        if testGroupsToExpand:
+            args["testGroupsToExpand"] = str(testGroupsToExpand)
 
 
     def disable_if_cant_write(self, style):
@@ -301,7 +305,7 @@ class TestLooperHttpServer(object):
 
     def clearBranchLink(self, branch):
         return self.small_clear_button(
-            "/clearBranch?" + urllib.urlencode({'branch':branch, 'redirect': self.redirect()}),
+            "/clearBranch?" + urllib.urlencode({'reponame': branch.repo.name, 'branchname':branch.branchname, 'redirect': self.redirect()}),
             )
 
     def clearCommitIdLink(self, commitId):
@@ -321,7 +325,7 @@ class TestLooperHttpServer(object):
     def clearCommit(self, commitId, redirect):
         self.authorize(read_only=False)
 
-        with self.testManager.lock:
+        with self.testManager.database.view():
             self.testManager.clearCommitId(commitId)
 
         raise cherrypy.HTTPRedirect(redirect)
@@ -330,7 +334,7 @@ class TestLooperHttpServer(object):
     def clearBranch(self, branch, redirect=None):
         self.authorize(read_only=False)
 
-        with self.testManager.lock:
+        with self.testManager.database.view():
             commits = self.testManager.branches[branch].commits
 
             for c in commits:
@@ -350,7 +354,7 @@ class TestLooperHttpServer(object):
 
         spotRequests = self.cloud_connection.getLooperSpotRequests()
 
-        with self.testManager.lock:
+        with self.testManager.database.view():
             grid = [["MACHINE", "PING", "STATE", "TYPE", "SPOT REQ ID",
                      "SPOT REQUEST STATE", ""]]
 
@@ -421,7 +425,7 @@ class TestLooperHttpServer(object):
     def machine(self, machineId):
         self.authorize(read_only=True)
 
-        with self.testManager.lock:
+        with self.testManager.database.view():
             tests = []
 
             for commit in self.testManager.commits.values():
@@ -449,7 +453,7 @@ class TestLooperHttpServer(object):
 
         self.authorize(read_only=True)
 
-        with self.testManager.lock:
+        with self.testManager.database.view():
             if commitId not in self.testManager.commits:
                 commit = self.testManager.getCommitByCommitId(commitId)
                 #return self.commonHeader() + markdown.markdown(
@@ -474,7 +478,7 @@ class TestLooperHttpServer(object):
 
             header = """## Commit `%s`: `%s`\n""" % (commit.commitHash[:10], commit.subject)
             for b in commit.branches:
-                header += """### Branch: %s\n""" % self.branchLink(b.branchName).render()
+                header += """### Branch: %s\n""" % self.branchLink(b).render()
 
             if failuresOnly:
                 header += "showing failures only. %s<br/><br/>" % \
@@ -649,9 +653,10 @@ class TestLooperHttpServer(object):
         icon = "glyphicon-pause" if branch.isUnderTest else "glyphicon-play"
         hover_text = "%s testing this branch" % ("Pause" if branch.isUnderTest else "Start")
         button_style = "btn-xs " + ("btn-success active" if branch.isUnderTest else "btn-default")
+        
         return HtmlGeneration.Link(
             "/toggleBranchUnderTest?" + 
-                urllib.urlencode({'branchName':branch.branchName, 'redirect': self.redirect()}),
+                urllib.urlencode({'repo': branch.repo.name, 'branchname':branch.branchname, 'redirect': self.redirect()}),
             '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
             is_button=True,
             button_style=self.disable_if_cant_write(button_style),
@@ -660,12 +665,12 @@ class TestLooperHttpServer(object):
 
 
     @cherrypy.expose
-    def toggleBranchUnderTest(self, branchName, redirect):
+    def toggleBranchUnderTest(self, repo, branchname, redirect):
         self.authorize(read_only=False)
 
-        with self.testManager.lock:
-            branch = self.testManager.branches[branchName]
-            branch.setIsUnderTest(not branch.isUnderTest)
+        with self.testManager.database.transaction():
+            branch = self.testManager.database.Branch.lookupOne(reponame_and_branchname=(repo, branchname))
+            self.testManager.toggleBranchUnderTest(branch)
 
         raise cherrypy.HTTPRedirect(redirect)
 
@@ -696,11 +701,12 @@ class TestLooperHttpServer(object):
 
     def branchesGrid(self, repoName):
         t0 = time.time()
-        with self.testManager.lock:
+        with self.testManager.database.view():
             lock_time = time.time()
-            branches = self.testManager.branchesForRepo(repoName)
-            branch_list_time = time.time()
+            repo = self.testManager.database.Repo.lookupOne(name=repoName)
 
+            branches = self.testManager.database.Branch.lookupAll(repo=repo)
+            
             refresh_button = HtmlGeneration.Link(
                 "/refresh?" + urllib.urlencode({"redirect": self.redirect()}),
                 '<span class="glyphicon glyphicon-refresh " aria-hidden="true" />',
@@ -709,38 +715,20 @@ class TestLooperHttpServer(object):
                 hover_text='Refresh branches'
                 )
 
-            grid = [["TEST", "BRANCH NAME", "COMMIT COUNT", "RUNNING",
-                     "FULL TEST PASSES", "TOTAL TESTS", refresh_button]]
+            grid = [["TEST", "BRANCH NAME", "COMMIT COUNT", refresh_button]]
 
-            for b in sorted(branches):
-                branch = self.testManager.branches[b]
-                commits = branch.commits.values()
+            for branch in sorted(branches, key=lambda b:b.branchname):
+                commits = self.testManager.commitsToDisplayForBranch(branch)
 
                 row = []
                 row.append(self.toggleBranchUnderTestLink(branch))
-                row.append(HtmlGeneration.link(b, "/branch?branchName=" + b))
+                row.append(self.branchLink(branch))
                 row.append(str(len(commits)))
 
                 if commits:
-                    row.append(str(sum([c.totalRunningCount() for c in commits])))
-
-                    passes = sum([c.fullPassesCompleted() for c in commits])
-
-                    totalRuns = sum([c.totalCompletedTestRuns() for c in commits])
-
-                    row.append(passes)
-                    row.append(str(totalRuns))
-                    row.append(self.clearBranchLink(b))
+                    row.append(self.clearBranchLink(branch))
 
                 grid.append(row)
-
-            end_time = time.time()
-            logging.info("branches page timing - Total: %.2f, lock: %.2f, "
-                         "branch_list: %.2f, grid: %.2f",
-                         end_time - t0,
-                         lock_time - t0,
-                         branch_list_time - lock_time,
-                         end_time - branch_list_time)
 
             return grid
 
@@ -753,13 +741,16 @@ class TestLooperHttpServer(object):
         return self.commonHeader() + grid
 
     def reposGrid(self):
-        with self.testManager.lock:
-            repoNames = self.testManager.distinctRepoNames()
+        with self.testManager.database.view():
+            repos = self.testManager.database.Repo.lookupAll(isActive=True)
+            repoNames = [r.name for r in repos]
 
             grid = [["REPO NAME", "BRANCH COUNT"]]
 
             for r in sorted(repoNames):
-                branches = self.testManager.branchesForRepo(r)
+                branches = self.testManager.database.Branch.lookupAll(
+                    repo=self.testManager.database.Repo.lookupOne(name=r)
+                    )
 
                 grid.append([
                     HtmlGeneration.link(r, "/branches?repoName=" + r),
@@ -786,7 +777,7 @@ class TestLooperHttpServer(object):
     def disableAllTargetedTests(self, redirect):
         self.authorize(read_only=False)
 
-        with self.testManager.lock:
+        with self.testManager.database.view():
             for branch in self.testManager.branches.itervalues():
                 branch.setTargetedTestList([])
                 branch.setTargetedCommitIds([])
@@ -799,24 +790,30 @@ class TestLooperHttpServer(object):
         hover_text = "Run less of this test" if is_drilling else "Run more of this test"
         button_style = "btn-default btn-xs" + (" active" if is_drilling else "")
         return HtmlGeneration.Link(
-            "/toggleBranchTestTargeting?branchName=%s&testType=%s&testGroupsToExpand=%s" % (
-                branch.branchName, testType, testGroupsToExpand
-                ),
+            "/toggleBranchTestTargeting?" + urllib.urlencode({
+                    "repo": branch.repo.name, 
+                    "branchname": branch.branchname,
+                    "testType": testType,
+                    "testGroupsToExpand": str(testGroupsToExpand)
+                }),
             '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
             is_button=True,
             button_style=self.disable_if_cant_write(button_style),
             hover_text=hover_text
             )
 
-    def toggleBranchTargetedCommitIdLink(self, branch, commitId):
-        is_drilling = commitId in branch.targetedCommitIds()
+    def toggleBranchTargetedCommitIdLink(self, commit):
+        is_drilling = False
+
         icon = "glyphicon-minus" if is_drilling else "glyphicon-plus"
         hover_text = "Run less of this commit" if is_drilling else "Run more of this commit"
         button_style = "btn-default btn-xs" + (" active" if is_drilling else "")
         return HtmlGeneration.Link(
-                "/toggleBranchCommitTargeting?branchName=%s&commitId=%s" % (
-                    branch.branchName, commitId
-                    ),
+                "/toggleBranchCommitTargeting?" + urllib.urlencode({
+                    "repo": branch.repo.name, 
+                    "branchname": branch.branchname,
+                    "commitHash": commitHash
+                }),
                 '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
                 is_button=True,
                 button_style=self.disable_if_cant_write(button_style),
@@ -824,11 +821,11 @@ class TestLooperHttpServer(object):
                 )
 
     @cherrypy.expose
-    def toggleBranchTestTargeting(self, branchName, testType, testGroupsToExpand):
+    def toggleBranchTestTargeting(self, reponame, branchname, testType, testGroupsToExpand):
         self.authorize(read_only=False)
 
-        with self.testManager.lock:
-            branch = self.testManager.branches[branchName]
+        with self.testManager.database.view():
+            branch = self.testManager.database.Branch.lookupOne(reponame_and_branchname=(reponame, branchname))
 
             if testType in branch.targetedTestList():
                 branch.setTargetedTestList(
@@ -839,17 +836,15 @@ class TestLooperHttpServer(object):
                     branch.targetedTestList() + [testType]
                     )
 
-        raise cherrypy.HTTPRedirect(
-            self.address + "/branch?branchName=%s&testGroupsToExpand=%s" % (branchName, testGroupsToExpand)
-            )
+        raise cherrypy.HTTPRedirect(self.branchUrl(branch))
 
 
     @cherrypy.expose
-    def toggleBranchCommitTargeting(self, branchName, commitId):
+    def toggleBranchCommitTargeting(self, reponame, branchname, hash):
         self.authorize(read_only=False)
-        logging.warn("branch name: %s, commit id: %s", branchName, commitId)
-        with self.testManager.lock:
-            branch = self.testManager.branches[branchName]
+
+        with self.testManager.database.view():
+            branch = self.testManager.database.Branch.lookupOne(reponame_and_branchname=(reponame, branchname))
 
             if commitId in branch.targetedCommitIds():
                 logging.warn("set to off")
@@ -862,7 +857,7 @@ class TestLooperHttpServer(object):
                     branch.targetedCommitIds() + [commitId]
                     )
 
-        raise cherrypy.HTTPRedirect(self.address + "/branch?branchName=" + branchName)
+        raise cherrypy.HTTPRedirect(self.branchUrl(branch))
 
     @staticmethod
     def errRateVal(testCount, successCount):
@@ -876,25 +871,29 @@ class TestLooperHttpServer(object):
 
 
     @cherrypy.expose
-    def branch(self, branchName, testGroupsToExpand=None):
+    def branch(self, reponame, branchname, testGroupsToExpand=None):
         self.authorize(read_only=True)
 
         t0 = time.time()
-        with self.testManager.lock:
-            lock_time = time.time()
-            if branchName not in self.testManager.branches:
-                return self.errorPage("Branch %s doesn't exist" % branchName)
+        with self.testManager.database.view():
+            branch = self.testManager.database.Branch.lookupAny(reponame_and_branchname=(reponame,branchname))
 
-            branch = self.testManager.branches[branchName]
+            if branch is None:
+                return self.errorPage("Branch %s/%s doesn't exist" % (reponame, branchname))
 
-            return self.testPageForCommits(branch.commitsInOrder, "Branch `" + branchName + "`", testGroupsToExpand, branch)
+            return self.testPageForCommits(
+                self.testManager.commitsToDisplayForBranch(branch), 
+                "Branch `" + branch.branchname + "`", 
+                testGroupsToExpand, 
+                branch
+                )
 
     @cherrypy.expose
     def revlist(self, repoName, revlist):
         self.authorize(read_only=True)
 
         t0 = time.time()
-        with self.testManager.lock:
+        with self.testManager.database.view():
             lock_time = time.time()
             
             repo = self.testManager.source_control.getRepo(repoName)
@@ -919,19 +918,19 @@ class TestLooperHttpServer(object):
             return self.testPageForCommits(commitsInOrder, "Revlist `" + revlist + "`", None, None)
 
     def testPageForCommits(self, commits, headerText, testGroupsToExpand, branch):
-        ungroupedUniqueTestIds = sorted(set(t for c in commits for t in c.statsByType))
+        ungroupedUniqueTestIds = sorted(set(t.testDefinition.name for c in commits for t in self.testManager.database.Test.lookupAll(commitData=c.data)))
 
         testGroupsToTests = {}
         for testName in ungroupedUniqueTestIds:
-            group = testName.split(".")[0]
+            group = testName.split("/")[0]
             if group not in testGroupsToTests:
                 testGroupsToTests[group] = []
             testGroupsToTests[group].append(testName)
 
+        testGroupsToExpand = [] if testGroupsToExpand is None else testGroupsToExpand.split("/")
 
-        testGroupsToExpand = [] if testGroupsToExpand is None else testGroupsToExpand.split(",")
         def appropriateGroup(testName):
-            groupPrefix = testName.split(".")[0]
+            groupPrefix = testName.split("/")[0]
             if groupPrefix in testGroupsToExpand:
                 return testName
             return groupPrefix
@@ -949,73 +948,80 @@ class TestLooperHttpServer(object):
 
         branches = {}
 
-        commit_hashes = {c.commitHash: c for c in commits}
-        children = {c.commitHash: [] for c in commits}
+        commits = [c for c in commits if not c.data.isNull()]
+
+        commit_hashes = {c.hash: c for c in commits}
+        children = {c.hash: [] for c in commits}
         parents = {}
 
         for c in commits:
-            parents[c.commitHash] = [p for p in c.parentHashes if p in commit_hashes]
-            for p in parents[c.commitHash]:
-                children[p].append(c.commitHash)
+            parents[c.hash] = [p.hash for p in c.data.parents if p.hash in commit_hashes]
+            for p in parents[c.hash]:
+                children[p].append(c.hash)
         
         for c in commits:
-            if not parents[c.commitHash]:
+            if not parents[c.hash]:
                 branchname = "branch_%s" % len(branches)
 
                 commit_string += 'var %s = gitgraph.branch("%s");\n' % (branchname, branchname)
-                branches[c.commitHash] = branchname
+                branches[c.hash] = branchname
 
         for commit_ix, c in enumerate(reversed(commits)):
-            commit_string +=  "//%s -- %s\n" % (commit_ix, c.commitHash)
+            commit_string +=  "//%s -- %s\n" % (commit_ix, c.hash)
 
-            parentsWeHave = parents[c.commitHash]
+            parentsWeHave = parents[c.hash]
 
             if len(parentsWeHave) == 0:
                 #push a commit onto the branch
-                our_branch = branches[c.commitHash]
+                our_branch = branches[c.hash]
 
                 commit_string += "%s.commit({sha1: '%s', message: '%s', detailId: 'commit_%s'});\n" % (
-                    branches[c.commitHash],
-                    c.commitHash, 
-                    c.subject.replace("'", "\\'"),
-                    c.commitHash
+                    branches[c.hash],
+                    c.hash, 
+                    c.data.subject.replace("'", "\\'"),
+                    c.hash
                     )
 
             elif len(parentsWeHave) == 1:
                 #push a commit onto the branch
-                our_branch = branches[(parentsWeHave[0], c.commitHash)]
+                if (parentsWeHave[0], c.hash) not in branches:
+                    print branches.keys()
+                our_branch = branches[(parentsWeHave[0], c.hash)]
 
                 commit_string += "%s.commit({sha1: '%s', message: '%s', detailId: 'commit_%s'});\n" % (
                     our_branch,
-                    c.commitHash, 
-                    c.subject.replace("'", "\\'"),
-                    c.commitHash
+                    c.hash, 
+                    c.data.subject.replace("'", "\\'"),
+                    c.hash
                     )
             else:
-                our_branch = branches[(parentsWeHave[0], c.commitHash)]
-                other_branch = branches[(parentsWeHave[1], c.commitHash)]
+                if (parentsWeHave[0], c.hash) not in branches:
+                    print branches.keys()
+
+                our_branch = branches[(parentsWeHave[0], c.hash)]
+                other_branch = branches[(parentsWeHave[1], c.hash)]
 
                 commit_string += "%s.merge(%s, {sha1: '%s', message: '%s', detailId: 'commit_%s'}).delete();" % (other_branch, our_branch, 
-                    c.commitHash, 
-                    c.subject.replace("'", "\\'"),
-                    c.commitHash
+                    c.hash, 
+                    c.data.subject.replace("'", "\\'"),
+                    c.hash
                     )
 
-            if len(children[c.commitHash]) == 0:
+            if len(children[c.hash]) == 0:
                 #nothing to do - this is terminal
                 pass
-            elif len(children[c.commitHash]) == 1:
+            elif len(children[c.hash]) == 1:
                 #one child gets to use this branch
-                branches[(c.commitHash, children[c.commitHash][0])] = our_branch
+                branches[(c.hash, children[c.hash][0])] = our_branch
             else:
                 #this is a fork - one child gets to use the branch, and everyone else needs to get a fork
-                branches[(c.commitHash, children[c.commitHash][0])] = our_branch
-                for other_child in children[c.commitHash][1:]:
+                branches[(c.hash, children[c.hash][0])] = our_branch
+                for other_child in children[c.hash][1:]:
                     branchname = "branch_%s" % len(branches)
 
                     commit_string += 'var %s = %s.branch("%s");\n' % (branchname, our_branch, branchname)
 
-                    branches[(c.commitHash, other_child)] = branchname
+                    branches[(c.hash, other_child)] = branchname
 
 
 
@@ -1093,10 +1099,7 @@ class TestLooperHttpServer(object):
                         testGroupExpandLinks.append(
                             HtmlGeneration.link(
                                 testGroupPrefix,
-                                "/branch?branchName=%s&testGroupsToExpand=%s" % (
-                                    branch.branchName,
-                                    ",".join(set(testGroupsToExpand) - set((testGroupPrefix,)))
-                                    )
+                                self.branchUrl(branch, [x for x in testGroupsToExpand if x != testGroupPrefix])
                                 ) + (
                                     "." + testGroup[len(testGroupPrefix)+1:] if testGroup != testGroupPrefix else ""
                                 )
@@ -1111,10 +1114,7 @@ class TestLooperHttpServer(object):
                     testGroupExpandLinks.append(
                         HtmlGeneration.link(
                             testGroup,
-                            "/branch?branchName=%s&testGroupsToExpand=%s" % (
-                                branch.branchName,
-                                ",".join(testGroupsToExpand + [testGroup])
-                                )
+                            self.branchUrl(branch, testGroupsToExpand + [testGroup])
                             )
                         )
                 else:
@@ -1139,12 +1139,16 @@ class TestLooperHttpServer(object):
                            ungroupedUniqueTestIds,
                            testGroupsToTests):
         def anyTestInGroupIsTargetedInCommit(commit, testGroup):
+            return False
+
             for group in testGroupsToTests[testGroup]:
                 if commit.isTargetedTest(group):
                     return True
             return False
 
         def allTestsInGroupAreTargetedInCommit(commit, testGroup):
+            return False
+
             for group in testGroupsToTests[testGroup]:
                 if not commit.isTargetedTest(group):
                     return False
@@ -1153,7 +1157,7 @@ class TestLooperHttpServer(object):
         row = [self.commitLink(commit)]
 
         if branch:
-            row.append(self.toggleBranchTargetedCommitIdLink(branch, commit.commitId))
+            row.append(self.toggleBranchTargetedCommitIdLink(commit))
 
         row.append(
             commit.totalRunningCount() if commit.totalRunningCount() != 0 else ""
@@ -1226,7 +1230,7 @@ class TestLooperHttpServer(object):
             else ""
             )
 
-        row.append(joinLinks(self.branchLink(b.branchName) for b in commit.branches))
+        row.append(joinLinks(self.branchLink(b) for b in commit.branches))
         return row
 
     @staticmethod
@@ -1547,7 +1551,7 @@ class TestLooperHttpServer(object):
             with self.refresh_lock:
                 self.need_refresh = False
 
-            with self.testManager.lock:
+            with self.testManager.database.view():
                 self.testManager.updateBranchesUnderTest()
 
             with self.refresh_lock:

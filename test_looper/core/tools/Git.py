@@ -235,8 +235,10 @@ class Git(object):
         paths = sorted(
             [p for p in (
                 self.subprocessCheckOutput(["git", "ls-files", "*/testDefinitions.json"]).split("\n")+
-                self.subprocessCheckOutput(["git", "ls-files", "testDefinitions.json"]).split("\n")
-                ) if "testDefinitions.json" in p]
+                self.subprocessCheckOutput(["git", "ls-files", "*/testDefinitions.yaml"]).split("\n")+
+                self.subprocessCheckOutput(["git", "ls-files", "testDefinitions.json"]).split("\n")+
+                self.subprocessCheckOutput(["git", "ls-files", "testDefinitions.yaml"]).split("\n")
+                ) if "testDefinitions.json" in p or "testDefinitions.yaml" in p]
             )
 
         if not paths:

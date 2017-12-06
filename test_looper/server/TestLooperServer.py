@@ -137,18 +137,25 @@ class TestLooperServer(SimpleServer.SimpleServer):
         self.testManager = testManager
         self.httpServer = httpServer
         self.cloud_connection = cloud_connection
+        self.workerThread = threading.Thread(target=self.executeManagerWork)
+
+    def executeManagerWork(self):
+        while not self.shouldStop():
+            task = self.testManager.performBackgroundWork(time.time())
+            if task is None:
+                time.sleep(.1)
 
     def port(self):
         return self.port_
 
     def initialize(self):
-        with self.testManager.lock:
-            self.testManager.initialize()
+        self.testManager.markRepoListDirty(time.time())
 
     def runListenLoop(self):
         logging.info("Starting TestLooperServer listen loop")
 
         self.httpServer.start()
+        self.workerThread.start()
 
         logging.info("HTTP server started")
 
@@ -163,6 +170,8 @@ class TestLooperServer(SimpleServer.SimpleServer):
 
     def stop(self):
         super(TestLooperServer, self).stop()
+        self.workerThread.join()
+
         logging.info("successfully stopped TestLooperServer")
 
     def _onConnect(self, socket, address):

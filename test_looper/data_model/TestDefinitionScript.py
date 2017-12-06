@@ -1,5 +1,5 @@
 """
-TestScriptDefinition
+TestDefinitionScript
 
 Models a test-script, and functions for extracting the TestDefinitions from it
 """
@@ -7,6 +7,7 @@ import test_looper.core.algebraic as algebraic
 import test_looper.core.algebraic_to_json as algebraic_to_json
 import test_looper.data_model.TestDefinition as TestDefinition
 import yaml
+import simplejson 
 import logging
 
 
@@ -260,8 +261,22 @@ def extract_tests(testScript):
 
 
 def extract_tests_from_str(text):
-    json = yaml.load(text)
-    
+    try:
+        json = yaml.load(text)
+    except:
+        try:
+            json = simplejson.loads(text)
+        except:
+            raise Exception("Failed to parse as either json or yaml.")
+
+    if 'looper_version' not in json:
+        raise Exception("No looper version specified. Current version is 2")
+
+    version = json['looper_version']
+    del json['looper_version']
+
+    assert version == 2
+
     e = algebraic_to_json.Encoder()
 
     return extract_tests(e.from_json(json, TestDefinitionScript))

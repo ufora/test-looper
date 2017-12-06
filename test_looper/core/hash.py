@@ -45,4 +45,6 @@ def sha_hash(val):
         return Hash.from_float(val)
     if isinstance(val, str):
         return Hash.from_string(val)
+    if isinstance(val, unicode):
+        return Hash.from_string(str(val))
     return val.__sha_hash__()

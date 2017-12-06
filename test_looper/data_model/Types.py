@@ -14,6 +14,7 @@ def setup_types(database):
     database.BackgroundTask.UpdateBranchTopCommit = {"branch": database.Branch}
     database.BackgroundTask.UpdateCommitData = {"commit": database.Commit}
     database.BackgroundTask.UpdateTestPriority = {"test": database.Test}
+    database.BackgroundTask.UpdateCommitPriority = {'commit': database.Commit}
 
 
     database.TestPriority = algebraic.Alternative("TestPriority")
@@ -60,6 +61,18 @@ def setup_types(database):
         dependsOnName=str
         )
 
+    database.UnresolvedSourceDependency.define(
+        test=database.Test,
+        repo=database.Repo,
+        commitHash=str
+        )
+
+    database.UnresolvedRepoDependency.define(
+        test=database.Test,
+        reponame=str,
+        commitHash=str
+        )
+
     database.TestDependency.define(
         test=database.Test,
         dependsOn=database.Test
@@ -88,7 +101,8 @@ def setup_types(database):
     database.Branch.define(
         branchname=str,
         repo=database.Repo,
-        head=database.Commit
+        head=database.Commit,
+        isUnderTest=bool
         )
 
     database.Machine.define(
@@ -101,13 +115,20 @@ def setup_types(database):
     database.addIndex(database.Machine, 'machineId')
     database.addIndex(database.UnresolvedTestDependency, 'dependsOnName')
     database.addIndex(database.UnresolvedTestDependency, 'test')
+    database.addIndex(database.UnresolvedRepoDependency, 'test')
+    database.addIndex(database.UnresolvedRepoDependency, 'reponame')
+    database.addIndex(database.UnresolvedSourceDependency, 'test')
+    database.addIndex(database.UnresolvedSourceDependency, 'repo_and_hash', lambda o:(o.repo, o.hash))
     database.addIndex(database.TestDependency, 'test')
     database.addIndex(database.TestDependency, 'dependsOn')
     database.addIndex(database.Repo, 'name')
     database.addIndex(database.Repo, 'isActive')
     database.addIndex(database.Branch, 'repo')
+    database.addIndex(database.Branch, 'reponame_and_branchname', lambda o: (o.repo.name, o.branchname))
     database.addIndex(database.Commit, 'repo_and_hash', lambda o: (o.repo, o.hash))
     database.addIndex(database.Test, 'fullname')
+    database.addIndex(database.Test, 'commitData')
+
 
     database.addIndex(database.Test, 'priority', 
             lambda o: o.priority if (

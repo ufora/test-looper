@@ -133,7 +133,7 @@ tests:
 """
 basic_yaml_file_repo2 = """
 repos:
-  child: repo2/repo_hash
+  child: repo1/c0
 environments:
   linux: 
     import: child/linux
@@ -223,12 +223,31 @@ class TestManagerTests(unittest.TestCase):
                     manager.recordTestResults(True, testId, ts[0])
                     ts[0] += .1
 
-        for ix, phase in enumerate(doTestsInPhases()):
-            print "phase ", ix
-            for p in phase:
-                print "\t", p
+        phases = doTestsInPhases()
+        self.assertTrue(len(phases) == 3)
+        
+        self.assertEqual(sorted(phases[0]), sorted([
+            "repo1/c1/build/linux",
+            "repo1/c0/build/linux"
+            ]))
 
-        #manager.initialize()
-        #self.assertEqual(len(manager.branches), 2)
-        #for b in manager.branches.values():
-        #    self.assertEqual(len(b.commits), 2)
+        self.assertEqual(sorted(phases[1]), sorted([
+            "repo2/c1/build/linux",
+            "repo2/c0/build/linux",
+            "repo1/c1/test/linux",
+            "repo1/c0/test/linux",
+            "repo1/c1/test/linux",
+            "repo1/c0/test/linux",
+            "repo1/c1/test/linux",
+            "repo1/c0/test/linux"
+            ]))
+        
+        self.assertEqual(sorted(phases[2]), sorted([
+            "repo2/c1/test/linux",
+            "repo2/c0/test/linux",
+            "repo2/c1/test/linux",
+            "repo2/c0/test/linux",
+            "repo2/c1/test/linux",
+            "repo2/c0/test/linux"
+            ]))
+

@@ -242,6 +242,8 @@ class AlternativeInstance(object):
 def default_initialize(tgt_type):
     if tgt_type is str:
         return str()
+    if tgt_type is bool:
+        return False
     if tgt_type is int:
         return 0
     if tgt_type is float:
