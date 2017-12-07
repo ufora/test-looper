@@ -1,6 +1,6 @@
 looper_version: 2
 repos:
-  simple: simple_project/8f5d6fb8a5393c742e6f05c3663298165740dbe9
+  simple: simple_project/ead90f60c9d304f0d12ae8a2a338c0fd40bc6f4c
 environments:
   linux:
     platform: linux

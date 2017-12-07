@@ -104,20 +104,16 @@ class TestManager(object):
                 return None
 
     def recordMachineHeartbeat(self, machineId, curTimestamp):
-        print "%s for %s, %s\n" % ("wait", machineId, curTimestamp), 
         with self.transaction_and_lock():
-            print "%s for %s, %s\n" % ("start", machineId, curTimestamp), 
             machine = self.database.Machine.lookupAny(machineId=machineId)
 
             if machine is None:
                 machine = self.database.Machine.New(machineId=machineId)
                 machine.lastHeartbeat=curTimestamp
                 machine.firstSeen=curTimestamp
-                print "%s for %s, %s\n" % ("done", machineId, curTimestamp), 
                 return True
             else:
                 machine.lastHeartbeat=curTimestamp
-                print "%s for %s, %s\n" % ("done", machineId, curTimestamp), 
                 return False
             
             
@@ -131,8 +127,11 @@ class TestManager(object):
     def recordTestResults(self, success, testId, curTimestamp):
         with self.transaction_and_lock():
             runningTest = self.database.RunningTest(str(testId))
-            assert runningTest.exists()
+
+            assert runningTest.exists(), "Can't find %s" % testId
             
+            logging.info("Recording %s for %s (%s)", "success" if success else "failure", testId, runningTest.test.fullname)
+        
             finished_test = self.database.CompletedTest.New(
                 test=runningTest.test,
                 startedTimestamp=runningTest.startedTimestamp,
@@ -153,7 +152,7 @@ class TestManager(object):
 
     def testHeartbeat(self, testId, timestamp):
         with self.transaction_and_lock():
-            test = self.database.RunningTest(testId)
+            test = self.database.RunningTest(str(testId))
             assert test.test is not self.database.Test.Null
 
             test.lastHeartbeat = timestamp
@@ -184,7 +183,7 @@ class TestManager(object):
 
             commitId = test.commitData.commit.repo.name + "/" + test.commitData.commit.hash
 
-            return (commitId, test.fullname, runningTest._identity)
+            return (commitId, test.testDefinition.name, runningTest._identity)
 
     def createTask(self, task):
         with self.transaction_and_lock():

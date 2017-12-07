@@ -20,7 +20,7 @@ docker_client.containers.list()
 
 own_dir = os.path.split(__file__)[0]
 
-timestamp = 1512679665.816123
+timestamp = 1512679665
 
 class WorkerStateTests(unittest.TestCase):
     def setUp(self):
@@ -42,9 +42,6 @@ class WorkerStateTests(unittest.TestCase):
             os.path.join(own_dir,"test_projects", repo_name), 
             source_repo.path_to_repo
             )
-
-        with open(os.path.join(source_repo.path_to_repo, "data.txt"), "w") as f:
-            print >> f, "first commit"
 
         commits = [source_repo.commit("a message", timestamp)]
 
@@ -199,5 +196,8 @@ class WorkerStateTests(unittest.TestCase):
         commit2 = commit2[0]
 
         self.assertTrue(worker.runTest("testId", commit, "build/linux", lambda *args: None).success)        
-        self.assertTrue(worker.runTest("testId", commit2, "build2/linux", lambda *args: None).success)
+        self.assertTrue(
+            worker.runTest("testId2", commit2, "build2/linux", lambda *args: None).success,
+            worker.get_failure_log("testId2")
+            )
 

@@ -279,7 +279,7 @@ class TestLooperHttpServer(object):
             )
 
     def branchLink(self, branch, testGroupsToExpand=None):
-        return HtmlGeneration.link(branch.branchname, self.branchUrl(Branch, testGroupsToExpand))
+        return HtmlGeneration.link(branch.branchname, self.branchUrl(branch, testGroupsToExpand))
 
     def branchUrl(self, branch, testGroupsToExpand=None):
         args = {"reponame": branch.repo.name, "branchname": branch.branchname}
@@ -1035,8 +1035,7 @@ class TestLooperHttpServer(object):
                     branches[(c.hash, other_child)] = branchname
 
 
-
-        for c in commits:
+        for c in reversed(commits):
             gridrow = self.getBranchCommitRow(branch,
                                           c,
                                           testGroups,
@@ -1179,19 +1178,19 @@ class TestLooperHttpServer(object):
             tests = {}
 
         class Stat:
-            def __init__(self, completedCount, runningCount, passCount, failCount, errRate):
-                self.completedCount = completedCount
+            def __init__(self, totalRuns, runningCount, passCount, failCount, errRate):
+                self.totalRuns = totalRuns
                 self.runningCount = runningCount
                 self.passCount = passCount
                 self.failCount = failCount
                 self.errRate = errRate
-                if errRate is None and self.completedCount:
-                    self.errRate = self.passCount / float(self.completedCount)
+                if errRate is None and self.totalRuns:
+                    self.errRate = 1.0 - self.passCount / float(self.totalRuns)
 
             def __add__(self, other):
-                if self.completedCount == 0:
+                if self.totalRuns == 0:
                     blendedErrRate = other.errRate
-                elif other.completedCount == 0:
+                elif other.totalRuns == 0:
                     blendedErrRate = self.errRate
                 else:
                     blendedErrRate = 1.0 - (1.0 - other.errRate) * (1.0 - self.errRate)

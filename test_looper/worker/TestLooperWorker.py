@@ -105,11 +105,6 @@ class TestLooperWorker(object):
                          self.ownMachineInfo.machineId)
             return self.timeToSleepWhenThereIsNoWork
 
-        logging.info("Machine %s is starting task %s",
-                     self.ownMachineInfo.machineId,
-                     commit_and_test
-                     )
-
         self.run_task(
             commit_and_test["commitId"], 
             commit_and_test["testId"],
@@ -144,6 +139,7 @@ class TestLooperWorker(object):
         self.heartbeatResponse = testLooperClient.heartbeat(testId,
                                                             commitId,
                                                             self.ownMachineInfo.machineId)
+
         if self.heartbeatResponse != TestResult.TestResult.HEARTBEAT_RESPONSE_ACK:
             logging.info(
                 "Machine %s is raising TestInterruptException due to heartbeat response: %s",

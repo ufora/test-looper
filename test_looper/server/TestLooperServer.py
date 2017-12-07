@@ -79,7 +79,7 @@ class Session(object):
     def heartbeat(self, args):
         self.testManager.testHeartbeat(args.testId, time.time())
 
-        self.writeString("OK")
+        self.writeString("ack")
 
     def getTask(self, machineInfo):
         commit = None
@@ -90,6 +90,13 @@ class Session(object):
         try:
             t0 = time.time()
             commitId, testName, testId = self.testManager.startNewTest(machineInfo.machineId, time.time())
+
+            logging.info("Checking out commit %s, test %s, identity %s to %s",
+                commitId,
+                testName,
+                testId,
+                machineInfo.machineId
+                )
 
             if commitId:
                 self.writeString(

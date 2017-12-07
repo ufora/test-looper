@@ -119,7 +119,7 @@ if __name__ == "__main__":
         for w in testLooperWorkers:
             w.stop()
 
-        logging.info("Waiting for workers to shut down.", signum)
+        logging.info("Waiting for workers to shut down.")
 
         for thread in workerThreads:
             thread.join()

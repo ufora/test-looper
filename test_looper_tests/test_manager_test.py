@@ -215,7 +215,7 @@ class TestManagerTests(unittest.TestCase):
                 tests = startAllNewTests()
                 if not tests:
                     return counts
-                counts.append([x[1] for x in tests])
+                counts.append([x[0] + "/" + x[1] for x in tests])
 
                 for _,_,testId in tests:
                     manager.testHeartbeat(testId, ts[0])
