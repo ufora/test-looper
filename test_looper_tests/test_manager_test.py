@@ -109,6 +109,7 @@ class MockRepo:
         return self.source_control.commit_test_defs[self.repoName + "/" + commitHash]
 
 basic_yaml_file_repo1 = """
+looper_version: 2
 environments:
   linux: 
     platform: linux
@@ -132,6 +133,7 @@ tests:
       build: build/linux
 """
 basic_yaml_file_repo2 = """
+looper_version: 2
 repos:
   child: repo1/c0
 environments:

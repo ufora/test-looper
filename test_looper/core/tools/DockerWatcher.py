@@ -440,6 +440,7 @@ class DockerWatcher:
 
     def run(self, image, args, **kwargs):
         with self._lock:
+            print "running ", args
             kwargs = dict(kwargs)
             if 'volumes' in kwargs:
                 volumes = kwargs['volumes']

@@ -6,7 +6,7 @@ environments:
       dockerfile: "Dockerfile.txt"
 builds:
   build/linux:
-    command: "touch $BUILD_DIR/build_file"
+    command: "touch $TEST_BUILD_OUTPUT_DIR/build_file"
 tests:
   good/linux:
     command: "./script.py 0"
@@ -17,6 +17,10 @@ tests:
     dependencies:
       build: build/linux
   check_build_output/linux:
-    command: "echo $BUILD_DIR/build_file"
+    command: "cat $TEST_INPUT_BUILDS_DIR/spiffy/build_file"
     dependencies:
-      build: build/linux
+      spiffy: build/linux
+  docker/linux:
+    command: "./starts_a_long_docker.py"
+    dependencies:
+      spiffy: build/linux

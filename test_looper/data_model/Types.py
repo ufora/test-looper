@@ -129,6 +129,8 @@ def setup_types(database):
     database.addIndex(database.Test, 'fullname')
     database.addIndex(database.Test, 'commitData')
 
+    database.addIndex(database.RunningTest, 'test')
+    database.addIndex(database.CompletedTest, 'test')
 
     database.addIndex(database.Test, 'priority', 
             lambda o: o.priority if (

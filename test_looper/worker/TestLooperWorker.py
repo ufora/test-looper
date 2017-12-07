@@ -8,7 +8,6 @@ import threading
 
 import test_looper.data_model.TestResult as TestResult
 import test_looper.worker.TestLooperClient as TestLooperClient
-import test_looper.data_model.TestScriptDefinition as TestScriptDefinition
 
 HEARTBEAT_INTERVAL = TestLooperClient.TestLooperClient.HEARTBEAT_INTERVAL
 
@@ -44,7 +43,6 @@ class TestLooperWorker(object):
 
     def stop(self):
         self.stopEvent.set()
-
 
     def startTestLoop(self):
         try:

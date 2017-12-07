@@ -20,18 +20,20 @@ docker_client.containers.list()
 
 own_dir = os.path.split(__file__)[0]
 
-common.configureLogging()
+timestamp = 1512679665.816123
 
 class WorkerStateTests(unittest.TestCase):
     def setUp(self):
+        common.configureLogging(verbose=True)
+        logging.info("WorkerStateTests set up")
         self.testdir = tempfile.mkdtemp()
 
     def get_fds(self):
         return os.listdir("/proc/%s/fd" % os.getpid())
 
-    def get_repo(self, repo_name):
+    def get_repo(self, repo_name, extra_commit_paths=None):
         #create a new git repo
-        path = os.path.join(self.testdir, "repos", "source_repo")
+        path = os.path.join(self.testdir, "repos", repo_name)
         os.makedirs(path)
         source_repo = Git.Git(path)
         source_repo.init()
@@ -41,12 +43,26 @@ class WorkerStateTests(unittest.TestCase):
             source_repo.path_to_repo
             )
 
-        c = source_repo.commit("a message")
+        with open(os.path.join(source_repo.path_to_repo, "data.txt"), "w") as f:
+            print >> f, "first commit"
 
-        return source_repo, ReposOnDisk.ReposOnDisk(os.path.join(self.testdir,"repos")), "source_repo/"+c
+        commits = [source_repo.commit("a message", timestamp)]
+
+        print "first commit on ", repo_name, " is ", commits[0]
+
+        if extra_commit_paths:
+            for commit_ix, bundle in enumerate(extra_commit_paths):
+                for fname, data in bundle.iteritems():
+                    with open(os.path.join(source_repo.path_to_repo, fname), "w") as f:
+                        f.write(data)
+
+                commits.append(source_repo.commit("commit #%s" % (commit_ix + 2), timestamp))
+
+        return source_repo, ReposOnDisk.ReposOnDisk(os.path.join(self.testdir,"repos")), [repo_name + "/"+c for c in commits]
 
     def get_worker(self, repo_name):
         source_repo, source_control, c = self.get_repo(repo_name)
+        c = c[0]
 
         worker = WorkerState.WorkerState(
             "test_looper_testing",
@@ -61,18 +77,17 @@ class WorkerStateTests(unittest.TestCase):
 
         return source_repo, c, worker
 
-
     def test_git_not_leaking_fds(self):
         #create a new git repo
         source_repo = Git.Git(os.path.join(self.testdir, "source_repo"))
         source_repo.init()
 
         source_repo.writeFile("a_file.txt", "contents")
-        c1 = source_repo.commit("a message")
+        c1 = source_repo.commit("a message", timestamp)
         source_repo.writeFile("a_file.txt", "contents2")
-        c2 = source_repo.commit("a message 2")
+        c2 = source_repo.commit("a message 2", timestamp)
         source_repo.writeFile("a_file.txt", "contents3")
-        c3 = source_repo.commit("a message 3")
+        c3 = source_repo.commit("a message 3", timestamp)
 
         revs = [x[0] for x in source_repo.commitsInRevList("HEAD ^HEAD^^")]
         self.assertEqual(revs, [c3,c2])
@@ -92,18 +107,18 @@ class WorkerStateTests(unittest.TestCase):
     def test_worker_basic(self):
         repo, commit, worker = self.get_worker("simple_project")
         
-        result = worker.runTest("testId", commit, "build", lambda *args: None)
+        result = worker.runTest("testId", commit, "build/linux", lambda *args: None)
 
         self.assertTrue(result.success)
 
         self.assertTrue(len(os.listdir(worker.artifactStorage.build_storage_path)) == 1)
 
         self.assertTrue(
-            worker.runTest("testId2", commit, "good", lambda *args: None).success
+            worker.runTest("testId2", commit, "good/linux", lambda *args: None).success
             )
 
         self.assertFalse(
-            worker.runTest("testId3", commit, "bad", lambda *args: None).success
+            worker.runTest("testId3", commit, "bad/linux", lambda *args: None).success
             )
 
         keys = worker.artifactStorage.testResultKeysFor("testId3")
@@ -116,31 +131,31 @@ class WorkerStateTests(unittest.TestCase):
     def test_worker_cant_run_tests_without_build(self):
         repo, commit, worker = self.get_worker("simple_project")
         
-        result = worker.runTest("testId", commit, "good", lambda *args: None)
+        result = worker.runTest("testId", commit, "good/linux", lambda *args: None)
 
         self.assertFalse(result.success)
 
     def test_worker_build_artifacts_go_to_correct_place(self):
         repo, commit, worker = self.get_worker("simple_project")
         
-        result = worker.runTest("testId", commit, "check_build_output", lambda *args: None)
+        self.assertTrue(worker.runTest("testId", commit, "build/linux", lambda *args: None).success)
 
-        self.assertFalse(result.success)
+        self.assertTrue(worker.runTest("testId", commit, "check_build_output/linux", lambda *args: None).success)
 
     def test_worker_doesnt_leak_fds(self):
         repo, commit, worker = self.get_worker("simple_project")
 
-        result = worker.runTest("testId", commit, "build", lambda *args: None)
+        self.assertTrue(worker.runTest("testId", commit, "build/linux", lambda *args: None).success)
 
         #need to use the connection pools because they can leave some sockets open
         for _ in xrange(3):
-            worker.runTest("testId2", commit, "good", lambda *args: None)
+            self.assertTrue(worker.runTest("testId2", commit, "good/linux", lambda *args: None).success)
 
         fds = len(self.get_fds())
 
         #but want to verify we're not actually leaking FDs once we're in a steadystate
         for _ in xrange(3):
-            worker.runTest("testId2", commit, "good", lambda *args: None)
+            self.assertTrue(worker.runTest("testId2", commit, "good/linux", lambda *args: None).success)
         
         fds2 = len(self.get_fds())
         
@@ -157,10 +172,10 @@ class WorkerStateTests(unittest.TestCase):
 
         repo, commit, worker = self.get_worker("simple_project")
 
-        worker.runTest("testId", commit, "build", lambda *args: None)
+        self.assertTrue(worker.runTest("testId", commit, "build/linux", lambda *args: None).success)
 
         self.assertTrue(
-            worker.runTest("testId2", commit, "docker", lambda *args: None).success,
+            worker.runTest("testId2", commit, "docker/linux", lambda *args: None).success,
             worker.get_failure_log("testId2")
             )
         
@@ -171,10 +186,18 @@ class WorkerStateTests(unittest.TestCase):
 
         repo, commit, worker = self.get_worker("simple_project")
 
-        self.assertTrue(worker.runTest("testId", commit, "build", lambda *args: None).success)
+        self.assertTrue(worker.runTest("testId", commit, "build/linux", lambda *args: None).success)
 
-        
         self.assertTrue(
-            worker.runTest("testId2", commit, "docker", lambda *args: None).success,
+            worker.runTest("testId2", commit, "docker/linux", lambda *args: None).success,
             worker.get_failure_log("testId2")
             )
+
+    def test_cross_project_dependencies(self):
+        repo, commit, worker = self.get_worker("simple_project")
+        repo2, _, commit2 = self.get_repo("simple_project_2")
+        commit2 = commit2[0]
+
+        self.assertTrue(worker.runTest("testId", commit, "build/linux", lambda *args: None).success)        
+        self.assertTrue(worker.runTest("testId", commit2, "build2/linux", lambda *args: None).success)
+

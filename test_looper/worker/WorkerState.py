@@ -21,7 +21,8 @@ import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.worker.TestLooperClient as TestLooperClient
 import test_looper.core.tools.Docker as Docker
 import test_looper.core.tools.DockerWatcher as DockerWatcher
-import test_looper.data_model.TestScriptDefinition as TestScriptDefinition
+import test_looper.data_model.TestDefinition as TestDefinition
+import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.data_model.TestResult as TestResult
 import test_looper
 
@@ -29,15 +30,17 @@ class TestLooperDirectories:
     def __init__(self, worker_directory):
         self.repo_cache = os.path.join(worker_directory, "repos")
         self.repo_copy_dir = os.path.join(worker_directory, "repo_copy")
-        self.build_dir = os.path.join(worker_directory, "build")
-        self.output_dir = os.path.join(worker_directory, "output")
+        self.scratch_dir = os.path.join(worker_directory, "scratch_dir")
+        self.input_builds_dir = os.path.join(worker_directory, "input_builds")
+        self.test_output_dir = os.path.join(worker_directory, "test_output")
+        self.build_output_dir = os.path.join(worker_directory, "build_output")
         self.test_data_dir = os.path.join(worker_directory, "test_data")
         self.build_cache_dir = os.path.join(worker_directory, "build_cache")
         self.ccache_dir = os.path.join(worker_directory, "ccache")
 
     def all(self):
-        return [self.repo_copy_dir, self.build_dir, self.test_data_dir, 
-                self.build_cache_dir, self.ccache_dir, self.output_dir, self.repo_cache]
+        return [self.repo_copy_dir, self.scratch_dir, self.input_builds_dir, self.test_data_dir, 
+                self.build_cache_dir, self.ccache_dir, self.test_output_dir, self.build_output_dir, self.repo_cache]
 
 class WorkerState(object):
     def __init__(self, name_prefix, worker_directory, source_control, artifactStorage, machineInfo, timeout=900, verbose=False):
@@ -108,8 +111,10 @@ class WorkerState(object):
         Docker.DockerImage.removeDanglingDockerImages()
         self.clearDirectoryAsRoot(
             self.directories.test_data_dir, 
-            self.directories.output_dir, 
-            self.directories.build_dir, 
+            self.directories.test_output_dir,
+            self.directories.build_output_dir,
+            self.directories.scratch_dir, 
+            self.directories.input_builds_dir, 
             self.directories.repo_copy_dir
             )
         
@@ -162,17 +167,19 @@ class WorkerState(object):
             assert docker_image is not None
 
             with DockerWatcher.DockerWatcher(self.name_prefix) as watcher:
-                assert log_filename.startswith(self.directories.output_dir)
+                assert log_filename.startswith(self.directories.test_output_dir)
 
-                log_filename_in_container = os.path.join("/test_looper/output", os.path.relpath(log_filename, self.directories.output_dir))
+                log_filename_in_container = os.path.join("/test_looper/output", os.path.relpath(log_filename, self.directories.test_output_dir))
 
                 container = watcher.run(
                     docker_image,
                     ["/bin/bash", "-c", command, ">", log_filename_in_container, "2>&1"],
                     volumes={
-                        self.directories.build_dir: "/test_looper/build",
+                        self.directories.scratch_dir: "/test_looper/scratch",
+                        self.directories.input_builds_dir: "/test_looper/input_builds",
                         self.directories.repo_copy_dir: "/test_looper/src",
-                        self.directories.output_dir: "/test_looper/output",
+                        self.directories.test_output_dir: "/test_looper/output",
+                        self.directories.build_output_dir: "/test_looper/build_output",
                         self.directories.ccache_dir: "/test_looper/ccache"
                         },
                     environment=env,
@@ -211,7 +218,7 @@ class WorkerState(object):
             if tail_proc is not None:
                 tail_proc.stop()
 
-    def resetToCommit(self, commitId):
+    def resetToCommitInDir(self, commitId, targetDir):
         repoName, commitHash = commitId.split("/")
 
         git_repo = self.getRepoCacheByName(repoName)
@@ -219,18 +226,21 @@ class WorkerState(object):
         if not git_repo.isInitialized():
             git_repo.cloneFrom(self.source_control.getRepo(repoName).cloneUrl())
 
-        #check out a working copy
-        self.clearDirectoryAsRoot(self.directories.repo_copy_dir)
-        shutil.rmtree(self.directories.repo_copy_dir)
-        
         try:
-            git_repo.resetToCommitInDirectory(commitHash, self.directories.repo_copy_dir)
-            os.unlink(os.path.join(self.directories.repo_copy_dir, ".git"))
+            git_repo.resetToCommitInDirectory(commitHash, targetDir)
+            os.unlink(os.path.join(targetDir, ".git"))
         except:
             logging.error(traceback.format_exc())
             return False
 
         return True
+
+    def resetToCommit(self, commitId):
+        #check out a working copy
+        self.clearDirectoryAsRoot(self.directories.repo_copy_dir)
+        shutil.rmtree(self.directories.repo_copy_dir)
+
+        return self.resetToCommitInDir(commitId, self.directories.repo_copy_dir)
 
     @staticmethod
     def ensureDirectoryExists(path):
@@ -265,16 +275,6 @@ class WorkerState(object):
         else:
             return []
 
-    def _build(self, testId, commitId, build_command, heartbeat, docker_image):
-        build_log = os.path.join(self.directories.output_dir, 'build.log')
-
-        build_env = self.environment_variables(testId, commitId)
-
-        if not self.resetToCommit(commitId):
-            return False
-
-        return self._run_command(build_command, build_log, build_env, self.timeout, heartbeat, docker_image)
-
     def _purge_build_cache(self):
         self.ensureDirectoryExists(self.directories.build_cache_dir)
         
@@ -282,7 +282,11 @@ class WorkerState(object):
             self._remove_oldest_cached_build()
 
     def _is_build_cache_full(self):
-        return len(os.listdir(self.directories.build_cache_dir)) >= self.max_build_cache_depth
+        cache_count = len(os.listdir(self.directories.build_cache_dir))
+
+        logging.info("Checking the build cache: there are %s items in it", cache_count)
+
+        return cache_count >= self.max_build_cache_depth
 
     def _remove_oldest_cached_build(self):
         def full_path(p):
@@ -292,45 +296,24 @@ class WorkerState(object):
         shutil.rmtree(cached_builds[0][1])
 
     @staticmethod
-    def getDockerImageFromRepo(git_repo, commitHash, dockerConf):
-        if 'tag' in dockerConf:
-            tagname = dockerConf['tag']
+    def getDockerImageFromRepo(git_repo, commitHash, pathToDockerfile):
+        source = git_repo.getFileContents(commitHash, pathToDockerfile)
+        if source is None:
+            raise Exception("No file found at %s in commit %s" % (pathToDockerfile, commitHash))
 
-            for char in tagname:
-                if not (char.isalnum() or char in ".-_:"):
-                    raise Exception("Invalid tag name: " + tagname)
+        return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True)
 
-            image_name = dockerConf["tag"]
-            
-            d = Docker.DockerImage(image_name)
-
-            if not d.pull():
-                raise Exception("Couldn't find docker explicitly named image %s" % d.image)
-
-            return d
-
-        if 'dockerfile' in dockerConf:
-            source = git_repo.getFileContents(commitHash, dockerConf["dockerfile"])
-            if source is None:
-                raise Exception("No file found at %s in commit %s" % (dockerConf["dockerfile"], commitHash))
-
-            return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True)
-
-        raise Exception("No docker configuration was provided. Test should define one of " + 
-                "'tag', or 'dockerfile'"
-                )
-
-    def getDockerImage(self, commitId, dockerConf, output_dir):
+    def getDockerImage(self, commitId, pathToDockerfile, output_dir):
         repoName, commitHash = commitId.split("/")
         github_repo = self.getRepoCacheByName(repoName)
         try:
-            return self.getDockerImageFromRepo(github_repo, commitHash, dockerConf)
+            return self.getDockerImageFromRepo(github_repo, commitHash, pathToDockerfile)
         except Exception as e:
             logging.error("Failed to produce docker image:\n%s", traceback.format_exc())
             self.ensureDirectoryExists(output_dir)
             with open(os.path.join(output_dir,"docker_configuration_error.log"),"w") as f:
                 print >> f, "Failed to get a docker image configured by %s:\n\n%s" % (
-                    dockerConf,
+                    pathToDockerfile,
                     traceback.format_exc()
                     )
 
@@ -345,6 +328,8 @@ class WorkerState(object):
                                                 time.time()
                                                 )
         if message:
+            if not is_success:
+                logging.error('Producing failure result for %s on %s: %s', testId, commitId, message)
             result.recordLogMessage(message)
         return result
 
@@ -353,111 +338,86 @@ class WorkerState(object):
 
         path = self.getRepoCacheByName(repoName).getTestDefinitionsPath(commitHash)
 
-        json = simplejson.loads(self.getRepoCacheByName(repoName).getFileContents(commitHash, path))
+        testText = self.getRepoCacheByName(repoName).getFileContents(commitHash, path)
 
-        testScriptDefinitions = [x for x in 
-            TestScriptDefinition.TestScriptDefinition.testSetFromJson(json)
-                if x.testName == testName
-            ]
+        tests = TestDefinitionScript.extract_tests_from_str(testText)
 
-        return testScriptDefinitions
+        return tests.get(testName)
 
 
     def runTest(self, testId, commitId, testName, heartbeat):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
         self.cleanup()
 
-        if testName == "build" and self.artifactStorage.build_exists(self.artifactKeyForCommit(commitId)):
-            if self.verbose:
-                print "Build already exists."
-            return self.create_test_result(True, testId, commitId)
-
         if not self.resetToCommit(commitId):
             return self.create_test_result(False, testId, commitId, "Failed to checkout code")
 
         try:
-            testScriptDefinitions = self.testDefinitionFor(commitId, testName)
+            testDefinition = self.testDefinitionFor(commitId, testName)
 
-            if not testScriptDefinitions:
+            if not testDefinition:
                 return self.create_test_result(False, testId, commitId, "No test named " + testName)
-            if len(testScriptDefinitions) > 1:
-                return self.create_test_result(False, testId, commitId, "Multiple tests named " + testName)
-            testScriptDefinition = testScriptDefinitions[0]
-                            
-            if testName == 'build':
-                result = self._run_build_task(testId, commitId, testScriptDefinition, heartbeat)
-            else:
-                result = self._run_test_task(testId, commitId, testScriptDefinition, heartbeat)
+            
+            if testDefinition.matches.Build and self.artifactStorage.build_exists(self.artifactKeyForTest(commitId, testName)):
+                return self.create_test_result(True, testId, commitId)
+            
+            return self._run_task(testId, commitId, testDefinition, heartbeat)
 
         except TestLooperClient.ProtocolMismatchException:
             raise
         except:
             error_message = "Test failed because of exception: %s" % traceback.format_exc()
             logging.error(error_message)
-            result = self.create_test_result(False, testId, commitId, error_message)
+            return self.create_test_result(False, testId, commitId, error_message)
 
-        logging.info("Machine %s publishing test results: %s",
-                     self.machineInfo.machineId,
-                     result)
-
-        return result
-
-    def _run_build_task(self, testId, commitId, test_definition, heartbeat):
-        build_command = test_definition.testCommand
-        
-        image = self.getDockerImage(
-            commitId, 
-            test_definition.docker, 
-            self.directories.output_dir
-            )
-        
-        if (    not image or
-                not self._build(testId, commitId, build_command, heartbeat, image) or
-                not self._upload_build(commitId)
-                ):
-            is_success = False
-        else:
-            is_success = True
-
-        if not is_success:
-            logging.error("Failed to build commit: %s", commitId)
-
-        heartbeat()
-
-        self.artifactStorage.uploadTestArtifacts(
-            testId, 
-            self.machineInfo.machineId, 
-            self.directories.output_dir
-            )
-
-        return self.create_test_result(is_success, testId, commitId)
-
-
-    @staticmethod
-    def extract_package(package_file, target_dir):
+    def extract_package(self, package_file, target_dir):
         with tarfile.open(package_file) as tar:
             root = tar.next()
             if root is None:
                 raise Exception("Package %s is empty" % package_file)
-            package_dir = os.path.join(target_dir, "build")
-            logging.info("Extracting package to %s", package_dir)
-            tar.extractall(package_dir)
-            return package_dir
+            logging.info("Extracting package %s to %s", package_file, target_dir)
+            tar.extractall(target_dir)
 
+    def grabDependency(self, expose_as, dep, commitId):
+        target_dir = os.path.join(self.directories.input_builds_dir, expose_as)
 
-    def _run_test_task(self, testId, commitId, test_definition, heartbeat):
-        if not self.artifactStorage.build_exists(self.artifactKeyForCommit(commitId)):
-            return self.create_test_result(False, testId, commitId, "can't run tests because the build doesn't exist")
+        if dep.matches.InternalBuild or dep.matches.ExternalBuild:
+            if dep.matches.ExternalBuild:
+                commitId = dep.repo + "/" + dep.commitHash
 
-        command = test_definition.testCommand
+            if not self.artifactStorage.build_exists(self.artifactKeyForTest(commitId, dep.name + "/" + dep.environment)):
+                return "can't run tests because dependent external build %s doesn't exist" % (commitId + "/" + dep.name + "/" + dep.environment)
+
+            path = self._download_build(commitId, dep.name + "/" + dep.environment)
+            
+            self.ensureDirectoryExists(target_dir)
+            self.extract_package(path, target_dir)
+            return None
+
+        if dep.matches.Source:
+            self.resetToCommitInDir(dep.repo + "/" + dep.commitHash, target_dir)
+            return None
+
+        if dep.matches.Data:
+            return "Data dependencies not implemented yet."
+
+        return "Unknown dependency type: %s" % dep
+
+    def _run_task(self, testId, commitId, test_definition, heartbeat):
+        for expose_as, dep in test_definition.dependencies.iteritems():
+            errStringOrNone = self.grabDependency(expose_as, dep, commitId)
+
+            if errStringOrNone is not None:
+                return self.create_test_result(False, testId, commitId, errStringOrNone)
+
+        if test_definition.matches.Build:
+            command = test_definition.buildCommand
+        else:
+            command = test_definition.testCommand
         
-        path = self._download_build(commitId)
+        image = self.getDockerImage(commitId, test_definition.environment.image.dockerfile, self.directories.test_output_dir)
 
-        self.extract_package(path, self.directories.build_dir)
-
-        image = self.getDockerImage(commitId, test_definition.docker, self.directories.output_dir)
-
-        env_overrides = self.environment_variables(testId, commitId)
+        env_overrides = self.environment_variables(testId, commitId, test_definition.matches.Build)
         
         logging.info("Machine %s is starting run for %s. Command: %s",
                      self.machineInfo.machineId,
@@ -470,43 +430,49 @@ class WorkerState(object):
                                              docker_image=image
                                              )
 
-        test_result = self.create_test_result(is_success, testId, commitId)
+        if is_success and test_definition.matches.Build:
+            if not self._upload_build(commitId, test_definition.name):
+                logging.error('Failed to upload build for %s/%s', commitId, test_definition.name)
+                is_success = False
 
-        if 0:
-            self.capture_perf_results(test_definition,
-                                      os.path.join(test_output_dir, self.perf_test_output_file),
-                                      test_result)
+        test_result = self.create_test_result(is_success, testId, commitId)
 
         heartbeat()
         
-        logging.info("machine %s uploading artifacts", self.machineInfo.machineId)
+        if not is_success or not test_definition.matches.Build:
+            logging.info("machine %s uploading artifacts for test %s", self.machineInfo.machineId, testId)
 
-        self.artifactStorage.uploadTestArtifacts(
-            testId,
-            self.machineInfo.machineId,
-            self.directories.output_dir
-            )
+            self.artifactStorage.uploadTestArtifacts(
+                testId,
+                self.machineInfo.machineId,
+                self.directories.test_output_dir
+                )
 
         return test_result
     
-    def artifactKeyForCommit(self, commitId):
-        repo, hash = commitId.split("/")
-        return repo + "_" + commitId
+    def artifactKeyForTest(self, commitId, testName):
+        return (commitId + "/" + testName).replace("/", "_")
 
-    def _upload_build(self, commitId):
+    def _upload_build(self, commitId, testName):
         #upload all the data in our directory
         tarball_name = os.path.join(
             self.directories.build_cache_dir, 
-            "build_artifacts.tar"
+            self.artifactKeyForTest(commitId, testName) + ".tar"
             )
 
         if not os.path.exists(tarball_name):
+            logging.info("Tarballing %s into %s", self.directories.build_output_dir, tarball_name)
             SubprocessRunner.callAndAssertSuccess(
-                ["tar", "cvf", tarball_name, self.directories.output_dir
+                ["tar", "cvf", tarball_name, "--directory", self.directories.build_output_dir, "."
                 ])
+            logging.info("Resulting tarball at %s is %.2f MB", tarball_name, os.stat(tarball_name).st_size / 1024.0**2)
+        else:
+            logging.warn("A build for %s/%s already exists at %s", commitId, testName, tarball_name)
 
         try:
-            self.artifactStorage.upload_build(self.artifactKeyForCommit(commitId), tarball_name)
+            logging.info("Uploading %s to %s", tarball_name, self.artifactKeyForTest(commitId, testName))
+
+            self.artifactStorage.upload_build(self.artifactKeyForTest(commitId, testName), tarball_name)
             return True
         except:
             logging.error("Failed to upload package '%s' to %s\n%s",
@@ -516,36 +482,36 @@ class WorkerState(object):
                           )
             return False
 
-    def _find_cached_build(self, commitId):
-        build_path = os.path.join(self.directories.build_cache_dir, commitId + ".tar")
-        if os.path.exists(build_path):
-            return build_path
-
-    
-    def _download_build(self, commitId):
-        path = os.path.join(self.directories.build_cache_dir, "build_artifacts.tar")
+    def _download_build(self, commitId, testName):
+        path = os.path.join(self.directories.build_cache_dir, self.artifactKeyForTest(commitId, testName) + ".tar")
+        
         if not os.path.exists(path):
-            self.artifactStorage.download_build(self.artifactKeyForCommit(commitId), path)
+            logging.info("Downloading build for %s/%s to %s", commitId, testName, path)
+            self.artifactStorage.download_build(self.artifactKeyForTest(commitId, testName), path)
+
         return path
 
-    def environment_variables(self, testId, commitId):
+    def environment_variables(self, testId, commitId, isBuild):
         repoName, commitHash = commitId.split("/")
         return  {
             'TEST_REPO': repoName,
             'REVISION': commitHash,
             'TEST_SRC_DIR': "/test_looper/src",
-            'TEST_BUILD_DIR': "/test_looper/build",
+            'TEST_INPUT_BUILDS_DIR': "/test_looper/input_builds",
+            'TEST_SCRATCH_DIR': "/test_looper/scratch",
             'TEST_OUTPUT_DIR': "/test_looper/output",
+            'TEST_BUILD_OUTPUT_DIR': "/test_looper/build_output",
             'TEST_CCACHE_DIR': "/test_looper/ccache",
             'TEST_LOOPER_TEST_ID': testId
             }
 
     def runTestUsingScript(self, script, env_overrides, heartbeat, docker_image):
-        test_logfile = os.path.join(self.directories.output_dir, 'test_out.log')
+        test_logfile = os.path.join(self.directories.test_output_dir, 'test_out.log')
+
         logging.info("Machine %s is logging to %s with",
                      self.machineInfo.machineId,
                      test_logfile)
-        success = False
+
         return self._run_command(
             script,
             test_logfile,
@@ -554,17 +520,3 @@ class WorkerState(object):
             heartbeat,
             docker_image=docker_image
             )
-
-    def capture_perf_results(self, test_name, perf_output_file, test_result):
-        try:
-            test_result.recordPerformanceTests(
-                self.extractPerformanceTests(perf_output_file,
-                                                                     test_name)
-                )
-        except:
-            logging.error(
-                "Machine %s failed to read performance test data: %s",
-                self.machineInfo.machineId,
-                traceback.format_exc()
-                )
-            test_result.recordLogMessage("Failed to read performance tests")

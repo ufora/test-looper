@@ -175,8 +175,6 @@ class TestLooperHttpServer(object):
 
         cherrypy.session['github_access_token'] = access_token
 
-        print "redirecting to ", cherrypy.session.pop('redirect_after_authentication', None)
-
         raise cherrypy.HTTPRedirect(
             cherrypy.session.pop('redirect_after_authentication', None) or self.address + "/"
             )
@@ -261,12 +259,12 @@ class TestLooperHttpServer(object):
 
     @staticmethod
     def commitLink(commit, failuresOnly=False, testName=None, length=7):
-        if isinstance(commit, basestring):
-            commitId = commit
-            text = commit[:length]
-        else:
-            commitId = commit.commitId
-            text = commit.subject if len(commit.subject) < 71 else commit.subject[:70] + '...'
+        commitId = commit.repo.name + "/" + commit.hash
+
+        subject = "<not loaded yet>" if not commit.data else commit.data.subject
+
+        text = subject if len(subject) < 71 else subject[:70] + '...'
+        
         extras = {}
 
         if failuresOnly:
@@ -277,7 +275,7 @@ class TestLooperHttpServer(object):
         return HtmlGeneration.link(
             text,
             "/commit/" + commitId + ("?" if extras else "") + urllib.urlencode(extras),
-            hover_text=None if isinstance(commit, basestring) else commit.subject
+            hover_text=None if isinstance(commit, basestring) else subject
             )
 
     def branchLink(self, branch, testGroupsToExpand=None):
@@ -286,7 +284,8 @@ class TestLooperHttpServer(object):
     def branchUrl(self, branch, testGroupsToExpand=None):
         args = {"reponame": branch.repo.name, "branchname": branch.branchname}
         if testGroupsToExpand:
-            args["testGroupsToExpand"] = str(testGroupsToExpand)
+            args["testGroupsToExpand"] = ",".join(testGroupsToExpand)
+        return self.address + "/branch?" + urllib.urlencode(args)
 
 
     def disable_if_cant_write(self, style):
@@ -314,11 +313,11 @@ class TestLooperHttpServer(object):
             )
 
     def sourceLinkForCommit(self, commit):
-        url = self.src_ctrl.commit_url(commit.commitId)
+        url = self.src_ctrl.commit_url(commit.repo.name + "/" + commit.hash)
         if url:
-            return HtmlGeneration.link(commit.commitHash[:7], url)
+            return HtmlGeneration.link(commit.hash[:7], url)
         else:
-            return HtmlGeneration.lightGrey(commit.commitHash[:7])
+            return HtmlGeneration.lightGrey(commit.hash[:7])
 
 
     @cherrypy.expose
@@ -785,7 +784,7 @@ class TestLooperHttpServer(object):
         raise cherrypy.HTTPRedirect(redirect)
 
     def toggleBranchTargetedTestListLink(self, branch, testType, testGroupsToExpand):
-        is_drilling = testType in branch.targetedTestList()
+        is_drilling = False #testType in branch.targetedTestList()
         icon = "glyphicon-minus" if is_drilling else "glyphicon-plus"
         hover_text = "Run less of this test" if is_drilling else "Run more of this test"
         button_style = "btn-default btn-xs" + (" active" if is_drilling else "")
@@ -794,7 +793,7 @@ class TestLooperHttpServer(object):
                     "repo": branch.repo.name, 
                     "branchname": branch.branchname,
                     "testType": testType,
-                    "testGroupsToExpand": str(testGroupsToExpand)
+                    "testGroupsToExpand": ",".join(testGroupsToExpand)
                 }),
             '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
             is_button=True,
@@ -802,7 +801,7 @@ class TestLooperHttpServer(object):
             hover_text=hover_text
             )
 
-    def toggleBranchTargetedCommitIdLink(self, commit):
+    def toggleBranchTargetedCommitIdLink(self, branch, commit):
         is_drilling = False
 
         icon = "glyphicon-minus" if is_drilling else "glyphicon-plus"
@@ -812,7 +811,7 @@ class TestLooperHttpServer(object):
                 "/toggleBranchCommitTargeting?" + urllib.urlencode({
                     "repo": branch.repo.name, 
                     "branchname": branch.branchname,
-                    "commitHash": commitHash
+                    "commitHash": commit.hash
                 }),
                 '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
                 is_button=True,
@@ -927,7 +926,7 @@ class TestLooperHttpServer(object):
                 testGroupsToTests[group] = []
             testGroupsToTests[group].append(testName)
 
-        testGroupsToExpand = [] if testGroupsToExpand is None else testGroupsToExpand.split("/")
+        testGroupsToExpand = [] if testGroupsToExpand is None else testGroupsToExpand.split(",")
 
         def appropriateGroup(testName):
             groupPrefix = testName.split("/")[0]
@@ -948,7 +947,7 @@ class TestLooperHttpServer(object):
 
         branches = {}
 
-        commits = [c for c in commits if not c.data.isNull()]
+        commits = [c for c in commits if c.data]
 
         commit_hashes = {c.hash: c for c in commits}
         children = {c.hash: [] for c in commits}
@@ -966,7 +965,24 @@ class TestLooperHttpServer(object):
                 commit_string += 'var %s = gitgraph.branch("%s");\n' % (branchname, branchname)
                 branches[c.hash] = branchname
 
-        for commit_ix, c in enumerate(reversed(commits)):
+        #we need to walk the commits from bottom to top. E.g. the ones with no parents go first.
+        order = {}
+        unordered_parents = {h: set(parents[h]) for h in parents}
+        edges = [h for h in unordered_parents if not unordered_parents[h]]
+
+        while len(order) < len(commits):
+            e = edges.pop()
+
+            order[e] = max([order[p]+1 for p in parents[e]] + [0])
+
+            for c in children[e]:
+                unordered_parents[c].discard(e)
+                if not unordered_parents[c]:
+                    edges.append(c)
+
+        commits = sorted(commits, key=lambda c: order[c.hash])
+
+        for commit_ix, c in enumerate(commits):
             commit_string +=  "//%s -- %s\n" % (commit_ix, c.hash)
 
             parentsWeHave = parents[c.hash]
@@ -984,8 +1000,6 @@ class TestLooperHttpServer(object):
 
             elif len(parentsWeHave) == 1:
                 #push a commit onto the branch
-                if (parentsWeHave[0], c.hash) not in branches:
-                    print branches.keys()
                 our_branch = branches[(parentsWeHave[0], c.hash)]
 
                 commit_string += "%s.commit({sha1: '%s', message: '%s', detailId: 'commit_%s'});\n" % (
@@ -995,9 +1009,6 @@ class TestLooperHttpServer(object):
                     c.hash
                     )
             else:
-                if (parentsWeHave[0], c.hash) not in branches:
-                    print branches.keys()
-
                 our_branch = branches[(parentsWeHave[0], c.hash)]
                 other_branch = branches[(parentsWeHave[1], c.hash)]
 
@@ -1079,6 +1090,7 @@ class TestLooperHttpServer(object):
                             testGroups,
                             ungroupedUniqueTestIds,
                             testGroupsToExpand):
+        print "HI!: ", testGroups, testGroupsToExpand
         testHeaders = []
         testGroupExpandLinks = []
         for testGroup in testGroups:
@@ -1125,7 +1137,7 @@ class TestLooperHttpServer(object):
 
         grid = [["", "", "", ""] + testHeaders + ["", "", ""]]
         grid.append(
-            ["COMMIT", "", "(running)", "FAIL RATE" + HtmlGeneration.whitespace*4] + \
+            ["COMMIT", "", "(running)"] + \
             testGroupExpandLinks + \
             ["SOURCE", "", "branch"]
             )
@@ -1157,47 +1169,70 @@ class TestLooperHttpServer(object):
         row = [self.commitLink(commit)]
 
         if branch:
-            row.append(self.toggleBranchTargetedCommitIdLink(commit))
+            row.append(self.toggleBranchTargetedCommitIdLink(branch, commit))
 
-        row.append(
-            commit.totalRunningCount() if commit.totalRunningCount() != 0 else ""
-            )
-        passRate = commit.passRate()
-        row.append(self.errRate(1.0 - passRate) if passRate is not None else '')
+        row.append(self.testManager.totalRunningCountForCommit(commit) or "")
+
+        if commit.data:
+            tests = {t.testDefinition.name: t for t in self.testManager.database.Test.lookupAll(commitData=commit.data)}
+        else:
+            tests = {}
+
+        class Stat:
+            def __init__(self, completedCount, runningCount, passCount, failCount, errRate):
+                self.completedCount = completedCount
+                self.runningCount = runningCount
+                self.passCount = passCount
+                self.failCount = failCount
+                self.errRate = errRate
+                if errRate is None and self.completedCount:
+                    self.errRate = self.passCount / float(self.completedCount)
+
+            def __add__(self, other):
+                if self.completedCount == 0:
+                    blendedErrRate = other.errRate
+                elif other.completedCount == 0:
+                    blendedErrRate = self.errRate
+                else:
+                    blendedErrRate = 1.0 - (1.0 - other.errRate) * (1.0 - self.errRate)
+
+                return Stat(
+                    None,
+                    self.runningCount + other.runningCount,
+                    None,
+                    None,
+                    blendedErrRate
+                    )
+
+        def computeStatForTestGroup(testGroup):
+            if testGroup in ungroupedUniqueTestIds:
+                return Stat(
+                    tests[testGroup].totalRuns,
+                    tests[testGroup].activeRuns,
+                    tests[testGroup].successes,
+                    tests[testGroup].totalRuns - tests[testGroup].successes,
+                    None
+                    )
+            grp = [u for u in ungroupedUniqueTestIds if u.startswith(testGroup+"/")]
+
+            s = computeStatForTestGroup(grp[0])
+            for g in grp[1:]:
+                s = s + computeStatForTestGroup(g)
+            return s
 
         for testGroup in testGroups:
-            if testGroups in ungroupedUniqueTestIds:
-                stat = commit.testStatByType(testGroups)
-            else:
-                #this is not an accurate calculation. Here we are aggregating tests across
-                #categories. We should be multiplying their pass rates, but in fact we are
-                #averaging their failure rates, pretending that they are independent test
-                #runs.
-                stat = commit.testStatByTypeGroup(testGroup)
+            stat = computeStatForTestGroup(testGroup)
 
-            if stat.completedCount == 0:
+            if stat.errRate is None:
                 if stat.runningCount == 0:
                     row.append("")
                 else:
                     row.append("[%s running]" % stat.runningCount)
             else:
-                errRate = self.errRateAndTestCount(
-                    stat.passCount + stat.failCount,
-                    stat.passCount
-                    )
+                errRate = self.errRateAndTestCount(stat.errRate, stat.totalRuns)
 
                 #check if this point in the commit-sequence has a statistically different
                 #probability of failure from its peers and mark it if so.
-
-                if branch:
-                    level, direction = branch.commitIsStatisticallyNoticeableFailureRateBreak(
-                        commit.commitId,
-                        testGroup
-                        )
-
-                    if level:
-                        level = int(round(math.log(level, 10)))
-                        errRate = HtmlGeneration.emphasize_probability(errRate, level, direction)
 
                 if stat.failCount and testGroup in ungroupedUniqueTestIds:
                     row.append(
@@ -1209,7 +1244,7 @@ class TestLooperHttpServer(object):
                     row.append(HtmlGeneration.lightGrey(errRate))
 
             if testGroup in ungroupedUniqueTestIds:
-                if commit.isTargetedTest(testGroup):
+                if False: #commit.isTargetedTest(testGroup):
                     row[-1] = HtmlGeneration.blueBacking(row[-1])
             else:
                 if allTestsInGroupAreTargetedInCommit(commit, testGroup):
@@ -1221,29 +1256,24 @@ class TestLooperHttpServer(object):
         row.append(self.sourceLinkForCommit(commit))
         
         row.append(
-            HtmlGeneration.lightGrey("invalid test file") 
-                    if commit.testScriptDefinitionsError is not None
-            else HtmlGeneration.lightGrey("no tests") 
-                    if len(commit.testScriptDefinitions) == 0
-            else self.clearCommitIdLink(commit.commitId)
+            HtmlGeneration.lightGrey("waiting to load tests") 
+                    if not commit.data
+            else HtmlGeneration.lightGrey("invalid test file") 
+                    if commit.data.testDefinitionsError
+            else self.clearCommitIdLink(commit)
                     if branch
             else ""
             )
 
-        row.append(joinLinks(self.branchLink(b) for b in commit.branches))
         return row
 
     @staticmethod
-    def errRateAndTestCount(testCount, successCount):
-        if testCount == 0:
-            return "  0     "
-
-        successCount = float(successCount)
-
-        errRate = 1.0 - successCount / testCount
-
+    def errRateAndTestCount(errRate, testCount):
         if errRate == 0.0:
-            return "%4s@%3s%s" % (testCount, 0, "%")
+            if testCount:
+                return "%4s@%3s%s" % (testCount, 0, "%")
+            else:
+                return "0%"
 
         if errRate < 0.01:
             errRate *= 10000
@@ -1572,10 +1602,8 @@ class TestLooperHttpServer(object):
                 'tools.sessions.on': True,
                 }
             }
-        print "server is ", cherrypy.server
         cherrypy.config.update(config)
-        print "server is now ", cherrypy.server
-
+        
         logging.info("STARTING HTTP SERVER")
 
         current_dir = os.path.dirname(__file__)
@@ -1601,11 +1629,6 @@ class TestLooperHttpServer(object):
         cherrypy.engine.autoreload.on = False
 
         cherrypy.engine.signals.subscribe()
-
-        print "***************"
-        print "config = ", cherrypy.config
-        print "server = ", cherrypy.server
-        print "engine = ", cherrypy.engine
 
         cherrypy.engine.start()
 

@@ -97,10 +97,22 @@ class Git(object):
                 ):
             raise Exception("Failed to checkout revision %s" % revision)
 
-    def commit(self, msg):
+    def commit(self, msg, timestamp_override=None, author="test_looper <test_looper@test_looper.com>"):
         """Commit the current state of the repo and return the commit id"""
         assert self.subprocessCheckCall(["git", "add", "."]) == 0
-        assert self.subprocessCheckCall(["git", "commit", "-m", msg]) == 0
+
+        env = dict(os.environ)
+
+        if timestamp_override:
+            timestamp_override_options = ["--date", str(timestamp_override) + " -0500"]
+            env["GIT_COMMITTER_DATE"] = str(timestamp_override) + " -0500"
+        else:
+            timestamp_override_options = []
+
+        cmds = ["git", "commit", "-m", msg] + timestamp_override_options + ["--author", author]
+
+        assert self.subprocessCheckCall(cmds, env=env) == 0
+
         return self.subprocessCheckOutput(["git", "log", "-n", "1", '--format=format:%H'])
 
     def isInitialized(self):

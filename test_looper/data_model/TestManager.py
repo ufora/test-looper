@@ -34,17 +34,53 @@ class TestManager(object):
 
         self.settings = settings
 
+        self.writelock = threading.Lock()
+
+    def transaction_and_lock(self):
+        t = [None]
+        
+        class Scope:
+            def __enter__(scope):
+                self.writelock.__enter__()
+                t[0] = self.database.transaction()
+                t[0].__enter__()
+
+            def __exit__(scope, *args):
+                try:
+                    t[0].__exit__(*args)
+                finally:
+                    self.writelock.__exit__(*args)
+
+        return Scope()
+
+
     def commitsToDisplayForBranch(self, branch):
         commits = set()
+        ordered = []
         new = [branch.head]
         while new:
             n = new.pop()
             if n not in commits:
                 commits.add(n)
-                if n.data is not self.database.Commit.Null:
+                ordered.append(n)
+
+                if n.data:
                     for child in n.data.parents:
                         new.append(child)
-        return commits
+
+        return ordered
+
+    def totalRunningCountForCommit(self, commit):
+        if not commit.data:
+            return 0
+
+        res = 0
+        for test in self.database.Test.lookupAll(commitData=commit.data):
+            res += len(self.database.RunningTest.lookupAll(test=test))
+        return res
+
+    def totalRunningCountForTest(self, test):
+        return len(self.database.RunningTest.lookupAll(test=test))
 
     def toggleBranchUnderTest(self, branch):
         branch.isUnderTest = not branch.isUnderTest
@@ -68,17 +104,23 @@ class TestManager(object):
                 return None
 
     def recordMachineHeartbeat(self, machineId, curTimestamp):
-        with self.database.transaction() as t:
+        print "%s for %s, %s\n" % ("wait", machineId, curTimestamp), 
+        with self.transaction_and_lock():
+            print "%s for %s, %s\n" % ("start", machineId, curTimestamp), 
             machine = self.database.Machine.lookupAny(machineId=machineId)
 
             if machine is None:
                 machine = self.database.Machine.New(machineId=machineId)
                 machine.lastHeartbeat=curTimestamp
                 machine.firstSeen=curTimestamp
+                print "%s for %s, %s\n" % ("done", machineId, curTimestamp), 
                 return True
             else:
                 machine.lastHeartbeat=curTimestamp
+                print "%s for %s, %s\n" % ("done", machineId, curTimestamp), 
                 return False
+            
+            
 
     def markRepoListDirty(self, curTimestamp):
         self.createTask(self.database.BackgroundTask.RefreshRepos())
@@ -87,8 +129,9 @@ class TestManager(object):
         self.createTask(self.database.BackgroundTask.RefreshBranches(repo=reponame))
 
     def recordTestResults(self, success, testId, curTimestamp):
-        with self.database.transaction() as t:
-            runningTest = self.database.RunningTest(testId)
+        with self.transaction_and_lock():
+            runningTest = self.database.RunningTest(str(testId))
+            assert runningTest.exists()
             
             finished_test = self.database.CompletedTest.New(
                 test=runningTest.test,
@@ -109,7 +152,7 @@ class TestManager(object):
                 self._updateTestPriority(dep.test)
 
     def testHeartbeat(self, testId, timestamp):
-        with self.database.transaction() as t:
+        with self.transaction_and_lock():
             test = self.database.RunningTest(testId)
             assert test.test is not self.database.Test.Null
 
@@ -119,7 +162,7 @@ class TestManager(object):
         """Allocates a new test and returns (commitId, testName, testId) or (None,None,None) if no work."""
         self.recordMachineHeartbeat(machineId, timestamp)
 
-        with self.database.transaction() as t:
+        with self.transaction_and_lock():
             test = (self.database.Test.lookupAny(priority=self.database.TestPriority.FirstBuild())
                  or self.database.Test.lookupAny(priority=self.database.TestPriority.FirstTest())
                  or self.database.Test.lookupAny(priority=self.database.TestPriority.WantsMoreTests())
@@ -144,11 +187,11 @@ class TestManager(object):
             return (commitId, test.fullname, runningTest._identity)
 
     def createTask(self, task):
-        with self.database.transaction():
+        with self.transaction_and_lock():
             self.database.DataTask.New(task=task, status=pending)
 
     def performBackgroundWork(self, curTimestamp):
-        with self.database.transaction() as v:
+        with self.transaction_and_lock():
             task = self.database.DataTask.lookupAny(status=pending)
             if task is None:
                 return None
@@ -163,7 +206,7 @@ class TestManager(object):
             traceback.print_exc()
             logging.error("Exception processing task %s:\n\n%s", testDef, traceback.format_exc())
         finally:
-            with self.database.transaction():
+            with self.transaction_and_lock():
                 task.delete()
 
         return testDef
@@ -172,7 +215,7 @@ class TestManager(object):
         if task.matches.RefreshRepos:
             all_repos = set(self.source_control.listRepos())
 
-            with self.database.transaction() as t:
+            with self.transaction_and_lock():
                 repos = self.database.Repo.lookupAll(isActive=True)
 
                 for r in repos:
@@ -189,7 +232,7 @@ class TestManager(object):
                         )
 
         elif task.matches.RefreshBranches:
-            with self.database.transaction() as t:
+            with self.transaction_and_lock():
                 repo = self.source_control.getRepo(task.repo.name)
 
                 branchnames = repo.listBranches()
@@ -214,7 +257,7 @@ class TestManager(object):
                         )
 
         elif task.matches.UpdateBranchTopCommit:
-            with self.database.transaction() as t:
+            with self.transaction_and_lock():
                 repo = self.source_control.getRepo(task.branch.repo.name)
                 commit = repo.branchTopCommit(task.branch.branchname)
 
@@ -222,7 +265,7 @@ class TestManager(object):
                     task.branch.head = self._lookupCommitByHash(task.branch.repo, commit)
 
         elif task.matches.UpdateCommitData:
-            with self.database.transaction() as t:
+            with self.transaction_and_lock():
                 repo = self.source_control.getRepo(task.commit.repo.name)
                 
                 commit = task.commit
@@ -263,7 +306,7 @@ class TestManager(object):
                             commit.data.testDefinitionsError=str(e)
 
         elif task.matches.UpdateTestPriority:
-            with self.database.transaction() as t:
+            with self.transaction_and_lock():
                 self._updateTestPriority(task.test)
         elif task.matches.UpdateCommitPriority:
             assert False, "Not implemented yet"
@@ -271,8 +314,6 @@ class TestManager(object):
             raise Exception("Unknown task: %s" % task)
 
     def _updateTestPriority(self, test):
-        t = self.database.current_transaction()
-
         if self.database.UnresolvedTestDependency.lookupAll(test=test):
             test.priority = self.database.TestPriority.UnresolvedDependencies()
         elif self._testHasUnfinishedDeps(test):
@@ -344,7 +385,6 @@ class TestManager(object):
         self._triggerTestPriorityUpdateIfNecessary(test)
 
     def _createSourceDep(self, test, reponame, commitHash):
-        t = self.database.current_transaction()
         repo = self.database.Repo.lookupAny(name=reponame)
         if not repo:
             self.database.UnresolvedRepoDependency.New(test=test,reponame=reponame, commitHash=commitHash)

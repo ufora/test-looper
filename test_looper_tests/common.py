@@ -1,23 +1,19 @@
 import logging
 import shutil
 import sys
+import os
 
 def configureLogging(verbose=False):
-    if logging.getLogger().handlers:
-        logging.getLogger().handlers = []
-
     loglevel = logging.INFO if verbose else logging.ERROR
     logging.getLogger().setLevel(loglevel)
 
-    handler = logging.StreamHandler(stream=sys.stderr)
-
-    handler.setLevel(loglevel)
-    handler.setFormatter(
-        logging.Formatter(
-            '%(asctime)s %(levelname)s %(filename)s:%(lineno)s@%(funcName)s %(name)s - %(message)s'
+    for handler in logging.getLogger().handlers:
+        handler.setLevel(loglevel)
+        handler.setFormatter(
+            logging.Formatter(
+                '%(asctime)s %(levelname)s %(filename)s:%(lineno)s@%(funcName)s %(name)s - %(message)s'
+                )
             )
-        )
-    logging.getLogger().addHandler(handler)
 
 def mirror_into(src_dir, dest_dir):
     for p in os.listdir(src_dir):

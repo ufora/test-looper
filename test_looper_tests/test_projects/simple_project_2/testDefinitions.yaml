@@ -1,0 +1,13 @@
+looper_version: 2
+repos:
+  simple: simple_project/8f5d6fb8a5393c742e6f05c3663298165740dbe9
+environments:
+  linux:
+    platform: linux
+    image:
+      dockerfile: "Dockerfile.txt"
+builds:
+  build2/linux:
+    command: "cp $TEST_INPUT_BUILDS_DIR/build_import/* $TEST_BUILD_OUTPUT_DIR"
+    dependencies:
+      build_import: simple/build/linux

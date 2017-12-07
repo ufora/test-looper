@@ -107,6 +107,9 @@ class Encoder:
                 assert isinstance(value, dict)
 
                 if '_type' in value:
+                    if isinstance(value['_type'], unicode):
+                        value['_type'] = str(value['_type'])
+                    
                     if not isinstance(value['_type'], str):
                         raise UserWarning('typenames have to be strings')
 

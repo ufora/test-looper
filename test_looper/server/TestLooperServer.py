@@ -85,11 +85,11 @@ class Session(object):
         commit = None
 
         if machineInfo.machineId is not None:
-            is_new_machine = self.testManager.recordMachineObservation(machineInfo.machineId)
+            is_new_machine = self.testManager.recordMachineHeartbeat(machineInfo.machineId, time.time())
 
         try:
             t0 = time.time()
-            commitId, testName, testId = self.testManager.startNewTest(machineInfo.machineInfo)
+            commitId, testName, testId = self.testManager.startNewTest(machineInfo.machineId, time.time())
 
             if commitId:
                 self.writeString(

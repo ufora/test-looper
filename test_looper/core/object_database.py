@@ -29,8 +29,11 @@ class DatabaseObject(object):
             return False
         return self._identity == other._identity
 
-    def isNull(self):
-        return self is type(self).Null
+    def __bool__(self):
+        return self is not type(self).Null
+
+    def __nonzero__(self):
+        return self is not type(self).Null
 
     def __hash__(self):
         return hash(self._identity)
@@ -80,7 +83,7 @@ class DatabaseObject(object):
         if _cur_view.view._db is not type(self)._database:
             raise Exception("Please access properties from within a view or transaction created on the same database as the object.")
 
-        return _cur_view.view._exists(type(self).__name__, self._identity)
+        return _cur_view.view._exists(self, type(self).__name__, self._identity)
 
     def __getattr__(self, name):
         if name[:1] == "_":
