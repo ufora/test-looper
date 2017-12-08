@@ -106,6 +106,16 @@ class LocalArtifactStorage(object):
         self.build_storage_path = os.path.expandvars(config["build_storage_path"])
         self.test_artifacts_storage_path = os.path.expandvars(config["test_artifacts_storage_path"])
 
+    def buildContents(self, key):  
+        with open(os.path.join(self.build_storage_path, key), "r") as f:
+            return f.read()
+
+    def buildContentsHtml(self, key):  
+        cherrypy.response.headers['Content-Type'] = 'application/octet-stream'
+        cherrypy.response.headers["Content-Disposition"] = "attachment; filename=\"" + key + "\";"
+
+        return self.buildContents(key)
+    
     def testContents(self, testId, key):  
         with open(os.path.join(self.test_artifacts_storage_path, testId, key), "r") as f:
             return f.read()
@@ -118,7 +128,6 @@ class LocalArtifactStorage(object):
         else:
             cherrypy.response.headers['Content-Type'] = 'application/octet-stream'
             cherrypy.response.headers["Content-Disposition"] = "attachment; filename=\"" + key + "\";"
-
 
         return self.testContents(testId, key)
     
@@ -185,7 +194,6 @@ class LocalArtifactStorage(object):
 
         for logFile in os.listdir(testOutputDir):
             sem.acquire()
-
 
     def build_exists(self, key_name):
         return os.path.exists(os.path.join(self.build_storage_path, key_name))

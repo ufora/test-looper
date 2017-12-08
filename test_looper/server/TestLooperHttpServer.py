@@ -180,8 +180,8 @@ class TestLooperHttpServer(object):
             )
 
 
-    def errorPage(self, errorMessage):
-        return self.commonHeader() + "\n" + markdown.markdown("#ERROR\n\n" + errorMessage)
+    def errorPage(self, errorMessage, currentRepo=None):
+        return self.commonHeader(currentRepo=currentRepo) + "\n" + markdown.markdown("#ERROR\n\n" + errorMessage)
 
 
     @cherrypy.expose
@@ -194,11 +194,23 @@ class TestLooperHttpServer(object):
         self.authorize(read_only=True)
 
         with self.testManager.database.view():
-            test = self.testManager.getTestById(testId)
-            if test is None:
+            testRun = self.testManager.getTestRunById(testId)
+
+            if testRun is None:
                 return self.errorPage("Unknown testid %s" % testId)
 
-            grid = [["ARTIFACT"]]
+            grid = [["ARTIFACTS"]]
+
+            if testRun.test.testDefinition.matches.Build:
+                build_key = testRun.test.fullname.replace("/","_") + ".tar"
+
+                if self.artifactStorage.build_exists(build_key):
+                    grid.append([
+                        HtmlGeneration.link(build_key, self.buildDownloadUrl(build_key))
+                        ])
+                else:
+                    logging.info("No build found at ", build_key)
+
             for artifactName in self.testResultKeys(testId):
                 grid.append([
                     HtmlGeneration.link(
@@ -206,45 +218,12 @@ class TestLooperHttpServer(object):
                         self.testResultDownloadUrl(testId, artifactName)
                         )
                     ])
-
-            machinesGrid = [["MACHINE", "INTERNAL IP", "SUCCESS", "HEARTBEAT"]]
-
-            for machine in sorted(test.machineToInternalIpMap.keys()):
-                row = []
-
-                row.append(machine)
-                internalIpAddress = test.machineToInternalIpMap[machine]
-                row.append(internalIpAddress)
-
-                if machine in test.machineResults:
-                    result = test.machineResults[machine]
-
-                    row.append(str(result.success))
-                    row.append("")
-                else:
-                    row.append("")
-                    if machine in test.heartbeat:
-                        row.append("%.2f" % (time.time() - test.heartbeat[machine]))
-                    else:
-                        row.append("<never heartbeated>")
-
-                machinesGrid.append(row)
-
-            commit = test.commit
             return (
-                self.commonHeader() +
+                self.commonHeader(testRun.test.commitData.commit.repo) +
                 markdown.markdown("# Test\n") +
                 markdown.markdown("Test: %s\n" % testId) +
-                ("<br>Branches: %s\n<br>" % 
-                        (lambda x: x.render() if not isinstance(x,str) else x)(
-                            joinLinks(self.branchLink(b) for b in commit.branches)
-                            )
-                ) +
                 markdown.markdown("## Artifacts\n") +
-                HtmlGeneration.grid(grid) + (
-                    "<br>" * 3 + markdown.markdown("## Machine Assignments\n") +
-                    HtmlGeneration.grid(machinesGrid)
-                    )
+                (HtmlGeneration.grid(grid) if grid else "")
                 )
 
     @cherrypy.expose
@@ -256,6 +235,13 @@ class TestLooperHttpServer(object):
 
     def testResultKeys(self, testId):
         return self.artifactStorage.testResultKeysFor(testId)
+
+    @cherrypy.expose
+    def build_contents(self, key):
+        return self.artifactStorage.buildContentsHtml(key)
+
+    def buildDownloadUrl(self, key):
+        return "/build_contents?key=%s" % key
 
     @staticmethod
     def commitLink(commit, failuresOnly=False, testName=None, length=7):
@@ -346,79 +332,7 @@ class TestLooperHttpServer(object):
     def machines(self):
         self.authorize(read_only=True)
 
-        instancesByIp = {
-            i.ip_address or i.private_ip_address: i
-            for i in self.cloud_connection.getLooperInstances()
-            }
-
-        spotRequests = self.cloud_connection.getLooperSpotRequests()
-
-        with self.testManager.database.view():
-            grid = [["MACHINE", "PING", "STATE", "TYPE", "SPOT REQ ID",
-                     "SPOT REQUEST STATE", ""]]
-
-            allMachineIds = set(i for i in self.testManager.mostRecentTouchByMachine.keys())
-
-            allMachineIds = allMachineIds.union(set(instancesByIp.keys()))
-
-            def rankMachineId(m):
-                if m in instancesByIp:
-                    return (0, m)
-                else:
-                    return (1, m)
-
-            allMachineIds = sorted([i for i in allMachineIds if i is not None],
-                                   key=rankMachineId)
-
-            for machineId in allMachineIds:
-                row = []
-
-                row.append(self.machineLink(machineId))
-
-                if machineId in instancesByIp:
-                    instance = instancesByIp[machineId]
-                    if machineId in self.testManager.mostRecentTouchByMachine:
-                        pingTime = self.testManager.mostRecentTouchByMachine[machineId]
-                        row.append("%.2f" % (time.time() - pingTime))
-                    else:
-                        row.append("")
-
-                    row.append(instance.state)
-                    row.append(instance.instance_type)
-                    row.append(instance.spot_instance_request_id)
-
-                    spot_request = spotRequests.get(instance.spot_instance_request_id)
-                    row.append(spot_request.status.code if spot_request else '')
-
-                    row.append(
-                        self.small_clear_button(
-                            "/terminateMachine?machineId=" + machineId,
-                            "terminate"
-                            )
-                        )
-                else:
-                    row.append("")
-                    row.append("<shut down>")
-
-                grid.append(row)
-
-            return self.commonHeader() + HtmlGeneration.grid(grid)
-
-    @cherrypy.expose
-    def terminateMachine(self, machineId):
-        self.authorize(read_only=False)
-
-        instancesByIp = {
-            i.ip_address or i.private_ip_address: i
-            for i in self.cloud_connection.getLooperInstances()
-            }
-
-        if machineId not in instancesByIp:
-            return self.errorPage("Unknown machine %s" % machineId)
-
-        instancesByIp[machineId].terminate()
-
-        raise cherrypy.HTTPRedirect(self.address + "/machines")
+        return self.errorPage("Not implemented")
 
     @cherrypy.expose
     def machine(self, machineId):
@@ -453,32 +367,35 @@ class TestLooperHttpServer(object):
         self.authorize(read_only=True)
 
         with self.testManager.database.view():
-            if commitId not in self.testManager.commits:
-                commit = self.testManager.getCommitByCommitId(commitId)
-                #return self.commonHeader() + markdown.markdown(
-                    #"## Commit %s doesn't exist." % commitId
-                    #)
-            else:
-                commit = self.testManager.commits[commitId]
+            repo = self.testManager.database.Repo.lookupAny(name=repoName)
+            if not repo:
+                return self.errorPage("Repo %s doesn't exist" % repoName)
 
-            sortedTests = sorted(
-                commit.testsById.values(),
-                key=lambda test: test.startTime(),
-                reverse=True
-                )
+            commit = self.testManager.database.Commit.lookupAny(repo_and_hash=(repo, commitHash))
+            if not commit:
+                return self.errorPage("Commit %s doesn't exist" % repoName)
 
-            if failuresOnly:
-                sortedTests = [x for x in sortedTests if x.failed()]
+            if not commit.data:
+                return self.errorPage("Commit hasn't been imported yet")
+
+            testTypes = self.testManager.database.Test.lookupAll(commitData=commit.data)
 
             if testName is not None:
-                sortedTests = [x for x in sortedTests if x.testName == testName]
+                testTypes = [x for x in testTypes if x.testDefinition.name == testName]
 
-            grid = self.gridForTestList_(sortedTests, commit=commit, failuresOnly=failuresOnly)
+            tests = []
+            for test in testTypes:
+                tests.extend(self.testManager.database.TestRun.lookupAll(test=test))
+            
+            tests = sorted(tests, key=lambda test: -test.startedTimestamp)
+            
+            if failuresOnly:
+                tests = [x for x in tests if not x.success and x.endTimestamp > 0.0]
 
-            header = """## Commit `%s`: `%s`\n""" % (commit.commitHash[:10], commit.subject)
-            for b in commit.branches:
-                header += """### Branch: %s\n""" % self.branchLink(b).render()
+            grid = self.gridForTestList_(tests, commit=commit, failuresOnly=failuresOnly)
 
+            header = """## Commit `%s`: `%s`\n""" % (commit.hash[:10], commit.data.subject)
+            
             if failuresOnly:
                 header += "showing failures only. %s<br/><br/>" % \
                     self.commitLink(commit,
@@ -498,22 +415,19 @@ class TestLooperHttpServer(object):
                                     None).withTextReplaced("Show all tests").render()
                     )
 
-            header = self.commonHeader() + markdown.markdown(header)
+            header = self.commonHeader(currentRepo=repoName) + markdown.markdown(header)
 
             buttons = []
-            try:
-                defs = self.testManager.testDefinitionsForCommit(commitId)
-            except:
-                defs = None
-
-            env_vals = defs.environments.values() if defs else []
+            
+            env_vals = [x.testDefinition for x in self.testManager.database.Test.lookupAll(commitData=commit.data)
+                if x.testDefinition.matches.Deployment]
 
             if env_vals:
                 buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Environments")))
-                for env in sorted(env_vals, key=lambda e: e.testName):
+                for env in sorted(env_vals, key=lambda e: e.name):
                     buttons.append(
-                        HtmlGeneration.Link(self.bootTestOrEnvUrl(commitId, env.testName, env.portExpose),
-                           env.testName,
+                        HtmlGeneration.Link(self.bootTestOrEnvUrl(commitId, env.name, env.portExpose),
+                           env.name,
                            is_button=True,
                            button_style=self.disable_if_cant_write('btn-danger btn-xs')
                            )
@@ -521,13 +435,15 @@ class TestLooperHttpServer(object):
                     buttons.append(HtmlGeneration.makeHtmlElement("&nbsp;"*2))
                 buttons.append(HtmlGeneration.makeHtmlElement("<br>"*2))
 
-            test_vals = defs.tests.values() if defs else []
+            test_vals = [x.testDefinition for x in self.testManager.database.Test.lookupAll(commitData=commit.data)
+                if x.testDefinition.matches.Test or x.testDefinition.matches.Build]
+
             if test_vals:
                 buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Tests")))
-                for test in sorted(test_vals, key=lambda e: e.testName):
+                for test in sorted(test_vals, key=lambda e: e.name):
                     buttons.append(
-                        HtmlGeneration.Link(self.bootTestOrEnvUrl(commitId, test.testName, test.portExpose),
-                           test.testName,
+                        HtmlGeneration.Link(self.bootTestOrEnvUrl(commitId, test.name, {}),
+                           test.name,
                            is_button=True,
                            button_style=self.disable_if_cant_write('btn-danger btn-xs')
                            )
@@ -559,37 +475,39 @@ class TestLooperHttpServer(object):
         grid = [["TEST", "TYPE", "RESULT", "STARTED", "MACHINE", "ELAPSED (MIN)",
                  "SINCE LAST HEARTBEAT (SEC)"]]
 
-        for test in sortedTests:
+        for testRun in sortedTests:
             row = []
 
-            row.append(HtmlGeneration.link(str(test.testId)[:20], "/test?testId=" + test.testId))
+            row.append(HtmlGeneration.link(str(testRun._identity)[:20], "/test?testId=" + testRun._identity))
+
+            name = testRun.test.testDefinition.name
 
             if commit is None:
-                row.append(test.testName)
+                row.append(name)
             else:
                 row.append(
-                    self.commitLink(commit,
-                                    failuresOnly=failuresOnly,
-                                    testName=test.testName).withTextReplaced(test.testName)
+                    self.commitLink(commit, failuresOnly=failuresOnly, testName=name).withTextReplaced(name)
                     )
 
-            row.append(test.status())
-
-            elapsed = None
-            if test.startTime():
-                row.append(time.ctime(test.startTime()))
-
-                elapsed = test.minutesElapsed()
+            if testRun.endTimestamp > 0.0:
+                row.append("passed" if testRun.success else "failed")
             else:
-                row.append("")
+                row.append("running")
 
-            row.append(self.machineLink(test.machine))
+            row.append(time.ctime(testRun.startedTimestamp))
 
-            row.append("" if elapsed is None else "%.2f" % elapsed)
+            if testRun.endTimestamp > 0.0:
+                elapsed = (testRun.endTimestamp - testRun.startedTimestamp) / 60.0
+            else:
+                elapsed = (time.time() - testRun.startedTimestamp) / 60.0
 
-            timeSinceHB = test.timeSinceHeartbeat()
+            row.append(self.machineLink(testRun.machine))
 
-            if test.status() in ('failed', 'passed'):
+            row.append("%.2f" % elapsed)
+
+            if hasattr(testRun, "lastHeartbeat"):
+                timeSinceHB = time.time() - testRun.lastHeartbeat
+            else:
                 timeSinceHB = None
 
             row.append(str("%.2f" % timeSinceHB) if timeSinceHB is not None else "")
@@ -600,7 +518,7 @@ class TestLooperHttpServer(object):
 
     @staticmethod
     def machineLink(machine):
-        return HtmlGeneration.link(machine, "/machine?machineId="+machine)
+        return HtmlGeneration.link(machine, "/machine?machineId="+machine.machineId)
 
 
     def login_link(self):
@@ -614,7 +532,7 @@ class TestLooperHttpServer(object):
                 '</a>') % self.getCurrentLogin()
 
 
-    def commonHeader(self):
+    def commonHeader(self, currentRepo=None):
         headers = []
         headers.append(
             '<div align="right"><h5>%s</h5></div>' % (
@@ -625,13 +543,15 @@ class TestLooperHttpServer(object):
             ('Repos', '/repos')
             ]
 
-        if self.cloud_connection.isSpotEnabled():
-            nav_links += [
-                ('Spot Requests', '/spotRequests'),
-                ]
-            nav_links += [
-                    ('Workers', '/machines')
-                    ]
+        if currentRepo:
+            if isinstance(currentRepo, unicode):
+                reponame = str(currentRepo)
+            elif isinstance(currentRepo, str):
+                reponame = currentRepo
+            else:
+                reponame = currentRepo.name
+
+            nav_links.append(("Branches", "/branches?" + urllib.urlencode({"repoName":reponame})))
 
         if self.enable_advanced_views:
             nav_links += [
@@ -769,7 +689,7 @@ class TestLooperHttpServer(object):
                                     is_button=True,
                                     button_style=self.disable_if_cant_write("btn-default")).render()
 
-        return self.commonHeader() + grid
+        return self.commonHeader(currentRepo=repoName) + grid
 
 
     @cherrypy.expose
@@ -881,42 +801,14 @@ class TestLooperHttpServer(object):
                 return self.errorPage("Branch %s/%s doesn't exist" % (reponame, branchname))
 
             return self.testPageForCommits(
+                reponame,
                 self.testManager.commitsToDisplayForBranch(branch), 
                 "Branch `" + branch.branchname + "`", 
                 testGroupsToExpand, 
                 branch
                 )
 
-    @cherrypy.expose
-    def revlist(self, repoName, revlist):
-        self.authorize(read_only=True)
-
-        t0 = time.time()
-        with self.testManager.database.view():
-            lock_time = time.time()
-            
-            repo = self.testManager.source_control.getRepo(repoName)
-
-            commitHashesParentsAndTitles = repo.source_repo.commitsInRevList(revlist)
-
-            commitHashes = set([c[0] for c in commitHashesParentsAndTitles])
-            
-            commits = {}
-            for commitHash, parentHashes, commitTitle in commitHashesParentsAndTitles:
-                commitId = repoName+"/"+commitHash
-
-                commits[commitId] = self.testManager.createCommit(commitId,
-                                                                  parentHashes,
-                                                                  commitTitle
-                                                                  )
-
-            commitsByHash = {c.commitHash: c for c in commits.values()}
-
-            commitsInOrder = [commitsByHash[hash] for hash, _, _ in commitHashesParentsAndTitles]
-
-            return self.testPageForCommits(commitsInOrder, "Revlist `" + revlist + "`", None, None)
-
-    def testPageForCommits(self, commits, headerText, testGroupsToExpand, branch):
+    def testPageForCommits(self, reponame, commits, headerText, testGroupsToExpand, branch):
         ungroupedUniqueTestIds = sorted(set(t.testDefinition.name for c in commits for t in self.testManager.database.Test.lookupAll(commitData=c.data)))
 
         testGroupsToTests = {}
@@ -928,10 +820,15 @@ class TestLooperHttpServer(object):
 
         testGroupsToExpand = [] if testGroupsToExpand is None else testGroupsToExpand.split(",")
 
+        for group in list(testGroupsToTests):
+            if len(testGroupsToTests[group]) == 1:
+                testGroupsToExpand.append(group)
+
         def appropriateGroup(testName):
             groupPrefix = testName.split("/")[0]
             if groupPrefix in testGroupsToExpand:
                 return testName
+
             return groupPrefix
 
         testGroups = sorted(list(set(appropriateGroup(x) for x in ungroupedUniqueTestIds)))
@@ -1057,7 +954,7 @@ class TestLooperHttpServer(object):
         
         canvas = HtmlGeneration.gitgraph_canvas_setup(commit_string, grid)
 
-        return self.commonHeader() + header + detail_divs + canvas
+        return self.commonHeader(reponame) + header + detail_divs + canvas
 
 
     @staticmethod
@@ -1089,7 +986,6 @@ class TestLooperHttpServer(object):
                             testGroups,
                             ungroupedUniqueTestIds,
                             testGroupsToExpand):
-        print "HI!: ", testGroups, testGroupsToExpand
         testHeaders = []
         testGroupExpandLinks = []
         for testGroup in testGroups:
@@ -1138,7 +1034,7 @@ class TestLooperHttpServer(object):
         grid.append(
             ["COMMIT", "", "(running)"] + \
             testGroupExpandLinks + \
-            ["SOURCE", "", "branch"]
+            ["SOURCE", ""]
             )
         return grid
 
@@ -1170,7 +1066,7 @@ class TestLooperHttpServer(object):
         if branch:
             row.append(self.toggleBranchTargetedCommitIdLink(branch, commit))
 
-        row.append(self.testManager.totalRunningCountForCommit(commit) or "")
+        row.append(self.testManager.totalRunningCountForCommit(commit) or "tests not enabled" if not commit.priority else "")
 
         if commit.data:
             tests = {t.testDefinition.name: t for t in self.testManager.database.Test.lookupAll(commitData=commit.data)}
@@ -1307,164 +1203,6 @@ class TestLooperHttpServer(object):
         return self.commonHeader() + self.generateEventLogHtml(1000)
 
 
-    def getCurrentSpotRequestGrid(self):
-        spotRequests = sorted(
-            self.cloud_connection.getLooperSpotRequests().itervalues(),
-            key=lambda r: r.price,
-            reverse=True
-            )
-
-        # group spot instance requests into batches that were requested
-        # together
-        spotRequestGroups = {}
-        for r in spotRequests:
-            newGroup = True
-            createTime = dateutil.parser.parse(r.create_time)
-            instanceType = r.launch_specification.instance_type
-            for groupCreateTime, groupInstanceType in spotRequestGroups:
-                delta = groupCreateTime - createTime
-                if instanceType == groupInstanceType and abs(delta.total_seconds()) < 60:
-                    newGroup = False
-                    spotRequestGroups[(groupCreateTime, groupInstanceType)].append(r)
-                    break
-            if newGroup:
-                spotRequestGroups[(createTime, instanceType)] = [r]
-
-        grid = [["#", "", "instance type", "# active", "max price", "creation time",
-                 "# open", "# failed", "# cancelled", "availability zone"]]
-        for i, key in enumerate(sorted(spotRequestGroups.keys())):
-            spotRequests = spotRequestGroups[key]
-            request = spotRequests[0]
-
-            countsByAvailabilityZone = {}
-            countsByState = {}
-            for r in spotRequests:
-                count = countsByState.get(r.state) or 0
-                countsByState[r.state] = count+1
-                if r.state == 'active':
-                    count = countsByAvailabilityZone.get(r.launched_availability_zone) or 0
-                    countsByAvailabilityZone[r.launched_availability_zone] = count+1
-
-            if countsByState.get('cancelled') == len(spotRequests):
-                # don't show cancelled requests
-                continue
-
-            availabilityZones = ", ".join(
-                ["%s: %s" % (az, count) for az, count in countsByAvailabilityZone.iteritems()]
-                )
-
-            row = [
-                str(i+1),
-                HtmlGeneration.Link(
-                    "/cancelSpotRequests?" + urllib.urlencode(
-                        {'requestIds': ",".join([str(r.id) for r in spotRequests])}
-                        ),
-                    "cancel",
-                    is_button=True,
-                    button_style=self.disable_if_cant_write("btn-danger btn-xs")
-                    ),
-                request.launch_specification.instance_type,
-                str(countsByState.get('active', 0)),
-                request.price,
-                request.create_time,
-                str(countsByState.get('open', 0)),
-                str(countsByState.get('failed', 0)),
-                str(countsByState.get('cancelled', 0)),
-                availabilityZones
-                ]
-            grid.append(row)
-
-        if len(grid) == 1:
-            grid.append(["No open spot instance requests"])
-        return grid
-
-
-    def get_spot_prices(self):
-        prices = {}
-        for instance_type, _ in self.cloud_connection :
-            prices_by_zone = self.cloud_connection.currentSpotPrices(instanceType=instance_type)
-            prices[instance_type] = {
-                zone: price for zone, price in sorted(prices_by_zone.iteritems())
-                }
-        return prices
-
-    def getSpotInstancePriceGrid(self, prices):
-        availability_zones = sorted(prices.itervalues().next().keys())
-        grid = [["Instance Type"] + availability_zones]
-        for instance_type, _ in self.cloud_connection.available_instance_types_and_core_count:
-            grid.append([instance_type] + ["$%s" % prices[instance_type][az]
-                                           for az in sorted(prices[instance_type].keys())])
-
-        return grid
-
-
-    def getAddSpotRequestForm(self, availability_zones):
-        instanceTypeDropDown = HtmlGeneration.selectBox(
-            'instanceType',
-            [
-                (instance_type, "%s cores (%s)" % (core_count, instance_type))
-                for instance_type, core_count in
-                self.cloud_connection.available_instance_types_and_core_count
-            ],
-            self.defaultCoreCount)
-        availabilityZoneDropDown = HtmlGeneration.selectBox(
-            'availabilityZone',
-            sorted([(az, az) for az in availability_zones]),
-            '')
-
-        addForm = """
-            <h2>Add instances:</h2>
-            <form action="/addSpotRequests" method="post" class="form-inline">
-              <div class="form-group">
-                <label for="instanceType">Type</label>
-                %s
-              </div>
-              <div class="form-group">
-                <label for="maxPrice">Max price</label>
-                <input type="text" name="maxPrice" class="form-control">
-              </div>
-              <div class="form-group">
-                <label for="availbilityZone">Availability zone</label>
-                %s
-              </div>
-              <button type="submit" value="Add" class="btn btn-primary">Add</button>
-            </form>
-            """ % (instanceTypeDropDown, availabilityZoneDropDown)
-        return addForm
-
-    @cherrypy.expose
-    def spotRequests(self):
-        self.authorize(read_only=True)
-
-        spot_prices = self.get_spot_prices()
-
-        grid = self.getCurrentSpotRequestGrid()
-        has_open_requests = len(grid) > 1 and len(grid[1]) > 1
-
-        button_style = "btn-danger" + ("" if has_open_requests else " disabled")
-        clearAll = HtmlGeneration.Link(
-            "/cancelAllSpotRequests",
-            "Cancel all requests",
-            is_button=True,
-            button_style=self.disable_if_cant_write(button_style)
-            ).render()
-
-        availability_zones = spot_prices.itervalues().next().keys()
-        addForm = (self.getAddSpotRequestForm(availability_zones) if self.can_write() else '')
-
-        spotPrices = self.getSpotInstancePriceGrid(spot_prices)
-
-        return HtmlGeneration.stack(
-            self.commonHeader(),
-            HtmlGeneration.grid(grid),
-            clearAll,
-            addForm,
-            "<br/>"*2,
-            markdown.markdown("## Spot Instance Prices\n"),
-            HtmlGeneration.grid(spotPrices),
-            "<br>"*2 + self.generateEventLogHtml()
-            )
-
     def generateEventLogHtml(self, maxMessageCount=10):
         messages = self.eventLog.getTopNLogMessages(maxMessageCount)
 
@@ -1472,84 +1210,6 @@ class TestLooperHttpServer(object):
             [["Date", "user", "Action"]] +
             [[msg["date"], msg["user"], msg["message"]] for msg in reversed(messages)]
             )
-
-
-    @cherrypy.expose
-    def cancelAllSpotRequests(self, instanceType=None):
-        self.authorize(read_only=False)
-
-        self.cloud_connection = self.cloud_connection
-        spotRequests = self.cloud_connection.getLooperSpotRequests()
-        if instanceType is not None:
-            spotRequests = {
-                k: v for k, v in spotRequests.iteritems() \
-                    if v.launch_specification.instance_type == instanceType
-                }
-
-        self.cloud_connection.cancelSpotRequests(spotRequests.keys())
-
-        self.addLogMessage("Canceled all spot requests.")
-
-        raise cherrypy.HTTPRedirect(self.address + "/spotRequests")
-
-    @cherrypy.expose
-    def cancelSpotRequests(self, requestIds):
-        self.authorize(read_only=False)
-        requestIds = requestIds.split(',')
-
-        spotRequests = self.cloud_connection.getLooperSpotRequests()
-
-        invalidRequests = [r for r in requestIds if r not in spotRequests]
-        if len(invalidRequests) > 0:
-            return self.commonHeader() + markdown.markdown(
-                "# ERROR\n\nRequests %s don't exist" % invalidRequests
-                )
-
-        self.addLogMessage("Cancelling spot requests: %s", requestIds)
-
-        self.cloud_connection.cancelSpotRequests(requestIds)
-        raise cherrypy.HTTPRedirect(self.address + "/spotRequests")
-
-
-    @cherrypy.expose
-    def addSpotRequests(self, instanceType, maxPrice, availabilityZone):
-        self.authorize(read_only=False)
-
-        logging.info(
-            "Add spot request. Instance type: %s, max price: %s, az: %s",
-            instanceType, maxPrice, availabilityZone
-            )
-        try:
-            maxPrice = float(maxPrice)
-        except ValueError:
-            return self.commonHeader() + markdown.markdown(
-                "# ERROR\n\nInvalid max price"
-                )
-
-        coreCount = [c for i, c in self.cloud_connection.available_instance_types_and_core_count
-                     if i == instanceType]
-        if not coreCount:
-            return self.commonHeader() + markdown.markdown(
-                "# ERROR\n\nInvalid instance type"
-                )
-
-        provisioned = 0.0
-        min_price = 0.0075 * coreCount[0]
-        while True:
-            provisioned += 1
-            bid = maxPrice / provisioned
-            if bid < min_price:
-                break
-            self.cloud_connection.requestLooperInstances(bid,
-                                       instance_type=instanceType,
-                                       availability_zone=availabilityZone)
-
-        self.addLogMessage("Added %s spot requests for type %s and max price of %s",
-                           provisioned,
-                           instanceType,
-                           maxPrice)
-
-        raise cherrypy.HTTPRedirect(self.address + "/spotRequests")
 
     @cherrypy.expose
     def githubReceivedAPush(self):

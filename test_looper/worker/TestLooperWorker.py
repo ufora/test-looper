@@ -43,6 +43,8 @@ class TestLooperWorker(object):
 
     def stop(self):
         self.stopEvent.set()
+        if self.testLooperClient:
+            self.testLooperClient.stop()
 
     def startTestLoop(self):
         try:
@@ -58,7 +60,8 @@ class TestLooperWorker(object):
                     logging.info("protocol mismatch observed on %s: %s",
                                  self.ownMachineInfo.machineId,
                                  traceback.format_exc())
-                    return self.protocolMismatchObserved()
+                    return
+                    
                 except socket.error:
                     logging.info("Can't connect to server")
                     socketErrorCount += 1
@@ -127,7 +130,8 @@ class TestLooperWorker(object):
 
         result = self.settings.osInteractions.runTest(testId, commitId, testName, heartbeat)
         
-        self.testLooperClient.publishTestResult(result)
+        if not self.stopEvent.is_set():
+            self.testLooperClient.publishTestResult(result)
 
     def sendHeartbeat(self, testLooperClient, testId, commitId):
         if self.heartbeatResponse != TestResult.TestResult.HEARTBEAT_RESPONSE_ACK:
@@ -150,18 +154,4 @@ class TestLooperWorker(object):
 
         if self.stopEvent.is_set():
             raise TestInterruptException('stop')
-
-
-    def protocolMismatchObserved(self):
-        self.abortTestLooper("test-looper server is on a different protocol version than we are.")
-
-    @staticmethod
-    def abortTestLooper(reason):
-        logging.info(reason)
-        logging.info(
-            "Restarting. We expect 'upstart' to reboot us with an up-to-date copy of the code"
-            )
-        sys.stdout.flush()
-        sys.stderr.flush()
-        os._exit(1)
 

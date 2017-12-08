@@ -203,6 +203,6 @@ class WorkerStateTests(unittest.TestCase):
             worker.get_failure_log("testId3")
             )
         self.assertFalse(
-            worker.runTest("testId3", commit2, "test2_fails/linux", lambda *args: None).success
+            worker.runTest("testId4", commit2, "test2_fails/linux", lambda *args: None).success
             )
 

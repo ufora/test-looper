@@ -16,6 +16,7 @@ import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import unittest
 
 basic_yaml_file = """
+looper_version: 2
 repos:
   child: child-repo-name/repo_hash
 environments:
@@ -44,6 +45,7 @@ tests:
 """
 
 circular_yaml_file = """
+looper_version: 2
 environments:
   linux:
     platform: linux

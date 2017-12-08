@@ -244,6 +244,8 @@ class WorkerState(object):
 
     @staticmethod
     def ensureDirectoryExists(path):
+        if os.path.exists(path):
+            return
         try:
             os.makedirs(path)
         except os.error as e:
@@ -439,7 +441,7 @@ class WorkerState(object):
 
         heartbeat()
         
-        if not is_success or not test_definition.matches.Build:
+        if not is_success or test_definition.matches.Build:
             logging.info("machine %s uploading artifacts for test %s", self.machineInfo.machineId, testId)
 
             self.artifactStorage.uploadTestArtifacts(
@@ -451,13 +453,13 @@ class WorkerState(object):
         return test_result
     
     def artifactKeyForTest(self, commitId, testName):
-        return (commitId + "/" + testName).replace("/", "_")
+        return (commitId + "/" + testName).replace("/", "_") + ".tar"
 
     def _upload_build(self, commitId, testName):
         #upload all the data in our directory
         tarball_name = os.path.join(
             self.directories.build_cache_dir, 
-            self.artifactKeyForTest(commitId, testName) + ".tar"
+            self.artifactKeyForTest(commitId, testName)
             )
 
         if not os.path.exists(tarball_name):
@@ -483,7 +485,7 @@ class WorkerState(object):
             return False
 
     def _download_build(self, commitId, testName):
-        path = os.path.join(self.directories.build_cache_dir, self.artifactKeyForTest(commitId, testName) + ".tar")
+        path = os.path.join(self.directories.build_cache_dir, self.artifactKeyForTest(commitId, testName))
         
         if not os.path.exists(path):
             logging.info("Downloading build for %s/%s to %s", commitId, testName, path)

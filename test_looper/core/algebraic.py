@@ -351,6 +351,9 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
                 return self._alternative._methods['__repr__'](self)
             return "%s.%s(%s)" % (self._alternative._name, self._which, ",".join(["%s=%s" % (k,repr(self._fields[k])) for k in sorted(self._fields)]))
 
+        def __ne__(self, other):
+            return not self.__eq__(other)
+
         def __eq__(self, other):
             if self is other:
                 return True

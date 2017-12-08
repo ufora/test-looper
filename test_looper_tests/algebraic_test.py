@@ -90,6 +90,14 @@ class AlgebraicTests(unittest.TestCase):
         for i in range(10):
             self.assertEqual(hash(expr.Constant(i)), hash(expr.Constant(i)))
             self.assertEqual(expr.Constant(i), expr.Constant(i))
+            self.assertEqual(
+                expr.Add(l=expr.Constant(i),r=expr.Constant(i+1)), 
+                expr.Add(l=expr.Constant(i),r=expr.Constant(i+1))
+                )
+            self.assertNotEqual(
+                expr.Add(l=expr.Constant(i),r=expr.Constant(i+1)), 
+                expr.Add(l=expr.Constant(i),r=expr.Constant(i+2))
+                )
             self.assertNotEqual(expr.Constant(i), expr.Constant(i+1))
 
     def test_algebraics_in_dicts(self):

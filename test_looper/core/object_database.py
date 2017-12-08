@@ -20,6 +20,9 @@ class DatabaseObject(object):
     _database = None
     Null = None
 
+    def __ne__(self, other):
+        return not (self==other)
+        
     def __eq__(self, other):
         if not isinstance(other, DatabaseObject):
             return False

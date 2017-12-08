@@ -25,6 +25,8 @@ TestManagerSettings.Settings = {
     "max_test_count": int
     }
 
+MAX_TEST_PRIORITY=100
+
 class TestManager(object):
     def __init__(self, source_control, kv_store, settings):
         self.source_control = source_control
@@ -76,22 +78,21 @@ class TestManager(object):
 
         res = 0
         for test in self.database.Test.lookupAll(commitData=commit.data):
-            res += len(self.database.RunningTest.lookupAll(test=test))
+            res += test.activeRuns
         return res
 
     def totalRunningCountForTest(self, test):
-        return len(self.database.RunningTest.lookupAll(test=test))
+        return test.activeRuns
 
     def toggleBranchUnderTest(self, branch):
         branch.isUnderTest = not branch.isUnderTest
         self._triggerCommitPriorityUpdate(branch.head)
 
 
-    def getTestById(self, testIdentity):
-        t = self.database.RunningTest(testIdentity)
-        if t.exists():
-            return t
-        t = self.database.CompletedTest(testIdentity)
+    def getTestRunById(self, testIdentity):
+        testIdentity = str(testIdentity)
+
+        t = self.database.TestRun(testIdentity)
         if t.exists():
             return t
 
@@ -126,53 +127,57 @@ class TestManager(object):
 
     def recordTestResults(self, success, testId, curTimestamp):
         with self.transaction_and_lock():
-            runningTest = self.database.RunningTest(str(testId))
+            testRun = self.database.TestRun(str(testId))
 
-            assert runningTest.exists(), "Can't find %s" % testId
+            assert testRun.exists(), "Can't find %s" % testId
+
+            testRun.endTimestamp = curTimestamp
             
-            logging.info("Recording %s for %s (%s)", "success" if success else "failure", testId, runningTest.test.fullname)
-        
-            finished_test = self.database.CompletedTest.New(
-                test=runningTest.test,
-                startedTimestamp=runningTest.startedTimestamp,
-                endTimestamp=curTimestamp,
-                machine=runningTest.machine,
-                success=success
-                )
-            finished_test.test.activeRuns = finished_test.test.activeRuns - 1
-            finished_test.test.totalRuns = finished_test.test.totalRuns + 1
+            testRun.test.activeRuns = testRun.test.activeRuns - 1
+            testRun.test.totalRuns = testRun.test.totalRuns + 1
+
+            testRun.success = success
 
             if success:
-                finished_test.test.successes = finished_test.test.successes + 1
+                testRun.test.successes = testRun.test.successes + 1
 
-            runningTest.delete()
-
-            for dep in self.database.TestDependency.lookupAll(dependsOn=finished_test.test):
+            for dep in self.database.TestDependency.lookupAll(dependsOn=testRun.test):
                 self._updateTestPriority(dep.test)
 
     def testHeartbeat(self, testId, timestamp):
+        logging.info('test %s heartbeating', testId)
         with self.transaction_and_lock():
-            test = self.database.RunningTest(str(testId))
-            assert test.test is not self.database.Test.Null
+            test = self.database.TestRun(str(testId))
+            assert test.exists()
+            assert test.test
 
             test.lastHeartbeat = timestamp
+
+    def _lookupHighestPriorityTest(self):
+        for priorityType in [
+                self.database.TestPriority.FirstBuild,
+                self.database.TestPriority.FirstTest,
+                self.database.TestPriority.WantsMoreTests
+                ]:
+            for priority in reversed(range(1,MAX_TEST_PRIORITY+1)):
+                test = self.database.Test.lookupAny(priority=priorityType(priority))
+                if test:
+                    logging.info("Returning test %s of priority %s", test.fullname, priorityType(priority))
+                    return test
 
     def startNewTest(self, machineId, timestamp):
         """Allocates a new test and returns (commitId, testName, testId) or (None,None,None) if no work."""
         self.recordMachineHeartbeat(machineId, timestamp)
 
         with self.transaction_and_lock():
-            test = (self.database.Test.lookupAny(priority=self.database.TestPriority.FirstBuild())
-                 or self.database.Test.lookupAny(priority=self.database.TestPriority.FirstTest())
-                 or self.database.Test.lookupAny(priority=self.database.TestPriority.WantsMoreTests())
-                 )
+            test = self._lookupHighestPriorityTest()
 
             if not test:
                 return None, None, None
 
             test.activeRuns = test.activeRuns + 1
 
-            runningTest = self.database.RunningTest.New(
+            runningTest = self.database.TestRun.New(
                 test=test,
                 startedTimestamp=timestamp,
                 lastHeartbeat=timestamp,
@@ -283,6 +288,10 @@ class TestManager(object):
                         subject=subject,
                         parents=parents
                         )
+                    for p in parents:
+                        self.database.CommitRelationship.New(child=commit,parent=p)
+
+                    self._triggerCommitPriorityUpdate(commit)
 
                     if "[nft]" not in subject:
                         try:
@@ -308,9 +317,55 @@ class TestManager(object):
             with self.transaction_and_lock():
                 self._updateTestPriority(task.test)
         elif task.matches.UpdateCommitPriority:
-            assert False, "Not implemented yet"
+            with self.transaction_and_lock():
+                self._updateCommitPriority(task.commit)
         else:
             raise Exception("Unknown task: %s" % task)
+
+    def _updateCommitPriority(self, commit):
+        priority = self._computeCommitPriority(commit)
+        
+        logging.info("Commit %s/%s has new priority %s%s%s", 
+            commit.repo.name, 
+            commit.hash, 
+            priority,
+            "==" if priority == commit.priority else "!=",
+            commit.priority
+            )
+
+        if priority != commit.priority:
+            commit.priority = priority
+
+            if commit.data:
+                for p in commit.data.parents:
+                    self._triggerCommitPriorityUpdate(p)
+
+                for test in self.database.Test.lookupAll(commitData=commit.data):
+                    for dep in self.database.TestDependency.lookupAll(test=test):
+                        if commit != dep.dependsOn.commitData.commit:
+                            self._triggerCommitPriorityUpdate(dep.dependsOn.commitData.commit)
+                
+                for test in self.database.Test.lookupAll(commitData=commit.data):
+                    self._triggerTestPriorityUpdateIfNecessary(test)
+
+    def _computeCommitPriority(self, commit):
+        priority = 0
+
+        for b in self.database.Branch.lookupAll(head=commit):
+            if b.isUnderTest:
+                logging.info("Commit %s/%s enabled because branch %s under test.", commit.repo.name, commit.hash, b.branchname)
+                priority = MAX_TEST_PRIORITY
+
+        for relationship in self.database.CommitRelationship.lookupAll(parent=commit):
+            priority = max(priority, relationship.child.priority - 1)
+
+        for test in self.database.Test.lookupAll(commitData=commit.data):
+            for dep in self.database.TestDependency.lookupAll(dependsOn=test):
+                needing_us = dep.test
+                if commit != needing_us.commitData.commit:
+                    priority = max(needing_us.commitData.commit.priority, priority)
+
+        return priority
 
     def _updateTestPriority(self, test):
         if self.database.UnresolvedTestDependency.lookupAll(test=test):
@@ -322,13 +377,16 @@ class TestManager(object):
         elif self._testNeedsNoMoreBuilds(test):
             test.priority = self.database.TestPriority.NoMoreTests()
         elif test.testDefinition.matches.Build:
-            test.priority = self.database.TestPriority.FirstBuild()
-        elif test.totalRuns == 0:
-            test.priority = self.database.TestPriority.FirstTest()
+            test.priority = self.database.TestPriority.FirstBuild(priority=test.commitData.commit.priority)
+        elif (test.totalRuns + test.activeRuns) == 0:
+            test.priority = self.database.TestPriority.FirstTest(priority=test.commitData.commit.priority)
         else:
-            test.priority = self.database.TestPriority.WantsMoreTests()
+            test.priority = self.database.TestPriority.WantsMoreTests(priority=test.commitData.commit.priority)
 
     def _testNeedsNoMoreBuilds(self, test):
+        if test.commitData.commit.priority == 0:
+            return True
+
         if test.testDefinition.matches.Deployment:
             needed = 0
         elif test.testDefinition.matches.Build:
@@ -373,7 +431,7 @@ class TestManager(object):
                 fullname_dep = "/".join([commitData.commit.repo.name, commitData.commit.hash, dep.name, dep.environment])
                 self._createTestDep(test, fullname_dep)
             elif dep.matches.Source:
-                self._createSourceDep(test, dep.repo.name, dep.commitHash)
+                self._createSourceDep(test, dep.repo, dep.commitHash)
 
         env = testDefinition.environment
         if env.matches.Import:

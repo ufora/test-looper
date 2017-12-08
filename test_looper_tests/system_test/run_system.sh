@@ -1,6 +1,12 @@
 #!/bin/bash
 
-trap 'kill $(jobs -p)' EXIT
+kill_child_processes() {
+  PGID=$(ps -o pgid= $$ | grep -o [0-9]*)
+
+  pkill --group $PGID
+}
+
+trap "kill_child_processes" EXIT
 
 PROJ_ROOT=`cd ../..; pwd`
 
