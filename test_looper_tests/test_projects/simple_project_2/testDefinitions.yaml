@@ -11,3 +11,14 @@ builds:
     command: "cp $TEST_INPUT_BUILDS_DIR/build_import/* $TEST_BUILD_OUTPUT_DIR"
     dependencies:
       build_import: simple/build/linux
+tests:
+  test2/linux:
+    command: "cat $TEST_INPUT_BUILDS_DIR/simplesource/starts_a_long_docker.py"
+    dependencies:
+      build_import: simple/build/linux
+      simplesource: simple/source
+  test2_fails/linux:
+    command: "cat $TEST_INPUT_BUILDS_DIR/simplesource/doesntExist.py"
+    dependencies:
+      build_import: simple/build/linux
+      simplesource: simple/source

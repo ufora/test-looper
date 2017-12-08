@@ -34,9 +34,6 @@ class AlgebraicTests(unittest.TestCase):
         self.assertTrue(xb.matches.B)
         self.assertFalse(xb.matches.A)
 
-        with self.assertRaises(AttributeError):
-            xb.matches.C
-
     def test_field_lookup(self):
         X = Algebraic.Alternative('X', A = {'a': int}, B = {'b': float})
 

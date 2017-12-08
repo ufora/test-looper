@@ -315,7 +315,7 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
 
         def __hash__(self):
             if self._hash is None:
-                self._hash = hash(tuple(sorted(self._fields.items()))) + hash(self._which)
+                self._hash = hash(tuple(sorted(self._fields.items())))
             return self._hash
 
         @property
@@ -357,11 +357,11 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
 
             if not isinstance(other, AlternativeOption):
                 return False
-            
-            if hash(self) != hash(other):
-                return False
 
             if self._which != other._which:
+                return False
+            
+            if hash(self) != hash(other):
                 return False
             
             for f in sorted(self._fields):

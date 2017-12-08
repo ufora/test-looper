@@ -45,8 +45,6 @@ class WorkerStateTests(unittest.TestCase):
 
         commits = [source_repo.commit("a message", timestamp)]
 
-        print "first commit on ", repo_name, " is ", commits[0]
-
         if extra_commit_paths:
             for commit_ix, bundle in enumerate(extra_commit_paths):
                 for fname, data in bundle.iteritems():
@@ -98,7 +96,7 @@ class WorkerStateTests(unittest.TestCase):
 
     def test_git_copy_dir(self):
         source_repo, source_control, c = self.get_repo("simple_project")
-        repo, commitHash = c.split("/")
+        repo, commitHash = c[0].split("/")
         self.assertTrue("ubuntu" in source_repo.getFileContents(commitHash, "Dockerfile.txt"))
 
     def test_worker_basic(self):
@@ -199,5 +197,12 @@ class WorkerStateTests(unittest.TestCase):
         self.assertTrue(
             worker.runTest("testId2", commit2, "build2/linux", lambda *args: None).success,
             worker.get_failure_log("testId2")
+            )
+        self.assertTrue(
+            worker.runTest("testId3", commit2, "test2/linux", lambda *args: None).success,
+            worker.get_failure_log("testId3")
+            )
+        self.assertFalse(
+            worker.runTest("testId3", commit2, "test2_fails/linux", lambda *args: None).success
             )
 
