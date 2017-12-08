@@ -261,6 +261,9 @@ def extract_tests(testScript):
 
 
 def extract_tests_from_str(text):
+    if isinstance(text, unicode):
+        text = str(text)
+
     try:
         json = yaml.load(text)
     except:

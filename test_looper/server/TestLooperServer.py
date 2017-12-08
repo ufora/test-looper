@@ -77,9 +77,14 @@ class Session(object):
 
 
     def heartbeat(self, args):
-        self.testManager.testHeartbeat(args.testId, time.time())
-
-        self.writeString("ack")
+        try:
+            if self.testManager.testHeartbeat(args.testId, time.time()):
+                self.writeString("ack")
+            else:
+                self.writeString("cancel")
+        except:
+            logging.error("Error processing test hearbeat for %s:\n\n%s", args.testId, traceback.format_exc())
+            self.writeString("error")
 
     def getTask(self, machineInfo):
         commit = None

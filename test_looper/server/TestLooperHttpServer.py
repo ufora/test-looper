@@ -244,12 +244,15 @@ class TestLooperHttpServer(object):
         return "/build_contents?key=%s" % key
 
     @staticmethod
-    def commitLink(commit, failuresOnly=False, testName=None, length=7):
+    def commitLink(commit, failuresOnly=False, testName=None, textIsSubject=True):
         commitId = commit.repo.name + "/" + commit.hash
 
         subject = "<not loaded yet>" if not commit.data else commit.data.subject
 
-        text = subject if len(subject) < 71 else subject[:70] + '...'
+        if textIsSubject:
+            text = subject if len(subject) < 71 else subject[:70] + '...'
+        else:
+            text = commit.repo.name + "/" + commit.hash[:8]
         
         extras = {}
 
@@ -261,7 +264,7 @@ class TestLooperHttpServer(object):
         return HtmlGeneration.link(
             text,
             "/commit/" + commitId + ("?" if extras else "") + urllib.urlencode(extras),
-            hover_text=None if isinstance(commit, basestring) else subject
+            hover_text=subject
             )
 
     def branchLink(self, branch, testGroupsToExpand=None):
@@ -1034,7 +1037,7 @@ class TestLooperHttpServer(object):
         grid.append(
             ["COMMIT", "", "(running)"] + \
             testGroupExpandLinks + \
-            ["SOURCE", ""]
+            ["SOURCE", "", "UPSTREAM", "DOWNSTREAM"]
             )
         return grid
 
@@ -1074,16 +1077,22 @@ class TestLooperHttpServer(object):
             tests = {}
 
         class Stat:
-            def __init__(self, totalRuns, runningCount, passCount, failCount, errRate):
+            def __init__(self, message, totalRuns, runningCount, passCount, failCount, errRate):
                 self.totalRuns = totalRuns
                 self.runningCount = runningCount
                 self.passCount = passCount
                 self.failCount = failCount
+                self.message = message
                 self.errRate = errRate
                 if errRate is None and self.totalRuns:
                     self.errRate = 1.0 - self.passCount / float(self.totalRuns)
 
             def __add__(self, other):
+                if self.message == other.message:
+                    message = self.message
+                else:
+                    message = ""
+
                 if self.totalRuns == 0:
                     blendedErrRate = other.errRate
                 elif other.totalRuns == 0:
@@ -1092,6 +1101,7 @@ class TestLooperHttpServer(object):
                     blendedErrRate = 1.0 - (1.0 - other.errRate) * (1.0 - self.errRate)
 
                 return Stat(
+                    self.message,
                     None,
                     self.runningCount + other.runningCount,
                     None,
@@ -1101,13 +1111,26 @@ class TestLooperHttpServer(object):
 
         def computeStatForTestGroup(testGroup):
             if testGroup in ungroupedUniqueTestIds:
+                if testGroup not in tests:
+                    return Stat("", 0,0,0,0,None)
+
+                test = tests[testGroup]
+                if test.priority.matches.UnresolvedDependencies:
+                    message="Unresolved Dependencies"
+                elif test.priority.matches.DependencyFailed:
+                    message="Dependency Failed"
+                else:
+                    message=""
+
                 return Stat(
-                    tests[testGroup].totalRuns,
-                    tests[testGroup].activeRuns,
-                    tests[testGroup].successes,
-                    tests[testGroup].totalRuns - tests[testGroup].successes,
+                    message,
+                    test.totalRuns,
+                    test.activeRuns,
+                    test.successes,
+                    test.totalRuns - test.successes,
                     None
                     )
+
             grp = [u for u in ungroupedUniqueTestIds if u.startswith(testGroup+"/")]
 
             s = computeStatForTestGroup(grp[0])
@@ -1120,7 +1143,7 @@ class TestLooperHttpServer(object):
 
             if stat.errRate is None:
                 if stat.runningCount == 0:
-                    row.append("")
+                    row.append(stat.message)
                 else:
                     row.append("[%s running]" % stat.runningCount)
             else:
@@ -1156,9 +1179,18 @@ class TestLooperHttpServer(object):
             else HtmlGeneration.lightGrey("invalid test file") 
                     if commit.data.testDefinitionsError
             else self.clearCommitIdLink(commit)
-                    if branch
-            else ""
             )
+
+        upstream = self.testManager.upstreamCommits(commit)
+        downstream = self.testManager.downstreamCommits(commit)
+        row.append(",&nbsp;".join([self.commitLink(c, textIsSubject=False).render() for c in upstream[:5]]))
+        if len(upstream) > 5:
+            row[-1] += ",&nbsp;..."
+
+        row.append(",".join([self.commitLink(c, textIsSubject=False).render() for c in downstream[:5]]))
+        if len(downstream) > 5:
+            row[-1] += ",&nbsp;..."
+
 
         return row
 

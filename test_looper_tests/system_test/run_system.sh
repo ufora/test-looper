@@ -55,6 +55,10 @@ for m in 4 5 6 7 8;
   git add .
   git commit -m "commit $m"
  done
+
+ rm build_file
+ git add .
+ git commit -m "commit that breaks the build"
  )
 
 (cd $TEST_LOOPER_INSTALL/repos/simple_project_2
@@ -65,6 +69,16 @@ for m in 4 5 6 7 8;
  echo "this is a file in simple_project_2" > a_file_in_repo_2.txt
  git add .
  git commit -m "second commit in simple_project_2"
+
+ cat testDefinitions.yaml | sed 's/2de0a2607ab40bb128b6620c5787c511c450c8ce/notavalidhash/' > testDefinitions2.yaml
+ rm testDefinitions.yaml
+ mv testDefinitions2.yaml testDefinitions.yaml
+ git add .
+ git commit -m "commit that produces a bad dependency"
+
+ rm testDefinitions.yaml
+ git add .
+ git commit -m "commit that has no test file"
  )
 }
 

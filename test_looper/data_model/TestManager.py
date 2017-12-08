@@ -55,6 +55,29 @@ class TestManager(object):
 
         return Scope()
 
+    def upstreamCommits(self, commit):
+        if not commit.data:
+            return []
+        result = []
+
+        for test in self.database.Test.lookupAll(commitData=commit.data):
+            for dep in self.database.TestDependency.lookupAll(test=test):
+                if commit != dep.dependsOn.commitData.commit:
+                    result.append(dep.dependsOn.commitData.commit)
+
+        return sorted(set(result), key=lambda k: k.repo.name + "/" + k.hash)
+
+    def downstreamCommits(self, commit):
+        if not commit.data:
+            return []
+        result = []
+
+        for test in self.database.Test.lookupAll(commitData=commit.data):
+            for dep in self.database.TestDependency.lookupAll(dependsOn=test):
+                if commit != dep.test.commitData.commit:
+                    result.append(dep.test.commitData.commit)
+
+        return sorted(set(result), key=lambda k: k.repo.name + "/" + k.hash)
 
     def commitsToDisplayForBranch(self, branch):
         commits = set()
@@ -130,6 +153,7 @@ class TestManager(object):
             testRun = self.database.TestRun(str(testId))
 
             assert testRun.exists(), "Can't find %s" % testId
+            assert not testRun.canceled, "test is already canceled"
 
             testRun.endTimestamp = curTimestamp
             
@@ -148,10 +172,16 @@ class TestManager(object):
         logging.info('test %s heartbeating', testId)
         with self.transaction_and_lock():
             test = self.database.TestRun(str(testId))
-            assert test.exists()
-            assert test.test
+
+            if not test.exists():
+                return False
+
+            if test.canceled:
+                return False
 
             test.lastHeartbeat = timestamp
+
+            return True
 
     def _lookupHighestPriorityTest(self):
         for priorityType in [
@@ -337,6 +367,13 @@ class TestManager(object):
             commit.priority = priority
 
             if commit.data:
+                if commit.priority == 0:
+                    for test in self.database.Test.lookupAll(commitData=commit.data):
+                        for run in self.database.TestRun.lookupAll(test=test):
+                            if run.endTimestamp == 0.0:
+                                run.canceled = True
+                                test.activeRuns = test.activeRuns - 1
+
                 for p in commit.data.parents:
                     self._triggerCommitPriorityUpdate(p)
 

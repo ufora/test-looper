@@ -89,7 +89,8 @@ def setup_types(database):
         lastHeartbeat=float,
         endTimestamp=float,
         success=bool,
-        machine=database.Machine
+        machine=database.Machine,
+        canceled=bool
         )
 
     database.Repo.define(

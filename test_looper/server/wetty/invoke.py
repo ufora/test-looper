@@ -14,7 +14,7 @@ import uuid
 import signal
 
 import test_looper.core.tools.Git as Git
-import test_looper.data_model.TestScriptDefinition as TestScriptDefinition
+import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.worker.WorkerState as WorkerState
 import test_looper.core.tools.Docker as Docker
 import test_looper.core.tools.DockerWatcher as DockerWatcher
@@ -97,7 +97,7 @@ if __name__ == "__main__":
         print
         print
         print
-        print "Couldn't find a testDefinitions.json file in the repo."
+        print "Couldn't find a testDefinitions.json/yaml file in the repo."
         print os.path.listdir(path)
         print
         sys.exit(1)
@@ -109,32 +109,42 @@ if __name__ == "__main__":
         print
         print
         print
-        print "Couldn't find a testDefinitions.json file in the repo."
+        print "Couldn't find a testDefinitions.jsonyaml file in the repo."
         print os.path.listdir(path), test_def_path
         print
         sys.exit(1)
 
-    testDefs = simplejson.loads(testDefsTxt)
-    testDefs = TestScriptDefinition.TestDefinitions.fromJson(testDefs)
+    testDefs = TestDefinitionScript.extract_tests_from_str(testDefsText)
 
-    testDef = testDefs.all().get(args.environment)
+    testDef = testDefs.get(args.environment)
 
     if not testDef:
         print "********************************"
         print
         print
         print
-        print "Couldn't find " + args.environment + " in testDefinitions.json:\n\n" + testDefsTxt
+        print "Couldn't find " + args.environment + " in testDefinitions:\n\n" + testDefsTxt
         print
         sys.exit(1)
 
-    cmd = testDef.testCommand
+    if testDef.matches.Build:
+        cmd = testDef.buildCommand
+    elif testDef.matches.Test:
+        cmd = testDef.testCommand
+    elif testDef.matches.Deploy:
+        cmd = testDef.deployCommand
+    else:
+        print "********************************"
+        print
+        print
+        print
+        print "Unknown test definition type: " + str(testDef)
+        print
+
 
     temp_dir = tempfile.mkdtemp()
 
     repo_dir = os.path.join(temp_dir, "repo")
-
-    print "command = " + cmd
 
     repo.resetToCommitInDirectory(commitHash, os.path.join(temp_dir, "repo"))
 

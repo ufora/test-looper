@@ -243,14 +243,12 @@ class Git(object):
 
         if commit in self.testDefinitionLocationCache_:
             return self.testDefinitionLocationCache_.get(commit)
-        
+
         paths = sorted(
-            [p for p in (
-                self.subprocessCheckOutput(["git", "ls-files", "*/testDefinitions.json"]).split("\n")+
-                self.subprocessCheckOutput(["git", "ls-files", "*/testDefinitions.yaml"]).split("\n")+
-                self.subprocessCheckOutput(["git", "ls-files", "testDefinitions.json"]).split("\n")+
-                self.subprocessCheckOutput(["git", "ls-files", "testDefinitions.yaml"]).split("\n")
-                ) if "testDefinitions.json" in p or "testDefinitions.yaml" in p]
+            [p for p in
+                self.subprocessCheckOutput(["git", "ls-tree", "--name-only", "-r", commit]).split("\n")
+                if p.endswith("/testDefinitions.json") or p == "testDefinitions.json" or 
+                   p.endswith("/testDefinitions.yaml") or p == "testDefinitions.yaml"]
             )
 
         if not paths:
