@@ -315,7 +315,7 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
 
         def __hash__(self):
             if self._hash is None:
-                self._hash = hash(tuple(sorted(self._fields.items())))
+                self._hash = hash(self.__sha_hash__())
             return self._hash
 
         @property

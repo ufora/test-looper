@@ -240,6 +240,8 @@ class Git(object):
 
     def getTestDefinitionsPath(self, commit):
         """Breadth-first search through the git repo to find testDefinitions.json"""
+        if not self.commitExists(commit):
+            self.pullLatest()
 
         if commit in self.testDefinitionLocationCache_:
             return self.testDefinitionLocationCache_.get(commit)

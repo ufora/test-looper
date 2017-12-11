@@ -3,9 +3,7 @@ repos:
   simple: simple_project/2de0a2607ab40bb128b6620c5787c511c450c8ce
 environments:
   linux:
-    platform: linux
-    image:
-      dockerfile: "Dockerfile.txt"
+    import: simple/linux
 builds:
   build2/linux:
     command: "cp $TEST_INPUT_BUILDS_DIR/build_import/* $TEST_BUILD_OUTPUT_DIR"

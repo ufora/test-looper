@@ -12,8 +12,8 @@ Platform.windows = {}
 Platform.linux = {}
 
 Image = algebraic.Alternative("Image")
-Image.Dockerfile = {"dockerfile": str}
-Image.AMI = {"base_ami": str, "ami_script": str}
+Image.Dockerfile = {"repo": str, "commitHash": str, "dockerfile": str}
+Image.AMI = {"base_ami": str, "repo": str, "commitHash": str, "ami_script": str}
 
 TestEnvironment = algebraic.Alternative("TestEnvironment")
 TestEnvironment.Environment = {

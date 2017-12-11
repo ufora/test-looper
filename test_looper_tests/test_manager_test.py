@@ -106,7 +106,7 @@ class MockRepo:
 
     def getTestScriptDefinitionsForCommit(self, commitHash):
         assert "/" not in commitHash
-        return self.source_control.commit_test_defs[self.repoName + "/" + commitHash]
+        return self.source_control.commit_test_defs[self.repoName + "/" + commitHash], "yaml"
 
 basic_yaml_file_repo1 = """
 looper_version: 2

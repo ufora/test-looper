@@ -4,6 +4,7 @@ import hmac
 import logging
 import requests
 import simplejson
+import os
 
 from test_looper.core.source_control import RemoteRepo
 from test_looper.core.tools.Git import Git
@@ -31,10 +32,11 @@ class GithubRepo(RemoteRepo.RemoteRepo):
 
     def getTestScriptDefinitionsForCommit(self, commitHash):
         test_definitions_path = self.source_repo.getTestDefinitionsPath(commitHash)
+        
         if test_definitions_path is None:
-            return None
+            return None, None
 
-        return self.source_repo.getFileContents(commitHash, test_definitions_path)
+        return self.source_repo.getFileContents(commitHash, test_definitions_path), os.path.splitext(test_definitions_path)[1]
 
     def commit_url(self, commit_id):
         return self.github.github_url + "/%s/%s/commit/%s" % (self.owner, self.repo, commit_id)

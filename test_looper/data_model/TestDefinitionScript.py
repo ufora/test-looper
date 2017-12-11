@@ -10,11 +10,20 @@ import yaml
 import simplejson 
 import logging
 
+Platform = TestDefinition.Platform
+
+Image = algebraic.Alternative("Image")
+Image.Dockerfile = {"dockerfile": str}
+Image.AMI = {"base_ami": str, "ami_script": str}
 
 DefineEnvironment = algebraic.Alternative("DefineEnvironment")
 DefineEnvironment.Import = {'import': str}
 DefineEnvironment.Group = {'group': algebraic.List(str)}
-DefineEnvironment.Environment = TestDefinition.TestEnvironment.Environment
+DefineEnvironment.Environment = {
+    "platform": Platform,
+    "image": Image,
+    "variables": algebraic.Dict(str, str)
+    }
 
 DefineBuild = algebraic.Alternative("DefineBuild")
 DefineTest = algebraic.Alternative("DefineTest")
@@ -67,7 +76,25 @@ def ensure_graph_closed_and_noncyclic(graph):
         if not added:
             raise Exception("Builds %s are circular." % str([x for x in graph if x not in seen]))
 
-def extract_tests(testScript):
+def map_image(commitId, image_def):
+    repo, commitHash = commitId.split("/")
+    if image_def.matches.Dockerfile:
+        return TestDefinition.Image.Dockerfile(
+            dockerfile=image_def.dockerfile,
+            repo=repo,
+            commitHash=commitHash
+            )
+    elif image_def.matches.AMI:
+        return TestDefinition.Image.AMI(
+            base_ami=image_def.base_ami,
+            ami_script=image_def.ami_script,
+            repo=repo,
+            commitHash=commitHash
+            )
+    else:
+        assert False, "Can't convert this kind of image: %s" % image_def
+
+def extract_tests(commitId, testScript):
     repos = {}
 
     for repoVarName, repoDef in testScript.repos.iteritems():
@@ -100,7 +127,7 @@ def extract_tests(testScript):
         elif envDef.matches.Environment:
             environments[envName] = TestDefinition.TestEnvironment.Environment(
                 platform=envDef.platform,
-                image=envDef.image,
+                image=map_image(commitId, envDef.image),
                 variables=envDef.variables
                 )  
 
@@ -257,20 +284,18 @@ def extract_tests(testScript):
 
     ensure_graph_closed_and_noncyclic(deps)
 
-    return allTests
+    return allTests, environments
 
-
-def extract_tests_from_str(text):
+def extract_tests_from_str(commitId, extension, text):
     if isinstance(text, unicode):
         text = str(text)
 
-    try:
+    if extension == ".yaml":
         json = yaml.load(text)
-    except:
-        try:
-            json = simplejson.loads(text)
-        except:
-            raise Exception("Failed to parse as either json or yaml.")
+    elif extension == ".json":
+        json = simplejson.loads(text)
+    else:
+        raise Exception("Can't load testDefinitions from file ending in '%s'. Use json or yaml." % extension)
 
     if 'looper_version' not in json:
         raise Exception("No looper version specified. Current version is 2")
@@ -282,4 +307,4 @@ def extract_tests_from_str(text):
 
     e = algebraic_to_json.Encoder()
 
-    return extract_tests(e.from_json(json, TestDefinitionScript))
+    return extract_tests(commitId, e.from_json(json, TestDefinitionScript))

@@ -305,9 +305,28 @@ class WorkerState(object):
 
         return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True)
 
-    def getDockerImage(self, commitId, pathToDockerfile, output_dir):
-        repoName, commitHash = commitId.split("/")
+    def resolveEnvironment(self, environment):
+        seen = set([environment])
+        while environment.matches.Import:
+            environment = self.environmentDefinitionFor(environment.repo + "/" + environment.commitHash, environment.name)
+            assert environment not in seen, "Circular environment definitions found"
+            seen.add(environment)
+            
+        return environment
+
+    def getDockerImage(self, testEnvironment, output_dir):
+        if testEnvironment.matches.Import:
+            testEnvironment = self.resolveEnvironment(testEnvironment)
+
+        assert testEnvironment.platform.matches.linux
+        assert testEnvironment.image.matches.Dockerfile
+
+        repoName = testEnvironment.image.repo
+        commitHash = testEnvironment.image.commitHash
+        pathToDockerfile = testEnvironment.image.dockerfile
+
         github_repo = self.getRepoCacheByName(repoName)
+
         try:
             return self.getDockerImageFromRepo(github_repo, commitHash, pathToDockerfile)
         except Exception as e:
@@ -335,17 +354,20 @@ class WorkerState(object):
             result.recordLogMessage(message)
         return result
 
-    def testDefinitionFor(self, commitId, testName):
+    def testAndEnvironmentDefinitionFor(self, commitId):
         repoName, commitHash = commitId.split("/")
 
         path = self.getRepoCacheByName(repoName).getTestDefinitionsPath(commitHash)
 
         testText = self.getRepoCacheByName(repoName).getFileContents(commitHash, path)
 
-        tests = TestDefinitionScript.extract_tests_from_str(testText)
+        return TestDefinitionScript.extract_tests_from_str(commitId, os.path.splitext(path)[1], testText)
 
-        return tests.get(testName)
+    def environmentDefinitionFor(self, commitId, envName):
+        return self.testAndEnvironmentDefinitionFor(commitId)[1].get(envName)
 
+    def testDefinitionFor(self, commitId, testName):
+        return self.testAndEnvironmentDefinitionFor(commitId)[0].get(testName)
 
     def runTest(self, testId, commitId, testName, heartbeat):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
@@ -417,7 +439,7 @@ class WorkerState(object):
         else:
             command = test_definition.testCommand
         
-        image = self.getDockerImage(commitId, test_definition.environment.image.dockerfile, self.directories.test_output_dir)
+        image = self.getDockerImage(test_definition.environment, self.directories.test_output_dir)
 
         env_overrides = self.environment_variables(testId, commitId, test_definition.matches.Build)
         

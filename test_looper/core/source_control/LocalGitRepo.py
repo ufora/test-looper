@@ -36,9 +36,9 @@ class LocalGitRepo(RemoteRepo.RemoteRepo):
         path = self.source_repo.getTestDefinitionsPath(commitHash)
 
         if path is None:
-            return None
+            return None, None
 
-        return self.source_repo.getFileContents(commitHash, path)
+        return self.source_repo.getFileContents(commitHash, path), os.path.splitext(path)[1]
 
     def commit_url(self, commit):
         return None

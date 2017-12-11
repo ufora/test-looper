@@ -114,7 +114,7 @@ if __name__ == "__main__":
         print
         sys.exit(1)
 
-    testDefs = TestDefinitionScript.extract_tests_from_str(testDefsText)
+    testDefs, environments = TestDefinitionScript.extract_tests_from_str(args.commit, os.path.splitext(test_def_path)[1], testDefsText)
 
     testDef = testDefs.get(args.environment)
 

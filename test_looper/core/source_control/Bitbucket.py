@@ -109,29 +109,7 @@ class Bitbucket(Git):
 
 
     def getTestScriptDefinitionsForCommit(self, commitId):
-        url = ('https://api.bitbucket.org/1.0/repositories/'
-               '{owner}/{repo}/raw/{commit}/{path}').format(owner=self.owner,
-                                                            repo=self.repo,
-                                                            commit=commitId,
-                                                            path=self.test_definitions_path)
-        while True:
-            if self.server_access_token is None:
-                self.server_access_token = self.get_server_token()
-
-            response = requests.get(url,
-                                    headers=self.authorization_headers(self.server_access_token))
-            if response.status_code != requests.codes.unauthorized:
-                break
-            self.server_access_token = None
-
-        if response.status_code == requests.codes.not_found:
-            logging.info("No test definitions for commit: %s. Url: %s", commitId, url)
-            return []
-
-        if not response.ok:
-            response.raise_for_status()
-
-        return response.json()
+        assert False, "not implemented"
 
 
     def get_server_token(self):

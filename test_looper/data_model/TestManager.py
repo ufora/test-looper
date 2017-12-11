@@ -325,8 +325,11 @@ class TestManager(object):
 
                     if "[nft]" not in subject:
                         try:
-                            defText = repo.getTestScriptDefinitionsForCommit(task.commit.hash)
-                            all_tests = TestDefinitionScript.extract_tests_from_str(defText)
+                            commitId = commit.repo.name + "/" + commit.hash
+
+                            defText, extension = repo.getTestScriptDefinitionsForCommit(task.commit.hash)
+                            
+                            all_tests, all_environments = TestDefinitionScript.extract_tests_from_str(commitId, extension, defText)
                             
                             for e in all_tests.values():
                                 fullname=commit.repo.name + "/" + commit.hash + "/" + e.name

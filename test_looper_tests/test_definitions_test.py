@@ -65,14 +65,14 @@ builds:
 
 class TestDefinitionScriptTests(unittest.TestCase):
     def test_basic(self):
-        tests = TestDefinitionScript.extract_tests_from_str(basic_yaml_file)
+        tests = TestDefinitionScript.extract_tests_from_str("repo/hash", "yaml", basic_yaml_file)
 
         for name in ['build/linux', 'build/test_linux', 'test/linux', 'test/test_linux']:
             self.assertTrue(name in tests, name)
 
     def test_disallow_circular(self):
         try:
-            TestDefinitionScript.extract_tests_from_str(circular_yaml_file)
+            TestDefinitionScript.extract_tests_from_str("repo/hash", "yaml", circular_yaml_file)
             self.assertTrue(False)
         except Exception as e:
             self.assertTrue("circular" in str(e), e)
