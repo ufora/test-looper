@@ -210,9 +210,9 @@ def extract_tests(commitId, testScript):
 
         if deps[0] == "data":
             #this is a data dependency
-            if len(deps) != 2:
-                raise Exception("Malformed data dependency: should be of form 'data/hash'")
-            return TestDefinition.TestDependency.Data(shaHash=deps[1])
+            if len(deps) != 3:
+                raise Exception("Malformed data dependency: should be of form 'data/name/hash'")
+            return TestDefinition.TestDependency.Data(dataName=deps[1], shaHash=deps[2])
 
         env = deps[-1]
         if env == '' or env =='*':

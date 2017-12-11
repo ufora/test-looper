@@ -17,7 +17,7 @@ tests:
     dependencies:
       build: build/linux
   check_build_output/linux:
-    command: "cat $TEST_INPUT_BUILDS_DIR/spiffy/build_file"
+    command: "cat $TEST_INPUTS/spiffy/build_file"
     dependencies:
       spiffy: build/linux
   docker/linux:

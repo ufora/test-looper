@@ -31,7 +31,7 @@ class TestLooperDirectories:
         self.repo_cache = os.path.join(worker_directory, "repos")
         self.repo_copy_dir = os.path.join(worker_directory, "repo_copy")
         self.scratch_dir = os.path.join(worker_directory, "scratch_dir")
-        self.input_builds_dir = os.path.join(worker_directory, "input_builds")
+        self.test_inputs_dir = os.path.join(worker_directory, "test_inputs")
         self.test_output_dir = os.path.join(worker_directory, "test_output")
         self.build_output_dir = os.path.join(worker_directory, "build_output")
         self.test_data_dir = os.path.join(worker_directory, "test_data")
@@ -39,7 +39,7 @@ class TestLooperDirectories:
         self.ccache_dir = os.path.join(worker_directory, "ccache")
 
     def all(self):
-        return [self.repo_copy_dir, self.scratch_dir, self.input_builds_dir, self.test_data_dir, 
+        return [self.repo_copy_dir, self.scratch_dir, self.test_inputs_dir, self.test_data_dir, 
                 self.build_cache_dir, self.ccache_dir, self.test_output_dir, self.build_output_dir, self.repo_cache]
 
 class WorkerState(object):
@@ -67,6 +67,7 @@ class WorkerState(object):
             self.ensureDirectoryExists(path)
 
         self.max_build_cache_depth = 10
+
         self.heartbeatInterval = TestLooperClient.TestLooperClient.HEARTBEAT_INTERVAL
 
         self.artifactStorage = artifactStorage
@@ -78,6 +79,10 @@ class WorkerState(object):
     def getRepoCacheByName(self, name):
         if name not in self.repos_by_name:
             self.repos_by_name[name] = Git.Git(str(os.path.join(self.directories.repo_cache, name)))
+
+            if not self.repos_by_name[name].isInitialized():
+                self.repos_by_name[name].cloneFrom(self.source_control.getRepo(name).cloneUrl())
+
         return self.repos_by_name[name]
 
 
@@ -114,7 +119,7 @@ class WorkerState(object):
             self.directories.test_output_dir,
             self.directories.build_output_dir,
             self.directories.scratch_dir, 
-            self.directories.input_builds_dir, 
+            self.directories.test_inputs_dir, 
             self.directories.repo_copy_dir
             )
         
@@ -176,7 +181,7 @@ class WorkerState(object):
                     ["/bin/bash", "-c", command, ">", log_filename_in_container, "2>&1"],
                     volumes={
                         self.directories.scratch_dir: "/test_looper/scratch",
-                        self.directories.input_builds_dir: "/test_looper/input_builds",
+                        self.directories.test_inputs_dir: "/test_looper/test_inputs",
                         self.directories.repo_copy_dir: "/test_looper/src",
                         self.directories.test_output_dir: "/test_looper/output",
                         self.directories.build_output_dir: "/test_looper/build_output",
@@ -325,10 +330,10 @@ class WorkerState(object):
         commitHash = testEnvironment.image.commitHash
         pathToDockerfile = testEnvironment.image.dockerfile
 
-        github_repo = self.getRepoCacheByName(repoName)
+        git_repo = self.getRepoCacheByName(repoName)
 
         try:
-            return self.getDockerImageFromRepo(github_repo, commitHash, pathToDockerfile)
+            return self.getDockerImageFromRepo(git_repo, commitHash, pathToDockerfile)
         except Exception as e:
             logging.error("Failed to produce docker image:\n%s", traceback.format_exc())
             self.ensureDirectoryExists(output_dir)
@@ -403,7 +408,7 @@ class WorkerState(object):
             tar.extractall(target_dir)
 
     def grabDependency(self, expose_as, dep, commitId):
-        target_dir = os.path.join(self.directories.input_builds_dir, expose_as)
+        target_dir = os.path.join(self.directories.test_inputs_dir, expose_as)
 
         if dep.matches.InternalBuild or dep.matches.ExternalBuild:
             if dep.matches.ExternalBuild:
@@ -423,7 +428,14 @@ class WorkerState(object):
             return None
 
         if dep.matches.Data:
-            return "Data dependencies not implemented yet."
+            if not self.artifactStorage.data_artifact_exists(dep.dataName, dep.shaHash):
+                return "can't run tests because dependent external data artifact %s with hash %s doesn't exist" % (dep.dataName, dep.shaHash)
+
+            path = self._download_data_artifact(dep.dataName, dep.shaHash)
+
+            self.ensureDirectoryExists(target_dir)
+            self.extract_package(path, target_dir)
+            return None
 
         return "Unknown dependency type: %s" % dep
 
@@ -506,6 +518,15 @@ class WorkerState(object):
                           )
             return False
 
+    def _download_data_artifact(self, dataName, shaHash):
+        path = os.path.join(self.directories.build_cache_dir, dataName + "_" + shaHash + ".tar.gz")
+        
+        if not os.path.exists(path):
+            logging.info("Downloading data dependency %s with hash %s to %s", dataName, shaHash, path)
+            self.artifactStorage.download_data_artifact(dataName, shaHash, path)
+
+        return path
+
     def _download_build(self, commitId, testName):
         path = os.path.join(self.directories.build_cache_dir, self.artifactKeyForTest(commitId, testName))
         
@@ -521,7 +542,7 @@ class WorkerState(object):
             'TEST_REPO': repoName,
             'REVISION': commitHash,
             'TEST_SRC_DIR': "/test_looper/src",
-            'TEST_INPUT_BUILDS_DIR': "/test_looper/input_builds",
+            'TEST_INPUTS': "/test_looper/test_inputs",
             'TEST_SCRATCH_DIR': "/test_looper/scratch",
             'TEST_OUTPUT_DIR': "/test_looper/output",
             'TEST_BUILD_OUTPUT_DIR': "/test_looper/build_output",

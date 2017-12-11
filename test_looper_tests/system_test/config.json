@@ -11,6 +11,7 @@
         },
     "artifacts": {
         "type": "local_disk",
+        "data_storage_path": "$TEST_LOOPER_INSTALL/data_artifacts",
         "test_artifacts_storage_path": "$TEST_LOOPER_INSTALL/test_artifacts",
         "build_storage_path": "$TEST_LOOPER_INSTALL/build_storage"
         },

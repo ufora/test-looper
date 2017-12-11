@@ -236,13 +236,18 @@ class Git(object):
                 return None
 
     def commitExists(self, commitHash):
-        return commitHash in self.subprocessCheckOutput("git rev-parse --quiet --verify %s^{commit}" % commitHash, shell=True)
+        return commitHash in self.subprocessCheckOutput("git rev-parse --quiet --verify %s^{commit}; exit 0" % commitHash, shell=True)
 
     def getTestDefinitionsPath(self, commit):
         """Breadth-first search through the git repo to find testDefinitions.json"""
         if not self.commitExists(commit):
+            logging.info("Commit %s doesn't exist in %s Pulling to see if we can find it.", self.path_to_repo, commit)
             self.pullLatest()
 
+            if not self.commitExists(commit):
+                logging.info("Commit %s doesn't exist in %s even after pulling from origin.", self.path_to_repo, commit)
+                raise Exception("Can't find commit %s" % commit)
+        
         if commit in self.testDefinitionLocationCache_:
             return self.testDefinitionLocationCache_.get(commit)
 

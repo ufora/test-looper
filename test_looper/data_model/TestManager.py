@@ -399,12 +399,6 @@ class TestManager(object):
         for relationship in self.database.CommitRelationship.lookupAll(parent=commit):
             priority = max(priority, relationship.child.priority - 1)
 
-        for test in self.database.Test.lookupAll(commitData=commit.data):
-            for dep in self.database.TestDependency.lookupAll(dependsOn=test):
-                needing_us = dep.test
-                if commit != needing_us.commitData.commit:
-                    priority = max(needing_us.commitData.commit.priority, priority)
-
         return priority
 
     def _updateTestPriority(self, test):

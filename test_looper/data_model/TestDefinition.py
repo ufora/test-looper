@@ -31,7 +31,7 @@ TestDependency = algebraic.Alternative("TestDependency")
 TestDependency.InternalBuild = {"name": str, "environment": str}
 TestDependency.ExternalBuild = {"repo": str, "commitHash": str, "name": str, "environment": str}
 TestDependency.Source = {"repo": str, "commitHash": str}
-TestDependency.Data = {"shaHash": str}
+TestDependency.Data = {"shaHash": str, "dataName": str}
 
 TestDefinition = algebraic.Alternative("TestDefinition")
 TestDefinition.Build = {

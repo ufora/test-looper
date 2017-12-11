@@ -5,14 +5,17 @@ import cherrypy
 import subprocess
 import logging
 import traceback
+import tempfile
+import shutil
 
+import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.TimerQueue as TimerQueue
+
 timerQueue = TimerQueue.TimerQueue(16)
 
 class AwsArtifactStorage(object):
     def __init__(self, ec2_config, aws_region):
-        self.test_result_bucket_name = ec2_config['test_result_bucket']
-        self.builds_bucket_name = ec2_config['builds_bucket']
+        self.bucket_name = ec2_config['bucket']
         self.aws_region = ec2_config['aws_region']
 
     def testResultKeysFor(self, testId):
@@ -103,8 +106,13 @@ class AwsArtifactStorage(object):
 
 class LocalArtifactStorage(object):
     def __init__(self, config):
-        self.build_storage_path = os.path.expandvars(config["build_storage_path"])
-        self.test_artifacts_storage_path = os.path.expandvars(config["test_artifacts_storage_path"])
+        def expand(x):
+            if x is None:
+                return x
+            return os.path.expandvars(x)
+        self.data_storage_path = expand(config["data_storage_path"])
+        self.build_storage_path = expand(config["build_storage_path"])
+        self.test_artifacts_storage_path = expand(config["test_artifacts_storage_path"])
 
     def buildContents(self, key):  
         with open(os.path.join(self.build_storage_path, key), "r") as f:
@@ -132,20 +140,27 @@ class LocalArtifactStorage(object):
         return self.testContents(testId, key)
     
     def filecopy(self, dest_path, src_path):
+        assert not os.path.exists(dest_path), dest_path
+
         dirname = os.path.split(dest_path)[0]
         try:
             os.makedirs(dirname)
         except OSError:
             pass
         
-        with open(dest_path, "w") as target:
-            with open(src_path, "r") as src:
-                while True:
-                    data = src.read(1024 * 1024)
-                    if data:
-                        target.write(data)
-                    else:
-                        break
+        try:
+            with open(dest_path, "w") as target:
+                with open(src_path, "r") as src:
+                    while True:
+                        data = src.read(1024 * 1024)
+                        if data:
+                            target.write(data)
+                        else:
+                            break
+        except:
+            if os.path.exists(dest_path):
+                os.unlink(dest_path)
+            raise
 
     def testResultKeysFor(self, testId):
         path = os.path.join(self.test_artifacts_storage_path, testId)
@@ -161,6 +176,41 @@ class LocalArtifactStorage(object):
 
     def download_build(self, key_name, dest):
         self.filecopy(dest, os.path.join(self.build_storage_path, key_name))
+
+    def data_artifact_exists(self, artifact_name, shaHash):
+        path_to_artifact = os.path.join(self.data_storage_path, artifact_name + "_" + shaHash + ".tar.gz")
+        return os.path.exists(path_to_artifact)
+
+    def download_data_artifact(self, artifact_name, shaHash, dest):
+        path_to_artifact = os.path.join(self.data_storage_path, artifact_name + "_" + shaHash + ".tar.gz")
+        self.filecopy(dest, path_to_artifact)
+
+    def create_data_artifact(self, artifact_dir, artifact_name):
+        try:
+            os.makedirs(self.data_storage_path)
+        except OSError:
+            pass
+        
+        tmpdir = tempfile.mkdtemp()
+
+        try:
+            target = os.path.join(tmpdir, "artifact.tar.gz")
+
+            SubprocessRunner.callAndAssertSuccess(
+                ["tar", "cvfz", target, "--directory", artifact_dir, 
+                 '--mtime', '1970-01-01',
+                 "."
+                ], env={'GZIP': '-n'})
+
+            shaHash = SubprocessRunner.callAndReturnOutput(["sha1sum", target]).strip().split(" ")[0]
+
+            storage_path = os.path.join(self.data_storage_path, artifact_name + "_" + shaHash + ".tar.gz")
+            
+            self.filecopy(storage_path, target)
+
+            return shaHash
+        finally:
+            shutil.rmtree(tmpdir)
 
     def uploadTestArtifacts(self, testId, machineId, testOutputDir):
         try:

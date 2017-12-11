@@ -70,7 +70,7 @@ for m in 4 5 6 7 8;
  git add .
  git commit -m "second commit in simple_project_2"
 
- cat testDefinitions.yaml | sed 's/2de0a2607ab40bb128b6620c5787c511c450c8ce/notavalidhash/' > testDefinitions2.yaml
+ cat testDefinitions.yaml | sed 's/5337767ea5d06611c8b958187c408ce07861d40e/notavalidhash/' > testDefinitions2.yaml
  rm testDefinitions.yaml
  mv testDefinitions2.yaml testDefinitions.yaml
  git add .
@@ -80,6 +80,8 @@ for m in 4 5 6 7 8;
  git add .
  git commit -m "commit that has no test file"
  )
+
+ $PROJ_ROOT/test_looper/script/create-artifact.py --target_dir $TEST_LOOPER_INSTALL/data_artifacts --dir $PROJ_ROOT/test_looper_tests/test_projects/sample_data_artifact --name someData
 }
 
 rebuild;
