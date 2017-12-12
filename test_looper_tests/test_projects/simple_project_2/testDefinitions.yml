@@ -4,6 +4,12 @@ repos:
 environments:
   linux:
     import: simple/linux
+  linux2:
+    platform: linux
+    image:
+      dockerfile: "Dockerfile.txt"
+    dependencies:
+      simplesource: simple
 builds:
   build2/linux:
     command: "cp $TEST_INPUTS/build_import/* $TEST_BUILD_OUTPUT_DIR"
@@ -20,3 +26,7 @@ tests:
     dependencies:
       build_import: simple/build/linux
       simplesource: simple
+  test2_dep_from_env/linux2:
+    command: "cat $TEST_INPUTS/simplesource/starts_a_long_docker.py"
+    dependencies:
+      build_import: simple/build/linux

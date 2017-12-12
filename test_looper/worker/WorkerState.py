@@ -320,9 +320,7 @@ class WorkerState(object):
         return environment
 
     def getDockerImage(self, testEnvironment, output_dir):
-        if testEnvironment.matches.Import:
-            testEnvironment = self.resolveEnvironment(testEnvironment)
-
+        assert testEnvironment.matches.Environment
         assert testEnvironment.platform.matches.linux
         assert testEnvironment.image.matches.Dockerfile
 
@@ -432,7 +430,13 @@ class WorkerState(object):
         return "Unknown dependency type: %s" % dep
 
     def _run_task(self, testId, commitId, test_definition, heartbeat):
-        for expose_as, dep in test_definition.dependencies.iteritems():
+        environment = self.resolveEnvironment(test_definition.environment)
+
+        all_dependencies = {}
+        all_dependencies.update(environment.dependencies)
+        all_dependencies.update(test_definition.dependencies)
+
+        for expose_as, dep in all_dependencies.iteritems():
             errStringOrNone = self.grabDependency(expose_as, dep, commitId)
 
             if errStringOrNone is not None:
@@ -442,8 +446,8 @@ class WorkerState(object):
             command = test_definition.buildCommand
         else:
             command = test_definition.testCommand
-        
-        image = self.getDockerImage(test_definition.environment, self.directories.test_output_dir)
+
+        image = self.getDockerImage(environment, self.directories.test_output_dir)
 
         env_overrides = self.environment_variables(testId, commitId, test_definition.matches.Build)
         

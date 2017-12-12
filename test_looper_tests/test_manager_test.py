@@ -161,6 +161,20 @@ tests:
       build: build/
 """
 
+basic_yml_file_repo3 = """
+looper_version: 2
+repos:
+  child: repo2/c0
+environments:
+  linux: 
+    import: child/linux
+builds:
+  build/linux:
+    command: "build.sh $TEST_LOOPER_IMPORTS/child"
+    dependencies:
+      child: child/build/linux
+"""
+
 class TestManagerTests(unittest.TestCase):
     def get_manager(self):
         manager = TestManager.TestManager(
@@ -259,4 +273,74 @@ class TestManagerTests(unittest.TestCase):
             "repo2/c1/test/linux",
             "repo2/c0/test/linux"
             ]), phases)
+
+    def test_manager_env_imports(self):
+        manager = self.get_manager()
+
+        manager.source_control.addCommit("repo3/c0", [], basic_yml_file_repo3)
+        manager.source_control.setBranch("repo3/master", "repo3/c0")
+
+        manager.markRepoListDirty(0.0)
+
+        while manager.performBackgroundWork(0.0) is not None:
+            pass
+
+        with manager.database.view():
+            repo3 = manager.database.Repo.lookupOne(name="repo3")
+            commit3 = manager.database.Commit.lookupOne(repo_and_hash=(repo3, "c0"))
+            test3 = manager.database.Test.lookupOne(fullname=("repo3/c0/build/linux"))
+
+            assert test3 is not None
+            assert test3.priority.matches.UnresolvedDependencies
+
+        manager.source_control.addCommit("repo2/c0", [], basic_yml_file_repo2)
+        manager.source_control.setBranch("repo2/master", "repo2/c0")
+        
+        manager.markRepoListDirty(0.0)
+
+        while manager.performBackgroundWork(0.0) is not None:
+            pass
+
+        with manager.database.view():
+            repo2 = manager.database.Repo.lookupOne(name="repo2")
+            commit2 = manager.database.Commit.lookupOne(repo_and_hash=(repo2, "c0"))
+            test2 = manager.database.Test.lookupOne(fullname=("repo2/c0/build/linux"))
+
+            assert test2 is not None
+            assert test2.priority.matches.UnresolvedDependencies
+
+            test2deps = manager.database.UnresolvedRepoDependency.lookupAll(test=test2)
+            self.assertEqual([x.reponame + "/" + x.commitHash for x in test2deps], ["repo1/c0"])
+
+            test3deps = manager.database.UnresolvedRepoDependency.lookupAll(test=test3)
+            self.assertEqual([x.reponame + "/" + x.commitHash for x in test3deps], ["repo1/c0"])
+
+            assert test3.priority.matches.UnresolvedDependencies, test3.priority
+        
+        manager.source_control.addCommit("repo1/c0", [], basic_yml_file_repo1)
+        manager.source_control.setBranch("repo1/master", "repo1/c0")
+        
+        manager.markRepoListDirty(0.0)
+
+        while manager.performBackgroundWork(0.0) is not None:
+            pass
+
+        with manager.database.view():
+            repo1 = manager.database.Repo.lookupOne(name="repo1")
+            commit1 = manager.database.Commit.lookupOne(repo_and_hash=(repo1, "c0"))
+            test1 = manager.database.Test.lookupOne(fullname=("repo1/c0/build/linux"))
+
+            test2deps = manager.database.UnresolvedSourceDependency.lookupAll(test=test2)
+            assert not test2deps, [x.repo.name + "/" + x.commitHash for x in test2deps]
+
+            assert test1 is not None
+            assert test1.priority.matches.NoMoreTests
+            assert test2.priority.matches.WaitingOnBuilds, test2.priority
+
+            test3deps = manager.database.UnresolvedRepoDependency.lookupAll(test=test3)
+            self.assertEqual([x.reponame + "/" + x.commitHash for x in test3deps], [])
+
+            assert test3.priority.matches.WaitingOnBuilds, test3.priority
+        
+
 

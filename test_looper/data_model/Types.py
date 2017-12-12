@@ -43,6 +43,8 @@ def setup_types(database):
         commit=database.Commit,
         parents=algebraic.List(database.Commit),
         subject=str,
+        testDefinitions=algebraic.Dict(str, TestDefinition.TestDefinition),
+        environments=algebraic.Dict(str, TestDefinition.TestEnvironment),
         testDefinitionsError=str
         )
     database.CommitRelationship.define(
@@ -115,12 +117,17 @@ def setup_types(database):
     database.addIndex(database.Machine, 'machineId')
     database.addIndex(database.UnresolvedTestDependency, 'dependsOnName')
     database.addIndex(database.UnresolvedTestDependency, 'test')
+    database.addIndex(database.UnresolvedTestDependency, 'test_and_depends', lambda o:(o.test, o.dependsOnName))
+
     database.addIndex(database.UnresolvedRepoDependency, 'test')
     database.addIndex(database.UnresolvedRepoDependency, 'reponame')
+    database.addIndex(database.UnresolvedRepoDependency, 'test_and_reponame', lambda o:(o.test, o.reponame))
     database.addIndex(database.UnresolvedSourceDependency, 'test')
     database.addIndex(database.UnresolvedSourceDependency, 'repo_and_hash', lambda o:(o.repo, o.commitHash))
+    database.addIndex(database.UnresolvedSourceDependency, 'test_and_repo_and_hash', lambda o:(o.test, o.repo, o.commitHash))
     database.addIndex(database.TestDependency, 'test')
     database.addIndex(database.TestDependency, 'dependsOn')
+    database.addIndex(database.TestDependency, 'test_and_depends', lambda o:(o.test, o.dependsOn))
     database.addIndex(database.Repo, 'name')
     database.addIndex(database.Repo, 'isActive')
     database.addIndex(database.Branch, 'repo')

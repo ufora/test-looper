@@ -15,22 +15,23 @@ Image = algebraic.Alternative("Image")
 Image.Dockerfile = {"repo": str, "commitHash": str, "dockerfile": str}
 Image.AMI = {"base_ami": str, "repo": str, "commitHash": str, "ami_script": str}
 
+TestDependency = algebraic.Alternative("TestDependency")
+TestDependency.InternalBuild = {"name": str, "environment": str}
+TestDependency.ExternalBuild = {"repo": str, "commitHash": str, "name": str, "environment": str}
+TestDependency.Source = {"repo": str, "commitHash": str}
+
 TestEnvironment = algebraic.Alternative("TestEnvironment")
 TestEnvironment.Environment = {
     "platform": Platform,
     "image": Image,
-    "variables": algebraic.Dict(str, str)
+    "variables": algebraic.Dict(str, str),
+    "dependencies": algebraic.Dict(str, TestDependency)
     }
 TestEnvironment.Import = {
     "repo": str,
     "commitHash": str,
     "name": str
     }
-
-TestDependency = algebraic.Alternative("TestDependency")
-TestDependency.InternalBuild = {"name": str, "environment": str}
-TestDependency.ExternalBuild = {"repo": str, "commitHash": str, "name": str, "environment": str}
-TestDependency.Source = {"repo": str, "commitHash": str}
 
 TestDefinition = algebraic.Alternative("TestDefinition")
 TestDefinition.Build = {

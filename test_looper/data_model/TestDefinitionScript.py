@@ -22,7 +22,8 @@ DefineEnvironment.Group = {'group': algebraic.List(str)}
 DefineEnvironment.Environment = {
     "platform": Platform,
     "image": Image,
-    "variables": algebraic.Dict(str, str)
+    "variables": algebraic.Dict(str, str),
+    "dependencies": algebraic.Dict(str, str)
     }
 
 DefineBuild = algebraic.Alternative("DefineBuild")
@@ -125,10 +126,37 @@ def extract_tests(commitId, testScript):
                 name=importEnvName
                 )
         elif envDef.matches.Environment:
+            def map_dep(dep):
+                deps = dep.split("/")
+                if deps[0] not in repos:
+                    raise Exception("Environment dependencies must reference an external repo's build output or source")
+
+                if len(deps) == 1:
+                    #this is a source dependency
+                    return TestDefinition.TestDependency.Source(
+                        repo=repos[deps[0]][0],
+                        commitHash=repos[deps[0]][1],
+                        )
+
+                if len(deps) < 3:
+                    raise Exception("Malformed repo dependency: should be of form 'repoReference/buildName/environment'")
+                
+                env = deps[-1]
+
+                return TestDefinition.TestDependency.ExternalBuild(
+                    repo=repos[deps[0]][0],
+                    commitHash=repos[deps[0]][1],
+                    name="/".join(deps[1:-1]),
+                    environment=env
+                    )
+
             environments[envName] = TestDefinition.TestEnvironment.Environment(
                 platform=envDef.platform,
                 image=map_image(commitId, envDef.image),
-                variables=envDef.variables
+                variables=envDef.variables,
+                dependencies={
+                    name: map_dep(dep) for name, dep in envDef.dependencies.iteritems()
+                    }
                 )  
 
     environmentGroups = {}
@@ -196,7 +224,7 @@ def extract_tests(commitId, testScript):
                 raise Exception("Malformed repo dependency: should be of form 'repoReference/buildName/environment'")
             
             env = deps[-1]
-            if env == '' or env =='*':
+            if (env == '' or env =='*') and curEnv is not None:
                 env = curEnv
 
             return TestDefinition.TestDependency.ExternalBuild(
@@ -207,7 +235,7 @@ def extract_tests(commitId, testScript):
                 )
 
         env = deps[-1]
-        if env == '' or env =='*':
+        if (env == '' or env =='*') and curEnv is not None:
             env = curEnv
 
         actual_build = "/".join(deps[:-1]) + "/" + env

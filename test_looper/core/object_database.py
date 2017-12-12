@@ -99,7 +99,7 @@ class DatabaseObject(object):
             raise Exception("Null object of type %s has no fields" % type(self).__name__)
 
         if name not in self.__types__:
-            raise AttributeError(name)
+            raise AttributeError("Object of type %s has no field %s" % (type(self).__name__, name))
 
         if not hasattr(_cur_view, "view"):
             raise Exception("Please access properties from within a view or transaction.")
