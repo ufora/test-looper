@@ -201,7 +201,7 @@ class TestManager(object):
             test = self._lookupHighestPriorityTest()
 
             if not test:
-                return None, None, None
+                return None, None, None, None
 
             test.activeRuns = test.activeRuns + 1
 
@@ -265,6 +265,7 @@ class TestManager(object):
         elif task.matches.RefreshBranches:
             with self.transaction_and_lock():
                 repo = self.source_control.getRepo(task.repo.name)
+                repo.source_repo.fetchOrigin()
 
                 branchnames = repo.listBranches()
 
@@ -274,6 +275,12 @@ class TestManager(object):
 
                 db_branches = self.database.Branch.lookupAll(repo=db_repo)
 
+                logging.info(
+                    "Comparing branchlist from server: %s to local: %s", 
+                    sorted(branchnames_set), 
+                    sorted([x.branchname for x in db_branches])
+                    )
+
                 final_branches = tuple([x for x in db_branches if x.branchname in branchnames_set])
                 for branch in db_branches:
                     if branch.branchname not in branchnames_set:
@@ -282,10 +289,16 @@ class TestManager(object):
                 for newname in branchnames_set - set([x.branchname for x in db_branches]):
                     newbranch = self.database.Branch.New(branchname=newname, repo=db_repo)
 
-                    self.database.DataTask.New(
-                        task=self.database.BackgroundTask.UpdateBranchTopCommit(newbranch),
-                        status=pending
-                        )
+                for branchname in branchnames:
+                    try:
+                        self.database.DataTask.New(
+                            task=self.database.BackgroundTask.UpdateBranchTopCommit(
+                                self.database.Branch.lookupOne(reponame_and_branchname=(db_repo.name, branchname))
+                                ),
+                            status=pending
+                            )
+                    except:
+                        logging.error("Error scheduling branch commit lookup:\n\n%s", traceback.format_exc())
 
         elif task.matches.UpdateBranchTopCommit:
             with self.transaction_and_lock():
@@ -343,7 +356,7 @@ class TestManager(object):
                     except Exception as e:
                         if not str(e):
                             logging.error("%s", traceback.format_exc())
-                            
+
                         logging.warn("Got an error parsing tests for %s: '%s'", commit.hash, str(e))
 
                         commit.data.testDefinitionsError=str(e)

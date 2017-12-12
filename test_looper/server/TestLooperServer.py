@@ -63,7 +63,7 @@ class Session(object):
             elif requestType == 'publishTestResult':
                 self.publishTestResult(args)
             elif requestType == 'heartbeat':
-                self.heartbeat(HeartbeatArguments(**args))
+                self.heartbeat(args)
             else:
                 self.writeString('error:protocol_violation:unknown_request')
                 raise Exception("Protocol violation: unknown request type '%s'" % requestType)
@@ -74,7 +74,7 @@ class Session(object):
 
     def heartbeat(self, args):
         try:
-            if self.testManager.testHeartbeat(args.testId, time.time()):
+            if self.testManager.testHeartbeat(args['testId'], time.time()):
                 self.writeString("ack")
             else:
                 self.writeString("cancel")

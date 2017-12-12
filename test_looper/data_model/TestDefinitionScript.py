@@ -94,16 +94,18 @@ def map_image(reponame, commitHash, image_def):
     else:
         assert False, "Can't convert this kind of image: %s" % image_def
 
-def extract_tests(repoName, commitHash, testScript):
+def extract_tests(curRepoName, curCommitHash, testScript):
     repos = {}
 
     for repoVarName, repoDef in testScript.repos.iteritems():
         if repoVarName in reservedNames:
             raise Exception("%s is a reserved name and can't be used as a reponame." % repoVarName)
 
-        assert len(repoDef.split("/")) == 2, "Improperly formed repo definition: %s" % repoDef
+        assert len(repoDef.split("/")) >= 2, "Improperly formed repo definition: %s" % repoDef
 
-        repoName, commitHash = repoDef.split("/")
+        parts = repoDef.split("/")
+        repoName = "/".join(parts[:-1])
+        commitHash = parts[-1]
 
         repos[repoVarName] = (repoName, commitHash)
 
@@ -151,7 +153,7 @@ def extract_tests(repoName, commitHash, testScript):
 
             environments[envName] = TestDefinition.TestEnvironment.Environment(
                 platform=envDef.platform,
-                image=map_image(repoName, commitHash, envDef.image),
+                image=map_image(curRepoName, curCommitHash, envDef.image),
                 variables=envDef.variables,
                 dependencies={
                     name: map_dep(dep) for name, dep in envDef.dependencies.iteritems()
@@ -291,7 +293,7 @@ def extract_tests(repoName, commitHash, testScript):
 
     for name, definition in all_names_and_defs:
         if name.split("/")[0] in repos:
-            raise Exception("Cant use reuse %s, as it's aready a repo name." % name)
+            raise Exception("Cant produce a test with name %s, because %s is already a repo name." % (name, name.split("/")[0]))
 
         for actualName in expand_build_name(name):
             allTests[actualName] = convert_def(actualName, definition)

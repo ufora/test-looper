@@ -96,16 +96,12 @@ class TestLooperWorker(object):
 
 
     def mainTestingIteration(self):
-        logging.info("Machine %s is starting a new test loop iteration",
-                     self.ownMachineInfo.machineId)
         self.heartbeatResponse = TestResult.HEARTBEAT_RESPONSE_ACK
         self.testLooperClient = self.settings.testLooperClientFactory()
 
         commit_and_test = self.testLooperClient.getTask(self.ownMachineInfo)
 
         if commit_and_test is None:
-            logging.info("Machine %s has nothing to do. Waiting.",
-                         self.ownMachineInfo.machineId)
             return self.timeToSleepWhenThereIsNoWork
 
         self.run_task(
@@ -119,7 +115,7 @@ class TestLooperWorker(object):
 
 
     def run_task(self, repoName, commitHash, testId, testName):
-        logging.info("Machine %s is working on testId %s, test %s, for commit %s",
+        logging.info("Machine %s is working on testId %s, test %s/%s, for commit %s",
                      self.ownMachineInfo.machineId,
                      testId,
                      testName,

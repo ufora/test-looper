@@ -66,10 +66,6 @@ class TestLooperHttpServer(object):
         self.enable_advanced_views = enable_advanced_views
         self.artifactStorage = artifactStorage
 
-        self.refresh_lock = threading.Lock()
-        self.need_refresh = False
-        self.refresh_thread = None
-
 
     def addLogMessage(self, format_string, *args, **kwargs):
         self.eventLog.addLogMessage(self.getCurrentLogin(), format_string, *args, **kwargs)
@@ -597,23 +593,11 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def refresh(self, redirect=None):
-        self.refreshBranches(block=True)
+        self.refreshBranches()
         raise cherrypy.HTTPRedirect(redirect or self.address + "/repos")
 
-    @cherrypy.expose
-    def refreshNonblocking(self):
-        self.refreshBranches(block=False)
-
-    def refreshBranches(self, block=True):
-        with self.refresh_lock:
-            self.need_refresh = True
-            if self.refresh_thread is None:
-                self.refresh_thread = threading.Thread(target=self.refreshTestManager)
-                self.refresh_thread.start()
-            refresh_thread = self.refresh_thread
-
-        if block:
-            refresh_thread.join()
+    def refreshBranches(self):
+        self.testManager.markRepoListDirty(time.time())
 
     def redirect(self):
         qs = cherrypy.request.query_string
@@ -1263,23 +1247,7 @@ class TestLooperHttpServer(object):
             raise cherrypy.HTTPError(400, "Invalid webhook request")
 
         #don't block the webserver itself, so we can do this in a background thread
-        self.refreshBranches(block=False)
-
-    def refreshTestManager(self):
-        need_refresh = True
-        while need_refresh:
-            with self.refresh_lock:
-                self.need_refresh = False
-
-            with self.testManager.database.view():
-                self.testManager.updateBranchesUnderTest()
-
-            with self.refresh_lock:
-                need_refresh = self.need_refresh
-
-        with self.refresh_lock:
-            self.refresh_thread = None
-
+        self.refreshBranches()
 
     def start(self):
         config = {

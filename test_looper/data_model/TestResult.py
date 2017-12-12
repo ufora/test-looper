@@ -1,6 +1,8 @@
 import time
 import logging
 
+HEARTBEAT_RESPONSE_ACK = 'ack'
+
 class TestResultOnMachine(object):
     def __init__(self, success, testId, repoName, commitHash, logMessages, performanceResults, machine, finishTime):
         """Create a TestResultOnMachine.

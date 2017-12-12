@@ -448,19 +448,22 @@ class WorkerState(object):
 
         image = self.getDockerImage(environment, self.directories.test_output_dir)
 
-        env_overrides = self.environment_variables(testId, repoName, commitHash, test_definition.matches.Build)
-        
-        logging.info("Machine %s is starting run for %s %s. Command: %s",
-                     self.machineInfo.machineId,
-                     repoName, 
-                     commitHash,
-                     command)
+        if image is None:
+            is_success = False
+        else:
+            env_overrides = self.environment_variables(testId, repoName, commitHash, test_definition.matches.Build)
+            
+            logging.info("Machine %s is starting run for %s %s. Command: %s",
+                         self.machineInfo.machineId,
+                         repoName, 
+                         commitHash,
+                         command)
 
-        is_success = self.runTestUsingScript(command,
-                                             env_overrides,
-                                             heartbeat,
-                                             docker_image=image
-                                             )
+            is_success = self.runTestUsingScript(command,
+                                                 env_overrides,
+                                                 heartbeat,
+                                                 docker_image=image
+                                                 )
 
         if is_success and test_definition.matches.Build:
             if not self._upload_build(repoName, commitHash, test_definition.name):

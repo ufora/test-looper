@@ -1,6 +1,8 @@
 import redis
 import json
+import time
 import threading
+import logging
 import os
 
 
@@ -26,7 +28,14 @@ class RedisJsonStore(object):
             if key in self.cache:
                 return self.cache[key]
 
-            result = self.redis.get(key)
+            success = False
+            while not success:
+                try:
+                    result = self.redis.get(key)
+                    success = True
+                except redis.exceptions.BusyLoadingError:
+                    logging.info("Redis is still loading. Waiting...")
+                    time.sleep(1.0)
 
             if result is None:
                 return result
