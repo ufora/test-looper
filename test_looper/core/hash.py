@@ -30,6 +30,12 @@ class Hash:
     def hexdigest(self):
         return self.digest.encode("hex")
 
+    def __hash__(self):
+        return hash(self.digest)
+
+    def __cmp__(self, other):
+        return cmp(self.digest, other.digest)
+
 
 def sha_hash(val):
     if isinstance(val, tuple):

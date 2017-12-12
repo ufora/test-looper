@@ -364,6 +364,8 @@ class WorkerState(object):
 
         path = self.getRepoCacheByName(repoName).getTestDefinitionsPath(commitHash)
 
+        assert path is not None
+
         testText = self.getRepoCacheByName(repoName).getFileContents(commitHash, path)
 
         return TestDefinitionScript.extract_tests_from_str(commitId, os.path.splitext(path)[1], testText)
@@ -425,16 +427,6 @@ class WorkerState(object):
 
         if dep.matches.Source:
             self.resetToCommitInDir(dep.repo + "/" + dep.commitHash, target_dir)
-            return None
-
-        if dep.matches.Data:
-            if not self.artifactStorage.data_artifact_exists(dep.dataName, dep.shaHash):
-                return "can't run tests because dependent external data artifact %s with hash %s doesn't exist" % (dep.dataName, dep.shaHash)
-
-            path = self._download_data_artifact(dep.dataName, dep.shaHash)
-
-            self.ensureDirectoryExists(target_dir)
-            self.extract_package(path, target_dir)
             return None
 
         return "Unknown dependency type: %s" % dep
@@ -517,15 +509,6 @@ class WorkerState(object):
                           traceback.format_exc()
                           )
             return False
-
-    def _download_data_artifact(self, dataName, shaHash):
-        path = os.path.join(self.directories.build_cache_dir, dataName + "_" + shaHash + ".tar.gz")
-        
-        if not os.path.exists(path):
-            logging.info("Downloading data dependency %s with hash %s to %s", dataName, shaHash, path)
-            self.artifactStorage.download_data_artifact(dataName, shaHash, path)
-
-        return path
 
     def _download_build(self, commitId, testName):
         path = os.path.join(self.directories.build_cache_dir, self.artifactKeyForTest(commitId, testName))

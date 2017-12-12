@@ -66,15 +66,11 @@ class WorkerStateTests(unittest.TestCase):
             os.path.join(self.testdir, "worker"),
             source_control,
             ArtifactStorage.LocalArtifactStorage({
-                "data_storage_path": os.path.join(self.testdir, "data_artifacts"),
                 "build_storage_path": os.path.join(self.testdir, "build_artifacts"),
                 "test_artifacts_storage_path": os.path.join(self.testdir, "test_artifacts")
                 }),
             MachineInfo.MachineInfo("worker1", "worker1.ip", 4, "worker_zone", "worker_machine_type")
             )
-
-        dataHash = worker.artifactStorage.create_data_artifact(os.path.join(own_dir, "test_projects/sample_data_artifact"), "someData")
-        logging.info("uploaded test_projects/sample_data_artifact as someData / %s", dataHash)
 
         return source_repo, c, worker
 
@@ -211,17 +207,4 @@ class WorkerStateTests(unittest.TestCase):
         self.assertFalse(
             worker.runTest("testId4", commit2, "test2_fails/linux", lambda *args: None).success
             )
-
-    def test_data_dependencies(self):
-        repo, commit, worker = self.get_worker("simple_project")
-        repo2, _, commit2 = self.get_repo("simple_project_2")
-        commit2 = commit2[0]
-
-        self.assertTrue(
-            worker.runTest("testId1", commit2, "test2_data/linux", lambda *args: None).success,
-            worker.get_failure_log("testId1")
-            )
-        self.assertFalse(worker.runTest("testId2", commit2, "test2_data_fails_1/linux", lambda *args: None).success)
-        self.assertFalse(worker.runTest("testId3", commit2, "test2_data_fails_2/linux", lambda *args: None).success)
-        self.assertFalse(worker.runTest("testId4", commit2, "test2_data_fails_3/linux", lambda *args: None).success)
 

@@ -88,6 +88,7 @@ class AlgebraicTests(unittest.TestCase):
 
     def test_equality(self):
         for i in range(10):
+            self.assertEqual(expr.Constant(i).__sha_hash__(), expr.Constant(i).__sha_hash__())
             self.assertEqual(hash(expr.Constant(i)), hash(expr.Constant(i)))
             self.assertEqual(expr.Constant(i), expr.Constant(i))
             self.assertEqual(

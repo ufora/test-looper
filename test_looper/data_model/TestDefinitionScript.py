@@ -184,9 +184,7 @@ def extract_tests(commitId, testScript):
         deps = dep.split("/")
 
         if deps[0] in repos:
-            if len(deps) == 2:
-                if deps[1] != "source":
-                    raise Exception("Malformed repo dependency: use repo/source or repo/buildname/environment")
+            if len(deps) == 1:
                 #this is a source dependency
                 return TestDefinition.TestDependency.Source(
                     repo=repos[deps[0]][0],
@@ -207,12 +205,6 @@ def extract_tests(commitId, testScript):
                 name="/".join(deps[1:-1]),
                 environment=env
                 )
-
-        if deps[0] == "data":
-            #this is a data dependency
-            if len(deps) != 3:
-                raise Exception("Malformed data dependency: should be of form 'data/name/hash'")
-            return TestDefinition.TestDependency.Data(dataName=deps[1], shaHash=deps[2])
 
         env = deps[-1]
         if env == '' or env =='*':
@@ -290,12 +282,12 @@ def extract_tests_from_str(commitId, extension, text):
     if isinstance(text, unicode):
         text = str(text)
 
-    if extension == ".yaml":
+    if extension == ".yml":
         json = yaml.load(text)
     elif extension == ".json":
         json = simplejson.loads(text)
     else:
-        raise Exception("Can't load testDefinitions from file ending in '%s'. Use json or yaml." % extension)
+        raise Exception("Can't load testDefinitions from file ending in '%s'. Use json or yml." % extension)
 
     if 'looper_version' not in json:
         raise Exception("No looper version specified. Current version is 2")

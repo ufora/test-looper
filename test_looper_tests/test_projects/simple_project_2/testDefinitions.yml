@@ -1,0 +1,22 @@
+looper_version: 2
+repos:
+  simple: simple_project/43024d9d47216c50017e7aec13f44ad1626586ae
+environments:
+  linux:
+    import: simple/linux
+builds:
+  build2/linux:
+    command: "cp $TEST_INPUTS/build_import/* $TEST_BUILD_OUTPUT_DIR"
+    dependencies:
+      build_import: simple/build/linux
+tests:
+  test2/linux:
+    command: "cat $TEST_INPUTS/simplesource/starts_a_long_docker.py"
+    dependencies:
+      build_import: simple/build/linux
+      simplesource: simple
+  test2_fails/linux:
+    command: "cat $TEST_INPUTS/simplesource/doesntExist.py"
+    dependencies:
+      build_import: simple/build/linux
+      simplesource: simple

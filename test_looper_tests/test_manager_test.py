@@ -106,9 +106,9 @@ class MockRepo:
 
     def getTestScriptDefinitionsForCommit(self, commitHash):
         assert "/" not in commitHash
-        return self.source_control.commit_test_defs[self.repoName + "/" + commitHash], "yaml"
+        return self.source_control.commit_test_defs[self.repoName + "/" + commitHash], ".yml"
 
-basic_yaml_file_repo1 = """
+basic_yml_file_repo1 = """
 looper_version: 2
 environments:
   linux: 
@@ -132,7 +132,7 @@ tests:
     dependencies:
       build: build/linux
 """
-basic_yaml_file_repo2 = """
+basic_yml_file_repo2 = """
 looper_version: 2
 repos:
   child: repo1/c0
@@ -174,10 +174,10 @@ class TestManagerTests(unittest.TestCase):
     def test_manager_refresh(self):
         manager = self.get_manager()
 
-        manager.source_control.addCommit("repo1/c0", [], basic_yaml_file_repo1)
-        manager.source_control.addCommit("repo1/c1", ["repo1/c0"], basic_yaml_file_repo1)
-        manager.source_control.addCommit("repo2/c0", [], basic_yaml_file_repo2)
-        manager.source_control.addCommit("repo2/c1", ["repo2/c0"], basic_yaml_file_repo2)
+        manager.source_control.addCommit("repo1/c0", [], basic_yml_file_repo1)
+        manager.source_control.addCommit("repo1/c1", ["repo1/c0"], basic_yml_file_repo1)
+        manager.source_control.addCommit("repo2/c0", [], basic_yml_file_repo2)
+        manager.source_control.addCommit("repo2/c1", ["repo2/c0"], basic_yml_file_repo2)
 
         manager.source_control.setBranch("repo1/master", "repo1/c1")
         manager.source_control.setBranch("repo2/master", "repo2/c1")
@@ -186,13 +186,19 @@ class TestManagerTests(unittest.TestCase):
         ts = [0.0]
         manager.markRepoListDirty(ts[0])
 
-
         def consumeAllBackgroundWork():
             while True:
                 ts[0] += 1.0
                 task = manager.performBackgroundWork(ts[0])
                 if task is None:
                     return
+
+        consumeAllBackgroundWork()
+        with manager.database.transaction():
+            b1 = manager.database.Branch.lookupOne(reponame_and_branchname=("repo1",'master'))
+            b2 = manager.database.Branch.lookupOne(reponame_and_branchname=("repo2",'master'))
+            manager.toggleBranchUnderTest(b1)
+            manager.toggleBranchUnderTest(b2)
 
         def startAllNewTests():
             tests = []
@@ -226,12 +232,13 @@ class TestManagerTests(unittest.TestCase):
                     ts[0] += .1
 
         phases = doTestsInPhases()
-        self.assertTrue(len(phases) == 3)
+
+        self.assertTrue(len(phases) == 3, phases)
         
         self.assertEqual(sorted(phases[0]), sorted([
             "repo1/c1/build/linux",
             "repo1/c0/build/linux"
-            ]))
+            ]), phases)
 
         self.assertEqual(sorted(phases[1]), sorted([
             "repo2/c1/build/linux",
@@ -242,7 +249,7 @@ class TestManagerTests(unittest.TestCase):
             "repo1/c0/test/linux",
             "repo1/c1/test/linux",
             "repo1/c0/test/linux"
-            ]))
+            ]), phases)
         
         self.assertEqual(sorted(phases[2]), sorted([
             "repo2/c1/test/linux",
@@ -251,5 +258,5 @@ class TestManagerTests(unittest.TestCase):
             "repo2/c0/test/linux",
             "repo2/c1/test/linux",
             "repo2/c0/test/linux"
-            ]))
+            ]), phases)
 

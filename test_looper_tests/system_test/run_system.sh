@@ -70,9 +70,9 @@ for m in 4 5 6 7 8;
  git add .
  git commit -m "second commit in simple_project_2"
 
- cat testDefinitions.yaml | sed 's/5337767ea5d06611c8b958187c408ce07861d40e/notavalidhash/' > testDefinitions2.yaml
- rm testDefinitions.yaml
- mv testDefinitions2.yaml testDefinitions.yaml
+ cat testDefinitions.yml | sed 's/43024d9d47216c50017e7aec13f44ad1626586ae/notavalidhash/' > testDefinitions2.yml
+ rm testDefinitions.yml
+ mv testDefinitions2.yml testDefinitions.yml
  git add .
  git commit -m "commit that produces a bad dependency"
 
@@ -80,8 +80,6 @@ for m in 4 5 6 7 8;
  git add .
  git commit -m "commit that has no test file"
  )
-
- $PROJ_ROOT/test_looper/script/create-artifact.py --target_dir $TEST_LOOPER_INSTALL/data_artifacts --dir $PROJ_ROOT/test_looper_tests/test_projects/sample_data_artifact --name someData
 }
 
 rebuild;

@@ -97,7 +97,7 @@ if __name__ == "__main__":
         print
         print
         print
-        print "Couldn't find a testDefinitions.json/yaml file in the repo."
+        print "Couldn't find a testDefinitions.json/yml file in the repo."
         print os.path.listdir(path)
         print
         sys.exit(1)
@@ -109,7 +109,7 @@ if __name__ == "__main__":
         print
         print
         print
-        print "Couldn't find a testDefinitions.jsonyaml file in the repo."
+        print "Couldn't find a testDefinitions.json or .yml file in the repo."
         print os.path.listdir(path), test_def_path
         print
         sys.exit(1)

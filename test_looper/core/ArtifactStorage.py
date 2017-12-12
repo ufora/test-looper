@@ -110,7 +110,6 @@ class LocalArtifactStorage(object):
             if x is None:
                 return x
             return os.path.expandvars(x)
-        self.data_storage_path = expand(config["data_storage_path"])
         self.build_storage_path = expand(config["build_storage_path"])
         self.test_artifacts_storage_path = expand(config["test_artifacts_storage_path"])
 
@@ -176,41 +175,6 @@ class LocalArtifactStorage(object):
 
     def download_build(self, key_name, dest):
         self.filecopy(dest, os.path.join(self.build_storage_path, key_name))
-
-    def data_artifact_exists(self, artifact_name, shaHash):
-        path_to_artifact = os.path.join(self.data_storage_path, artifact_name + "_" + shaHash + ".tar.gz")
-        return os.path.exists(path_to_artifact)
-
-    def download_data_artifact(self, artifact_name, shaHash, dest):
-        path_to_artifact = os.path.join(self.data_storage_path, artifact_name + "_" + shaHash + ".tar.gz")
-        self.filecopy(dest, path_to_artifact)
-
-    def create_data_artifact(self, artifact_dir, artifact_name):
-        try:
-            os.makedirs(self.data_storage_path)
-        except OSError:
-            pass
-        
-        tmpdir = tempfile.mkdtemp()
-
-        try:
-            target = os.path.join(tmpdir, "artifact.tar.gz")
-
-            SubprocessRunner.callAndAssertSuccess(
-                ["tar", "cvfz", target, "--directory", artifact_dir, 
-                 '--mtime', '1970-01-01',
-                 "."
-                ], env={'GZIP': '-n'})
-
-            shaHash = SubprocessRunner.callAndReturnOutput(["sha1sum", target]).strip().split(" ")[0]
-
-            storage_path = os.path.join(self.data_storage_path, artifact_name + "_" + shaHash + ".tar.gz")
-            
-            self.filecopy(storage_path, target)
-
-            return shaHash
-        finally:
-            shutil.rmtree(tmpdir)
 
     def uploadTestArtifacts(self, testId, machineId, testOutputDir):
         try:

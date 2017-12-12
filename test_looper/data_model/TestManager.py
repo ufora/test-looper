@@ -330,7 +330,7 @@ class TestManager(object):
                             defText, extension = repo.getTestScriptDefinitionsForCommit(task.commit.hash)
                             
                             all_tests, all_environments = TestDefinitionScript.extract_tests_from_str(commitId, extension, defText)
-                            
+
                             for e in all_tests.values():
                                 fullname=commit.repo.name + "/" + commit.hash + "/" + e.name
 

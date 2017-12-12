@@ -255,7 +255,7 @@ class Git(object):
             [p for p in
                 self.subprocessCheckOutput(["git", "ls-tree", "--name-only", "-r", commit]).split("\n")
                 if p.endswith("/testDefinitions.json") or p == "testDefinitions.json" or 
-                   p.endswith("/testDefinitions.yaml") or p == "testDefinitions.yaml"]
+                   p.endswith("/testDefinitions.yml") or p == "testDefinitions.yml"]
             )
 
         if not paths:
