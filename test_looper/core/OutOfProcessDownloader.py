@@ -55,7 +55,7 @@ class OutOfProcessDownloader:
     the result passed to them as a file descriptor and a bytecount containing the answer.
     """
 
-    def __init__(self, actuallyRunOutOfProcess, childPipes=None, dontImportSetup=False, verbose=False):
+    def __init__(self, actuallyRunOutOfProcess, childPipes=None, dontImportSetup=False, verbose=True):
         self.hasStarted = False
         self.isChild = False
         self.childSubprocess = None

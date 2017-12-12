@@ -34,6 +34,20 @@ def createArgumentParser():
         )
     
     parser.add_argument(
+        '--output',
+        dest='output',
+        default=None,
+        help="directory to map to /output"
+        )
+    
+    parser.add_argument(
+        '--scratch',
+        dest='scratch',
+        default=None,
+        help="directory to map to /scratch"
+        )
+    
+    parser.add_argument(
         "commands",
         nargs=argparse.REMAINDER,
         help="Commands to run before becoming an interactive session."
@@ -78,8 +92,17 @@ if __name__ == "__main__":
             shm_size="1G",
             stdin_open=True,
             working_dir="/repo",
-            volumes={repo:"/repo","/home/%s/.bash_history" % os.getenv("USER"): "/root/.bash_history"},
-            environment={"TEST_SRC_DIR":"/repo"},
+            volumes=dict([
+                (repo, "/repo"),
+                ("/home/%s/.bash_history" % os.getenv("USER"), "/root/.bash_history")
+                ] + 
+                ([(args.output, "/output")] if args.output else []) + 
+                ([(args.scratch, "/scratch")] if args.scratch else [])
+                ),
+            environment=dict([("TEST_SRC_DIR","/repo")] + 
+                ([("TEST_OUTPUT_DIR", "/output")] if args.output else []) + 
+                ([("TEST_SCRATCH_DIR", "/scratch")] if args.scratch else [])
+                ),
             ports=args.ports,
             tty=True
             )

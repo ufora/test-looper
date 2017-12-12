@@ -65,6 +65,7 @@ class Git(object):
     def pullLatest(self):
         remotes = self.listRemotes()
         if "origin" in remotes:
+            print self.subprocessCheckOutput(['git fetch origin -p'], shell=True)
             return self.subprocessCheckCall(['git fetch origin -p'], shell=True) == 0
         else:
             return True

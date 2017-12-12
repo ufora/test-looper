@@ -30,17 +30,28 @@ class TestLooperDirectories:
     def __init__(self, worker_directory):
         self.repo_cache = os.path.join(worker_directory, "repos")
         self.repo_copy_dir = os.path.join(worker_directory, "repo_copy")
+<<<<<<< HEAD
         self.scratch_dir = os.path.join(worker_directory, "scratch_dir")
         self.test_inputs_dir = os.path.join(worker_directory, "test_inputs")
         self.test_output_dir = os.path.join(worker_directory, "test_output")
         self.build_output_dir = os.path.join(worker_directory, "build_output")
+=======
+        self.build_dir = os.path.join(worker_directory, "build")
+        self.output_dir = os.path.join(worker_directory, "output")
+        self.scratch_dir = os.path.join(worker_directory, "scratch_dir")
+>>>>>>> 9ee0a63... Fixups to get gitlab working.
         self.test_data_dir = os.path.join(worker_directory, "test_data")
         self.build_cache_dir = os.path.join(worker_directory, "build_cache")
         self.ccache_dir = os.path.join(worker_directory, "ccache")
 
     def all(self):
+<<<<<<< HEAD
         return [self.repo_copy_dir, self.scratch_dir, self.test_inputs_dir, self.test_data_dir, 
                 self.build_cache_dir, self.ccache_dir, self.test_output_dir, self.build_output_dir, self.repo_cache]
+=======
+        return [self.repo_copy_dir, self.build_dir, self.test_data_dir, 
+                self.build_cache_dir, self.ccache_dir, self.output_dir, self.repo_cache, self.scratch_dir]
+>>>>>>> 9ee0a63... Fixups to get gitlab working.
 
 class WorkerState(object):
     def __init__(self, name_prefix, worker_directory, source_control, artifactStorage, machineInfo, timeout=900, verbose=False):
@@ -116,10 +127,16 @@ class WorkerState(object):
         Docker.DockerImage.removeDanglingDockerImages()
         self.clearDirectoryAsRoot(
             self.directories.test_data_dir, 
+<<<<<<< HEAD
             self.directories.test_output_dir,
             self.directories.build_output_dir,
             self.directories.scratch_dir, 
             self.directories.test_inputs_dir, 
+=======
+            self.directories.output_dir,
+            self.directories.scratch_dir,
+            self.directories.build_dir, 
+>>>>>>> 9ee0a63... Fixups to get gitlab working.
             self.directories.repo_copy_dir
             )
         
@@ -183,8 +200,13 @@ class WorkerState(object):
                         self.directories.scratch_dir: "/test_looper/scratch",
                         self.directories.test_inputs_dir: "/test_looper/test_inputs",
                         self.directories.repo_copy_dir: "/test_looper/src",
+<<<<<<< HEAD
                         self.directories.test_output_dir: "/test_looper/output",
                         self.directories.build_output_dir: "/test_looper/build_output",
+=======
+                        self.directories.output_dir: "/test_looper/output",
+                        self.directories.scratch_dir: "/test_looper/scratch",
+>>>>>>> 9ee0a63... Fixups to get gitlab working.
                         self.directories.ccache_dir: "/test_looper/ccache"
                         },
                     privileged=True,

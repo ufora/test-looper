@@ -1,6 +1,7 @@
 import test_looper.core.source_control.ReposOnDisk as ReposOnDisk
 import test_looper.core.source_control.Bitbucket as Bitbucket
 import test_looper.core.source_control.Github as Github
+import test_looper.core.source_control.Gitlab as Gitlab
 import os
 
 TEST_LOOPER_GITHUB_ACCESS_TOKEN = "TEST_LOOPER_GITHUB_ACCESS_TOKEN"
@@ -23,6 +24,23 @@ def configureGithub(src_ctrl_config):
             src_ctrl_args[item] = src_ctrl_config[item]
 
     return Github.Github(**src_ctrl_args)
+
+def configureGitlab(src_ctrl_config):
+    src_ctrl_args = {
+        'path_to_local_repos': str(os.path.expandvars(src_ctrl_config["path_to_local_repos"])),
+        'oauth_key': src_ctrl_config['oauth_key'],
+        'oauth_secret': src_ctrl_config['oauth_secret'],
+        'webhook_secret': str(src_ctrl_config['webhook_secret']),
+        'owner': str(src_ctrl_config['owner']),
+        'private_token': src_ctrl_config['private_token'],
+        'auth_disabled': src_ctrl_config.get("auth_disabled", False)
+        }
+
+    for item in ['gitlab_url', 'gitlab_login_url', 'gitlab_api_url', 'gitlab_clone_url']:
+        if item in src_ctrl_config:
+            src_ctrl_args[item] = src_ctrl_config[item]
+
+    return Gitlab.Gitlab(**src_ctrl_args)
 
 def configureBitbucket(src_ctrl_config):
     oauth_key = src_ctrl_config.get('oauth_key') or os.getenv(TEST_LOOPER_OAUTH_KEY)
@@ -61,6 +79,8 @@ def getFromConfig(config):
         return configureGit(config)
     if config['type'] == "github":
         return configureGithub(config)
+    if config['type'] == "gitlab":
+        return configureGitlab(config)
     if config['type'] == "bitbucket":
         return configureBitbucket(config)
     else:
