@@ -51,7 +51,7 @@ class ReposOnDisk(SourceControl.SourceControl):
     def getUserNameFromToken(self, access_token):
         return "root"
 
-    def commit_url(self, commit_id):
+    def commit_url(self, repoName, commitHash):
         return None
 
     def refresh(self):

@@ -66,8 +66,7 @@ class Gitlab(SourceControl.SourceControl):
         try:
             for r in simplejson.loads(response.content):
                 try:
-                    if r['namespace']['full_path'] == self.owner:
-                        res.append(r["name"])
+                    res.append(r['namespace']['full_path'] + "/" + r["name"])
                 except:
                     logging.error("failed with: %s", r)
                     logging.error(traceback.format_exc())
@@ -82,7 +81,8 @@ class Gitlab(SourceControl.SourceControl):
         with self.lock:
             if repoName not in self.repos:
                 path = os.path.join(self.path_to_local_repo_cache, repoName)
-                self.repos[repoName] = GitlabRepo.GitlabRepo(self, path, self.owner, repoName)
+                self.repos[repoName] = GitlabRepo.GitlabRepo(self, path, repoName)
+                logging.info("Initializing repo %s at %s", repoName, path)
 
             repo = self.repos[repoName]
 
@@ -102,7 +102,7 @@ class Gitlab(SourceControl.SourceControl):
 
         return {
             'branch': payload['ref'].split('/')[-1],
-            'repo': payload['repository']['name']
+            'repo': payload['project']['path_with_namespace']
             }
 
     ###########
@@ -198,9 +198,9 @@ class Gitlab(SourceControl.SourceControl):
             )['login']
 
 
-    def commit_url(self, commit_id):
-        repoName, commitHash = commit_id.split("/")
-        return self.gitlab_url + "/%s/%s/commit/%s" % (self.owner, repoName, commitHash)
+    def commit_url(self, repoName, commitHash):
+        assert repoName is not None
+        return self.gitlab_url + "/%s/commit/%s" % (repoName, commitHash)
 
     def refresh(self):
         for r in self.repos.values():

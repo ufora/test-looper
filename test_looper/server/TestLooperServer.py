@@ -10,10 +10,6 @@ import test_looper.core.socket_util as socket_util
 import test_looper.data_model.TestResult as TestResult
 import test_looper.core.cloud.MachineInfo as MachineInfo
 
-HeartbeatArguments = collections.namedtuple('HeartbeatArguments',
-                                            'commitId testId machineId')
-
-
 class Session(object):
     def __init__(self, testManager, cloud_connection, socket, address):
         self.socket = socket
@@ -94,19 +90,21 @@ class Session(object):
 
         try:
             t0 = time.time()
-            commitId, testName, testId = self.testManager.startNewTest(machineInfo.machineId, time.time())
+            repoName, commitHash, testName, testId = self.testManager.startNewTest(machineInfo.machineId, time.time())
 
-            logging.info("Checking out commit %s, test %s, identity %s to %s",
-                commitId,
+            logging.info("Checking out commit %s/%s, test %s, identity %s to %s",
+                repoName, 
+                commitHash,
                 testName,
                 testId,
                 machineInfo.machineId
                 )
 
-            if commitId:
+            if repoName:
                 self.writeString(
                     json.dumps({
-                        "commitId": commitId,
+                        "repoName": repoName,
+                        "commitHash": commitHash,
                         'testId': testId,
                         'testName': testName
                         })
@@ -154,6 +152,7 @@ class TestLooperServer(SimpleServer.SimpleServer):
     def executeManagerWork(self):
         while not self.shouldStop():
             task = self.testManager.performBackgroundWork(time.time())
+            logging.debug("Performed %s", task)
             if task is None:
                 time.sleep(.1)
 

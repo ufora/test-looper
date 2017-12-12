@@ -55,11 +55,11 @@ class WorkerStateTests(unittest.TestCase):
 
                 commits.append(source_repo.commit("commit #%s" % (commit_ix + 2), timestamp))
 
-        return source_repo, ReposOnDisk.ReposOnDisk(os.path.join(self.testdir,"repos")), [repo_name + "/"+c for c in commits]
+        return source_repo, ReposOnDisk.ReposOnDisk(os.path.join(self.testdir,"repos")), [(repo_name,c) for c in commits]
 
     def get_worker(self, repo_name):
         source_repo, source_control, c = self.get_repo(repo_name)
-        c = c[0]
+        repoName, commitHash = c[0]
 
         worker = WorkerState.WorkerState(
             "test_looper_testing",
@@ -72,7 +72,7 @@ class WorkerStateTests(unittest.TestCase):
             MachineInfo.MachineInfo("worker1", "worker1.ip", 4, "worker_zone", "worker_machine_type")
             )
 
-        return source_repo, c, worker
+        return source_repo, repoName, commitHash, worker
 
     def test_git_not_leaking_fds(self):
         #create a new git repo
@@ -98,24 +98,24 @@ class WorkerStateTests(unittest.TestCase):
 
     def test_git_copy_dir(self):
         source_repo, source_control, c = self.get_repo("simple_project")
-        repo, commitHash = c[0].split("/")
+        repo, commitHash = c[0]
         self.assertTrue("ubuntu" in source_repo.getFileContents(commitHash, "Dockerfile.txt"))
 
     def test_worker_basic(self):
-        repo, commit, worker = self.get_worker("simple_project")
-        
-        result = worker.runTest("testId", commit, "build/linux", lambda *args: None)
+        repo, repoName, commitHash, worker = self.get_worker("simple_project")
+
+        result = worker.runTest("testId", repoName, commitHash, "build/linux", lambda *args: None)
 
         self.assertTrue(result.success)
 
         self.assertTrue(len(os.listdir(worker.artifactStorage.build_storage_path)) == 1)
 
         self.assertTrue(
-            worker.runTest("testId2", commit, "good/linux", lambda *args: None).success
+            worker.runTest("testId2", repoName, commitHash, "good/linux", lambda *args: None).success
             )
 
         self.assertFalse(
-            worker.runTest("testId3", commit, "bad/linux", lambda *args: None).success
+            worker.runTest("testId3", repoName, commitHash, "bad/linux", lambda *args: None).success
             )
 
         keys = worker.artifactStorage.testResultKeysFor("testId3")
@@ -126,33 +126,33 @@ class WorkerStateTests(unittest.TestCase):
         self.assertTrue(len(data) > 0)
 
     def test_worker_cant_run_tests_without_build(self):
-        repo, commit, worker = self.get_worker("simple_project")
+        repo, repoName, commitHash, worker = self.get_worker("simple_project")
         
-        result = worker.runTest("testId", commit, "good/linux", lambda *args: None)
+        result = worker.runTest("testId", repoName, commitHash, "good/linux", lambda *args: None)
 
         self.assertFalse(result.success)
 
     def test_worker_build_artifacts_go_to_correct_place(self):
-        repo, commit, worker = self.get_worker("simple_project")
+        repo, repoName, commitHash, worker = self.get_worker("simple_project")
         
-        self.assertTrue(worker.runTest("testId", commit, "build/linux", lambda *args: None).success)
+        self.assertTrue(worker.runTest("testId", repoName, commitHash, "build/linux", lambda *args: None).success)
 
-        self.assertTrue(worker.runTest("testId", commit, "check_build_output/linux", lambda *args: None).success)
+        self.assertTrue(worker.runTest("testId", repoName, commitHash, "check_build_output/linux", lambda *args: None).success)
 
     def test_worker_doesnt_leak_fds(self):
-        repo, commit, worker = self.get_worker("simple_project")
+        repo, repoName, commitHash, worker = self.get_worker("simple_project")
 
-        self.assertTrue(worker.runTest("testId", commit, "build/linux", lambda *args: None).success)
+        self.assertTrue(worker.runTest("testId", repoName, commitHash, "build/linux", lambda *args: None).success)
 
         #need to use the connection pools because they can leave some sockets open
         for _ in xrange(3):
-            self.assertTrue(worker.runTest("testId2", commit, "good/linux", lambda *args: None).success)
+            self.assertTrue(worker.runTest("testId2", repoName, commitHash, "good/linux", lambda *args: None).success)
 
         fds = len(self.get_fds())
 
         #but want to verify we're not actually leaking FDs once we're in a steadystate
         for _ in xrange(3):
-            self.assertTrue(worker.runTest("testId2", commit, "good/linux", lambda *args: None).success)
+            self.assertTrue(worker.runTest("testId2", repoName, commitHash, "good/linux", lambda *args: None).success)
         
         fds2 = len(self.get_fds())
         
@@ -167,12 +167,12 @@ class WorkerStateTests(unittest.TestCase):
     def test_doesnt_leak_dockers(self):
         container_count = len(docker_client.containers.list())
 
-        repo, commit, worker = self.get_worker("simple_project")
+        repo, repoName, commitHash, worker = self.get_worker("simple_project")
 
-        self.assertTrue(worker.runTest("testId", commit, "build/linux", lambda *args: None).success)
+        self.assertTrue(worker.runTest("testId", repoName, commitHash, "build/linux", lambda *args: None).success)
 
         self.assertTrue(
-            worker.runTest("testId2", commit, "docker/linux", lambda *args: None).success,
+            worker.runTest("testId2", repoName, commitHash, "docker/linux", lambda *args: None).success,
             worker.get_failure_log("testId2")
             )
         
@@ -181,34 +181,34 @@ class WorkerStateTests(unittest.TestCase):
     def test_subdocker_retains_network(self):
         container_count = len(docker_client.containers.list())
 
-        repo, commit, worker = self.get_worker("simple_project")
+        repo, repoName, commitHash, worker = self.get_worker("simple_project")
 
-        self.assertTrue(worker.runTest("testId", commit, "build/linux", lambda *args: None).success)
+        self.assertTrue(worker.runTest("testId", repoName, commitHash, "build/linux", lambda *args: None).success)
 
         self.assertTrue(
-            worker.runTest("testId2", commit, "docker/linux", lambda *args: None).success,
+            worker.runTest("testId2", repoName, commitHash, "docker/linux", lambda *args: None).success,
             worker.get_failure_log("testId2")
             )
 
     def test_cross_project_dependencies(self):
-        repo, commit, worker = self.get_worker("simple_project")
+        repo, repoName, commitHash, worker = self.get_worker("simple_project")
         repo2, _, commit2 = self.get_repo("simple_project_2")
-        commit2 = commit2[0]
+        commit2Name, commit2Hash = commit2[0]
 
-        self.assertTrue(worker.runTest("testId", commit, "build/linux", lambda *args: None).success)        
+        self.assertTrue(worker.runTest("testId", repoName, commitHash, "build/linux", lambda *args: None).success)        
         self.assertTrue(
-            worker.runTest("testId2", commit2, "build2/linux", lambda *args: None).success,
+            worker.runTest("testId2", commit2Name, commit2Hash, "build2/linux", lambda *args: None).success,
             worker.get_failure_log("testId2")
             )
         self.assertTrue(
-            worker.runTest("testId3", commit2, "test2/linux", lambda *args: None).success,
+            worker.runTest("testId3", commit2Name, commit2Hash, "test2/linux", lambda *args: None).success,
             worker.get_failure_log("testId3")
             )
         self.assertFalse(
-            worker.runTest("testId4", commit2, "test2_fails/linux", lambda *args: None).success
+            worker.runTest("testId4", commit2Name, commit2Hash, "test2_fails/linux", lambda *args: None).success
             )
         self.assertTrue(
-            worker.runTest("testId5", commit2, "test2_dep_from_env/linux2", lambda *args: None).success,
+            worker.runTest("testId5", commit2Name, commit2Hash, "test2_dep_from_env/linux2", lambda *args: None).success,
             worker.get_failure_log("testId5")
             )
 

@@ -8,14 +8,11 @@ import threading
 import test_looper.core.object_database as object_database
 import test_looper.core.algebraic as algebraic
 
-import test_looper.data_model.TestResult as TestResult
 import test_looper.data_model.Types as Types
 
-import test_looper.data_model.BlockingMachines as BlockingMachines
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.data_model.Branch as Branch
 import test_looper.data_model.Commit as Commit
-from test_looper.data_model.CommitAndTestToRun import CommitAndTestToRun
 
 pending = Types.BackgroundTaskStatus.Pending()
 running = Types.BackgroundTaskStatus.Running()
@@ -85,7 +82,8 @@ class TestManager(object):
         new = [branch.head]
         while new:
             n = new.pop()
-            if n not in commits:
+
+            if n and n not in commits:
                 commits.add(n)
                 ordered.append(n)
 
@@ -196,7 +194,7 @@ class TestManager(object):
                     return test
 
     def startNewTest(self, machineId, timestamp):
-        """Allocates a new test and returns (commitId, testName, testId) or (None,None,None) if no work."""
+        """Allocates a new test and returns (repoName, commitHash, testName, testId) or (None,None,None) if no work."""
         self.recordMachineHeartbeat(machineId, timestamp)
 
         with self.transaction_and_lock():
@@ -216,9 +214,7 @@ class TestManager(object):
 
             self._updateTestPriority(test)
 
-            commitId = test.commitData.commit.repo.name + "/" + test.commitData.commit.hash
-
-            return (commitId, test.testDefinition.name, runningTest._identity)
+            return (test.commitData.commit.repo.name, test.commitData.commit.hash, test.testDefinition.name, runningTest._identity)
 
     def createTask(self, task):
         with self.transaction_and_lock():
@@ -259,6 +255,8 @@ class TestManager(object):
 
                 for new_repo_name in all_repos - existing:
                     r = self._createRepo(new_repo_name)
+
+                for r in self.database.Repo.lookupAll(isActive=True):
                     self.database.DataTask.New(
                         task=self.database.BackgroundTask.RefreshBranches(r),
                         status=pending
@@ -276,12 +274,12 @@ class TestManager(object):
 
                 db_branches = self.database.Branch.lookupAll(repo=db_repo)
 
-                final_branches = tuple([x for x in db_branches if x.name in branchnames_set])
+                final_branches = tuple([x for x in db_branches if x.branchname in branchnames_set])
                 for branch in db_branches:
-                    if branch.name not in branchnames_set:
+                    if branch.branchname not in branchnames_set:
                         branch.delete()
 
-                for newname in branchnames_set - set([x.name for x in db_branches]):
+                for newname in branchnames_set - set([x.branchname for x in db_branches]):
                     newbranch = self.database.Branch.New(branchname=newname, repo=db_repo)
 
                     self.database.DataTask.New(
@@ -323,11 +321,12 @@ class TestManager(object):
                     self._triggerCommitPriorityUpdate(commit)
 
                     try:
-                        commitId = commit.repo.name + "/" + commit.hash
-
                         defText, extension = repo.getTestScriptDefinitionsForCommit(task.commit.hash)
                         
-                        all_tests, all_environments = TestDefinitionScript.extract_tests_from_str(commitId, extension, defText)
+                        if defText is None:
+                            raise Exception("No test definition file found.")
+
+                        all_tests, all_environments = TestDefinitionScript.extract_tests_from_str(commit.repo.name, commit.hash, extension, defText)
 
                         commit.data.testDefinitions = all_tests
                         commit.data.environments = all_environments
@@ -342,9 +341,10 @@ class TestManager(object):
                                 )
 
                     except Exception as e:
-                        traceback.print_exc()
-
-                        logging.warn("Got an error parsing tests for %s:\n%s", commit.hash, traceback.format_exc())
+                        if not str(e):
+                            logging.error("%s", traceback.format_exc())
+                            
+                        logging.warn("Got an error parsing tests for %s: '%s'", commit.hash, str(e))
 
                         commit.data.testDefinitionsError=str(e)
 
@@ -360,7 +360,7 @@ class TestManager(object):
     def _updateCommitPriority(self, commit):
         priority = self._computeCommitPriority(commit)
         
-        logging.info("Commit %s/%s has new priority %s%s%s", 
+        logging.debug("Commit %s/%s has new priority %s%s%s", 
             commit.repo.name, 
             commit.hash, 
             priority,
@@ -551,7 +551,7 @@ class TestManager(object):
                 task=self.database.BackgroundTask.UpdateTestPriority(test=test),
                 status=pending
                 )
-            
+
     def _createRepo(self, new_repo_name):
         r = self.database.Repo.New(name=new_repo_name,isActive=True)
 

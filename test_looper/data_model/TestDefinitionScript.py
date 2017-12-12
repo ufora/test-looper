@@ -77,25 +77,24 @@ def ensure_graph_closed_and_noncyclic(graph):
         if not added:
             raise Exception("Builds %s are circular." % str([x for x in graph if x not in seen]))
 
-def map_image(commitId, image_def):
-    repo, commitHash = commitId.split("/")
+def map_image(reponame, commitHash, image_def):
     if image_def.matches.Dockerfile:
         return TestDefinition.Image.Dockerfile(
             dockerfile=image_def.dockerfile,
-            repo=repo,
+            repo=reponame,
             commitHash=commitHash
             )
     elif image_def.matches.AMI:
         return TestDefinition.Image.AMI(
             base_ami=image_def.base_ami,
             ami_script=image_def.ami_script,
-            repo=repo,
+            repo=reponame,
             commitHash=commitHash
             )
     else:
         assert False, "Can't convert this kind of image: %s" % image_def
 
-def extract_tests(commitId, testScript):
+def extract_tests(repoName, commitHash, testScript):
     repos = {}
 
     for repoVarName, repoDef in testScript.repos.iteritems():
@@ -152,7 +151,7 @@ def extract_tests(commitId, testScript):
 
             environments[envName] = TestDefinition.TestEnvironment.Environment(
                 platform=envDef.platform,
-                image=map_image(commitId, envDef.image),
+                image=map_image(repoName, commitHash, envDef.image),
                 variables=envDef.variables,
                 dependencies={
                     name: map_dep(dep) for name, dep in envDef.dependencies.iteritems()
@@ -306,7 +305,7 @@ def extract_tests(commitId, testScript):
 
     return allTests, environments
 
-def extract_tests_from_str(commitId, extension, text):
+def extract_tests_from_str(repoName, commitHash, extension, text):
     if isinstance(text, unicode):
         text = str(text)
 
@@ -323,8 +322,9 @@ def extract_tests_from_str(commitId, extension, text):
     version = json['looper_version']
     del json['looper_version']
 
-    assert version == 2
+    if version != 2:
+        raise Exception("Can't handle looper version %s" % version)
 
     e = algebraic_to_json.Encoder()
 
-    return extract_tests(commitId, e.from_json(json, TestDefinitionScript))
+    return extract_tests(repoName, commitHash, e.from_json(json, TestDefinitionScript))

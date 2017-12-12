@@ -44,8 +44,8 @@ class GithubRepo(RemoteRepo.RemoteRepo):
 
         return self.source_repo.getFileContents(commitHash, test_definitions_path), os.path.splitext(test_definitions_path)[1]
 
-    def commit_url(self, commit_id):
-        return self.github.github_url + "/%s/%s/commit/%s" % (self.owner, self.repo, commit_id)
+    def commit_url(self, commitHash):
+        return self.github.github_url + "/%s/%s/commit/%s" % (self.owner, self.repo, commitHash)
 
     def ensureInitialized(self):
         if not self.source_repo.isInitialized():

@@ -30,28 +30,17 @@ class TestLooperDirectories:
     def __init__(self, worker_directory):
         self.repo_cache = os.path.join(worker_directory, "repos")
         self.repo_copy_dir = os.path.join(worker_directory, "repo_copy")
-<<<<<<< HEAD
         self.scratch_dir = os.path.join(worker_directory, "scratch_dir")
         self.test_inputs_dir = os.path.join(worker_directory, "test_inputs")
         self.test_output_dir = os.path.join(worker_directory, "test_output")
         self.build_output_dir = os.path.join(worker_directory, "build_output")
-=======
-        self.build_dir = os.path.join(worker_directory, "build")
-        self.output_dir = os.path.join(worker_directory, "output")
-        self.scratch_dir = os.path.join(worker_directory, "scratch_dir")
->>>>>>> 9ee0a63... Fixups to get gitlab working.
         self.test_data_dir = os.path.join(worker_directory, "test_data")
         self.build_cache_dir = os.path.join(worker_directory, "build_cache")
         self.ccache_dir = os.path.join(worker_directory, "ccache")
 
     def all(self):
-<<<<<<< HEAD
         return [self.repo_copy_dir, self.scratch_dir, self.test_inputs_dir, self.test_data_dir, 
                 self.build_cache_dir, self.ccache_dir, self.test_output_dir, self.build_output_dir, self.repo_cache]
-=======
-        return [self.repo_copy_dir, self.build_dir, self.test_data_dir, 
-                self.build_cache_dir, self.ccache_dir, self.output_dir, self.repo_cache, self.scratch_dir]
->>>>>>> 9ee0a63... Fixups to get gitlab working.
 
 class WorkerState(object):
     def __init__(self, name_prefix, worker_directory, source_control, artifactStorage, machineInfo, timeout=900, verbose=False):
@@ -127,16 +116,10 @@ class WorkerState(object):
         Docker.DockerImage.removeDanglingDockerImages()
         self.clearDirectoryAsRoot(
             self.directories.test_data_dir, 
-<<<<<<< HEAD
             self.directories.test_output_dir,
             self.directories.build_output_dir,
             self.directories.scratch_dir, 
             self.directories.test_inputs_dir, 
-=======
-            self.directories.output_dir,
-            self.directories.scratch_dir,
-            self.directories.build_dir, 
->>>>>>> 9ee0a63... Fixups to get gitlab working.
             self.directories.repo_copy_dir
             )
         
@@ -200,13 +183,8 @@ class WorkerState(object):
                         self.directories.scratch_dir: "/test_looper/scratch",
                         self.directories.test_inputs_dir: "/test_looper/test_inputs",
                         self.directories.repo_copy_dir: "/test_looper/src",
-<<<<<<< HEAD
                         self.directories.test_output_dir: "/test_looper/output",
                         self.directories.build_output_dir: "/test_looper/build_output",
-=======
-                        self.directories.output_dir: "/test_looper/output",
-                        self.directories.scratch_dir: "/test_looper/scratch",
->>>>>>> 9ee0a63... Fixups to get gitlab working.
                         self.directories.ccache_dir: "/test_looper/ccache"
                         },
                     privileged=True,
@@ -247,9 +225,7 @@ class WorkerState(object):
             if tail_proc is not None:
                 tail_proc.stop()
 
-    def resetToCommitInDir(self, commitId, targetDir):
-        repoName, commitHash = commitId.split("/")
-
+    def resetToCommitInDir(self, repoName, commitHash, targetDir):
         git_repo = self.getRepoCacheByName(repoName)
 
         if not git_repo.isInitialized():
@@ -264,12 +240,12 @@ class WorkerState(object):
 
         return True
 
-    def resetToCommit(self, commitId):
+    def resetToCommit(self, repoName, commitHash):
         #check out a working copy
         self.clearDirectoryAsRoot(self.directories.repo_copy_dir)
         shutil.rmtree(self.directories.repo_copy_dir)
 
-        return self.resetToCommitInDir(commitId, self.directories.repo_copy_dir)
+        return self.resetToCommitInDir(repoName, commitHash, self.directories.repo_copy_dir)
 
     @staticmethod
     def ensureDirectoryExists(path):
@@ -281,8 +257,8 @@ class WorkerState(object):
             if e.errno != errno.EEXIST:
                 raise
 
-    def createNextTestDirForCommit(self, commitId):
-        revisionDir = os.path.join(self.directories.test_data_dir, commitId)
+    def createNextTestDirForCommit(self, repoName, commitHash):
+        revisionDir = os.path.join(self.directories.test_data_dir, repoName, commitHash)
 
         self.ensureDirectoryExists(revisionDir)
 
@@ -337,7 +313,7 @@ class WorkerState(object):
     def resolveEnvironment(self, environment):
         seen = set([environment])
         while environment.matches.Import:
-            environment = self.environmentDefinitionFor(environment.repo + "/" + environment.commitHash, environment.name)
+            environment = self.environmentDefinitionFor(environment.repo, environment.commitHash, environment.name)
             assert environment not in seen, "Circular environment definitions found"
             seen.add(environment)
             
@@ -367,61 +343,60 @@ class WorkerState(object):
 
         return None
 
-    def create_test_result(self, is_success, testId, commitId, message=None):
+    def create_test_result(self, is_success, testId, repoName, commitHash, message=None):
         result = TestResult.TestResultOnMachine(is_success,
                                                 testId,
-                                                commitId,
+                                                repoName, 
+                                                commitHash,
                                                 [], [],
                                                 self.machineInfo.machineId,
                                                 time.time()
                                                 )
         if message:
             if not is_success:
-                logging.error('Producing failure result for %s on %s: %s', testId, commitId, message)
+                logging.error('Producing failure result for %s on %s/%s: %s', testId, repoName, commitHash, message)
             result.recordLogMessage(message)
         return result
 
-    def testAndEnvironmentDefinitionFor(self, commitId):
-        repoName, commitHash = commitId.split("/")
-
+    def testAndEnvironmentDefinitionFor(self, repoName, commitHash):
         path = self.getRepoCacheByName(repoName).getTestDefinitionsPath(commitHash)
 
         assert path is not None
 
         testText = self.getRepoCacheByName(repoName).getFileContents(commitHash, path)
 
-        return TestDefinitionScript.extract_tests_from_str(commitId, os.path.splitext(path)[1], testText)
+        return TestDefinitionScript.extract_tests_from_str(repoName, commitHash, os.path.splitext(path)[1], testText)
 
-    def environmentDefinitionFor(self, commitId, envName):
-        return self.testAndEnvironmentDefinitionFor(commitId)[1].get(envName)
+    def environmentDefinitionFor(self, repoName, commitHash, envName):
+        return self.testAndEnvironmentDefinitionFor(repoName, commitHash)[1].get(envName)
 
-    def testDefinitionFor(self, commitId, testName):
-        return self.testAndEnvironmentDefinitionFor(commitId)[0].get(testName)
+    def testDefinitionFor(self, repoName, commitHash, testName):
+        return self.testAndEnvironmentDefinitionFor(repoName, commitHash)[0].get(testName)
 
-    def runTest(self, testId, commitId, testName, heartbeat):
+    def runTest(self, testId, repoName, commitHash, testName, heartbeat):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
         self.cleanup()
 
-        if not self.resetToCommit(commitId):
-            return self.create_test_result(False, testId, commitId, "Failed to checkout code")
+        if not self.resetToCommit(repoName, commitHash):
+            return self.create_test_result(False, testId, repoName, commitHash, "Failed to checkout code")
 
         try:
-            testDefinition = self.testDefinitionFor(commitId, testName)
+            testDefinition = self.testDefinitionFor(repoName, commitHash, testName)
 
             if not testDefinition:
-                return self.create_test_result(False, testId, commitId, "No test named " + testName)
+                return self.create_test_result(False, testId, repoName, commitHash, "No test named " + testName)
             
-            if testDefinition.matches.Build and self.artifactStorage.build_exists(self.artifactKeyForTest(commitId, testName)):
-                return self.create_test_result(True, testId, commitId)
+            if testDefinition.matches.Build and self.artifactStorage.build_exists(self.artifactKeyForTest(repoName, commitHash, testName)):
+                return self.create_test_result(True, testId, repoName, commitHash)
             
-            return self._run_task(testId, commitId, testDefinition, heartbeat)
+            return self._run_task(testId, repoName, commitHash, testDefinition, heartbeat)
 
         except TestLooperClient.ProtocolMismatchException:
             raise
         except:
             error_message = "Test failed because of exception: %s" % traceback.format_exc()
             logging.error(error_message)
-            return self.create_test_result(False, testId, commitId, error_message)
+            return self.create_test_result(False, testId, repoName, commitHash, error_message)
 
     def extract_package(self, package_file, target_dir):
         with tarfile.open(package_file) as tar:
@@ -431,29 +406,29 @@ class WorkerState(object):
             logging.info("Extracting package %s to %s", package_file, target_dir)
             tar.extractall(target_dir)
 
-    def grabDependency(self, expose_as, dep, commitId):
+    def grabDependency(self, expose_as, dep, repoName, commitHash):
         target_dir = os.path.join(self.directories.test_inputs_dir, expose_as)
 
         if dep.matches.InternalBuild or dep.matches.ExternalBuild:
             if dep.matches.ExternalBuild:
-                commitId = dep.repo + "/" + dep.commitHash
+                repoName, commitHash = dep.repo, dep.commitHash
 
-            if not self.artifactStorage.build_exists(self.artifactKeyForTest(commitId, dep.name + "/" + dep.environment)):
-                return "can't run tests because dependent external build %s doesn't exist" % (commitId + "/" + dep.name + "/" + dep.environment)
+            if not self.artifactStorage.build_exists(self.artifactKeyForTest(repoName, commitHash, dep.name + "/" + dep.environment)):
+                return "can't run tests because dependent external build %s doesn't exist" % (repoName + "/" + commitHash + "/" + dep.name + "/" + dep.environment)
 
-            path = self._download_build(commitId, dep.name + "/" + dep.environment)
+            path = self._download_build(repoName, commitHash, dep.name + "/" + dep.environment)
             
             self.ensureDirectoryExists(target_dir)
             self.extract_package(path, target_dir)
             return None
 
         if dep.matches.Source:
-            self.resetToCommitInDir(dep.repo + "/" + dep.commitHash, target_dir)
+            self.resetToCommitInDir(dep.repo, dep.commitHash, target_dir)
             return None
 
         return "Unknown dependency type: %s" % dep
 
-    def _run_task(self, testId, commitId, test_definition, heartbeat):
+    def _run_task(self, testId, repoName, commitHash, test_definition, heartbeat):
         environment = self.resolveEnvironment(test_definition.environment)
 
         all_dependencies = {}
@@ -461,10 +436,10 @@ class WorkerState(object):
         all_dependencies.update(test_definition.dependencies)
 
         for expose_as, dep in all_dependencies.iteritems():
-            errStringOrNone = self.grabDependency(expose_as, dep, commitId)
+            errStringOrNone = self.grabDependency(expose_as, dep, repoName, commitHash)
 
             if errStringOrNone is not None:
-                return self.create_test_result(False, testId, commitId, errStringOrNone)
+                return self.create_test_result(False, testId, repoName, commitHash, errStringOrNone)
 
         if test_definition.matches.Build:
             command = test_definition.buildCommand
@@ -473,11 +448,12 @@ class WorkerState(object):
 
         image = self.getDockerImage(environment, self.directories.test_output_dir)
 
-        env_overrides = self.environment_variables(testId, commitId, test_definition.matches.Build)
+        env_overrides = self.environment_variables(testId, repoName, commitHash, test_definition.matches.Build)
         
-        logging.info("Machine %s is starting run for %s. Command: %s",
+        logging.info("Machine %s is starting run for %s %s. Command: %s",
                      self.machineInfo.machineId,
-                     commitId,
+                     repoName, 
+                     commitHash,
                      command)
 
         is_success = self.runTestUsingScript(command,
@@ -487,11 +463,11 @@ class WorkerState(object):
                                              )
 
         if is_success and test_definition.matches.Build:
-            if not self._upload_build(commitId, test_definition.name):
-                logging.error('Failed to upload build for %s/%s', commitId, test_definition.name)
+            if not self._upload_build(repoName, commitHash, test_definition.name):
+                logging.error('Failed to upload build for %s/%s', repoName, commitHash, test_definition.name)
                 is_success = False
 
-        test_result = self.create_test_result(is_success, testId, commitId)
+        test_result = self.create_test_result(is_success, testId, repoName, commitHash)
 
         heartbeat()
         
@@ -506,14 +482,14 @@ class WorkerState(object):
 
         return test_result
     
-    def artifactKeyForTest(self, commitId, testName):
-        return (commitId + "/" + testName).replace("/", "_") + ".tar"
+    def artifactKeyForTest(self, repoName, commitHash, testName):
+        return (repoName + "/" + commitHash + "/" + testName).replace("/", "_") + ".tar"
 
-    def _upload_build(self, commitId, testName):
+    def _upload_build(self, repoName, commitHash, testName):
         #upload all the data in our directory
         tarball_name = os.path.join(
             self.directories.build_cache_dir, 
-            self.artifactKeyForTest(commitId, testName)
+            self.artifactKeyForTest(repoName, commitHash, testName)
             )
 
         if not os.path.exists(tarball_name):
@@ -523,32 +499,32 @@ class WorkerState(object):
                 ])
             logging.info("Resulting tarball at %s is %.2f MB", tarball_name, os.stat(tarball_name).st_size / 1024.0**2)
         else:
-            logging.warn("A build for %s/%s already exists at %s", commitId, testName, tarball_name)
+            logging.warn("A build for %s/%s/%s already exists at %s", repoName, commitHash, testName, tarball_name)
 
         try:
-            logging.info("Uploading %s to %s", tarball_name, self.artifactKeyForTest(commitId, testName))
+            logging.info("Uploading %s to %s", tarball_name, self.artifactKeyForTest(repoName, commitHash, testName))
 
-            self.artifactStorage.upload_build(self.artifactKeyForTest(commitId, testName), tarball_name)
+            self.artifactStorage.upload_build(self.artifactKeyForTest(repoName, commitHash, testName), tarball_name)
             return True
         except:
-            logging.error("Failed to upload package '%s' to %s\n%s",
+            logging.error("Failed to upload package '%s' to %s/%s\n%s",
                           tarball_name,
-                          commitId,
+                          repoName, 
+                          commitHash,
                           traceback.format_exc()
                           )
             return False
 
-    def _download_build(self, commitId, testName):
-        path = os.path.join(self.directories.build_cache_dir, self.artifactKeyForTest(commitId, testName))
+    def _download_build(self, repoName, commitHash, testName):
+        path = os.path.join(self.directories.build_cache_dir, self.artifactKeyForTest(repoName, commitHash, testName))
         
         if not os.path.exists(path):
-            logging.info("Downloading build for %s/%s to %s", commitId, testName, path)
-            self.artifactStorage.download_build(self.artifactKeyForTest(commitId, testName), path)
+            logging.info("Downloading build for %s/%s to %s", repoName, commitHash, testName, path)
+            self.artifactStorage.download_build(self.artifactKeyForTest(repoName, commitHash, testName), path)
 
         return path
 
-    def environment_variables(self, testId, commitId, isBuild):
-        repoName, commitHash = commitId.split("/")
+    def environment_variables(self, testId, repoName, commitHash, isBuild):
         return  {
             'TEST_REPO': repoName,
             'REVISION': commitHash,

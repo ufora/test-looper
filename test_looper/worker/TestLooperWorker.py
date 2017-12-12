@@ -98,7 +98,7 @@ class TestLooperWorker(object):
     def mainTestingIteration(self):
         logging.info("Machine %s is starting a new test loop iteration",
                      self.ownMachineInfo.machineId)
-        self.heartbeatResponse = TestResult.TestResult.HEARTBEAT_RESPONSE_ACK
+        self.heartbeatResponse = TestResult.HEARTBEAT_RESPONSE_ACK
         self.testLooperClient = self.settings.testLooperClientFactory()
 
         commit_and_test = self.testLooperClient.getTask(self.ownMachineInfo)
@@ -109,7 +109,8 @@ class TestLooperWorker(object):
             return self.timeToSleepWhenThereIsNoWork
 
         self.run_task(
-            commit_and_test["commitId"], 
+            commit_and_test["repoName"], 
+            commit_and_test["commitHash"],
             commit_and_test["testId"],
             commit_and_test["testName"]
             )
@@ -117,34 +118,36 @@ class TestLooperWorker(object):
         return 0
 
 
-    def run_task(self, commitId, testId, testName):
+    def run_task(self, repoName, commitHash, testId, testName):
         logging.info("Machine %s is working on testId %s, test %s, for commit %s",
                      self.ownMachineInfo.machineId,
                      testId,
                      testName,
-                     commitId
+                     repoName, 
+                     commitHash
                      )
 
         def heartbeat():
-            return self.sendHeartbeat(self.testLooperClient, testId, commitId)
+            return self.sendHeartbeat(self.testLooperClient, testId, repoName, commitHash)
 
-        result = self.settings.osInteractions.runTest(testId, commitId, testName, heartbeat)
+        result = self.settings.osInteractions.runTest(testId, repoName, commitHash, testName, heartbeat)
         
         if not self.stopEvent.is_set():
             self.testLooperClient.publishTestResult(result)
 
-    def sendHeartbeat(self, testLooperClient, testId, commitId):
-        if self.heartbeatResponse != TestResult.TestResult.HEARTBEAT_RESPONSE_ACK:
+    def sendHeartbeat(self, testLooperClient, testId, repoName, commitHash):
+        if self.heartbeatResponse != TestResult.HEARTBEAT_RESPONSE_ACK:
             logging.info('Machine %s skipping heartbeat because it already received "%s"',
                          self.ownMachineInfo.machineId,
                          self.heartbeatResponse)
             return
 
         self.heartbeatResponse = testLooperClient.heartbeat(testId,
-                                                            commitId,
+                                                            repoName, 
+                                                            commitHash,
                                                             self.ownMachineInfo.machineId)
 
-        if self.heartbeatResponse != TestResult.TestResult.HEARTBEAT_RESPONSE_ACK:
+        if self.heartbeatResponse != TestResult.HEARTBEAT_RESPONSE_ACK:
             logging.info(
                 "Machine %s is raising TestInterruptException due to heartbeat response: %s",
                 self.ownMachineInfo.machineId,

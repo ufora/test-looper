@@ -245,8 +245,6 @@ class TestLooperHttpServer(object):
 
     @staticmethod
     def commitLink(commit, failuresOnly=False, testName=None, textIsSubject=True):
-        commitId = commit.repo.name + "/" + commit.hash
-
         subject = "<not loaded yet>" if not commit.data else commit.data.subject
 
         if textIsSubject:
@@ -261,9 +259,12 @@ class TestLooperHttpServer(object):
         if testName:
             extras["testName"] = testName
 
+        extras["repoName"] = commit.repo.name
+        extras["commitHash"] = commit.hash
+
         return HtmlGeneration.link(
             text,
-            "/commit/" + commitId + ("?" if extras else "") + urllib.urlencode(extras),
+            "/commit/" + ("?" if extras else "") + urllib.urlencode(extras),
             hover_text=subject
             )
 
@@ -302,7 +303,7 @@ class TestLooperHttpServer(object):
             )
 
     def sourceLinkForCommit(self, commit):
-        url = self.src_ctrl.commit_url(commit.repo.name + "/" + commit.hash)
+        url = self.src_ctrl.commit_url(commit.repo.name, commit.hash)
         if url:
             return HtmlGeneration.link(commit.hash[:7], url)
         else:
@@ -365,8 +366,6 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def commit(self, repoName, commitHash, failuresOnly=False, testName=None):
-        commitId = repoName + "/" + commitHash
-
         self.authorize(read_only=True)
 
         with self.testManager.database.view():
@@ -429,7 +428,7 @@ class TestLooperHttpServer(object):
                 buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Environments")))
                 for env in sorted(env_vals, key=lambda e: e.name):
                     buttons.append(
-                        HtmlGeneration.Link(self.bootTestOrEnvUrl(commitId, env.name, env.portExpose),
+                        HtmlGeneration.Link(self.bootTestOrEnvUrl(repoName, commitHash, env.name, env.portExpose),
                            env.name,
                            is_button=True,
                            button_style=self.disable_if_cant_write('btn-danger btn-xs')
@@ -445,7 +444,7 @@ class TestLooperHttpServer(object):
                 buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Tests")))
                 for test in sorted(test_vals, key=lambda e: e.name):
                     buttons.append(
-                        HtmlGeneration.Link(self.bootTestOrEnvUrl(commitId, test.name, {}),
+                        HtmlGeneration.Link(self.bootTestOrEnvUrl(repoName, commitHash, test.name, {}),
                            test.name,
                            is_button=True,
                            button_style=self.disable_if_cant_write('btn-danger btn-xs')
@@ -456,7 +455,7 @@ class TestLooperHttpServer(object):
 
             return header + HtmlGeneration.HtmlElements(buttons).render() + HtmlGeneration.grid(grid)
 
-    def bootTestOrEnvUrl(self, commitId, testName, ports):
+    def bootTestOrEnvUrl(self, repoName, commitHash, testName, ports):
         addr = self.address
         items = addr.split(":")
         def isint(x):
@@ -468,7 +467,7 @@ class TestLooperHttpServer(object):
         if isint(items[-1]):
             addr = ":".join(items[:-1])
 
-        args = {'commit': commitId, 'test': testName}
+        args = {'repoName': repoName, "commitHash": commitHash, 'test': testName}
         if ports:
             args["ports"] = ports
         return addr + ":" + str(self.wetty_port) + "/wetty?" + urllib.urlencode(args)
@@ -675,7 +674,7 @@ class TestLooperHttpServer(object):
                     )
 
                 grid.append([
-                    HtmlGeneration.link(r, "/branches?repoName=" + r),
+                    HtmlGeneration.link(r, "/branches?" + urllib.urlencode({'repoName':r})),
                     str(len(branches))
                     ])
 
@@ -762,13 +761,13 @@ class TestLooperHttpServer(object):
 
 
     @cherrypy.expose
-    def toggleBranchCommitTargeting(self, reponame, branchname, hash):
+    def toggleBranchCommitTargeting(self, reponame, branchname, commitHash):
         self.authorize(read_only=False)
 
         with self.testManager.database.view():
             branch = self.testManager.database.Branch.lookupOne(reponame_and_branchname=(reponame, branchname))
 
-            if commitId in branch.targetedCommitIds():
+            if commitHash in branch.targetedCommitIds():
                 logging.warn("set to off")
                 branch.setTargetedCommitIds(
                     [x for x in branch.targetedCommitIds() if x != commitId]

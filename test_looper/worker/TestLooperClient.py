@@ -80,7 +80,7 @@ class TestLooperClient(object):
                     logging.warn("Couldn't publish test results: %s", traceback.format_exc())
                     time.sleep(1.0)
 
-    def heartbeat(self, testId, commitId, machineId):
+    def heartbeat(self, testId, repoName, commitHash, machineId):
         def requestHandler(request_socket):
             socket_util.writeString(
                 request_socket,
@@ -88,7 +88,8 @@ class TestLooperClient(object):
                     "request": "heartbeat",
                     "args": {
                         'testId':testId,
-                        'commitId': commitId,
+                        'repoName': repoName,
+                        'commitHash': commitHash,
                         'machineId': machineId
                         }
                     })
@@ -111,7 +112,7 @@ class TestLooperClient(object):
         logging.warn("Skipping heartbeat")
         # Pretend that the server sent an ack. We don't want to abort any
         # running tests or stop heartbeating.
-        return TestResult.TestResult.HEARTBEAT_RESPONSE_ACK
+        return TestResult.HEARTBEAT_RESPONSE_ACK
 
 
     def sendRequest(self, requestHandler):

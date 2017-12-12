@@ -65,7 +65,6 @@ class Git(object):
     def pullLatest(self):
         remotes = self.listRemotes()
         if "origin" in remotes:
-            print self.subprocessCheckOutput(['git fetch origin -p'], shell=True)
             return self.subprocessCheckCall(['git fetch origin -p'], shell=True) == 0
         else:
             return True
@@ -117,6 +116,7 @@ class Git(object):
         return self.subprocessCheckOutput(["git", "log", "-n", "1", '--format=format:%H'])
 
     def isInitialized(self):
+        logging.debug('Checking existence of %s', os.path.join(self.path_to_repo, ".git"))
         return os.path.exists(os.path.join(self.path_to_repo, ".git"))
 
     def init(self):
@@ -161,12 +161,10 @@ class Git(object):
 
             return [r for r in lines if r != "HEAD"]
 
-    def hashParentsAndCommitTitleFor(self, commitId):
+    def hashParentsAndCommitTitleFor(self, commitHash):
         with self.git_repo_lock:
-            command = 'git --no-pager log -n 1 --topo-order {commitId} --format=format:"%H %P -- %s"'
-
             data = self.subprocessCheckOutput(
-                ["git", "--no-pager", "log", "-n", "1", "--topo-order", commitId, '--format=format:%H %P -- %s']
+                ["git", "--no-pager", "log", "-n", "1", "--topo-order", commitHash, '--format=format:%H %P -- %s']
                 ).strip()
 
             commits, message = data.split(' -- ', 1)
@@ -246,7 +244,7 @@ class Git(object):
             self.pullLatest()
 
             if not self.commitExists(commit):
-                logging.info("Commit %s doesn't exist in %s even after pulling from origin.", self.path_to_repo, commit)
+                logging.warn("Commit %s doesn't exist in %s even after pulling from origin.", self.path_to_repo, commit)
                 raise Exception("Can't find commit %s" % commit)
         
         if commit in self.testDefinitionLocationCache_:
@@ -259,7 +257,7 @@ class Git(object):
                    p.endswith("/testDefinitions.yml") or p == "testDefinitions.yml"]
             )
 
-        logging.info("For commit %s, found testDefinitions at %s", commit, paths)
+        logging.debug("For commit %s, found testDefinitions at %s", commit, paths)
 
         if not paths:
             self.testDefinitionLocationCache_[commit] = None

@@ -104,11 +104,11 @@ class Bitbucket(Git):
         return response.json()['display_name']
 
 
-    def commit_url(self, commit_id):
-        return "https://bitbucket.org/%s/%s/commits/%s" % (self.owner, self.repo, commit_id)
+    def commit_url(self, reponame, commitHash):
+        assert False, "Not implemented"
 
 
-    def getTestScriptDefinitionsForCommit(self, commitId):
+    def getTestScriptDefinitionsForCommit(self, repoName, commitHash):
         assert False, "not implemented"
 
 

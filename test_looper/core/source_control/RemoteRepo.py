@@ -6,7 +6,7 @@ Represents a Git repo hosted by a service such as Github, Bitbucket, etc.
 
 def isValidRepoName(name):
     for c in name:
-        if not (c.isalnum() or c in "-_"):
+        if not (c.isalnum() or c in "-_/"):
             return False
     return True
 
@@ -50,15 +50,15 @@ class RemoteRepo(object):
     def branchTopCommit(self, branch):
         commits = self.commitsBetweenBranches(branch, branch + "^")
         if commits:
-            assert len(commits) == 1
+            assert len(commits) >= 1
             return commits[0][0]
 
 
-    def getTestScriptDefinitionsForCommit(self, commitId):
+    def getTestScriptDefinitionsForCommit(self, repoName, commitHash):
         """The test script definition text for a given commit"""
         assert False, "subclasses implement"
 
-    def commit_url(self, commit):
+    def commit_url(self, commitHash):
         """The url to show the contents of a given commit. None if not available"""
         assert False, "subclasses implement"
 
