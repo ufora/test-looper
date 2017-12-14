@@ -16,15 +16,17 @@ var opts = require('optimist')
             }
         }).boolean('allow_discovery').argv;
 
-var port = require(opts.config).server.wetty_port
+var parsed_config = require(opts.config)
+
+var port = parsed_config.server.wetty_port
 
 var runhttps = false;
 
-if (opts.sslkey && opts.sslcert) {
+if (parsed_config.server.certs) {
     runhttps = true;
     opts['ssl'] = {};
-    opts.ssl['key'] = fs.readFileSync(path.resolve(opts.sslkey));
-    opts.ssl['cert'] = fs.readFileSync(path.resolve(opts.sslcert));
+    opts.ssl['key'] = fs.readFileSync(path.resolve(parsed_config.server.certs.private_key));
+    opts.ssl['cert'] = fs.readFileSync(path.resolve(parsed_config.server.certs.cert));
 }
 
 process.on('uncaughtException', function(e) {
@@ -56,7 +58,8 @@ io.on('connection', function(socket){
 
     var query = url.parse(request.headers.referer, true).query;
 
-    var commit = query.commit
+    var repo = query.repoName
+    var commit = query.commitHash
     var test = query.test
     var ports = query.ports
 
@@ -67,7 +70,7 @@ io.on('connection', function(socket){
     }
 
     var term;
-    var args = ["invoke.py", opts.config, commit, test]
+    var args = ["invoke.py", opts.config, repo, commit, test]
 
     if (ports != null) {
         args.push('--ports')

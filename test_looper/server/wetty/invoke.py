@@ -12,12 +12,17 @@ import json
 import simplejson
 import uuid
 import signal
+import yaml
 
+import test_looper.core.algebraic_to_json as algebraic_to_json
 import test_looper.core.tools.Git as Git
+import test_looper.core.source_control.SourceControlFromConfig as SourceControlFromConfig
+import test_looper.core.ArtifactStorage as ArtifactStorage
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.worker.WorkerState as WorkerState
 import test_looper.core.tools.Docker as Docker
 import test_looper.core.tools.DockerWatcher as DockerWatcher
+import test_looper.core.cloud.MachineInfo as MachineInfo
 
 own_dir = os.path.split(os.path.abspath(__file__))[0]
 
@@ -30,8 +35,13 @@ def createArgumentParser():
         )
 
     parser.add_argument(
-        dest='commit',
-        help="The commit to use"
+        dest='repoName',
+        help="The repo to run from"
+        )
+
+    parser.add_argument(
+        dest='commitHash',
+        help="The commitHash or branchname to use"
         )
 
     parser.add_argument(
@@ -72,131 +82,132 @@ def pick_random_open_port():
 if __name__ == "__main__":
     args = createArgumentParser().parse_args()
 
-    repoName, commitHash = args.commit.split("/")
+    repoName = args.repoName
+    commitHash = args.commitHash
 
     print "***********************************"
     print "WELCOME TO TEST LOOPER"
     print "***********************************"
-    print "invoking " + args.environment + " on source from " + args.commit
+    print "invoking " + args.environment + " on source from " + repoName + "/" + commitHash
     
     config = loadConfiguration(args.config)
 
-    if "path_to_repos" in config["source_control"]:
-        path = config["source_control"]["path_to_repos"]
-    else:
-        path = config["source_control"]["path_to_local_repos"]
-
-    path = os.path.expandvars(path)
-
-    repo = Git.Git(os.path.join(path, repoName))
-
-    test_def_path = repo.getTestDefinitionsPath(commitHash)
-
-    if test_def_path is None:
-        print "********************************"
-        print
-        print
-        print
-        print "Couldn't find a testDefinitions.json/yml file in the repo."
-        print os.path.listdir(path)
-        print
-        sys.exit(1)
-
-    testDefsTxt = repo.getFileContents(commitHash, test_def_path)
-
-    if testDefsTxt is None:
-        print "********************************"
-        print
-        print
-        print
-        print "Couldn't find a testDefinitions.json or .yml file in the repo."
-        print os.path.listdir(path), test_def_path
-        print
-        sys.exit(1)
-
-    testDefs, environments = TestDefinitionScript.extract_tests_from_str(args.commit, os.path.splitext(test_def_path)[1], testDefsText)
-
-    testDef = testDefs.get(args.environment)
-
-    if not testDef:
-        print "********************************"
-        print
-        print
-        print
-        print "Couldn't find " + args.environment + " in testDefinitions:\n\n" + testDefsTxt
-        print
-        sys.exit(1)
-
-    if testDef.matches.Build:
-        cmd = testDef.buildCommand
-    elif testDef.matches.Test:
-        cmd = testDef.testCommand
-    elif testDef.matches.Deploy:
-        cmd = testDef.deployCommand
-    else:
-        print "********************************"
-        print
-        print
-        print
-        print "Unknown test definition type: " + str(testDef)
-        print
-
-
     temp_dir = tempfile.mkdtemp()
 
-    repo_dir = os.path.join(temp_dir, "repo")
+    artifactStorage = ArtifactStorage.storageFromConfig(config['artifacts'])
 
-    repo.resetToCommitInDirectory(commitHash, os.path.join(temp_dir, "repo"))
+    source_control = SourceControlFromConfig.getFromConfig(config["source_control"])
 
-    if args.ports:
-        type_and_port = args.ports.split(",")
-        used_ports = get_used_ports()
-        ports = {}
+    validHexChars = '0123456789abcdefABCDEF'
+    if not (len(commitHash) == 40 and not [c for c in commitHash if c not in validHexChars]):
+        source_control.getRepo(repoName).refresh()
+        commitHash = source_control.getRepo(repoName).branchTopCommit(commitHash)
 
-        for tp in type_and_port:
-            type, port = tp.split(":")
-            tgt = pick_random_open_port()
-            ports[port] = tgt
-
-            print "Exposed %s=%s in container on host as %s" % (type, port, tgt)
-    else:
-        ports = {}
-
-    print "***********************************"
-    for i in xrange(10):
-        print
+    workerState = WorkerState.WorkerState(
+        "interactive_" + str(uuid.uuid4()) + "_",
+        temp_dir,
+        source_control,
+        artifactStorage=artifactStorage,
+        machineInfo=MachineInfo.MachineInfo("localhost",
+                                          "localhost",
+                                          1,
+                                          "none",
+                                          "bare metal"
+                                          )
+        )
 
     try:
-        image = WorkerState.WorkerState.getDockerImageFromRepo(repo, commitHash, testDef.docker)
-            
-        bash_args = ["-c", "rm -rf /repo/.git; " + cmd + '; cp /exposed_in_invoke/fancy_bashrc ~/.bashrc; echo "\n\n\n\n\nYou are now interactive\n\n"; bash']
+        testDef = workerState.testDefinitionFor(repoName, commitHash, args.environment)
+        if testDef is None:
+            raise Exception("Couldn't find test environment %s in %s/%s" % (args.environments, repoName, commitHash))
 
-        with DockerWatcher.DockerWatcher("interactive_" + str(uuid.uuid4()) + "_") as watcher:
-            container = watcher.run(image, 
-                ["bash"] + bash_args, 
-                privileged=True,
-                shm_size="1G",
-                stdin_open=True,
-                working_dir="/repo",
-                volumes={repo_dir:"/repo", os.path.join(own_dir, "exposed_in_invoke"): "/exposed_in_invoke"},
-                environment={"TEST_SRC_DIR":"/repo"},
-                ports=ports,
-                tty=True
+        if testDef.matches.Build:
+            cmd = testDef.buildCommand
+        elif testDef.matches.Test:
+            cmd = testDef.testCommand
+        elif testDef.matches.Deploy:
+            cmd = testDef.deployCommand
+        else:
+            raise Exception("Unknown test definition type: " + str(testDef))
+
+        environment, dependencies = workerState.getEnvironmentAndDependencies(repoName, commitHash, testDef)
+
+        print yaml.dump(
+            algebraic_to_json.Encoder().to_json(
+                {'environment': environment, 'dependencies': dependencies}
                 )
-            
-            client = docker.from_env()
-            client.__dict__["inspect_container"] = lambda c: client.api.inspect_container(c.id)
-            client.__dict__["attach_socket"] = lambda c,*args,**kwds: client.api.attach_socket(c.id, *args, **kwds)
-            client.__dict__["resize"] = lambda c,*args,**kwds: client.api.resize(c.id, *args, **kwds)
+            )
 
-            def handleStopSignal(signum, _):
-                print "Shutting down."
-                container.stop()
+        image = workerState.getDockerImage(environment)
 
-            signal.signal(signal.SIGTERM, handleStopSignal) # handle kill
-            signal.signal(signal.SIGINT, handleStopSignal)  # handle ctrl-c
-            signal.signal(signal.SIGHUP, handleStopSignal)  # handle sighup
+        workerState.resetToCommit(repoName, commitHash)
 
-            dockerpty.start(client, container)
-    finally:
-        WorkerState.WorkerState.clearDirectoryAsRoot(temp_dir)
+        if not image:
+            raise Exception("Couldn't get a valid docker image")
+
+        if args.ports:
+            type_and_port = args.ports.split(",")
+            used_ports = get_used_ports()
+            ports = {}
+
+            for tp in type_and_port:
+                type, port = tp.split(":")
+                tgt = pick_random_open_port()
+                ports[port] = tgt
+
+                print "Exposed %s=%s in container on host as %s" % (type, port, tgt)
+        else:
+            ports = {}
+
+        env_vars = workerState.environment_variables(None, repoName, commitHash, environment, testDef)
+
+        print "***********************************"
+        for i in xrange(10):
+            print
+
+        try:
+            bash_args = ["-c", "rm -rf /repo/.git; " + cmd + '; cp /exposed_in_invoke/fancy_bashrc ~/.bashrc; echo "\n\n\n\n\nYou are now interactive\n\n"; bash']
+
+            volumes = workerState.volumesToExpose()
+            volumes[os.path.join(own_dir, "exposed_in_invoke")] = "/exposed_in_invoke"
+
+            with DockerWatcher.DockerWatcher(workerState.name_prefix) as watcher:
+                container = watcher.run(image, 
+                    ["bash"] + bash_args, 
+                    privileged=True,
+                    shm_size="1G",
+                    stdin_open=True,
+                    working_dir="/test_looper/src",
+                    volumes=volumes,
+                    environment=env_vars,
+                    ports=ports,
+                    tty=True
+                    )
+                
+                client = docker.from_env()
+                client.__dict__["inspect_container"] = lambda c: client.api.inspect_container(c.id)
+                client.__dict__["attach_socket"] = lambda c,*args,**kwds: client.api.attach_socket(c.id, *args, **kwds)
+                client.__dict__["resize"] = lambda c,*args,**kwds: client.api.resize(c.id, *args, **kwds)
+
+                def handleStopSignal(signum, _):
+                    print "Shutting down."
+                    container.stop()
+
+                signal.signal(signal.SIGTERM, handleStopSignal) # handle kill
+                signal.signal(signal.SIGINT, handleStopSignal)  # handle ctrl-c
+                signal.signal(signal.SIGHUP, handleStopSignal)  # handle sighup
+
+                dockerpty.start(client, container)
+        finally:
+            WorkerState.WorkerState.clearDirectoryAsRoot(temp_dir)
+
+    except Exception as e:
+        print "********************************"
+        print
+        print
+        print
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+

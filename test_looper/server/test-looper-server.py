@@ -99,7 +99,8 @@ def main():
         auth_level=parsedArgs.auth,
         httpPort=http_port,
         enable_advanced_views=config['server'].get('enable_advanced_views', False),
-        wetty_port=config['server']['wetty_port']
+        wetty_port=config['server']['wetty_port'],
+        certs=config['server'].get('certs')
         )
 
     server = TestLooperServer.TestLooperServer(port,

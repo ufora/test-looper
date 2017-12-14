@@ -86,12 +86,11 @@ class WorkerStateTests(unittest.TestCase):
         source_repo.writeFile("a_file.txt", "contents3")
         c3 = source_repo.commit("a message 3", timestamp)
 
-        revs = [x[0] for x in source_repo.commitsInRevList("HEAD ^HEAD^^")]
-        self.assertEqual(revs, [c3,c2])
-
         fds = len(self.get_fds())
         for i in xrange(10):
-            source_repo.commitsInRevList("HEAD ^HEAD^^")
+            source_repo.hashParentsAndCommitTitleFor(c1)
+            source_repo.hashParentsAndCommitTitleFor(c2)
+            source_repo.hashParentsAndCommitTitleFor(c3)
         fds2 = len(self.get_fds())
 
         self.assertEqual(fds, fds2)

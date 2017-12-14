@@ -42,7 +42,8 @@ class TestLooperHttpServer(object):
                  auth_level,
                  httpPort,
                  enable_advanced_views,
-                 wetty_port
+                 wetty_port,
+                 certs
                  ):
         """Initialize the TestLooperHttpServer
 
@@ -65,6 +66,7 @@ class TestLooperHttpServer(object):
         self.defaultCoreCount = 4
         self.enable_advanced_views = enable_advanced_views
         self.artifactStorage = artifactStorage
+        self.certs = certs
 
 
     def addLogMessage(self, format_string, *args, **kwargs):
@@ -1260,6 +1262,15 @@ class TestLooperHttpServer(object):
                 'tools.sessions.on': True,
                 }
             }
+
+        if self.certs:
+            config['global'].update({
+                'server.ssl_module':'pyopenssl',
+                'server.ssl_certificate':self.certs['cert'],
+                'server.ssl_private_key':self.certs['private_key'],
+                'server.ssl_certificate_chain':self.certs['chain']
+                })
+
         cherrypy.config.update(config)
         
         logging.info("STARTING HTTP SERVER")
@@ -1289,7 +1300,6 @@ class TestLooperHttpServer(object):
         cherrypy.engine.signals.subscribe()
 
         cherrypy.engine.start()
-
 
     @staticmethod
     def stop():

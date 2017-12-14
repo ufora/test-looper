@@ -32,9 +32,11 @@ def configureGitlab(src_ctrl_config):
         'oauth_secret': src_ctrl_config['oauth_secret'],
         'webhook_secret': str(src_ctrl_config['webhook_secret']),
         'owner': str(src_ctrl_config['owner']),
-        'private_token': src_ctrl_config['private_token'],
+        'private_token': os.path.expandvars(src_ctrl_config['private_token']),
         'auth_disabled': src_ctrl_config.get("auth_disabled", False)
         }
+
+    assert src_ctrl_args['private_token'], "need a private token"
 
     for item in ['gitlab_url', 'gitlab_login_url', 'gitlab_api_url', 'gitlab_clone_url']:
         if item in src_ctrl_config:

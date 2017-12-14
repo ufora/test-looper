@@ -64,12 +64,16 @@ class Gitlab(SourceControl.SourceControl):
 
         res = []
         try:
-            for r in simplejson.loads(response.content):
-                try:
-                    res.append(r['namespace']['full_path'] + "/" + r["name"])
-                except:
-                    logging.error("failed with: %s", r)
-                    logging.error(traceback.format_exc())
+            json = simplejson.loads(response.content)
+            if 'message' in json:
+                logging.error("Got an error response: %s", response.content)
+            else:
+                for r in json:
+                    try:
+                        res.append(r['namespace']['full_path'] + "/" + r["name"])
+                    except:
+                        logging.error("failed with: %s", r)
+                        logging.error(traceback.format_exc())
         except:
             logging.error("GOT: %s", response.content)
             logging.error(traceback.format_exc())

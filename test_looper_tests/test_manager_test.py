@@ -101,9 +101,6 @@ class MockRepo:
     def branchTopCommit(self, branch):
         return self.source_control.branch_to_commitId[self.repoName + "/" + branch].split("/")[1]
 
-    def commitsBetweenBranches(self, branch1, branch2):
-        assert False, (branch1, branch2)
-
     def getTestScriptDefinitionsForCommit(self, commitHash):
         assert "/" not in commitHash
         return self.source_control.commit_test_defs[self.repoName + "/" + commitHash], ".yml"

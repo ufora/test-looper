@@ -33,9 +33,6 @@ class GithubRepo(RemoteRepo.RemoteRepo):
     def listBranches(self):
         return self.source_repo.listBranchesForRemote("origin")
 
-    def commitsBetweenBranches(self, branch, baseline):
-        return self.source_repo.commitsInRevList("origin/%s ^origin/%s" % (branch, baseline))
-
     def getTestScriptDefinitionsForCommit(self, commitHash):
         test_definitions_path = self.source_repo.getTestDefinitionsPath(commitHash)
         

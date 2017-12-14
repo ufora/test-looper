@@ -132,6 +132,16 @@ class WorkerState(object):
             options="--rm"
             )
 
+    def volumesToExpose(self):
+        return {
+            self.directories.scratch_dir: "/test_looper/scratch",
+            self.directories.test_inputs_dir: "/test_looper/test_inputs",
+            self.directories.repo_copy_dir: "/test_looper/src",
+            self.directories.test_output_dir: "/test_looper/output",
+            self.directories.build_output_dir: "/test_looper/build_output",
+            self.directories.ccache_dir: "/test_looper/ccache"
+            }
+
     def _run_command(self, command, log_filename, env, timeout, heartbeat, docker_image):
         tail_proc = None
         
@@ -179,14 +189,7 @@ class WorkerState(object):
                 container = watcher.run(
                     docker_image,
                     ["/bin/bash", "-c", command, ">", log_filename_in_container, "2>&1"],
-                    volumes={
-                        self.directories.scratch_dir: "/test_looper/scratch",
-                        self.directories.test_inputs_dir: "/test_looper/test_inputs",
-                        self.directories.repo_copy_dir: "/test_looper/src",
-                        self.directories.test_output_dir: "/test_looper/output",
-                        self.directories.build_output_dir: "/test_looper/build_output",
-                        self.directories.ccache_dir: "/test_looper/ccache"
-                        },
+                    volumes=self.volumesToExpose(),
                     privileged=True,
                     shm_size="1G",
                     environment=env,
@@ -319,7 +322,7 @@ class WorkerState(object):
             
         return environment
 
-    def getDockerImage(self, testEnvironment, output_dir):
+    def getDockerImage(self, testEnvironment):
         assert testEnvironment.matches.Environment
         assert testEnvironment.platform.matches.linux
         assert testEnvironment.image.matches.Dockerfile
@@ -334,7 +337,11 @@ class WorkerState(object):
             return self.getDockerImageFromRepo(git_repo, commitHash, pathToDockerfile)
         except Exception as e:
             logging.error("Failed to produce docker image:\n%s", traceback.format_exc())
+            
+            output_dir = self.directories.test_output_dir
+
             self.ensureDirectoryExists(output_dir)
+            
             with open(os.path.join(output_dir,"docker_configuration_error.log"),"w") as f:
                 print >> f, "Failed to get a docker image configured by %s:\n\n%s" % (
                     pathToDockerfile,
@@ -428,7 +435,7 @@ class WorkerState(object):
 
         return "Unknown dependency type: %s" % dep
 
-    def _run_task(self, testId, repoName, commitHash, test_definition, heartbeat):
+    def getEnvironmentAndDependencies(self, repoName, commitHash, test_definition):
         environment = self.resolveEnvironment(test_definition.environment)
 
         all_dependencies = {}
@@ -439,19 +446,27 @@ class WorkerState(object):
             errStringOrNone = self.grabDependency(expose_as, dep, repoName, commitHash)
 
             if errStringOrNone is not None:
-                return self.create_test_result(False, testId, repoName, commitHash, errStringOrNone)
+                raise Exception(errStringOrNone)
+
+        return environment, all_dependencies
+
+    def _run_task(self, testId, repoName, commitHash, test_definition, heartbeat):
+        try:
+            environment, all_dependencies = self.getEnvironmentAndDependencies(repoName, commitHash, test_definition)
+        except Exception as e:
+            return self.create_test_result(False, testId, repoName, commitHash, str(e))
 
         if test_definition.matches.Build:
             command = test_definition.buildCommand
         else:
             command = test_definition.testCommand
 
-        image = self.getDockerImage(environment, self.directories.test_output_dir)
+        image = self.getDockerImage(environment)
 
         if image is None:
             is_success = False
         else:
-            env_overrides = self.environment_variables(testId, repoName, commitHash, test_definition.matches.Build)
+            env_overrides = self.environment_variables(testId, repoName, commitHash, environment, test_definition)
             
             logging.info("Machine %s is starting run for %s %s. Command: %s",
                          self.machineInfo.machineId,
@@ -459,11 +474,16 @@ class WorkerState(object):
                          commitHash,
                          command)
 
-            is_success = self.runTestUsingScript(command,
-                                                 env_overrides,
-                                                 heartbeat,
-                                                 docker_image=image
-                                                 )
+            test_logfile = os.path.join(self.directories.test_output_dir, 'test_out.log')
+
+            is_success = self._run_command(
+                command,
+                test_logfile,
+                env_overrides,
+                self.timeout,
+                heartbeat,
+                docker_image=image
+                )
 
         if is_success and test_definition.matches.Build:
             if not self._upload_build(repoName, commitHash, test_definition.name):
@@ -484,7 +504,7 @@ class WorkerState(object):
                 )
 
         return test_result
-    
+
     def artifactKeyForTest(self, repoName, commitHash, testName):
         return (repoName + "/" + commitHash + "/" + testName).replace("/", "_") + ".tar"
 
@@ -527,8 +547,12 @@ class WorkerState(object):
 
         return path
 
-    def environment_variables(self, testId, repoName, commitHash, isBuild):
-        return  {
+    def environment_variables(self, testId, repoName, commitHash, environment, test_definition):
+        isBuild = test_definition.matches.Build
+        res = {}
+        res.update(environment.variables)
+        res.update(test_definition.variables)
+        res.update({
             'TEST_REPO': repoName,
             'REVISION': commitHash,
             'TEST_SRC_DIR': "/test_looper/src",
@@ -536,22 +560,9 @@ class WorkerState(object):
             'TEST_SCRATCH_DIR': "/test_looper/scratch",
             'TEST_OUTPUT_DIR': "/test_looper/output",
             'TEST_BUILD_OUTPUT_DIR': "/test_looper/build_output",
-            'TEST_CCACHE_DIR': "/test_looper/ccache",
-            'TEST_LOOPER_TEST_ID': testId
-            }
+            'TEST_CCACHE_DIR': "/test_looper/ccache"
+            })
+        if testId is not None:
+            res['TEST_LOOPER_TEST_ID'] = testId
 
-    def runTestUsingScript(self, script, env_overrides, heartbeat, docker_image):
-        test_logfile = os.path.join(self.directories.test_output_dir, 'test_out.log')
-
-        logging.info("Machine %s is logging to %s with",
-                     self.machineInfo.machineId,
-                     test_logfile)
-
-        return self._run_command(
-            script,
-            test_logfile,
-            env_overrides,
-            self.timeout,
-            heartbeat,
-            docker_image=docker_image
-            )
+        return res

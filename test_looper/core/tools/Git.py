@@ -163,69 +163,19 @@ class Git(object):
 
     def hashParentsAndCommitTitleFor(self, commitHash):
         with self.git_repo_lock:
-            data = self.subprocessCheckOutput(
-                ["git", "--no-pager", "log", "-n", "1", "--topo-order", commitHash, '--format=format:%H %P -- %s']
-                ).strip()
+            data = None
+            try:
+                data = self.subprocessCheckOutput(
+                    ["git", "--no-pager", "log", "-n", "1", "--topo-order", commitHash, '--format=format:%H %P--%s']
+                    ).strip()
 
-            commits, message = data.split(' -- ', 1)
-            commits = [c.strip() for c in commits.split(" ") if c.strip()]
+                commits, message = data.split('--', 1)
+                commits = [c.strip() for c in commits.split(" ") if c.strip()]
 
-            return commits[0], commits[1:], message
-
-    def commitsInRevList(self, commitRange):
-        """
-        Returns the list of commits in the specified range.
-
-        'commitRange' should be a revlist, e.g.
-
-            origin/master ^origin/master^^^^^^
-
-        Resulting objects are tuples of
-            (hash, (parent1_hash, parent2_hash, ...), title)
-        """
-        logging.info("Checking commit range %s", commitRange)
-
-        with self.git_repo_lock:
-            if not commitRange:
-                return []
-
-            lines = None
-            while lines is None:
-                try:
-                    command = 'git --no-pager log --topo-order ' + \
-                            commitRange + ' --format=format:"%H %P -- %s"'
-
-                    lines = self.subprocessCheckOutput(command, shell=True).strip().split('\n')
-                except Exception:
-                    if commitRange.endswith("^"):
-                        commitRange = commitRange[:-1]
-                    else:
-                        raise Exception("error fetching '%s'" % commitRange)
-
-
-            lines = [l.strip() for l in lines if l]
-
-            def parseCommitLine(line):
-                splitLine = line.split(' -- ')
-                if len(splitLine) < 2:
-                    logging.warn("Got a confusing commit line: %s", line)
-                    return None
-                if len(splitLine) > 2:
-                    splitLine = [splitLine[0], ' -- '.join(splitLine[1:])]
-
-                hashes = splitLine[0].split(' ')
-                if len(hashes) < 2:
-                    logging.warn("Got a confusing commit line: %s", line)
-                    return None
-
-                return (
-                    hashes[0],       # commit hash
-                    tuple(hashes[1:]),   # parent commits
-                    splitLine[1]     # commit title
-                    )
-
-            commitTuples = [parseCommitLine(l) for l in lines]
-            return [c for c in commitTuples if c is not None]
+                return commits[0], commits[1:], message
+            except:
+                logging.error("Failed to get git info on %s. data=%s", commitHash, data)
+                raise
 
     def getFileContents(self, commit, path):
         with self.git_repo_lock:
@@ -240,11 +190,11 @@ class Git(object):
     def getTestDefinitionsPath(self, commit):
         """Breadth-first search through the git repo to find testDefinitions.json"""
         if not self.commitExists(commit):
-            logging.info("Commit %s doesn't exist in %s Pulling to see if we can find it.", self.path_to_repo, commit)
+            logging.info("Commit %s doesn't exist in %s Pulling to see if we can find it.", commit, self.path_to_repo)
             self.pullLatest()
 
             if not self.commitExists(commit):
-                logging.warn("Commit %s doesn't exist in %s even after pulling from origin.", self.path_to_repo, commit)
+                logging.warn("Commit %s doesn't exist in %s even after pulling from origin.", commit, self.path_to_repo)
                 raise Exception("Can't find commit %s" % commit)
         
         if commit in self.testDefinitionLocationCache_:

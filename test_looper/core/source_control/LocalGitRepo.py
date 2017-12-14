@@ -29,9 +29,6 @@ class LocalGitRepo(RemoteRepo.RemoteRepo):
         return [b for b in self.source_repo.listBranches() if 
             not b.startswith("origin/") and not b.startswith("remotes/")]
 
-    def commitsBetweenBranches(self, branch, baseline):
-        return self.source_repo.commitsInRevList("%s ^%s" % (branch, baseline))
-
     def getTestScriptDefinitionsForCommit(self, commitHash):
         path = self.source_repo.getTestDefinitionsPath(commitHash)
 

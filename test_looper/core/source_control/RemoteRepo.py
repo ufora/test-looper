@@ -43,16 +43,8 @@ class RemoteRepo(object):
         """a list of branchnames we export"""
         assert False, "subclasses implement"
 
-    def commitsBetweenBranches(self, branch, baseline):
-        """a list of commits in between two branches"""
-        assert False, "subclasses implement"
-
     def branchTopCommit(self, branch):
-        commits = self.commitsBetweenBranches(branch, branch + "^")
-        if commits:
-            assert len(commits) >= 1
-            return commits[0][0]
-
+        return self.source_repo.hashParentsAndCommitTitleFor("origin/" + branch)[0]
 
     def getTestScriptDefinitionsForCommit(self, repoName, commitHash):
         """The test script definition text for a given commit"""
