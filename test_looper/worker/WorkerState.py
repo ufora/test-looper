@@ -511,14 +511,13 @@ class WorkerState(object):
 
         heartbeat()
         
-        if not is_success or test_definition.matches.Build:
-            logging.info("machine %s uploading artifacts for test %s", self.machineInfo.machineId, testId)
+        logging.info("machine %s uploading artifacts for test %s", self.machineInfo.machineId, testId)
 
-            self.artifactStorage.uploadTestArtifacts(
-                testId,
-                self.machineInfo.machineId,
-                self.directories.test_output_dir
-                )
+        self.artifactStorage.uploadTestArtifacts(
+            testId,
+            self.machineInfo.machineId,
+            self.directories.test_output_dir
+            )
 
         return test_result
 
