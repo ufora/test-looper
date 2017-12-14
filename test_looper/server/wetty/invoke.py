@@ -13,6 +13,7 @@ import simplejson
 import uuid
 import signal
 import yaml
+import shutil
 
 import test_looper.core.algebraic_to_json as algebraic_to_json
 import test_looper.core.tools.Git as Git
@@ -116,6 +117,8 @@ if __name__ == "__main__":
                                           )
         )
 
+    workerState.useRepoCacheFrom(os.path.join(os.path.expandvars(config['worker']['path']),"1"))
+
     try:
         testDef = workerState.testDefinitionFor(repoName, commitHash, args.environment)
         if testDef is None:
@@ -165,11 +168,27 @@ if __name__ == "__main__":
         for i in xrange(10):
             print
 
+        shutil.copytree(
+            os.path.join(own_dir, "exposed_in_invoke"), 
+            os.path.join(temp_dir, "exposed_in_invoke")
+            )
+        with open(os.path.join(temp_dir, "exposed_in_invoke", "cmd.sh"), "w") as f:
+            print >> f, "rm -rf /repo/.git"
+            print >> f, "cp /exposed_in_invoke/fancy_bashrc ~/.bashrc"
+            print >> f, cmd
+            print >> f, "echo"
+            print >> f, "echo"
+            print >> f, "echo"
+            print >> f, "echo"
+            print >> f, "echo"
+            print >> f, "echo you are now interactive"
+            print >> f, "bash"
+
         try:
-            bash_args = ["-c", "rm -rf /repo/.git; " + cmd + '; cp /exposed_in_invoke/fancy_bashrc ~/.bashrc; echo "\n\n\n\n\nYou are now interactive\n\n"; bash']
+            bash_args = ['/exposed_in_invoke/cmd.sh']
 
             volumes = workerState.volumesToExpose()
-            volumes[os.path.join(own_dir, "exposed_in_invoke")] = "/exposed_in_invoke"
+            volumes[os.path.join(temp_dir, "exposed_in_invoke")] = "/exposed_in_invoke"
 
             with DockerWatcher.DockerWatcher(workerState.name_prefix) as watcher:
                 container = watcher.run(image, 

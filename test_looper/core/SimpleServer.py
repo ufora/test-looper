@@ -6,6 +6,7 @@ import logging
 import select
 import traceback
 import sys
+import ssl
 
 import test_looper.core.socket_util as socket_util
 import test_looper.server.Stoppable as Stoppable
@@ -53,7 +54,7 @@ def substringUnpacker(s):
 
 class SimpleServer(Stoppable.Stoppable):
     '''A simple server that abstracts the process of connecting sockets'''
-    def __init__(self, port, nodelay=True):
+    def __init__(self, port, nodelay=True, cert_and_key_paths = None):
         Stoppable.Stoppable.__init__(self)
         assert isinstance(port, int)
         self._port = port
@@ -63,6 +64,7 @@ class SimpleServer(Stoppable.Stoppable):
         self._listener = None
         self._socketBindException = None
         self._isListeningEvent = threading.Event()
+        self._cert_and_key_paths = cert_and_key_paths
 
     def bindListener(self, port=None):
         if self._listener is None:
@@ -89,7 +91,16 @@ class SimpleServer(Stoppable.Stoppable):
         self.stop()
 
     def _getSocket(self):
-        return socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if self._cert_and_key_paths:
+            return ssl.wrap_socket(
+                s,
+                server_side=True,
+                certfile=self._cert_and_key_paths[0],
+                keyfile=self._cert_and_key_paths[1]
+                )
+        else:
+            return s
 
     def _setupListenerSocket(self, port):
         self._isListeningEvent.clear()

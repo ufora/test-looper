@@ -426,7 +426,14 @@ class DockerWatcher:
 
     @property
     def containers_booted(self):
-        return [docker_client.containers.get(c) for c in self._containers_booted]
+        res = []
+        for c in self._containers_booted:
+            try:
+                res.append(docker_client.containers.get(c))
+            except:
+                logging.warn("We booted container %s but can't find it now." % c)
+
+        return res
 
     def shutdown(self):
         for c in self.containers_booted:

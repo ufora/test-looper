@@ -3,7 +3,7 @@ import socket
 import time
 import logging
 import traceback
-
+import ssl
 import test_looper.core.socket_util as socket_util
 import test_looper.data_model.TestResult as TestResult
 import test_looper.server.TestLooperServer as TestLooperServer
@@ -14,9 +14,10 @@ class ProtocolMismatchException(Exception):
 class TestLooperClient(object):
     HEARTBEAT_INTERVAL = 10.0
 
-    def __init__(self, host, port):
+    def __init__(self, host, port, use_ssl):
         self.host = host
         self.port = port
+        self.use_ssl = use_ssl
         self.shouldStop = False
 
     def stop(self):
@@ -24,6 +25,9 @@ class TestLooperClient(object):
 
     def connect_(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        if self.use_ssl:
+            s = ssl.wrap_socket(s)
+
         try:
             s.connect((self.host, self.port))
         except:

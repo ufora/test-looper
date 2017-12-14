@@ -77,7 +77,8 @@ def createTestWorker(config, machineInfo, worker_index):
     def createTestLooperClient():
         return TestLooperClient.TestLooperClient(
             host=config['server']['address'],
-            port=config['server']['port']
+            port=config['server']['port'],
+            use_ssl=config['server'].get('certs') is not None
             )
 
     workerSettings = TestLooperWorker.TestLooperSettings(

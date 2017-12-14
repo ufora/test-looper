@@ -12,6 +12,7 @@ import time
 
 import test_looper.core.source_control.SourceControlFromConfig as SourceControlFromConfig
 from test_looper.core.RedisJsonStore import RedisJsonStore
+from test_looper.core.InMemoryJsonStore import InMemoryJsonStore
 import test_looper.server.TestLooperHttpServer as TestLooperHttpServer
 from test_looper.server.TestLooperHttpServerEventLog import TestLooperHttpServerEventLog
 import test_looper.server.TestLooperServer as TestLooperServer
@@ -77,9 +78,12 @@ def main():
 
     src_ctrl = SourceControlFromConfig.getFromConfig(config["source_control"])
 
+    jsonStore = RedisJsonStore(port=config['server'].get('redis_port'))
+    #jsonStore = InMemoryJsonStore()
+
     testManager = TestManager.TestManager(
         src_ctrl,
-        RedisJsonStore(port=config['server'].get('redis_port')),
+        jsonStore,
         TestManager.TestManagerSettings.Settings(
             max_test_count=config['server'].get('max_test_count', 3)
             )
@@ -95,7 +99,7 @@ def main():
         cloud_connection,
         ArtifactStorage.storageFromConfig(config['artifacts']),
         src_ctrl,
-        event_log=TestLooperHttpServerEventLog(RedisJsonStore(port=config['server'].get('redis_port'))),
+        event_log=TestLooperHttpServerEventLog(jsonStore),
         auth_level=parsedArgs.auth,
         httpPort=http_port,
         enable_advanced_views=config['server'].get('enable_advanced_views', False),

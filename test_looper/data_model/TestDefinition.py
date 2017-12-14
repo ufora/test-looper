@@ -12,6 +12,7 @@ Platform.windows = {}
 Platform.linux = {}
 
 Image = algebraic.Alternative("Image")
+Image.DockerfileInline = {"dockerfile_contents": str}
 Image.Dockerfile = {"repo": str, "commitHash": str, "dockerfile": str}
 Image.AMI = {"base_ami": str, "repo": str, "commitHash": str, "ami_script": str}
 

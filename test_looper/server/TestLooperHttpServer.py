@@ -207,7 +207,7 @@ class TestLooperHttpServer(object):
                         HtmlGeneration.link(build_key, self.buildDownloadUrl(build_key))
                         ])
                 else:
-                    logging.info("No build found at ", build_key)
+                    logging.info("No build found at %s", build_key)
 
             for artifactName in self.testResultKeys(testId):
                 grid.append([

@@ -31,6 +31,7 @@ class TestLooperDirectories:
         self.repo_cache = os.path.join(worker_directory, "repos")
         self.repo_copy_dir = os.path.join(worker_directory, "repo_copy")
         self.scratch_dir = os.path.join(worker_directory, "scratch_dir")
+        self.command_dir = os.path.join(worker_directory, "command")
         self.test_inputs_dir = os.path.join(worker_directory, "test_inputs")
         self.test_output_dir = os.path.join(worker_directory, "test_output")
         self.build_output_dir = os.path.join(worker_directory, "build_output")
@@ -39,7 +40,7 @@ class TestLooperDirectories:
         self.ccache_dir = os.path.join(worker_directory, "ccache")
 
     def all(self):
-        return [self.repo_copy_dir, self.scratch_dir, self.test_inputs_dir, self.test_data_dir, 
+        return [self.repo_copy_dir, self.scratch_dir, self.command_dir, self.test_inputs_dir, self.test_data_dir, 
                 self.build_cache_dir, self.ccache_dir, self.test_output_dir, self.build_output_dir, self.repo_cache]
 
 class WorkerState(object):
@@ -75,6 +76,9 @@ class WorkerState(object):
         self.source_control = source_control
 
         self.cleanup()
+
+    def useRepoCacheFrom(self, worker_directory):
+        self.directories.repo_cache = os.path.join(worker_directory, "repos")
 
     def getRepoCacheByName(self, name):
         if name not in self.repos_by_name:
@@ -120,6 +124,7 @@ class WorkerState(object):
             self.directories.build_output_dir,
             self.directories.scratch_dir, 
             self.directories.test_inputs_dir, 
+            self.directories.command_dir,
             self.directories.repo_copy_dir
             )
         
@@ -139,7 +144,8 @@ class WorkerState(object):
             self.directories.repo_copy_dir: "/test_looper/src",
             self.directories.test_output_dir: "/test_looper/output",
             self.directories.build_output_dir: "/test_looper/build_output",
-            self.directories.ccache_dir: "/test_looper/ccache"
+            self.directories.ccache_dir: "/test_looper/ccache",
+            self.directories.command_dir: "/test_looper/command"
             }
 
     def _run_command(self, command, log_filename, env, timeout, heartbeat, docker_image):
@@ -179,16 +185,22 @@ class WorkerState(object):
                 docker_image.image if docker_image is not None else "<none>"
                 )
 
+            with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
+                print >> f, command
+
+            with open(os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w") as f:
+                log_filename_in_container = os.path.join("/test_looper/output", os.path.relpath(log_filename, self.directories.test_output_dir))
+
+                print >> f, "bash /test_looper/command/cmd.sh > ", log_filename_in_container, " 2>&1"
+
             assert docker_image is not None
 
             with DockerWatcher.DockerWatcher(self.name_prefix) as watcher:
                 assert log_filename.startswith(self.directories.test_output_dir)
 
-                log_filename_in_container = os.path.join("/test_looper/output", os.path.relpath(log_filename, self.directories.test_output_dir))
-
                 container = watcher.run(
                     docker_image,
-                    ["/bin/bash", "-c", command, ">", log_filename_in_container, "2>&1"],
+                    ["/bin/bash", "/test_looper/command/cmd_invoker.sh"],
                     volumes=self.volumesToExpose(),
                     privileged=True,
                     shm_size="1G",
@@ -306,10 +318,16 @@ class WorkerState(object):
         shutil.rmtree(cached_builds[0][1])
 
     @staticmethod
-    def getDockerImageFromRepo(git_repo, commitHash, pathToDockerfile):
-        source = git_repo.getFileContents(commitHash, pathToDockerfile)
-        if source is None:
-            raise Exception("No file found at %s in commit %s" % (pathToDockerfile, commitHash))
+    def getDockerImageFromRepo(git_repo, commitHash, image):
+        if image.matches.Dockerfile:
+            pathToDockerfile = image.dockerfile
+
+            source = git_repo.getFileContents(commitHash, pathToDockerfile)
+
+            if source is None:
+                raise Exception("No file found at %s in commit %s" % (pathToDockerfile, commitHash))
+        else:
+            source = image.dockerfile_contents
 
         return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True)
 
@@ -325,16 +343,15 @@ class WorkerState(object):
     def getDockerImage(self, testEnvironment):
         assert testEnvironment.matches.Environment
         assert testEnvironment.platform.matches.linux
-        assert testEnvironment.image.matches.Dockerfile
+        assert testEnvironment.image.matches.Dockerfile or testEnvironment.image.matches.DockerfileInline
 
         repoName = testEnvironment.image.repo
         commitHash = testEnvironment.image.commitHash
-        pathToDockerfile = testEnvironment.image.dockerfile
 
         git_repo = self.getRepoCacheByName(repoName)
 
         try:
-            return self.getDockerImageFromRepo(git_repo, commitHash, pathToDockerfile)
+            return self.getDockerImageFromRepo(git_repo, commitHash, testEnvironment.image)
         except Exception as e:
             logging.error("Failed to produce docker image:\n%s", traceback.format_exc())
             
@@ -344,7 +361,7 @@ class WorkerState(object):
             
             with open(os.path.join(output_dir,"docker_configuration_error.log"),"w") as f:
                 print >> f, "Failed to get a docker image configured by %s:\n\n%s" % (
-                    pathToDockerfile,
+                    testEnvironment.image,
                     traceback.format_exc()
                     )
 
@@ -542,7 +559,7 @@ class WorkerState(object):
         path = os.path.join(self.directories.build_cache_dir, self.artifactKeyForTest(repoName, commitHash, testName))
         
         if not os.path.exists(path):
-            logging.info("Downloading build for %s/%s to %s", repoName, commitHash, testName, path)
+            logging.info("Downloading build for %s/%s test %s to %s", repoName, commitHash, testName, path)
             self.artifactStorage.download_build(self.artifactKeyForTest(repoName, commitHash, testName), path)
 
         return path

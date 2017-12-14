@@ -92,15 +92,15 @@ class Session(object):
             t0 = time.time()
             repoName, commitHash, testName, testId = self.testManager.startNewTest(machineInfo.machineId, time.time())
 
-            logging.info("Checking out commit %s/%s, test %s, identity %s to %s",
-                repoName, 
-                commitHash,
-                testName,
-                testId,
-                machineInfo.machineId
-                )
-
             if repoName:
+                logging.info("Checking out commit %s/%s, test %s, identity %s to %s",
+                    repoName, 
+                    commitHash,
+                    testName,
+                    testId,
+                    machineInfo.machineId
+                    )
+
                 self.writeString(
                     json.dumps({
                         "repoName": repoName,
@@ -141,7 +141,12 @@ class TestLooperServer(SimpleServer.SimpleServer):
         """
         Initialize a TestLooperServer
         """
-        SimpleServer.SimpleServer.__init__(self, port)
+        if httpServer.certs is not None:
+            cert_and_keyfile = (httpServer.certs['cert'], httpServer.certs['private_key'])
+        else:
+            cert_and_keyfile = None
+
+        SimpleServer.SimpleServer.__init__(self, port, cert_and_key_paths = cert_and_keyfile)
 
         self.port_ = port
         self.testManager = testManager

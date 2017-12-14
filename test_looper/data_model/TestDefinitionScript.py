@@ -13,6 +13,7 @@ import logging
 Platform = TestDefinition.Platform
 
 Image = algebraic.Alternative("Image")
+Image.DockerfileInline = {"dockerfile_contents": str}
 Image.Dockerfile = {"dockerfile": str}
 Image.AMI = {"base_ami": str, "ami_script": str}
 
@@ -83,6 +84,10 @@ def map_image(reponame, commitHash, image_def):
             dockerfile=image_def.dockerfile,
             repo=reponame,
             commitHash=commitHash
+            )
+    if image_def.matches.DockerImage:
+        return TestDefinition.Image.DockerfileInline(
+            text=image_def.dockerfile_contents
             )
     elif image_def.matches.AMI:
         return TestDefinition.Image.AMI(
