@@ -312,6 +312,14 @@ def extract_tests(curRepoName, curCommitHash, testScript):
 
     return allTests, environments
 
+def flatten(l):
+    if not isinstance(l, list):
+        return [l]
+    res = []
+    for i in l:
+        res.extend(flatten(i))
+    return res
+
 def expand_macros(json, variables):
     if isinstance(json, unicode):
         json = str(json)
@@ -342,6 +350,34 @@ def expand_macros(json, variables):
                 to_use[k] = v
             return expand_macros(json["in"], to_use)
         
+        if sorted(json.keys()) == ["over", "squash"]:
+            squashover = expand_macros(json["squash"], variables)
+
+            if not isinstance(squashover, dict):
+                raise Exception("Can't squash %s into subitems because its not a dict" % squashover)
+
+            def squash(child):
+                if not isinstance(child, dict):
+                    raise Exception("Can't squash %s into %s because it's not a dict" % (squashover, child))
+
+                child = dict(child)
+
+                for k,v in squashover.iteritems():
+                    if k in child:
+                        raise Exception("Can't define %s twice when squashing %s into %s" % (k, squashover, child))
+                    child[k] = v
+
+                return child
+
+            children = flatten(expand_macros(json["over"], variables))
+            if isinstance(children, dict):
+                return squash(children)
+
+            if isinstance(children, list):
+                return [squash(c) for c in children]
+
+            raise Exception("Arguments to squash need to be dicts, not %s" % children)
+
         if sorted(json.keys()) == ["merge"]:
             to_merge = json["merge"]
 
@@ -374,8 +410,10 @@ def expand_macros(json, variables):
         if sorted(json.keys()) == ["foreach", "repeat"]:
             assert isinstance(json['repeat'], dict), "Can't repeat %s because it's not a dictionary" % json['repeat']
 
+            items = flatten(expand_macros(json['foreach'], variables))
+
             res = {}
-            for sub_replacements in json['foreach']:
+            for sub_replacements in items:
                 to_use = dict(variables)
 
                 for k,v in sub_replacements.iteritems():

@@ -69,8 +69,6 @@ class WorkerState(object):
 
         self.max_build_cache_depth = 10
 
-        self.heartbeatInterval = TestLooperClient.TestLooperClient.HEARTBEAT_INTERVAL
-
         self.artifactStorage = artifactStorage
 
         self.source_control = source_control
@@ -250,19 +248,18 @@ class WorkerState(object):
                 extra_message = None
                 while ret_code is None:
                     try:
-                        ret_code = container.wait(timeout=self.heartbeatInterval)
+                        ret_code = container.wait(timeout=TestLooperClient.TestLooperClient.HEARTBEAT_INTERVAL)
                     except requests.exceptions.ReadTimeout:
-                        heartbeat()
-                        if time.time() - t0 > timeout:
-                            ret_code = 1
-                            container.stop()
-                            extra_message = "Test timed out, so we're stopping the test."
+                        pass
                     except requests.exceptions.ConnectionError:
-                        heartbeat()
-                        if time.time() - t0 > timeout:
-                            ret_code = 1
-                            container.stop()
-                            extra_message = "Test timed out, so we're stopping the test."
+                        pass
+
+                    heartbeat()
+                    if time.time() - t0 > timeout:
+                        ret_code = 1
+                        container.stop()
+                        extra_message = "Test timed out, so we're stopping the test."
+
 
                 with open(log_filename, 'a') as build_log:
                     print >> build_log, container.logs()

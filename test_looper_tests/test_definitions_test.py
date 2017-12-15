@@ -63,6 +63,21 @@ builds:
       child: build1/linux
 """
 
+foreach_and_squash_yaml = """
+foreach:
+  - squash: {group: G1, prerequisites: P1}
+    over:
+    - {name: T1, tests_to_run: T1.test}
+    - {name: T2, tests_to_run: T2.test}
+  - squash: {group: G2, prerequisites: P2}
+    over: 
+    - {name: T3, tests_to_run: T3.test}
+    - {name: T4, tests_to_run: T4.test}
+repeat:
+  "test/${group}/${name}": "${prerequisites} ${tests_to_run}"
+"""
+
+
 class TestDefinitionScriptTests(unittest.TestCase):
     def test_basic(self):
         tests, environments = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", basic_yaml_file)
@@ -120,3 +135,15 @@ class TestDefinitionScriptTests(unittest.TestCase):
         self.assertEqual(
           res, [[20,30,1,2], {"a": [20,30], "b": [1,2]}]
           )
+
+    def test_squashing(self):
+        res = TestDefinitionScript.expand_macros(yaml.load(foreach_and_squash_yaml), {})
+        print res
+
+        self.assertEqual(
+          res, {
+            'test/G1/T1': 'P1 T1.test',
+            'test/G1/T2': 'P1 T2.test',
+            'test/G2/T3': 'P2 T3.test',
+            'test/G2/T4': 'P2 T4.test'
+          })
