@@ -312,6 +312,88 @@ def extract_tests(curRepoName, curCommitHash, testScript):
 
     return allTests, environments
 
+def expand_macros(json, variables):
+    if isinstance(json, unicode):
+        json = str(json)
+    if isinstance(json, str):
+        if variables:
+            for k,v in sorted(variables.iteritems()):
+                if isinstance(v, (int, bool, float)):
+                    v = str(v)
+                if isinstance(v, str):
+                    json = json.replace("${" + k + "}", v)
+                else:
+                    if "${" + k + "}" in json:
+                        if json == "${" + k + "}":
+                            return v
+                        else:
+                            raise Exception("Can't replace in-string variable '%s' with non-string value %s" % (k,v))
+        return json
+    
+    if isinstance(json, list):
+        return [expand_macros(x, variables) for x in json]
+    
+    if isinstance(json, dict):
+        if sorted(json.keys()) == ["define", "in"]:
+            to_use = dict(variables)
+            for k,v in json["define"].iteritems():
+                if k in to_use:
+                    raise Exception("Can't redefine variable %s" % k)
+                to_use[k] = v
+            return expand_macros(json["in"], to_use)
+        
+        if sorted(json.keys()) == ["merge"]:
+            to_merge = json["merge"]
+
+            assert isinstance(to_merge, list), "Can't apply a merge operation to %s because its not a list" % to_merge
+            
+            to_merge = [expand_macros(i, variables) for i in to_merge]
+
+            assert to_merge, "Can't apply a merge operation to %s because its empty" % to_merge
+
+            if isinstance(to_merge[0], list):
+                res = []
+                for to_append in to_merge:
+                    if not isinstance(to_append, list):
+                        raise Exception("Can't apply a merge operation to %s because not all children are lists." % to_merge)
+                    res.extend(to_append)
+                return res
+            if isinstance(to_merge[0], dict):
+                res = {}
+                for to_append in to_merge:
+                    if not isinstance(to_append, dict):
+                        raise Exception("Can't apply a merge operation to %s because not all children are dictionaries." % to_merge)
+                    for k,v in to_append.iteritems():
+                        if k in res:
+                            raise Exception("merging %s produced key %s twice" % (to_merge, k))
+                        res[k] = v
+                return res
+
+            raise Exception("Can't merge %s - all children need to be either dictionaries or lists" % to_merge)
+
+        if sorted(json.keys()) == ["foreach", "repeat"]:
+            assert isinstance(json['repeat'], dict), "Can't repeat %s because it's not a dictionary" % json['repeat']
+
+            res = {}
+            for sub_replacements in json['foreach']:
+                to_use = dict(variables)
+
+                for k,v in sub_replacements.iteritems():
+                    if k in to_use:
+                        raise Exception("Can't redefine variable %s" % k)
+                    to_use[k] = v
+
+                expanded = expand_macros(json['repeat'], to_use)
+
+                for k,v in expanded.iteritems():
+                    if k in res:
+                        raise Exception("Can't define %s twice" % k)
+                    res[k] = v
+            return res
+        return {expand_macros(k,variables): expand_macros(v, variables) for k,v in json.iteritems()}
+
+    return json
+
 def extract_tests_from_str(repoName, commitHash, extension, text):
     if isinstance(text, unicode):
         text = str(text)
@@ -325,6 +407,8 @@ def extract_tests_from_str(repoName, commitHash, extension, text):
 
     if 'looper_version' not in json:
         raise Exception("No looper version specified. Current version is 2")
+
+    json = expand_macros(json, {})
 
     version = json['looper_version']
     del json['looper_version']

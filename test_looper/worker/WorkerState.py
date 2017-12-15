@@ -77,6 +77,43 @@ class WorkerState(object):
 
         self.cleanup()
 
+    def callHeartbeatInBackground(self, heartbeat, logMessage=None):
+        if logMessage is not None:
+            heartbeat(logMessage)
+
+        stop = threading.Event()
+        receivedException = [None]
+
+        def heartbeatThread():
+            while not stop.is_set():
+                stop.wait(10)
+                if stop.is_set():
+                    return
+                else:
+                    try:
+                        heartbeat()
+                    except Exception as e:
+                        stop.set()
+                        receivedException[0] = e
+
+        loggingThread = threading.Thread(target=heartbeatThread)
+
+        class Scope:
+            def __enter__(scope):
+                loggingThread.start()
+
+            def __exit__(scope, exc_type, exc_value, traceback):
+                stop.set()
+                loggingThread.join()
+
+                if receivedException[0] is not None:
+                    if exc_value is not None:
+                        logging.error("Got exception %s but also got a heartbeat exception." % exc_value)
+                    raise receivedException[0]
+
+        return Scope()
+
+        
     def useRepoCacheFrom(self, worker_directory):
         self.directories.repo_cache = os.path.join(worker_directory, "repos")
 
@@ -401,11 +438,13 @@ class WorkerState(object):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
         self.cleanup()
 
-        if not self.resetToCommit(repoName, commitHash):
-            return self.create_test_result(False, testId, repoName, commitHash, "Failed to checkout code")
+        with self.callHeartbeatInBackground(heartbeat, "Resetting the repo to %s/%s" % (repoName, commitHash)):
+            if not self.resetToCommit(repoName, commitHash):
+                return self.create_test_result(False, testId, repoName, commitHash, "Failed to checkout code")
 
         try:
-            testDefinition = self.testDefinitionFor(repoName, commitHash, testName)
+            with self.callHeartbeatInBackground(heartbeat, "Extracting test definitions."):
+                testDefinition = self.testDefinitionFor(repoName, commitHash, testName)
 
             if not testDefinition:
                 return self.create_test_result(False, testId, repoName, commitHash, "No test named " + testName)
@@ -452,15 +491,17 @@ class WorkerState(object):
 
         return "Unknown dependency type: %s" % dep
 
-    def getEnvironmentAndDependencies(self, repoName, commitHash, test_definition):
-        environment = self.resolveEnvironment(test_definition.environment)
+    def getEnvironmentAndDependencies(self, repoName, commitHash, test_definition, heartbeat):
+        with self.callHeartbeatInBackground(heartbeat):
+            environment = self.resolveEnvironment(test_definition.environment)
 
         all_dependencies = {}
         all_dependencies.update(environment.dependencies)
         all_dependencies.update(test_definition.dependencies)
 
         for expose_as, dep in all_dependencies.iteritems():
-            errStringOrNone = self.grabDependency(expose_as, dep, repoName, commitHash)
+            with self.callHeartbeatInBackground(heartbeat, "Pulling dependency %s" % dep):
+                errStringOrNone = self.grabDependency(expose_as, dep, repoName, commitHash)
 
             if errStringOrNone is not None:
                 raise Exception(errStringOrNone)
@@ -469,7 +510,7 @@ class WorkerState(object):
 
     def _run_task(self, testId, repoName, commitHash, test_definition, heartbeat):
         try:
-            environment, all_dependencies = self.getEnvironmentAndDependencies(repoName, commitHash, test_definition)
+            environment, all_dependencies = self.getEnvironmentAndDependencies(repoName, commitHash, test_definition, heartbeat)
         except Exception as e:
             return self.create_test_result(False, testId, repoName, commitHash, str(e))
 
@@ -478,7 +519,8 @@ class WorkerState(object):
         else:
             command = test_definition.testCommand
 
-        image = self.getDockerImage(environment)
+        with self.callHeartbeatInBackground(heartbeat, "Extracting docker image for environment %s" % environment):
+            image = self.getDockerImage(environment)
 
         if image is None:
             is_success = False
@@ -503,9 +545,10 @@ class WorkerState(object):
                 )
 
         if is_success and test_definition.matches.Build:
-            if not self._upload_build(repoName, commitHash, test_definition.name):
-                logging.error('Failed to upload build for %s/%s', repoName, commitHash, test_definition.name)
-                is_success = False
+            with self.callHeartbeatInBackground(heartbeat, "Uploading build artifacts."):
+                if not self._upload_build(repoName, commitHash, test_definition.name):
+                    logging.error('Failed to upload build for %s/%s', repoName, commitHash, test_definition.name)
+                    is_success = False
 
         test_result = self.create_test_result(is_success, testId, repoName, commitHash)
 
@@ -513,11 +556,12 @@ class WorkerState(object):
         
         logging.info("machine %s uploading artifacts for test %s", self.machineInfo.machineId, testId)
 
-        self.artifactStorage.uploadTestArtifacts(
-            testId,
-            self.machineInfo.machineId,
-            self.directories.test_output_dir
-            )
+        with self.callHeartbeatInBackground(heartbeat, "Uploading test artifacts."):
+            self.artifactStorage.uploadTestArtifacts(
+                testId,
+                self.machineInfo.machineId,
+                self.directories.test_output_dir
+                )
 
         return test_result
 

@@ -70,10 +70,18 @@ class MockSourceControl:
     def refresh(self):
         pass
 
+class MockGitRepo:
+    def __init__(self, repo):
+        self.repo = repo
+
+    def fetchOrigin(self):
+        pass
+
 class MockRepo:
     def __init__(self, source_control, repoName):
         self.source_control = source_control
         self.repoName = repoName
+        self.source_repo = MockGitRepo(self)
 
     def hashParentsAndCommitTitleFor(self, commitId):
         if commitId not in self.source_control.commit_parents:
@@ -339,5 +347,51 @@ class TestManagerTests(unittest.TestCase):
 
             assert test3.priority.matches.WaitingOnBuilds, test3.priority
         
+    def test_manager_timeouts(self):
+        manager = self.get_manager()
 
+        manager.source_control.addCommit("repo1/c0", [], basic_yml_file_repo1)
+        manager.source_control.addCommit("repo1/c1", ["repo1/c0"], basic_yml_file_repo1)
+        manager.source_control.addCommit("repo2/c0", [], basic_yml_file_repo2)
+        manager.source_control.addCommit("repo2/c1", ["repo2/c0"], basic_yml_file_repo2)
 
+        manager.source_control.setBranch("repo1/master", "repo1/c1")
+        manager.source_control.setBranch("repo2/master", "repo2/c1")
+
+        ts = [0.0]
+        manager.markRepoListDirty(ts[0])
+
+        def consumeAllBackgroundWork():
+            while True:
+                ts[0] += 1.0
+                task = manager.performBackgroundWork(ts[0])
+                if task is None:
+                    manager.performCleanupTasks(ts[0])
+                    return
+
+        consumeAllBackgroundWork()
+
+        with manager.database.transaction():
+            b1 = manager.database.Branch.lookupOne(reponame_and_branchname=("repo1",'master'))
+            b2 = manager.database.Branch.lookupOne(reponame_and_branchname=("repo2",'master'))
+            manager.toggleBranchUnderTest(b1)
+            manager.toggleBranchUnderTest(b2)
+
+        consumeAllBackgroundWork()
+
+        commitNameAndTest = manager.startNewTest("machine", ts[0])
+
+        with manager.database.view():
+            runs = manager.database.TestRun.lookupAll(isRunning=True)
+            self.assertEqual(len(runs), 1)
+            test = runs[0].test
+
+        ts[0] += 50
+
+        consumeAllBackgroundWork()
+
+        with manager.database.view():
+            self.assertEqual(len(manager.database.TestRun.lookupAll(isRunning=True)), 0)
+            self.assertEqual(test.activeRuns, 0)
+
+        

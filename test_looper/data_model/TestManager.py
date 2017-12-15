@@ -22,7 +22,8 @@ TestManagerSettings.Settings = {
     "max_test_count": int
     }
 
-MAX_TEST_PRIORITY=100
+MAX_TEST_PRIORITY = 100
+TEST_TIMEOUT_SECONDS = 60
 
 class TestManager(object):
     def __init__(self, source_control, kv_store, settings):
@@ -219,6 +220,15 @@ class TestManager(object):
     def createTask(self, task):
         with self.transaction_and_lock():
             self.database.DataTask.New(task=task, status=pending)
+
+    def performCleanupTasks(self, curTimestamp):
+        #check all tests to see if we've exceeded the timeout and the test is dead
+        with self.transaction_and_lock():
+            for t in self.database.TestRun.lookupAll(isRunning=True):
+                if t.lastHeartbeat < curTimestamp - TEST_TIMEOUT_SECONDS:
+                    t.canceled = True
+                    t.test.activeRuns = t.test.activeRuns - 1
+                    self._triggerTestPriorityUpdate(t.test)
 
     def performBackgroundWork(self, curTimestamp):
         with self.transaction_and_lock():
@@ -560,10 +570,13 @@ class TestManager(object):
                 self.database.UnresolvedRepoDependency.lookupAll(test=test) +
                 self.database.UnresolvedSourceDependency.lookupAll(test=test)
                 ):
-            self.database.DataTask.New(
-                task=self.database.BackgroundTask.UpdateTestPriority(test=test),
-                status=pending
-                )
+            self._triggerTestPriorityUpdate(test)
+
+    def _triggerTestPriorityUpdate(self, test):
+        self.database.DataTask.New(
+            task=self.database.BackgroundTask.UpdateTestPriority(test=test),
+            status=pending
+            )
 
     def _createRepo(self, new_repo_name):
         r = self.database.Repo.New(name=new_repo_name,isActive=True)

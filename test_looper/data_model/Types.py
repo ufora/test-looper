@@ -140,6 +140,7 @@ def setup_types(database):
     database.addIndex(database.Test, 'commitData')
 
     database.addIndex(database.TestRun, 'test')
+    database.addIndex(database.TestRun, 'isRunning', lambda t: True if not t.canceled and t.endTimestamp <= 0.0 else None)
 
     database.addIndex(database.Test, 'priority', 
             lambda o: o.priority if (

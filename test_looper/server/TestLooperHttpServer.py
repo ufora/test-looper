@@ -475,6 +475,8 @@ class TestLooperHttpServer(object):
         grid = [["TEST", "TYPE", "RESULT", "STARTED", "MACHINE", "ELAPSED (MIN)",
                  "SINCE LAST HEARTBEAT (SEC)"]]
 
+        sortedTests = [x for x in sortedTests if not x.canceled]
+        
         for testRun in sortedTests:
             row = []
 
@@ -505,7 +507,7 @@ class TestLooperHttpServer(object):
 
             row.append("%.2f" % elapsed)
 
-            if hasattr(testRun, "lastHeartbeat"):
+            if hasattr(testRun, "lastHeartbeat") and testRun.endTimestamp <= 0.0:
                 timeSinceHB = time.time() - testRun.lastHeartbeat
             else:
                 timeSinceHB = None
@@ -587,7 +589,7 @@ class TestLooperHttpServer(object):
     def toggleBranchUnderTest(self, repo, branchname, redirect):
         self.authorize(read_only=False)
 
-        with self.testManager.database.transaction():
+        with self.testManager.database.transaction_and_lock():
             branch = self.testManager.database.Branch.lookupOne(reponame_and_branchname=(repo, branchname))
             self.testManager.toggleBranchUnderTest(branch)
 

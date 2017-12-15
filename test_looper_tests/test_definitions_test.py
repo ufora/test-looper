@@ -14,6 +14,7 @@
 
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import unittest
+import yaml
 
 basic_yaml_file = """
 looper_version: 2
@@ -62,7 +63,6 @@ builds:
       child: build1/linux
 """
 
-
 class TestDefinitionScriptTests(unittest.TestCase):
     def test_basic(self):
         tests, environments = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", basic_yaml_file)
@@ -76,3 +76,47 @@ class TestDefinitionScriptTests(unittest.TestCase):
             self.assertTrue(False)
         except Exception as e:
             self.assertTrue("circular" in str(e), e)
+
+    def test_expansion(self):
+        res = TestDefinitionScript.expand_macros(
+          {"foreach": [
+            {"name": 10, "hello": 20}, 
+            {"name": 20, "hello": 30}
+            ],
+           "repeat": {
+            "${name}_X": {"z": "${hello}"},
+            "${name}_Y": {"b": "${hello}"},
+            }
+          }, {})
+
+        self.assertEqual(
+          res,
+          {"10_X": {"z": "20"},
+           "10_Y": {"b": "20"},
+           "20_X": {"z": "30"},
+           "20_Y": {"b": "30"}
+           }
+          )
+
+    def test_expansion_and_replacement(self):
+        res = TestDefinitionScript.expand_macros(
+          {"define": {"name": [20, 30], "hello": 30},
+           "in": ["a thing", "${name}"]
+          }, {})
+
+        self.assertEqual(
+          res, ["a thing", [20, 30]]
+          )
+
+    def test_merging(self):
+        res = TestDefinitionScript.expand_macros(
+          {"define": {"name": [20, 30], "name2": [1,2]},
+           "in": [
+            {"merge": ["${name}", "${name2}"]},
+            {"merge": [{"a": "${name}"}, {"b": "${name2}"}]}
+            ]
+          }, {})
+
+        self.assertEqual(
+          res, [[20,30,1,2], {"a": [20,30], "b": [1,2]}]
+          )

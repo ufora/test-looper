@@ -10,6 +10,8 @@ import test_looper.core.socket_util as socket_util
 import test_looper.data_model.TestResult as TestResult
 import test_looper.core.cloud.MachineInfo as MachineInfo
 
+SWEEP_FREQUENCY = 10
+
 class Session(object):
     def __init__(self, testManager, cloud_connection, socket, address):
         self.socket = socket
@@ -155,8 +157,18 @@ class TestLooperServer(SimpleServer.SimpleServer):
         self.workerThread = threading.Thread(target=self.executeManagerWork)
 
     def executeManagerWork(self):
+        lastSweep = None
+
         while not self.shouldStop():
             task = self.testManager.performBackgroundWork(time.time())
+
+            if lastSweep is None or time.time() - lastSweep > SWEEP_FREQUENCY:
+                lastSweep = time.time()
+                try:
+                    self.testManager.performCleanupTasks(time.time())
+                except:
+                    logging.critical("Test manager failed during cleanup:\n%s", traceback.format_exc())
+
             logging.debug("Performed %s", task)
             if task is None:
                 time.sleep(.1)

@@ -128,12 +128,16 @@ if __name__ == "__main__":
             cmd = testDef.buildCommand
         elif testDef.matches.Test:
             cmd = testDef.testCommand
-        elif testDef.matches.Deploy:
+        elif testDef.matches.Deployment:
             cmd = testDef.deployCommand
         else:
             raise Exception("Unknown test definition type: " + str(testDef))
 
-        environment, dependencies = workerState.getEnvironmentAndDependencies(repoName, commitHash, testDef)
+        def logger(msg = None):
+            if msg is not None:
+                print msg
+
+        environment, dependencies = workerState.getEnvironmentAndDependencies(repoName, commitHash, testDef, logger)
 
         print yaml.dump(
             algebraic_to_json.Encoder().to_json(

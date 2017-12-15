@@ -84,7 +84,12 @@ class TestLooperClient(object):
                     logging.warn("Couldn't publish test results: %s", traceback.format_exc())
                     time.sleep(1.0)
 
-    def heartbeat(self, testId, repoName, commitHash, machineId):
+    def heartbeat(self, testId, repoName, commitHash, machineId, logMessage):
+        if isinstance(logMessage, unicode):
+            logMessage = str(logMessage)
+
+        assert logMessage is None or isinstance(logMessage, str)
+
         def requestHandler(request_socket):
             socket_util.writeString(
                 request_socket,
@@ -94,7 +99,8 @@ class TestLooperClient(object):
                         'testId':testId,
                         'repoName': repoName,
                         'commitHash': commitHash,
-                        'machineId': machineId
+                        'machineId': machineId,
+                        'logMessage': logMessage
                         }
                     })
                 )

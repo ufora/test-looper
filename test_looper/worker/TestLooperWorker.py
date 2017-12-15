@@ -123,25 +123,30 @@ class TestLooperWorker(object):
                      commitHash
                      )
 
-        def heartbeat():
-            return self.sendHeartbeat(self.testLooperClient, testId, repoName, commitHash)
+        def heartbeat(logMessage=None):
+            return self.sendHeartbeat(self.testLooperClient, testId, repoName, commitHash, logMessage)
 
         result = self.settings.osInteractions.runTest(testId, repoName, commitHash, testName, heartbeat)
         
         if not self.stopEvent.is_set():
             self.testLooperClient.publishTestResult(result)
 
-    def sendHeartbeat(self, testLooperClient, testId, repoName, commitHash):
+    def sendHeartbeat(self, testLooperClient, testId, repoName, commitHash, logMessage):
         if self.heartbeatResponse != TestResult.HEARTBEAT_RESPONSE_ACK:
             logging.info('Machine %s skipping heartbeat because it already received "%s"',
                          self.ownMachineInfo.machineId,
                          self.heartbeatResponse)
             return
 
+        if self.stopEvent.is_set():
+            raise TestInterruptException('stop')
+
         self.heartbeatResponse = testLooperClient.heartbeat(testId,
                                                             repoName, 
                                                             commitHash,
-                                                            self.ownMachineInfo.machineId)
+                                                            self.ownMachineInfo.machineId,
+                                                            logMessage
+                                                            )
 
         if self.heartbeatResponse != TestResult.HEARTBEAT_RESPONSE_ACK:
             logging.info(
@@ -150,7 +155,4 @@ class TestLooperWorker(object):
                 self.heartbeatResponse
                 )
             raise TestInterruptException(self.heartbeatResponse)
-
-        if self.stopEvent.is_set():
-            raise TestInterruptException('stop')
 
