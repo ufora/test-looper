@@ -6,13 +6,14 @@ import os
 import sys
 import time
 import logging
+import tempfile
 import threading
 import markdown
 import urllib
 import pytz
 import simplejson
 import os
-
+import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
 
@@ -226,7 +227,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def test_contents(self, testId, key):
-        return self.artifactStorage.testContentsHtml(testId, key)
+        return self.artifactStorage.testContentsHtml(testId, key, cherrypy)
 
     def testResultDownloadUrl(self, testId, key):
         return "/test_contents?testId=%s&key=%s" % (testId, key)
@@ -236,7 +237,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def build_contents(self, key):
-        return self.artifactStorage.buildContentsHtml(key)
+        return self.artifactStorage.buildContentsHtml(key, cherrypy)
 
     def buildDownloadUrl(self, key):
         return "/build_contents?key=%s" % key
@@ -1278,12 +1279,26 @@ class TestLooperHttpServer(object):
         logging.info("STARTING HTTP SERVER")
 
         current_dir = os.path.dirname(__file__)
+        path_to_source_root = os.path.abspath(os.path.join(current_dir, "..", ".."))
+
+        temp_dir_for_tarball = tempfile.mkdtemp()
+
+        SubprocessRunner.callAndAssertSuccess(
+            ["tar", "cvfz", os.path.join(temp_dir_for_tarball, "test_looper.tar.gz"), 
+                "--directory", path_to_source_root, "test_looper"
+            ])
+        
         cherrypy.tree.mount(self, '/', {
             '/favicon.ico': {
                 'tools.staticfile.on': True,
                 'tools.staticfile.filename': os.path.join(current_dir,
                                                           'content',
                                                           'favicon.ico')
+                },
+            '/test_looper.tar.gz': {
+                'tools.staticfile.on': True,
+                'tools.staticfile.filename': os.path.join(temp_dir_for_tarball,
+                                                          'test_looper.tar.gz')
                 },
             '/css': {
                 'tools.staticdir.on': True,

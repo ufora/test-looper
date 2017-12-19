@@ -73,7 +73,7 @@ def main():
     config = loadConfiguration(parsedArgs.config)
     configureLogging(verbose=parsedArgs.verbose)
     
-    port = config['server']['port']
+    port = config['server']['worker_port']
     logging.info("Starting test-looper server on port %d", port)
 
     src_ctrl = SourceControlFromConfig.getFromConfig(config["source_control"])

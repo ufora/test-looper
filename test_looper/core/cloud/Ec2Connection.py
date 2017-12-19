@@ -56,7 +56,6 @@ class Ec2Settings:
 class TimeoutException(Exception):
     pass
 
-
 def getInstanceMetadata():
     return boto.utils.get_instance_metadata(timeout=2.0, num_retries=1)
 
@@ -175,11 +174,7 @@ class Ec2Connection(object):
         ssh_key_name = config['cloud']['worker_ssh_key_name'] or 'test-looper'
         root_volume_size = config['cloud']['worker_root_volume_size_gb'] or 8
         test_result_bucket = config['cloud']['test_result_bucket']
-        vpc_subnets = config['cloud']['vpc_subnets'] or {
-            'us-west-2a': 'subnet-112c9266',
-            'us-west-2b': 'subnet-9046def5',
-            'us-west-2c': 'subnet-7124f928'
-            }
+        vpc_subnets = config['cloud']['vpc_subnets']
         alt_ami_instance_types = []
         worker_alt_ami = config['cloud'].get('alt_ami')
         if worker_alt_ami:

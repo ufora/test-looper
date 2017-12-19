@@ -91,8 +91,8 @@ echo "BOOTING REDIS"
 	--dir $TEST_LOOPER_INSTALL/redis \
 	> $TEST_LOOPER_INSTALL/logs/redis_log.txt 2>&1 ) &
 
-echo "BOOTING WORKER"
-( python -u $PROJ_ROOT/test_looper/worker/test-looper.py $PROJ_ROOT/test_looper_tests/system_test/config.json 4 > $TEST_LOOPER_INSTALL/logs/worker_log.txt 2>&1 )&
+#echo "BOOTING WORKER"
+#( python -u $PROJ_ROOT/test_looper/worker/test-looper.py $PROJ_ROOT/test_looper_tests/system_test/config.json 4 > $TEST_LOOPER_INSTALL/logs/worker_log.txt 2>&1 )&
 
 echo "APP"
 ( export PYTHONPATH=$PROJ_ROOT; 

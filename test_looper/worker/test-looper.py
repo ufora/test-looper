@@ -76,17 +76,15 @@ def createTestWorker(config, machineInfo, worker_index):
 
     def createTestLooperClient():
         return TestLooperClient.TestLooperClient(
-            host=config['server']['address'],
-            port=config['server']['port'],
-            use_ssl=config['server'].get('certs') is not None
+            host=config['worker']['address'],
+            port=config['worker']['port'],
+            use_ssl=config['worker']["use_ssl"]
             )
 
     workerSettings = TestLooperWorker.TestLooperSettings(
         osInteractions=osInteractions,
         testLooperClientFactory=createTestLooperClient,
-        timeout=config['worker']['test_timeout'],
-        coreDumpsDir=config['worker']['core_dump_dir'],
-        repoName=config['worker']['repo_name']
+        timeout=config['worker']['test_timeout']
         )
 
     return TestLooperWorker.TestLooperWorker(workerSettings, machineInfo)

@@ -1,7 +1,6 @@
 import boto
 import threading
 import os
-import cherrypy
 import subprocess
 import logging
 import traceback
@@ -32,7 +31,7 @@ class AwsArtifactStorage(object):
 
         return result
 
-    def testContentsHtml(self, testId, key):        
+    def testContentsHtml(self, testId, key, cherrypy):
         bucket = self.get_test_result_bucket()
 
         keys = list(bucket.list(prefix=testId + "/" + key))
@@ -117,7 +116,7 @@ class LocalArtifactStorage(object):
         with open(os.path.join(self.build_storage_path, key), "r") as f:
             return f.read()
 
-    def buildContentsHtml(self, key):  
+    def buildContentsHtml(self, key, cherrypy):  
         cherrypy.response.headers['Content-Type'] = 'application/octet-stream'
         cherrypy.response.headers["Content-Disposition"] = "attachment; filename=\"" + key + "\";"
 
@@ -127,8 +126,11 @@ class LocalArtifactStorage(object):
         with open(os.path.join(self.test_artifacts_storage_path, testId, key), "r") as f:
             return f.read()
 
-    def testContentsHtml(self, testId, key):  
-        if key.endswith(".log.gz"):
+    def testContentsHtml(self, testId, key, cherrypy):
+        if key.endswith(".txt") or key.endswith(".stdout") or key.endswith(".stderr"):
+            cherrypy.response.headers['Content-Type'] = 'text/plain'
+            cherrypy.response.headers["Content-Disposition"] = "filename=\"" + key[:-3] + "\";"
+        elif key.endswith(".log.gz"):
             cherrypy.response.headers['Content-Type'] = 'text/plain'
             cherrypy.response.headers['Content-Encoding'] = 'gzip'
             cherrypy.response.headers["Content-Disposition"] = "filename=\"" + key[:-3] + "\";"

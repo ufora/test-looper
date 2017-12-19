@@ -19,9 +19,7 @@ TestLooperSettings = collections.namedtuple(
     [
         'osInteractions',
         'testLooperClientFactory',
-        'timeout',
-        'coreDumpsDir',
-        'repoName'
+        'timeout'
     ])
 
 class TestLooperWorker(object):
