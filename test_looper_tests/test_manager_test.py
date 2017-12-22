@@ -13,6 +13,7 @@ import test_looper.core.machine_management.MachineManagement as MachineManagemen
 import test_looper.core.InMemoryJsonStore as InMemoryJsonStore
 import test_looper.core.tools.Git as Git
 import test_looper.core.ArtifactStorage as ArtifactStorage
+import test_looper.core.algebraic as algebraic
 import test_looper.core.source_control.ReposOnDisk as ReposOnDisk
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import docker
@@ -195,6 +196,24 @@ builds:
       child: child/build/linux
 """
 
+basic_yml_file_repo4 = """
+looper_version: 2
+environments:
+  windows_good: 
+    platform: windows
+    image:
+      base_ami: "ami-123"
+  windows_bad: 
+    platform: windows
+    image:
+      base_ami: "not_an_ami"
+builds:
+  build/windows_good:
+    command: "build.sh"
+  build/windows_bad:
+    command: "build.sh"
+"""
+
 class TestManagerTestHarness:
     def __init__(self, manager):
         self.manager = manager
@@ -303,20 +322,22 @@ class TestManagerTestHarness:
                 self.manager.recordTestResults(True, testId, self.timestamp)
                 self.timestamp += .1
 
+FakeConfig = algebraic.Alternative("FakeConfig")
+FakeConfig.Config = {"machine_management": Config.MachineManagementConfig}
+
 class TestManagerTests(unittest.TestCase):
     def get_harness(self, max_workers=1000):
         return TestManagerTestHarness(
             TestManager.TestManager(
                 MockSourceControl(), 
                 MachineManagement.DummyMachineManagement(
-                    Config.MachineManagementConfig.Dummy(
-                        max_cores=1000,
-                        max_ram_gb=1000,
-                        max_workers=max_workers
-                        ),
-                    None,
-                    None,
-                    None
+                    FakeConfig(
+                        machine_management=Config.MachineManagementConfig.Dummy(
+                            max_cores=1000,
+                            max_ram_gb=1000,
+                            max_workers=max_workers
+                            )
+                        )
                     ),
                 InMemoryJsonStore.InMemoryJsonStore()
                 )
@@ -372,6 +393,26 @@ class TestManagerTests(unittest.TestCase):
 
         self.assertEqual(len(phases), 10)
         harness.assertOneshotMachinesDoOneTest()
+
+
+    def test_manager_unbootable_hardware_combos(self):
+        harness = self.get_harness(max_workers=0)
+
+        harness.manager.source_control.addCommit("repo4/c0", [], basic_yml_file_repo4)
+        harness.manager.source_control.setBranch("repo4/master", "repo4/c0")
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+        
+        harness.toggleBranchUnderTest("repo4", "master")
+        harness.consumeBackgroundTasks()
+
+        with harness.database.view():
+            test1 = harness.database.Test.lookupOne(fullname=("repo4/c0/build/windows_good"))
+            test2 = harness.database.Test.lookupOne(fullname=("repo4/c0/build/windows_bad"))
+
+            self.assertTrue(test1.priority.matches.FirstBuild)
+            self.assertTrue(test2.priority.matches.HardwareComboUnbootable)
+
 
     def test_manager_env_imports(self):
         manager = self.get_harness().manager

@@ -109,7 +109,7 @@ if __name__ == "__main__":
         source_control,
         artifactStorage=artifactStorage,
         machineId="machineId",
-        MachineManagement.HardwareConfig(cores=1,ram_gb=4)
+        Config.HardwareConfig(cores=1,ram_gb=4)
         )
 
     workerState.useRepoCacheFrom(os.path.join(os.path.expandvars(config['worker']['path']),"1"))

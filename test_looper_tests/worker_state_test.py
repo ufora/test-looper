@@ -80,7 +80,7 @@ class WorkerStateTests(unittest.TestCase):
                     )
                 ),
             "worker",
-            MachineManagement.HardwareConfig(cores=1,ram_gb=4)
+            Config.HardwareConfig(cores=1,ram_gb=4)
             )
 
         return source_repo, repoName, commitHash, worker

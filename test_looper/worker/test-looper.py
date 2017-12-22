@@ -59,7 +59,7 @@ def createTestWorker(config, machineId, worker_index):
         source_control,
         artifactStorage=artifactStorage,
         machineId=machineId,
-        MachineManagement.HardwareConfig(cores=1,ram_gb=4)
+        Config.HardwareConfig(cores=1,ram_gb=4)
         )
 
     def createTestLooperClient():

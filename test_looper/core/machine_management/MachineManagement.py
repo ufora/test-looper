@@ -1,6 +1,7 @@
 import test_looper.core.algebraic as algebraic
 import test_looper.worker.TestLooperWorker as TestLooperWorker
 import test_looper.worker.WorkerState as WorkerState
+import test_looper.core.Config as Config
 import test_looper.core.machine_management.AwsCloudAPI as AwsCloudAPI
 import uuid
 import docker
@@ -9,25 +10,26 @@ import threading
 import traceback
 import os
 
-HardwareConfig = algebraic.Alternative("HardwareConfig")
-HardwareConfig.Config = {
-    "cores": int,
-    "ram_gb": int
-    }
+OsConfig = algebraic.Alternative("OsConfig")
+OsConfig.LinuxWithDocker = {}
+OsConfig.WindowsWithDocker = {}
+OsConfig.WindowsOneshot = {"ami": str}
+OsConfig.LinuxOneshot = {"ami": str}
 
-OsConfiguration = algebraic.Alternative("OsConfiguration")
-OsConfiguration.LinuxWithDocker = {}
-OsConfiguration.WindowsWithDocker = {}
-OsConfiguration.WindowsOneshot = {"ami": str}
-OsConfiguration.LinuxOneshot = {"ami": str}
+class UnbootableWorkerCombination(Exception):
+    """An exception indicating that we can't meet this request for hardware/software,
+    either because the AMI doesn't exist, or because we don't support some feature yet.
+    """
+    def __init__(self, hardwareConfig, osConfig):
+        Exception.__init__(self, "Can't boot configuration %s/%s" % (hardwareConfig, osConfig))
+        
+        self.hardwareConfig = hardwareConfig
+        self.osConfig = osConfig
 
 
 class MachineManagement(object):
     """Base class for 'machine management' which is responsible for booting workers to work on tests."""
-    def __init__(self, config, serverPortConfig, source_control, artifactStorage):
-        self.source_control = source_control
-        self.serverPortConfig = serverPortConfig
-        self.artifactStorage = artifactStorage
+    def __init__(self, config):
         self.config = config
 
         self.hardwareConfigs = {}
@@ -40,13 +42,15 @@ class MachineManagement(object):
 
     def canBoot(self, hardwareConfig, osConfig):
         with self._lock:
-            if not (self.ram_gb_booted + hardwareConfig.ram_gb <= self.config.max_ram_gb or self.config.max_ram_gb <= 0):
+            config = self.config.machine_management
+
+            if not (self.ram_gb_booted + hardwareConfig.ram_gb <= config.max_ram_gb or config.max_ram_gb <= 0):
                 return False
 
-            if not (self.cores_booted + hardwareConfig.cores <= self.config.max_cores or self.config.max_cores <= 0):
+            if not (self.cores_booted + hardwareConfig.cores <= config.max_cores or config.max_cores <= 0):
                 return False
 
-            if not (len(self.runningMachines) + 1 <= self.config.max_workers or self.config.max_workers <= 0):
+            if not (len(self.runningMachines) + 1 <= config.max_workers or config.max_workers <= 0):
                 return False
 
             return True
@@ -84,6 +88,8 @@ class MachineManagement(object):
 
     def synchronize_workers(self, machineIds):
         """Ensure that no workers not in 'machineIds' are up.
+    
+        machineIds: a dict from machineId to (hardwareConfig, osConfig)
 
         returns a list of machineIds that appear dead."""
         assert False, "Subclasses implement"
@@ -103,13 +109,13 @@ class MachineManagement(object):
 
 
 class DummyMachineManagement(MachineManagement):
-    def __init__(self, config, serverPortConfig, source_control, artifactStorage):
-        MachineManagement.__init__(self, config, serverPortConfig, source_control, artifactStorage)
+    def __init__(self, config):
+        MachineManagement.__init__(self, config)
 
     def all_hardware_configs(self):
         return [
-            HardwareConfig.Config(cores=1, ram_gb=4),
-            HardwareConfig.Config(cores=4, ram_gb=16)
+            Config.HardwareConfig.Config(cores=1, ram_gb=4),
+            Config.HardwareConfig.Config(cores=4, ram_gb=16)
             ]
 
     def synchronize_workers(self, machineIds):
@@ -129,8 +135,10 @@ class DummyMachineManagement(MachineManagement):
 
     def boot_worker(self, hardware_config, os_config):
         with self._lock:
-            if hardware_config not in self.all_hardware_configs():
-                return None
+            assert hardware_config in self.all_hardware_configs()
+
+            if os_config.matches.WindowsOneshot and not os_config.ami.startswith("ami-"):
+                raise UnbootableWorkerCombination(hardware_config, os_config)
 
             machineId = "worker_" + str(uuid.uuid4()).replace("-","")[:10]
 
@@ -139,12 +147,12 @@ class DummyMachineManagement(MachineManagement):
             return machineId
 
 class LocalMachineManagement(MachineManagement):
-    def __init__(self, config, serverPortConfig, source_control, artifactStorage):
-        MachineManagement.__init__(self, config, serverPortConfig, source_control, artifactStorage)
+    def __init__(self, config):
+        MachineManagement.__init__(self, config)
 
     def all_hardware_configs(self):
         return [
-            HardwareConfig.Config(cores=1, ram_gb=4)
+            Config.HardwareConfig.Config(cores=1, ram_gb=4)
             ]
 
     def synchronize_workers(self, machineIds):
@@ -155,7 +163,7 @@ class LocalMachineManagement(MachineManagement):
                     self._machineRemoved(machineId)
 
             for container in docker.from_env().containers.list(all=True):
-                if container.name.startswith(self.config.docker_scope):
+                if container.name.startswith(self.config.machine_management.docker_scope):
                     try:
                         logging.info("LocalMachineManagement shutting down container %s named %s", container, container.name)
                         container.remove(force=True)
@@ -172,18 +180,17 @@ class LocalMachineManagement(MachineManagement):
 
     def boot_worker(self, hardware_config, os_config):
         with self._lock:
-            if hardware_config not in self.all_hardware_configs():
-                return None
+            assert hardware_config in self.all_hardware_configs()
 
             if not os_config.matches.LinuxWithDocker:
-                return None
+                raise UnbootableWorkerCombination(hardware_config, os_config)
 
             machineId = "worker_" + str(uuid.uuid4()).replace("-","")[:10]
 
             worker = TestLooperWorker.TestLooperWorker(
                 WorkerState.WorkerState(
-                    self.config.docker_scope + "_" + machineId,
-                    os.path.join(self.config.local_storage_path, machineId),
+                    self.config.machine_management.docker_scope + "_" + machineId,
+                    os.path.join(self.config.machine_management.local_storage_path, machineId),
                     self.source_control,
                     self.artifactStorage,
                     machineId,
@@ -193,7 +200,6 @@ class LocalMachineManagement(MachineManagement):
                 self.serverPortConfig
                 )
 
-            #this can throw
             self._machineBooted(machineId, hardware_config, os_config, worker)
 
             worker.start()
@@ -201,40 +207,76 @@ class LocalMachineManagement(MachineManagement):
             return machineId
 
 class AwsMachineManagement(MachineManagement):
-    instance_types = {
-        't2.small': HardwareConfig.Config(cores=1, ram_gb=2),
-        'm5.xlarge': HardwareConfig.Config(cores=4, ram_gb=16),
-        'r3.8xlarge': HardwareConfig.Config(cores=32, ram_gb=244)
-        }
+    def __init__(self, config):
+        MachineManagement.__init__(self, config)
+        self.api = AwsCloudAPI.API(config)
 
-    def __init__(self, config, serverPortConfig, source_control, artifactStorage):
-        MachineManagement.__init__(self, config, serverPortConfig, source_control, artifactStorage)
+        self.instance_types = config.machine_management.instance_types
 
     def all_hardware_configs(self):
         return sorted(instance_types.keys(), lambda hw: hw.cores)
 
     def synchronize_workers(self, machineIds):
         with self._lock:
-            pass
+            activeMachines = set(self.api.machineIdsOfAllWorkers())
+
+            machinesThatAppearDead = [m for m in machineIds if m not in activeMachines]
+
+            machinesToKill = [m for m in activeMachines if m not in machineIds]
+
+            for m in machinesToKill:
+                try:
+                    self.api.terminateInstanceById(m)
+                except:
+                    logging.error('Failed to terminate instance %s:\n%s', m, traceback.format_exc())
+
+            for m in machinesThatAppearDead:
+                if m in self.runningMachines:
+                    self._machineRemoved(m)
+
+            for m in machineIds:
+                if m in activeMachines:
+                    self._machineBooted(m, machineIds[m][0], machineIds[m][1], True)
+
+            return machinesThatAppearDead
         
 
     def terminate_worker(self, machineId):
         with self._lock:
-            pass
+            if machineId in self.runningMachines:
+                self.api.terminateInstanceById(machineId)
+                self._machineRemoved(machineId)
+            else:
+                raise Exception("Machine %s isn't in our list of running instances")
 
     def boot_worker(self, hardware_config, os_config):
         with self._lock:
-            pass
-        
+            assert self.canBoot(hardware_config, os_config)
+            assert hardware_config in self.instance_types, "Can't find %s in %s" % (hardware_config, self.instance_types)
 
+            instance_type = self.instance_types[hardware_config]
 
+            if os_config.matches.LinuxWithDocker:
+                platform = "linux"
+                amiOverride = None
+            elif os_config.matches.WindowsOneshot:
+                platform = "windows"
+                amiOverride = os_config.ami
+            else:
+                raise UnbootableWorkerCombination(hardware_config, os_config)
 
-def fromConfig(config, serverPortConfig, source_control, artifactStorage):
-    if config.matches.Aws:
-        return AwsMachineManagement(config, serverPortConfig, source_control, artifactStorage)
-    elif config.matches.Local:
-        return LocalMachineManagement(config, serverPortConfig, source_control, artifactStorage)
-    elif config.matches.Dummy:
-        return DummyMachineManagement(config, serverPortConfig, source_control, artifactStorage)
+            machineId = self.api.bootWorker(platform, instance_type, amiOverride=amiOverride)
+
+            self._machineBooted(machineId, hardware_config, os_config, True)
+
+            return machineId
+
+def fromConfig(config):
+    if config.machine_management.matches.Aws:
+        return AwsMachineManagement(config)
+    elif config.machine_management.matches.Local:
+        return LocalMachineManagement(config)
+    elif config.machine_management.matches.Dummy:
+        return DummyMachineManagement(config)
     else:
         assert False, "Can't instantiate machine management from %s" % config

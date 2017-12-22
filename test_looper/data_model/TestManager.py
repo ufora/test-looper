@@ -294,7 +294,7 @@ class TestManager(object):
     def _processTask(self, task, curTimestamp):
         if task.matches.PruneDeadWorkerMachines:
             with self.transaction_and_lock():
-                known_workers = [x.machineId for x in self.database.Machine.lookupAll(isAlive=True)]
+                known_workers = [(x.machineId, x.hardware, x.os) for x in self.database.Machine.lookupAll(isAlive=True)]
                 to_kill = self.machine_management.synchronize_workers(known_workers)
 
                 for machineId in to_kill:
@@ -464,18 +464,28 @@ class TestManager(object):
 
     def _boot(self, category, curTimestamp):
         """Try to boot a machine from 'category'. Returns True if booted."""
-        machineId = self.machine_management.boot_worker(category.hardware, category.os)
-        if machineId:
-            self.database.Machine.New(
-                machineId=machineId,
-                hardware=category.hardware,
-                bootTime=curTimestamp,
-                os=category.os,
-                isAlive=True
-                )
-            category.booted = category.booted + 1
-            return True
-        return False
+        try:
+            machineId = self.machine_management.boot_worker(category.hardware, category.os)
+        except MachineManagement.UnbootableWorkerCombination as e:
+            category.hardwareComboUnbootable=True
+            category.desired=0
+
+            for t in self.database.Test.lookupAll(machineCategoryAndPrioritized=category):
+                self._triggerTestPriorityUpdate(t)
+            return False
+        except:
+            logging.error("Failed to boot a worker (%s,%s):\n%s", category.hardware, category.os, traceback.format_exc())
+            return False
+
+        self.database.Machine.New(
+            machineId=machineId,
+            hardware=category.hardware,
+            bootTime=curTimestamp,
+            os=category.os,
+            isAlive=True
+            )
+        category.booted = category.booted + 1
+        return True
 
     def _shutdown(self, category, curTimestamp, onlyIdle):
         for machine in self.database.Machine.lookupAll(hardware_and_os=(category.hardware, category.os)):
@@ -553,7 +563,12 @@ class TestManager(object):
         oldPriority = test.priority
         oldTargetMachineBoot = test.targetMachineBoot
 
-        if (self.database.UnresolvedTestDependency.lookupAll(test=test) or 
+        category = test.machineCategory
+
+        if category and category.hardwareComboUnbootable:
+            test.priority = self.database.TestPriority.HardwareComboUnbootable()
+            test.targetMachineBoot = 0
+        elif (self.database.UnresolvedTestDependency.lookupAll(test=test) or 
                 self.database.UnresolvedRepoDependency.lookupAll(test=test) or 
                 self.database.UnresolvedSourceDependency.lookupAll(test=test)):
             test.priority = self.database.TestPriority.UnresolvedDependencies()
@@ -572,9 +587,7 @@ class TestManager(object):
             else:
                 test.priority = self.database.TestPriority.WantsMoreTests(priority=test.commitData.commit.priority)
 
-        category = self._machineCategoryForTest(test)
-
-        if category is not None:
+        if category:
             net_change = test.targetMachineBoot - oldTargetMachineBoot
 
             if net_change != 0:
@@ -610,17 +623,17 @@ class TestManager(object):
 
         if env.platform.matches.linux:
             if env.image.matches.Dockerfile or env.image.matches.DockerfileInline:
-                os = MachineManagement.OsConfiguration.LinuxWithDocker()
+                os = MachineManagement.OsConfig.LinuxWithDocker()
             elif env.image.matches.AMI:
-                os = MachineManagement.OsConfiguration.LinuxOneshot(env.image.base_ami)
+                os = MachineManagement.OsConfig.LinuxOneshot(env.image.base_ami)
             else:
                 return None
 
         if env.platform.matches.windows:
             if env.image.matches.Dockerfile or env.image.matches.DockerfileInline:
-                os = MachineManagement.OsConfiguration.WindowsWithDocker()
+                os = MachineManagement.OsConfig.WindowsWithDocker()
             elif env.image.matches.AMI:
-                os = MachineManagement.OsConfiguration.WindowsOneshot(env.image.base_ami)
+                os = MachineManagement.OsConfig.WindowsOneshot(env.image.base_ami)
             else:
                 return None
 
@@ -707,6 +720,7 @@ class TestManager(object):
 
         if env is not None:
             test.fullyResolvedEnvironment = self.database.FullyResolvedTestEnvironment.Resolved(env)
+            test.machineCategory = self._machineCategoryForTest(test)
 
         all_dependencies = {}
         if env is not None and env.matches.Environment:

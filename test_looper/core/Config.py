@@ -1,5 +1,11 @@
 import test_looper.core.algebraic as algebraic
 
+HardwareConfig = algebraic.Alternative("HardwareConfig")
+HardwareConfig.Config = {
+    "cores": int,
+    "ram_gb": int
+    }
+
 MachineManagementConfig = algebraic.Alternative("MachineManagementConfig")
 
 #boot workers in AWS
@@ -11,11 +17,14 @@ MachineManagementConfig.Aws = {
     "keypair": str,              #security keypair name to use
     "bootstrap_bucket": str,     #bucket to put windows bootstrap scripts into.
     "bootstrap_key_prefix": str, #key prefix for windows bootstrap scripts.
+    "worker_name": str,          #name of workers. This should be unique to this instll.
     "worker_iam_role_name": str, #AIM role to boot workers into
     "linux_ami": str,            #default linux AMI to use when booting linux workers
     "windows_ami": str,          #default AMI to use when booting windows workers. Can be overridden for one-shot workers.
     "path_to_keys": str,         #path to ssh keys to place on workers to access source control.
-    "hosts": algebraic.Dict(str, str),
+    "instance_types": algebraic.Dict(HardwareConfig, str),
+                                 #dict from hardware configuration to instance types we're willing to boot
+    "host_ips": algebraic.Dict(str, str),
                                  #dict from hostname to ip address to make available to workers
                                  #this is primarily useful when workers don't have access to dns
                                  #but we still want certs to all be valid

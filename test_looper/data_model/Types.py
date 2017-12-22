@@ -1,6 +1,7 @@
 import test_looper.core.algebraic as algebraic
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.data_model.TestDefinition as TestDefinition
+import test_looper.core.Config as Config
 import test_looper.core.machine_management.MachineManagement as MachineManagement
 
 BackgroundTaskStatus = algebraic.Alternative("BackgroundTaskStatus")
@@ -24,6 +25,7 @@ def setup_types(database):
     database.TestPriority.UnresolvedDependencies = {}
     database.TestPriority.DependencyFailed = {}
     database.TestPriority.WaitingOnBuilds = {}
+    database.TestPriority.HardwareComboUnbootable = {}
     database.TestPriority.NoMoreTests = {}
     database.TestPriority.FirstBuild = {"priority": int}
     database.TestPriority.FirstTest = {"priority": int}
@@ -63,12 +65,13 @@ def setup_types(database):
         fullname=str,
         testDefinition=TestDefinition.TestDefinition,
         fullyResolvedEnvironment=database.FullyResolvedTestEnvironment,
+        machineCategory=database.MachineCategory,
         successes=int,
         totalRuns=int,
         activeRuns=int,
         priority=database.TestPriority,
         targetMachineBoot=int, #the number of machines we want to boot to achieve this
-        runsDesired=int #the number of runs the _user_ indicated they wanted
+        runsDesired=int, #the number of runs the _user_ indicated they wanted
         )
 
     database.UnresolvedTestDependency.define(
@@ -116,16 +119,17 @@ def setup_types(database):
         )
 
     database.MachineCategory.define(
-        hardware=MachineManagement.HardwareConfig,
-        os=MachineManagement.OsConfiguration,
+        hardware=Config.HardwareConfig,
+        os=MachineManagement.OsConfig,
         booted=int,
-        desired=int
+        desired=int,
+        hardwareComboUnbootable=bool
         )
 
     database.Machine.define(
         machineId=str,
-        hardware=MachineManagement.HardwareConfig,
-        os=MachineManagement.OsConfiguration,
+        hardware=Config.HardwareConfig,
+        os=MachineManagement.OsConfig,
         bootTime=float,
         firstHeartbeat=float,
         lastHeartbeat=float,
@@ -168,7 +172,16 @@ def setup_types(database):
     database.addIndex(database.CommitRelationship, 'child')
     database.addIndex(database.Test, 'fullname')
     database.addIndex(database.Test, 'commitData')
-
+    database.addIndex(database.Test, 'machineCategoryAndPrioritized',
+            lambda o: o.machineCategory if (
+                    not o.priority.matches.NoMoreTests 
+                and not o.priority.matches.UnresolvedDependencies
+                and not o.priority.matches.DependencyFailed
+                and not o.priority.matches.WaitingOnBuilds
+                and not o.priority.matches.HardwareComboUnbootable
+                and o.machineCategory)
+                else None
+            )
     database.addIndex(database.TestRun, 'test')
     database.addIndex(database.TestRun, 'isRunning', lambda t: True if not t.canceled and t.endTimestamp <= 0.0 else None)
     database.addIndex(database.TestRun, 'runningOnMachine', lambda t: t.machine if not t.canceled and t.endTimestamp <= 0.0 else None)
@@ -178,6 +191,7 @@ def setup_types(database):
                     not o.priority.matches.NoMoreTests 
                 and not o.priority.matches.UnresolvedDependencies
                 and not o.priority.matches.DependencyFailed
-                and not o.priority.matches.WaitingOnBuilds)
+                and not o.priority.matches.WaitingOnBuilds
+                and not o.priority.matches.HardwareComboUnbootable)
                 else None
             )

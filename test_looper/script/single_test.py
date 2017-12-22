@@ -62,7 +62,7 @@ if __name__ == "__main__":
             relpath,
             artifactStorage=artifacts,
             machineId="machineId",
-            MachineManagement.HardwareConfig(cores=1,ram_gb=4)
+            Config.HardwareConfig(cores=1,ram_gb=4)
             )
 
         worker.verbose = True
