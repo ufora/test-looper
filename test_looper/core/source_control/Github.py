@@ -9,41 +9,30 @@ import threading
 import os
 
 from test_looper.core.source_control import SourceControl
-from test_looper.core.source_control import GithubRepo
+from test_looper.core.source_control import RemoteRepo
 from test_looper.core.tools.Git import Git
 
 class Github(SourceControl.SourceControl):
     def __init__(self,
-                 path_to_local_repos,
-                 oauth_key,
-                 oauth_secret,
-                 access_token,
-                 webhook_secret,
-                 owner,
-                 github_url = "https://github.com",
-                 github_login_url = "https://github.com",
-                 github_api_url = "https://api.github.com",
-                 github_clone_url = "git@github.com",
-                 auth_disabled = False
+                 path_to_local_repo_cache,
+                 config
                  ):
         super(Github, self).__init__()
 
-        assert access_token is not None
-        assert path_to_local_repos is not None
+        self.auth_disabled = config.auth_disabled
 
-        self.auth_disabled = auth_disabled
+        self.path_to_local_repo_cache = path_to_local_repo_cache
 
-        self.path_to_local_repo_cache = path_to_local_repos
-
-        self.oauth_key = oauth_key
-        self.oauth_secret = oauth_secret
-        self.access_token = access_token
-        self.webhook_secret = webhook_secret
-        self.ownerType, self.ownerName = owner.split(":")
-        self.github_url = github_url
-        self.github_api_url = github_api_url
-        self.github_login_url = github_login_url
-        self.github_clone_url = github_clone_url
+        self.oauth_key = config.oauth_key
+        self.oauth_secret = config.oauth_secret
+        self.access_token = config.access_token
+        self.webhook_secret = config.webhook_secret
+        self.ownerType, self.ownerName = config.owner.split(":")
+        self.github_url = config.github_url
+        self.github_api_url = config.github_api_url
+        self.github_login_url = config.github_login_url
+        self.github_clone_url = config.github_clone_url
+        
         self.lock = threading.Lock()
         self.repos = {}
 
@@ -79,7 +68,7 @@ class Github(SourceControl.SourceControl):
         with self.lock:
             if repoName not in self.repos:
                 path = os.path.join(self.path_to_local_repo_cache, repoName)
-                self.repos[repoName] = GithubRepo.GithubRepo(self, path, self.ownerName, repoName)
+                self.repos[repoName] = RemoteRepo.RemoteRepo(self.ownerName + "/" + repoName, path, self)
 
             repo = self.repos[repoName]
 
@@ -194,6 +183,8 @@ class Github(SourceControl.SourceControl):
             requests.get(self.github_api_url + "/user?access_token=" + access_token, verify=self.shouldVerify()).text
             )['login']
 
+    def cloneUrl(self, repoName):
+        return self.github_clone_url + ":" + repoName + ".git"
 
     def commit_url(self, repoName, commitHash):
         return self.github_url + "/%s/%s/commit/%s" % (self.ownerName, repoName, commitHash)

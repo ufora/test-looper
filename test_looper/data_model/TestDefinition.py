@@ -14,7 +14,7 @@ Platform.linux = {}
 Image = algebraic.Alternative("Image")
 Image.DockerfileInline = {"dockerfile_contents": str}
 Image.Dockerfile = {"repo": str, "commitHash": str, "dockerfile": str}
-Image.AMI = {"base_ami": str, "repo": str, "commitHash": str, "ami_script": str}
+Image.AMI = {"base_ami": str, "setup_script_contents": str}
 
 TestDependency = algebraic.Alternative("TestDependency")
 TestDependency.InternalBuild = {"name": str, "environment": str}
@@ -40,14 +40,22 @@ TestDefinition.Build = {
     "name": str,
     "environment": TestEnvironment,
     "dependencies": algebraic.Dict(str, TestDependency),
-    "variables": algebraic.Dict(str,str)
+    "variables": algebraic.Dict(str,str),
+    "timeout": int, #max time, in seconds, for the test
+    "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
+    "max_cores": int, #maximum number of cores we can take advantage of, or zero
+    "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
     }
 TestDefinition.Test = {
     "testCommand": str,
     "name": str,
     "environment": TestEnvironment,
     "dependencies": algebraic.Dict(str, TestDependency),
-    "variables": algebraic.Dict(str,str)
+    "variables": algebraic.Dict(str,str),
+    "timeout": int, #max time, in seconds, for the test
+    "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
+    "max_cores": int, #maximum number of cores we can take advantage of, or zero
+    "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
     }
 TestDefinition.Deployment = {
     "deployCommand": str,
@@ -55,6 +63,10 @@ TestDefinition.Deployment = {
     "environment": TestEnvironment,
     "dependencies": algebraic.Dict(str, TestDependency),
     "variables": algebraic.Dict(str,str),
-    'portExpose': algebraic.Dict(str,int)
+    'portExpose': algebraic.Dict(str,int),
+    "timeout": int, #max time, in seconds, for the test
+    "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
+    "max_cores": int, #maximum number of cores we can take advantage of, or zero
+    "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
     }
 

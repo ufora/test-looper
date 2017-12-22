@@ -21,7 +21,6 @@ mkdir $TEST_LOOPER_INSTALL
 mkdir -p $TEST_LOOPER_INSTALL/repos/simple_project
 mkdir -p $TEST_LOOPER_INSTALL/repos/simple_project_2
 mkdir $TEST_LOOPER_INSTALL/logs
-mkdir $TEST_LOOPER_INSTALL/redis
 
 export GIT_AUTHOR_DATE="1509599720 -0500"
 export GIT_COMMITTER_DATE="1509599720 -0500"
@@ -70,7 +69,7 @@ for m in 4 5 6 7 8;
  git add .
  git commit -m "second commit in simple_project_2"
 
- cat testDefinitions.yml | sed 's/43024d9d47216c50017e7aec13f44ad1626586ae/notavalidhash/' > testDefinitions2.yml
+ cat testDefinitions.yml | sed 's/8ee69e550635478aa07935bad890f2158bbd4302/notavalidhash/' > testDefinitions2.yml
  rm testDefinitions.yml
  mv testDefinitions2.yml testDefinitions.yml
  git add .
@@ -83,22 +82,6 @@ for m in 4 5 6 7 8;
 }
 
 rebuild;
-
-echo "BOOTING REDIS"
-( redis-server --port 1115 \
-	--logfile $TEST_LOOPER_INSTALL/redis/log.txt \
-	--dbfilename db.rdb \
-	--dir $TEST_LOOPER_INSTALL/redis \
-	> $TEST_LOOPER_INSTALL/logs/redis_log.txt 2>&1 ) &
-
-#echo "BOOTING WORKER"
-#( python -u $PROJ_ROOT/test_looper/worker/test-looper.py $PROJ_ROOT/test_looper_tests/system_test/config.json 4 > $TEST_LOOPER_INSTALL/logs/worker_log.txt 2>&1 )&
-
-echo "APP"
-( export PYTHONPATH=$PROJ_ROOT; 
-  cd $PROJ_ROOT/test_looper/server/wetty; 
-  node app.js -c $PROJ_ROOT/test_looper_tests/system_test/config.json > $TEST_LOOPER_INSTALL/logs/wetty_log.txt 2>&1 
-  )&
 
 echo "BOOTING SERVER"
 python -u $PROJ_ROOT/test_looper/server/test-looper-server.py $PROJ_ROOT/test_looper_tests/system_test/config.json

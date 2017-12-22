@@ -10,6 +10,10 @@ import sys
 import threading
 import time
 
+import test_looper.core.algebraic_to_json as algebraic_to_json
+import test_looper.core.Config as Config
+import test_looper.core.machine_management.MachineManagement as MachineManagement
+
 import test_looper.core.source_control.SourceControlFromConfig as SourceControlFromConfig
 from test_looper.core.RedisJsonStore import RedisJsonStore
 from test_looper.core.InMemoryJsonStore import InMemoryJsonStore
@@ -18,7 +22,6 @@ from test_looper.server.TestLooperHttpServerEventLog import TestLooperHttpServer
 import test_looper.server.TestLooperServer as TestLooperServer
 import test_looper.data_model.TestManager as TestManager
 import test_looper.core.ArtifactStorage as ArtifactStorage
-import test_looper.core.cloud.FromConfig
 
 def createArgumentParser():
     parser = argparse.ArgumentParser(
@@ -49,7 +52,8 @@ def createArgumentParser():
 
 def loadConfiguration(configFile):
     with open(configFile, 'r') as fin:
-        return json.loads(fin.read())
+        expanded = os.path.expandvars(fin.read())
+        return json.loads(expanded)
 
 def configureLogging(verbose=False):
     if logging.getLogger().handlers:
@@ -72,48 +76,38 @@ def main():
     parsedArgs = createArgumentParser().parse_args()
     config = loadConfiguration(parsedArgs.config)
     configureLogging(verbose=parsedArgs.verbose)
-    
-    port = config['server']['worker_port']
-    logging.info("Starting test-looper server on port %d", port)
 
-    src_ctrl = SourceControlFromConfig.getFromConfig(config["source_control"])
+    config = algebraic_to_json.Encoder().from_json(config, Config.Config)
 
-    jsonStore = RedisJsonStore(port=config['server'].get('redis_port'))
-    #jsonStore = InMemoryJsonStore()
+    if config.server.database.matches.InMemory:
+        jsonStore = InMemoryJsonStore()
+    else:
+        jsonStore = RedisJsonStore(port=config.server.database.port or None, db=config.server.database.db)
 
-    testManager = TestManager.TestManager(
-        src_ctrl,
-        jsonStore,
-        TestManager.TestManagerSettings.Settings(
-            max_test_count=config['server'].get('max_test_count', 3)
-            )
-        )
+    src_ctrl = SourceControlFromConfig.getFromConfig(config.server.path_to_local_repos, config.source_control)
+    artifact_storage = ArtifactStorage.storageFromConfig(config.artifacts)
+    machine_management = MachineManagement.fromConfig(config.machine_management, config.server_ports, src_ctrl, artifact_storage)
 
-    http_port = config['server'].get('http_port', 80)
-
-    cloud_connection = test_looper.core.cloud.FromConfig.fromConfig(config)
+    testManager = TestManager.TestManager(src_ctrl, machine_management, jsonStore)
     
     httpServer = TestLooperHttpServer.TestLooperHttpServer(
-        config['server']['web_address'],
+        config.server_ports,
+        config.server,
         testManager,
-        cloud_connection,
-        ArtifactStorage.storageFromConfig(config['artifacts']),
+        machine_management,
+        artifact_storage,
         src_ctrl,
-        event_log=TestLooperHttpServerEventLog(jsonStore),
-        auth_level=parsedArgs.auth,
-        httpPort=http_port,
-        enable_advanced_views=config['server'].get('enable_advanced_views', False),
-        wetty_port=config['server']['wetty_port'],
-        certs=config['server'].get('certs')
+        event_log=TestLooperHttpServerEventLog(jsonStore)
         )
 
-    server = TestLooperServer.TestLooperServer(port,
+    server = TestLooperServer.TestLooperServer(config.server_ports,
                                                testManager,
                                                httpServer,
-                                               cloud_connection
+                                               machine_management
                                                )
 
     serverThread = threading.Thread(target=server.runListenLoop)
+
     def handleStopSignal(signum, _):
         logging.info("Signal received: %s. Stopping service.", signum)
         if serverThread and serverThread.isAlive():

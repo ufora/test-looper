@@ -39,13 +39,13 @@ class TestLooperClient(object):
         else:
             raise ProtocolMismatchException()
 
-    def getTask(self, machineInfo):
+    def getTask(self, machineId):
         def requestHandler(request_socket):
             socket_util.writeString(
                 request_socket,
                 json.dumps({
                     "request": "getTask",
-                    "args": machineInfo.toJson()
+                    "args": machineId
                     })
                 )
             response = socket_util.readString(request_socket)

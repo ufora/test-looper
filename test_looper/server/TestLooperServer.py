@@ -8,17 +8,15 @@ import time
 import test_looper.core.SimpleServer as SimpleServer
 import test_looper.core.socket_util as socket_util
 import test_looper.data_model.TestResult as TestResult
-import test_looper.core.cloud.MachineInfo as MachineInfo
 
-SWEEP_FREQUENCY = 10
+SWEEP_FREQUENCY = 30
 
 class Session(object):
-    def __init__(self, testManager, cloud_connection, socket, address):
+    def __init__(self, testManager, machine_management, socket, address):
         self.socket = socket
         self.address = address
         self.testManager = testManager
-        self.cloud_connection = cloud_connection
-
+        self.machine_management = machine_management
 
     def __call__(self):
         try:
@@ -61,7 +59,7 @@ class Session(object):
 
         try:
             if requestType == 'getTask':
-                self.getTask(MachineInfo.MachineInfo.fromJson(args))
+                self.getTask(args)
             elif requestType == 'publishTestResult':
                 self.publishTestResult(args)
             elif requestType == 'heartbeat':
@@ -84,15 +82,12 @@ class Session(object):
             logging.error("Error processing test hearbeat for %s:\n\n%s", args.testId, traceback.format_exc())
             self.writeString("error")
 
-    def getTask(self, machineInfo):
+    def getTask(self, machineId):
         commit = None
-
-        if machineInfo.machineId is not None:
-            is_new_machine = self.testManager.recordMachineHeartbeat(machineInfo.machineId, time.time())
 
         try:
             t0 = time.time()
-            repoName, commitHash, testName, testId = self.testManager.startNewTest(machineInfo.machineId, time.time())
+            repoName, commitHash, testName, testId = self.testManager.startNewTest(machineId, time.time())
 
             if repoName:
                 logging.info("Checking out commit %s/%s, test %s, identity %s to %s",
@@ -100,7 +95,7 @@ class Session(object):
                     commitHash,
                     testName,
                     testId,
-                    machineInfo.machineId
+                    machineId
                     )
 
                 self.writeString(
@@ -120,10 +115,6 @@ class Session(object):
                           traceback.format_exc())
             self.writeString(json.dumps(None))
 
-        if is_new_machine and self.cloud_connection:
-            self.cloud_connection.tagInstance(machineInfo.machineId)
-
-
     def publishTestResult(self, testResultAsJson):
         result = TestResult.TestResultOnMachine.fromJson(testResultAsJson)
 
@@ -139,21 +130,21 @@ class TestLooperServer(SimpleServer.SimpleServer):
     #if we modify this protocol version, the loopers should reboot and pull a new copy of the code
     protocolVersion = '2.2.6'
 
-    def __init__(self, port, testManager, httpServer, cloud_connection):
+    def __init__(self, server_ports, testManager, httpServer, machine_management):
         """
         Initialize a TestLooperServer
         """
         if httpServer.certs is not None:
-            cert_and_keyfile = (httpServer.certs['cert'], httpServer.certs['private_key'])
+            cert_and_keyfile = (httpServer.certs.cert, httpServer.certs.key)
         else:
             cert_and_keyfile = None
 
-        SimpleServer.SimpleServer.__init__(self, port, cert_and_key_paths = cert_and_keyfile)
+        SimpleServer.SimpleServer.__init__(self, server_ports.server_worker_port, cert_and_key_paths = cert_and_keyfile)
 
-        self.port_ = port
+        self.port_ = server_ports.server_worker_port
         self.testManager = testManager
         self.httpServer = httpServer
-        self.cloud_connection = cloud_connection
+        self.machine_management = machine_management
         self.workerThread = threading.Thread(target=self.executeManagerWork)
 
     def executeManagerWork(self):
@@ -178,6 +169,7 @@ class TestLooperServer(SimpleServer.SimpleServer):
 
     def initialize(self):
         self.testManager.markRepoListDirty(time.time())
+        self.testManager.triggerPruneDeadWorkerMachines(time.time())
 
     def runListenLoop(self):
         logging.info("Starting TestLooperServer listen loop")
@@ -205,6 +197,6 @@ class TestLooperServer(SimpleServer.SimpleServer):
     def _onConnect(self, socket, address):
         logging.debug("Accepting connection from %s", address)
         threading.Thread(target=Session(self.testManager,
-                                        self.cloud_connection,
+                                        self.machine_management,
                                         socket,
                                         address)).start()

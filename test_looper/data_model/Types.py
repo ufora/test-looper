@@ -1,6 +1,7 @@
 import test_looper.core.algebraic as algebraic
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.data_model.TestDefinition as TestDefinition
+import test_looper.core.machine_management.MachineManagement as MachineManagement
 
 BackgroundTaskStatus = algebraic.Alternative("BackgroundTaskStatus")
 BackgroundTaskStatus.Pending = {}
@@ -10,6 +11,8 @@ def setup_types(database):
     database.BackgroundTask = algebraic.Alternative("BackgroundTask")
 
     database.BackgroundTask.RefreshRepos = {}
+    database.BackgroundTask.BootMachineCheck = {}
+    database.BackgroundTask.PruneDeadWorkerMachines = {}
     database.BackgroundTask.RefreshBranches = {"repo": database.Repo}
     database.BackgroundTask.UpdateBranchTopCommit = {"branch": database.Branch}
     database.BackgroundTask.UpdateCommitData = {"commit": database.Commit}
@@ -26,6 +29,9 @@ def setup_types(database):
     database.TestPriority.FirstTest = {"priority": int}
     database.TestPriority.WantsMoreTests = {"priority": int}
 
+    database.FullyResolvedTestEnvironment = algebraic.Alternative("FullyResolvedTestEnvironment")
+    database.FullyResolvedTestEnvironment.Unresolved = {}
+    database.FullyResolvedTestEnvironment.Resolved = {"Environment": TestDefinition.TestEnvironment}
 
     database.DataTask.define(
         task=database.BackgroundTask,
@@ -56,11 +62,13 @@ def setup_types(database):
         commitData=database.CommitData,
         fullname=str,
         testDefinition=TestDefinition.TestDefinition,
+        fullyResolvedEnvironment=database.FullyResolvedTestEnvironment,
         successes=int,
         totalRuns=int,
         activeRuns=int,
         priority=database.TestPriority,
-        runsDesired=int
+        targetMachineBoot=int, #the number of machines we want to boot to achieve this
+        runsDesired=int #the number of runs the _user_ indicated they wanted
         )
 
     database.UnresolvedTestDependency.define(
@@ -107,14 +115,36 @@ def setup_types(database):
         isUnderTest=bool
         )
 
+    database.MachineCategory.define(
+        hardware=MachineManagement.HardwareConfig,
+        os=MachineManagement.OsConfiguration,
+        booted=int,
+        desired=int
+        )
+
     database.Machine.define(
         machineId=str,
-        firstSeen=float,
-        lastHeartbeat=float
+        hardware=MachineManagement.HardwareConfig,
+        os=MachineManagement.OsConfiguration,
+        bootTime=float,
+        firstHeartbeat=float,
+        lastHeartbeat=float,
+        lastTestCompleted=float,
+        isAlive=bool
         )
 
     database.addIndex(database.DataTask, 'status')
+    database.addIndex(database.DataTask, 'pending_boot_machine_check', lambda d: True if d.status.matches.Pending and d.task.matches.BootMachineCheck else None)
     database.addIndex(database.Machine, 'machineId')
+
+    #don't index the dead ones
+    database.addIndex(database.Machine, 'isAlive', lambda m: True if m.isAlive else None)
+    database.addIndex(database.Machine, 'hardware_and_os', lambda m: (m.hardware, m.os) if m.isAlive else None)
+
+    database.addIndex(database.MachineCategory, 'hardware_and_os', lambda m: (m.hardware, m.os))
+    database.addIndex(database.MachineCategory, 'want_more', lambda m: True if (m.desired > m.booted) else None)
+    database.addIndex(database.MachineCategory, 'want_less', lambda m: True if (m.desired < m.booted) else None)
+
     database.addIndex(database.UnresolvedTestDependency, 'dependsOnName')
     database.addIndex(database.UnresolvedTestDependency, 'test')
     database.addIndex(database.UnresolvedTestDependency, 'test_and_depends', lambda o:(o.test, o.dependsOnName))
@@ -141,6 +171,7 @@ def setup_types(database):
 
     database.addIndex(database.TestRun, 'test')
     database.addIndex(database.TestRun, 'isRunning', lambda t: True if not t.canceled and t.endTimestamp <= 0.0 else None)
+    database.addIndex(database.TestRun, 'runningOnMachine', lambda t: t.machine if not t.canceled and t.endTimestamp <= 0.0 else None)
 
     database.addIndex(database.Test, 'priority', 
             lambda o: o.priority if (

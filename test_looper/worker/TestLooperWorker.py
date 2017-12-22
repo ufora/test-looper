@@ -6,6 +6,7 @@ import time
 import traceback
 import threading
 
+import test_looper.core.ManagedThread as ManagedThread
 import test_looper.data_model.TestResult as TestResult
 import test_looper.worker.TestLooperClient as TestLooperClient
 
@@ -14,49 +15,61 @@ HEARTBEAT_INTERVAL = TestLooperClient.TestLooperClient.HEARTBEAT_INTERVAL
 class TestInterruptException(Exception):
     pass
 
-TestLooperSettings = collections.namedtuple(
-    'TestLooperSettings',
-    [
-        'osInteractions',
-        'testLooperClientFactory',
-        'timeout'
-    ])
-
 class TestLooperWorker(object):
-    perf_test_output_file = 'performanceMeasurements.json'
-
     def __init__(self,
-                 testLooperSettings,
-                 machineInfo,
+                 workerState,
+                 machineId,
+                 serverPortConfig,
                  timeToSleepWhenThereIsNoWork=2.0
                 ):
-        self.settings = testLooperSettings
-        self.ownMachineInfo = machineInfo
+        self.workerState = workerState
+        self.machineId = machineId
+        self.serverPortConfig = serverPortConfig
+
         self.timeToSleepWhenThereIsNoWork = timeToSleepWhenThereIsNoWork
+
         self.stopEvent = threading.Event()
 
         self.heartbeatResponse = None
+        
         self.testLooperClient = None
 
+        self.thread = None
 
-    def stop(self):
+    def createTestLooperClient(self):
+        return TestLooperClient.TestLooperClient(
+            host=self.serverPortConfig.server_address,
+            port=self.serverPortConfig.server_worker_port,
+            use_ssl=self.serverPortConfig.server_worker_port_use_ssl
+            )
+
+    def stop(self, join=True):
         self.stopEvent.set()
         if self.testLooperClient:
             self.testLooperClient.stop()
+        if self.thread:
+            if join:
+                self.thread.join()
+            self.thread = None
 
-    def startTestLoop(self):
+    def start(self):
+        assert self.thread is None
+        self.thread = ManagedThread.ManagedThread(target=self._mainTestLoop)
+        self.thread.start()
+
+    def _mainTestLoop(self):
         try:
             socketErrorCount = 0
             waitTime = 0
             errorsInARow = 0
             while not self.stopEvent.is_set():
                 try:
-                    waitTime = self.mainTestingIteration()
+                    waitTime = self._tryToRunOneTest()
                     socketErrorCount = 0
                     errorsInARow = 0
                 except TestLooperClient.ProtocolMismatchException:
                     logging.info("protocol mismatch observed on %s: %s",
-                                 self.ownMachineInfo.machineId,
+                                 self.machineId,
                                  traceback.format_exc())
                     return
                     
@@ -64,10 +77,6 @@ class TestLooperWorker(object):
                     logging.info("Can't connect to server")
                     socketErrorCount += 1
                     errorsInARow += 1
-                    if socketErrorCount > 24:
-                        return self.settings.osInteractions.abortTestLooper(
-                            "Unable to communicate with server."
-                            )
                     waitTime = 5.0
                 except Exception as e:
                     errorsInARow += 1
@@ -79,7 +88,7 @@ class TestLooperWorker(object):
                     logging.error(
                         "Exception %s on %s. errorsInARow==%s. Waiting for %s and trying again.: %s.",
                         type(e),
-                        self.ownMachineInfo.machineId,
+                        self.machineId,
                         errorsInARow,
                         waitTime,
                         traceback.format_exc()
@@ -90,14 +99,16 @@ class TestLooperWorker(object):
 
         finally:
             logging.info("Machine %s is exiting main testing loop",
-                         self.ownMachineInfo.machineId)
+                         self.machineId)
 
 
-    def mainTestingIteration(self):
+    def _tryToRunOneTest(self):
         self.heartbeatResponse = TestResult.HEARTBEAT_RESPONSE_ACK
-        self.testLooperClient = self.settings.testLooperClientFactory()
 
-        commit_and_test = self.testLooperClient.getTask(self.ownMachineInfo)
+        if self.testLooperClient is None:
+            self.testLooperClient = self.createTestLooperClient()
+
+        commit_and_test = self.testLooperClient.getTask(self.machineId)
 
         if commit_and_test is None:
             return self.timeToSleepWhenThereIsNoWork
@@ -114,7 +125,7 @@ class TestLooperWorker(object):
 
     def run_task(self, repoName, commitHash, testId, testName):
         logging.info("Machine %s is working on testId %s, test %s/%s, for commit %s",
-                     self.ownMachineInfo.machineId,
+                     self.machineId,
                      testId,
                      testName,
                      repoName, 
@@ -124,7 +135,7 @@ class TestLooperWorker(object):
         def heartbeat(logMessage=None):
             return self.sendHeartbeat(self.testLooperClient, testId, repoName, commitHash, logMessage)
 
-        result = self.settings.osInteractions.runTest(testId, repoName, commitHash, testName, heartbeat)
+        result = self.workerState.runTest(testId, repoName, commitHash, testName, heartbeat)
         
         if not self.stopEvent.is_set():
             self.testLooperClient.publishTestResult(result)
@@ -132,7 +143,7 @@ class TestLooperWorker(object):
     def sendHeartbeat(self, testLooperClient, testId, repoName, commitHash, logMessage):
         if self.heartbeatResponse != TestResult.HEARTBEAT_RESPONSE_ACK:
             logging.info('Machine %s skipping heartbeat because it already received "%s"',
-                         self.ownMachineInfo.machineId,
+                         self.machineId,
                          self.heartbeatResponse)
             return
 
@@ -142,14 +153,14 @@ class TestLooperWorker(object):
         self.heartbeatResponse = testLooperClient.heartbeat(testId,
                                                             repoName, 
                                                             commitHash,
-                                                            self.ownMachineInfo.machineId,
+                                                            self.machineId,
                                                             logMessage
                                                             )
 
         if self.heartbeatResponse != TestResult.HEARTBEAT_RESPONSE_ACK:
             logging.info(
                 "Machine %s is raising TestInterruptException due to heartbeat response: %s",
-                self.ownMachineInfo.machineId,
+                self.machineId,
                 self.heartbeatResponse
                 )
             raise TestInterruptException(self.heartbeatResponse)

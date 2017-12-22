@@ -15,7 +15,7 @@ Platform = TestDefinition.Platform
 Image = algebraic.Alternative("Image")
 Image.DockerfileInline = {"dockerfile_contents": str}
 Image.Dockerfile = {"dockerfile": str}
-Image.AMI = {"base_ami": str, "ami_script": str}
+Image.AMI = {"base_ami": str, "setup_script_contents": str}
 
 DefineEnvironment = algebraic.Alternative("DefineEnvironment")
 DefineEnvironment.Import = {'import': str}
@@ -34,20 +34,32 @@ DefineDeployment = algebraic.Alternative("DefineDeployment")
 DefineBuild.Build = {
     'command': str,
     'dependencies': algebraic.Dict(str,str),
-    'variables': algebraic.Dict(str,str)
+    'variables': algebraic.Dict(str,str),
+    "timeout": int, #max time, in seconds, for the test
+    "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
+    "max_cores": int, #maximum number of cores we can take advantage of, or zero
+    "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
     }
 
 DefineTest.Test = {
     'command': str,
     'dependencies': algebraic.Dict(str,str),
-    'variables': algebraic.Dict(str,str)
+    'variables': algebraic.Dict(str,str),
+    "timeout": int, #max time, in seconds, for the test
+    "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
+    "max_cores": int, #maximum number of cores we can take advantage of, or zero
+    "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
     }
 
 DefineDeployment.Deployment = {
     'command': str,
     'dependencies': algebraic.Dict(str,str),
     'variables': algebraic.Dict(str,str),
-    'portExpose': algebraic.Dict(str,int)
+    'portExpose': algebraic.Dict(str,int),
+    "timeout": int, #max time, in seconds, for the test
+    "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
+    "max_cores": int, #maximum number of cores we can take advantage of, or zero
+    "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
     }
 
 TestDefinitionScript = algebraic.Alternative("TestDefinitionScript")
@@ -92,9 +104,7 @@ def map_image(reponame, commitHash, image_def):
     elif image_def.matches.AMI:
         return TestDefinition.Image.AMI(
             base_ami=image_def.base_ami,
-            ami_script=image_def.ami_script,
-            repo=reponame,
-            commitHash=commitHash
+            setup_script_contents=image_def.setup_script_contents,
             )
     else:
         assert False, "Can't convert this kind of image: %s" % image_def
@@ -267,7 +277,11 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 name=name,
                 variables=d.variables,
                 dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},
-                environment=environments[curEnv]
+                environment=environments[curEnv],
+                timeout=d.timeout,
+                min_cores=d.min_cores,
+                max_cores=d.max_cores,
+                min_ram_gb=d.min_ram_gb
                 )
         if d.matches.Test:
             return TestDefinition.TestDefinition.Test(
@@ -275,7 +289,11 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 name=name,
                 variables=d.variables,
                 dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},
-                environment=environments[curEnv]
+                environment=environments[curEnv],
+                timeout=d.timeout,
+                min_cores=d.min_cores,
+                max_cores=d.max_cores,
+                min_ram_gb=d.min_ram_gb
                 )
         if d.matches.Deployment:
             return TestDefinition.TestDefinition.Deployment(
@@ -284,7 +302,11 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 variables=d.variables,
                 dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},
                 portExpose=d.portExpose,
-                environment=environments[curEnv]
+                environment=environments[curEnv],
+                timeout=d.timeout,
+                min_cores=d.min_cores,
+                max_cores=d.max_cores,
+                min_ram_gb=d.min_ram_gb
                 )
 
     #a list of things we can actually depend on

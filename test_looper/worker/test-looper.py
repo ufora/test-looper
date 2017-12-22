@@ -1,24 +1,16 @@
 #!/usr/bin/env python
 
 import argparse
-import boto
 import pprint
-import boto.s3.key
-import boto.utils
 import sys
 import json
-import multiprocessing
 import logging
 import signal
-import socket
-import subprocess
 import threading
 import time
 import os
 
-import test_looper.core.cloud.FromConfig
 import test_looper.core.tools.Git as Git
-import test_looper.core.cloud.MachineInfo as MachineInfo
 import test_looper.worker.TestLooperClient as TestLooperClient
 import test_looper.worker.TestLooperWorker as TestLooperWorker
 import test_looper.worker.WorkerState as WorkerState
@@ -54,24 +46,20 @@ def configureLogging(verbose=False):
     logging.getLogger().addHandler(handler)
 
 
-def createTestWorker(config, machineInfo, worker_index):
+def createTestWorker(config, machineId, worker_index):
     artifactStorage = ArtifactStorage.storageFromConfig(config['artifacts'])
 
     source_control = SourceControlFromConfig.getFromConfig(config["source_control"])
 
     worker_path = str(os.path.join(os.path.expandvars(config['worker']['path']), worker_index))
 
-    osInteractions = WorkerState.WorkerState(
+    workerState = WorkerState.WorkerState(
         config['worker'].get('scope',"test_looper") + "_" + worker_index + "_",
         worker_path,
         source_control,
         artifactStorage=artifactStorage,
-        machineInfo=MachineInfo.MachineInfo("localhost",
-                                          "localhost",
-                                          1,
-                                          "none",
-                                          "bare metal"
-                                          )
+        machineId=machineId,
+        MachineManagement.HardwareConfig(cores=1,ram_gb=4)
         )
 
     def createTestLooperClient():
@@ -87,7 +75,7 @@ def createTestWorker(config, machineInfo, worker_index):
         timeout=config['worker']['test_timeout']
         )
 
-    return TestLooperWorker.TestLooperWorker(workerSettings, machineInfo)
+    return TestLooperWorker.TestLooperWorker(workerSettings, machineId)
 
 def loadConfiguration(configFile):
     with open(configFile, 'r') as fin:
@@ -99,18 +87,14 @@ if __name__ == "__main__":
     args = createArgumentParser().parse_args()
     config = loadConfiguration(args.config)
 
-    cloud_connection = test_looper.core.cloud.FromConfig.fromConfig(config)
-    
-    machineInfo = cloud_connection.getOwnMachineInfo()
-
     logging.info(
         "Starting test-looper on %s with %s workers and config\n%s", 
-        machineInfo, 
+        "machineId", 
         args.worker_count,
         pprint.PrettyPrinter().pformat(config)
         )
 
-    testLooperWorkers = [createTestWorker(config, machineInfo, str(ix)) for ix in xrange(args.worker_count)]
+    testLooperWorkers = [createTestWorker(config, "machineId", str(ix)) for ix in xrange(args.worker_count)]
     workerThreads = [threading.Thread(target=w.startTestLoop) for w in testLooperWorkers]
 
     def handleStopSignal(signum, _):

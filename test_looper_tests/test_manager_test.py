@@ -8,11 +8,12 @@ import simplejson
 
 import test_looper_tests.common as common
 import test_looper.data_model.TestManager as TestManager
+import test_looper.core.Config as Config
+import test_looper.core.machine_management.MachineManagement as MachineManagement
 import test_looper.core.InMemoryJsonStore as InMemoryJsonStore
 import test_looper.core.tools.Git as Git
 import test_looper.core.ArtifactStorage as ArtifactStorage
 import test_looper.core.source_control.ReposOnDisk as ReposOnDisk
-import test_looper.core.cloud.MachineInfo as MachineInfo
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import docker
 import threading
@@ -77,6 +78,9 @@ class MockGitRepo:
     def fetchOrigin(self):
         pass
 
+    def commitExists(self, branchOrHash):
+        return self.repo.commitExists(branchOrHash)
+
 class MockRepo:
     def __init__(self, source_control, repoName):
         self.source_control = source_control
@@ -88,6 +92,12 @@ class MockRepo:
             raise Exception("Can't find %s in %s" % (commitId, self.source_control.commit_parents.keys()))
 
         return commitId.split("/")[1], [p.split("/")[1] for p in self.source_control.commit_parents[commitId]], "title"
+
+    def commitExists(self, branchOrHash):
+        branchOrHash = self.repoName + "/" + branchOrHash
+        branchOrHash = self.source_control.branch_to_commitId.get(branchOrHash, branchOrHash)
+
+        return branchOrHash in self.source_control.commit_parents
 
     def commitsLookingBack(self, branchOrHash, depth):
         branchOrHash = self.repoName + "/" + branchOrHash
@@ -125,17 +135,22 @@ environments:
   windows: 
     platform: windows
     image:
-      dockerfile: "test_looper/Dockerfile.txt"
+      base_ami: "ami-123"
     variables:
       ENV_VAR: ENV_VAL
 builds:
   build/linux:
     command: "build.sh"
+    min_cores: 1
+    max_cores: 1
 tests:
   test/linux:
     command: "test.sh"
     dependencies:
       build: build/linux
+    min_cores: 4
+  test/windows:
+    command: "test.py"
 """
 basic_yml_file_repo2 = """
 looper_version: 2
@@ -180,107 +195,186 @@ builds:
       child: child/build/linux
 """
 
-class TestManagerTests(unittest.TestCase):
-    def get_manager(self):
-        manager = TestManager.TestManager(
-            MockSourceControl(), 
-            InMemoryJsonStore.InMemoryJsonStore(),
-            TestManager.TestManagerSettings.Settings(max_test_count=3)
-            )
+class TestManagerTestHarness:
+    def __init__(self, manager):
+        self.manager = manager
+        self.database = manager.database
+        self.timestamp = 1.0
+        self.test_record = {}
+        self.machine_record = {}
 
-        return manager
+    def add_content(self):
+        self.manager.source_control.addCommit("repo1/c0", [], basic_yml_file_repo1)
+        self.manager.source_control.addCommit("repo1/c1", ["repo1/c0"], basic_yml_file_repo1)
+        self.manager.source_control.addCommit("repo2/c0", [], basic_yml_file_repo2)
+        self.manager.source_control.addCommit("repo2/c1", ["repo2/c0"], basic_yml_file_repo2)
 
-    def test_manager_refresh(self):
-        manager = self.get_manager()
+        self.manager.source_control.setBranch("repo1/master", "repo1/c1")
+        self.manager.source_control.setBranch("repo2/master", "repo2/c1")
 
-        manager.source_control.addCommit("repo1/c0", [], basic_yml_file_repo1)
-        manager.source_control.addCommit("repo1/c1", ["repo1/c0"], basic_yml_file_repo1)
-        manager.source_control.addCommit("repo2/c0", [], basic_yml_file_repo2)
-        manager.source_control.addCommit("repo2/c1", ["repo2/c0"], basic_yml_file_repo2)
+    def markRepoListDirty(self):
+        self.manager.markRepoListDirty(self.timestamp)
 
-        manager.source_control.setBranch("repo1/master", "repo1/c1")
-        manager.source_control.setBranch("repo2/master", "repo2/c1")
+    def getUnusedMachineId(self):
+        with self.manager.database.view():
+            for m in self.manager.database.Machine.lookupAll(isAlive=True):
+                if not self.manager.database.TestRun.lookupAny(runningOnMachine=m):
+                    return m.machineId
 
+    def consumeBackgroundTasks(self):
+        cleanedup = False
 
-        ts = [0.0]
-        manager.markRepoListDirty(ts[0])
-
-        def consumeAllBackgroundWork():
-            while True:
-                ts[0] += 1.0
-                task = manager.performBackgroundWork(ts[0])
-                if task is None:
+        while True:
+            self.timestamp += 1.0
+            task = self.manager.performBackgroundWork(self.timestamp)
+            if task is None:
+                if not cleanedup:
+                    cleanedup=True
+                    self.manager.performCleanupTasks(self.timestamp)
+                else:
                     return
 
-        consumeAllBackgroundWork()
-        with manager.database.transaction():
-            b1 = manager.database.Branch.lookupOne(reponame_and_branchname=("repo1",'master'))
-            b2 = manager.database.Branch.lookupOne(reponame_and_branchname=("repo2",'master'))
-            manager.toggleBranchUnderTest(b1)
-            manager.toggleBranchUnderTest(b2)
+    def toggleBranchUnderTest(self, reponame, branchname):
+        with self.manager.database.transaction():
+            b = self.manager.database.Branch.lookupOne(reponame_and_branchname=(reponame,branchname))
+            self.manager.toggleBranchUnderTest(b)
+        
+    def machinesThatRan(self, fullname):
+        return [x[0] for x in self.test_record.get(fullname,())]
 
-        def startAllNewTests():
-            tests = []
-            while len(tests) < 1000:
-                commitNameAndTest = manager.startNewTest("machine", ts[0])
+    def machineConfig(self, machineId):
+        with self.manager.database.view():
+            m = self.manager.database.Machine.lookupAny(machineId=machineId)
+            return (m.hardware, m.os)
 
-                if commitNameAndTest[0]:
-                    tests.append(commitNameAndTest)
-                else:
-                    return tests
-                ts[0] += 1
+    def fullnamesThatRan(self):
+        return sorted(self.test_record)
 
-            assert False
+    def assertOneshotMachinesDoOneTest(self):
+        for m in self.machine_record:
+            os = self.machineConfig(m)[1]
+            if os.matches.WindowsOneshot or os.matches.LinuxOneshot:
+                assert len(self.machine_record[m]) == 1, self.machine_record[m]
 
-        def doTestsInPhases():
-            counts = []
+    def startAllNewTests(self):
+        tests = []
+        while len(tests) < 1000:
+            machineId = self.getUnusedMachineId()
 
-            while True:
-                consumeAllBackgroundWork()
-                tests = startAllNewTests()
-                if not tests:
-                    return counts
-                counts.append([x[0] + "/" + x[1] + "/" + x[2] for x in tests])
+            if machineId is None:
+                return tests
 
-                for _,_,_,testId in tests:
-                    manager.testHeartbeat(testId, ts[0])
-                    ts[0] += .1
+            commitNameAndTest = self.manager.startNewTest(machineId, self.timestamp)
 
-                for _,_,_,testId in tests:
-                    manager.recordTestResults(True, testId, ts[0])
-                    ts[0] += .1
+            if commitNameAndTest[0]:
+                fullname, testId = ("%s/%s/%s" % commitNameAndTest[:3], commitNameAndTest[3])
+                if fullname not in self.test_record:
+                    self.test_record[fullname] = []
+                self.test_record[fullname].append((machineId, testId))
+                if machineId not in self.machine_record:
+                    self.machine_record[machineId] = []
+                self.machine_record[machineId].append((fullname, testId))
 
-        phases = doTestsInPhases()
+                tests.append(commitNameAndTest)
+            else:
+                return tests
+
+            self.timestamp
+
+        assert False
+
+    def doTestsInPhases(self):
+        counts = []
+
+        while True:
+            self.consumeBackgroundTasks()
+            tests = self.startAllNewTests()
+
+            if not tests:
+                return counts
+
+            counts.append([x[0] + "/" + x[1] + "/" + x[2] for x in tests])
+
+            for _,_,_,testId in tests:
+                self.manager.testHeartbeat(testId, self.timestamp)
+                self.timestamp += .1
+
+            for _,_,_,testId in tests:
+                self.manager.recordTestResults(True, testId, self.timestamp)
+                self.timestamp += .1
+
+class TestManagerTests(unittest.TestCase):
+    def get_harness(self, max_workers=1000):
+        return TestManagerTestHarness(
+            TestManager.TestManager(
+                MockSourceControl(), 
+                MachineManagement.DummyMachineManagement(
+                    Config.MachineManagementConfig.Dummy(
+                        max_cores=1000,
+                        max_ram_gb=1000,
+                        max_workers=max_workers
+                        ),
+                    None,
+                    None,
+                    None
+                    ),
+                InMemoryJsonStore.InMemoryJsonStore()
+                )
+            )
+
+    def test_manager_refresh(self):
+        harness = self.get_harness()
+
+        harness.add_content()
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        harness.toggleBranchUnderTest("repo1", "master")
+        harness.toggleBranchUnderTest("repo2", "master")
+        
+        phases = harness.doTestsInPhases()
 
         self.assertTrue(len(phases) == 3, phases)
         
         self.assertEqual(sorted(phases[0]), sorted([
             "repo1/c1/build/linux",
-            "repo1/c0/build/linux"
+            "repo1/c0/build/linux",
+            "repo1/c1/test/windows",
+            "repo1/c0/test/windows"
             ]), phases)
 
         self.assertEqual(sorted(phases[1]), sorted([
             "repo2/c1/build/linux",
             "repo2/c0/build/linux",
             "repo1/c1/test/linux",
-            "repo1/c0/test/linux",
-            "repo1/c1/test/linux",
-            "repo1/c0/test/linux",
-            "repo1/c1/test/linux",
             "repo1/c0/test/linux"
             ]), phases)
         
         self.assertEqual(sorted(phases[2]), sorted([
             "repo2/c1/test/linux",
-            "repo2/c0/test/linux",
-            "repo2/c1/test/linux",
-            "repo2/c0/test/linux",
-            "repo2/c1/test/linux",
             "repo2/c0/test/linux"
             ]), phases)
 
+        harness.assertOneshotMachinesDoOneTest()
+
+    def test_manager_with_one_machine(self):
+        harness = self.get_harness(max_workers=1)
+
+        harness.add_content()
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        harness.toggleBranchUnderTest("repo1", "master")
+        harness.toggleBranchUnderTest("repo2", "master")
+        
+        phases = harness.doTestsInPhases()
+
+        self.assertEqual(len(phases), 10)
+        harness.assertOneshotMachinesDoOneTest()
+
     def test_manager_env_imports(self):
-        manager = self.get_manager()
+        manager = self.get_harness().manager
 
         manager.source_control.addCommit("repo3/c0", [], basic_yml_file_repo3)
         manager.source_control.setBranch("repo3/master", "repo3/c0")
@@ -346,52 +440,58 @@ class TestManagerTests(unittest.TestCase):
             self.assertEqual([x.reponame + "/" + x.commitHash for x in test3deps], [])
 
             assert test3.priority.matches.WaitingOnBuilds, test3.priority
-        
+
     def test_manager_timeouts(self):
-        manager = self.get_manager()
+        harness = self.get_harness()
 
-        manager.source_control.addCommit("repo1/c0", [], basic_yml_file_repo1)
-        manager.source_control.addCommit("repo1/c1", ["repo1/c0"], basic_yml_file_repo1)
-        manager.source_control.addCommit("repo2/c0", [], basic_yml_file_repo2)
-        manager.source_control.addCommit("repo2/c1", ["repo2/c0"], basic_yml_file_repo2)
+        harness.add_content()
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+        harness.toggleBranchUnderTest("repo1", "master")
+        
+        harness.consumeBackgroundTasks()
 
-        manager.source_control.setBranch("repo1/master", "repo1/c1")
-        manager.source_control.setBranch("repo2/master", "repo2/c1")
+        self.assertEqual(len(harness.manager.machine_management.runningMachines), 4)
 
-        ts = [0.0]
-        manager.markRepoListDirty(ts[0])
+        commitNameAndTest = harness.manager.startNewTest(harness.getUnusedMachineId(), harness.timestamp)
 
-        def consumeAllBackgroundWork():
-            while True:
-                ts[0] += 1.0
-                task = manager.performBackgroundWork(ts[0])
-                if task is None:
-                    manager.performCleanupTasks(ts[0])
-                    return
-
-        consumeAllBackgroundWork()
-
-        with manager.database.transaction():
-            b1 = manager.database.Branch.lookupOne(reponame_and_branchname=("repo1",'master'))
-            b2 = manager.database.Branch.lookupOne(reponame_and_branchname=("repo2",'master'))
-            manager.toggleBranchUnderTest(b1)
-            manager.toggleBranchUnderTest(b2)
-
-        consumeAllBackgroundWork()
-
-        commitNameAndTest = manager.startNewTest("machine", ts[0])
-
-        with manager.database.view():
-            runs = manager.database.TestRun.lookupAll(isRunning=True)
+        with harness.database.view():
+            runs = harness.database.TestRun.lookupAll(isRunning=True)
             self.assertEqual(len(runs), 1)
             test = runs[0].test
 
-        ts[0] += 50
+        harness.timestamp += 500
+        harness.consumeBackgroundTasks()
 
-        consumeAllBackgroundWork()
-
-        with manager.database.view():
-            self.assertEqual(len(manager.database.TestRun.lookupAll(isRunning=True)), 0)
+        with harness.database.view():
+            self.assertEqual(len(harness.database.TestRun.lookupAll(isRunning=True)), 0)
             self.assertEqual(test.activeRuns, 0)
 
+        harness.timestamp += 500
+        harness.consumeBackgroundTasks()
+
+        self.assertEqual(len(harness.manager.machine_management.runningMachines), 4)
+
+        harness.toggleBranchUnderTest("repo1", "master")
+
+        harness.timestamp += 500
+        harness.consumeBackgroundTasks()
+
+        self.assertEqual(len(harness.manager.machine_management.runningMachines), 0)
         
+        for f in harness.fullnamesThatRan():
+            if f.startswith("repo1/build/linux"):
+                m = harness.machinesThatRan(f)[0]
+                hardware,os = harness.machineConfig(m)
+
+                self.assertTrue(os.matches.LinuxWithDocker)
+                self.assertEqual(hardware.cores, 1)
+
+            if f.startswith("repo1/test/linux"):
+                m = harness.machinesThatRan(f)[0]
+                hardware,os = harness.machineConfig(m)
+
+                self.assertTrue(os.matches.LinuxWithDocker)
+                self.assertEqual(hardware.cores, 4)
+        
+        harness.assertOneshotMachinesDoOneTest()

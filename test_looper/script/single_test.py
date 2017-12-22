@@ -10,8 +10,8 @@ import test_looper.core.tools.Docker as Docker
 import test_looper.worker.WorkerState as WorkerState
 import test_looper.core.tools.Git as Git
 import test_looper.core.ArtifactStorage as ArtifactStorage
-import test_looper.core.cloud.MachineInfo as MachineInfo
 import test_looper.core.SubprocessRunner as SubprocessRunner
+import test_looper.core.machine_management.MachineManagement as MachineManagement
 
 def createArgumentParser():
     parser = argparse.ArgumentParser()
@@ -61,12 +61,8 @@ if __name__ == "__main__":
             Git.LockedGit(repo),
             relpath,
             artifactStorage=artifacts,
-            machineInfo=MachineInfo.MachineInfo("localhost",
-                                              "localhost",
-                                              1,
-                                              "none",
-                                              "bare metal"
-                                              )
+            machineId="machineId",
+            MachineManagement.HardwareConfig(cores=1,ram_gb=4)
             )
 
         worker.verbose = True

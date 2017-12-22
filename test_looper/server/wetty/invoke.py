@@ -23,7 +23,6 @@ import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.worker.WorkerState as WorkerState
 import test_looper.core.tools.Docker as Docker
 import test_looper.core.tools.DockerWatcher as DockerWatcher
-import test_looper.core.cloud.MachineInfo as MachineInfo
 
 own_dir = os.path.split(os.path.abspath(__file__))[0]
 
@@ -109,12 +108,8 @@ if __name__ == "__main__":
         temp_dir,
         source_control,
         artifactStorage=artifactStorage,
-        machineInfo=MachineInfo.MachineInfo("localhost",
-                                          "localhost",
-                                          1,
-                                          "none",
-                                          "bare metal"
-                                          )
+        machineId="machineId",
+        MachineManagement.HardwareConfig(cores=1,ram_gb=4)
         )
 
     workerState.useRepoCacheFrom(os.path.join(os.path.expandvars(config['worker']['path']),"1"))

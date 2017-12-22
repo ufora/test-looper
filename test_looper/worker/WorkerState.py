@@ -44,7 +44,7 @@ class TestLooperDirectories:
                 self.build_cache_dir, self.ccache_dir, self.test_output_dir, self.build_output_dir, self.repo_cache]
 
 class WorkerState(object):
-    def __init__(self, name_prefix, worker_directory, source_control, artifactStorage, machineInfo, timeout=900, verbose=False):
+    def __init__(self, name_prefix, worker_directory, source_control, artifactStorage, machineId, hardwareConfig, verbose=False):
         import test_looper.worker.TestLooperWorker
 
         self.name_prefix = name_prefix
@@ -56,13 +56,13 @@ class WorkerState(object):
 
         self.verbose = verbose
 
-        self.timeout = timeout
-
         self.directories = TestLooperDirectories(worker_directory)
 
         self.repos_by_name = {}
 
-        self.machineInfo = machineInfo
+        self.machineId = machineId
+
+        self.hardwareConfig = hardwareConfig
 
         for path in self.directories.all():
             self.ensureDirectoryExists(path)
@@ -125,28 +125,6 @@ class WorkerState(object):
         return self.repos_by_name[name]
 
 
-    def untarString(self, contents):
-        tempdir = tempfile.mkdtemp()
-
-        with open(os.path.join(tempdir, "out.log.gz"), "wb") as f:
-            f.write(contents)
-
-        args = "gunzip %s" % f.name
-
-        res,out = SubprocessRunner.callAndReturnResultAndMergedOutput(args,shell=True)
-        if res != 0:
-            assert False
-
-        for f in os.listdir(tempdir):
-            with open(os.path.join(tempdir,f),"r") as textfile:
-                return textfile.read()
-
-    def get_failure_log(self, testId):
-        keys = self.artifactStorage.testResultKeysFor(testId)
-        for k in keys:
-            res = self.artifactStorage.testContents(testId, k)
-            return self.untarString(res)
-
     @staticmethod
     def directoryScope(directoryScope):
         return DirectoryScope.DirectoryScope(directoryScope)
@@ -183,7 +161,7 @@ class WorkerState(object):
             self.directories.command_dir: "/test_looper/command"
             }
 
-    def _run_command(self, command, log_filename, env, timeout, heartbeat, docker_image):
+    def _run_command(self, command, log_filename, timeout, env, heartbeat, docker_image):
         tail_proc = None
         
         try:
@@ -407,7 +385,7 @@ class WorkerState(object):
                                                 repoName, 
                                                 commitHash,
                                                 [], [],
-                                                self.machineInfo.machineId,
+                                                self.machineId,
                                                 time.time()
                                                 )
         if message:
@@ -525,7 +503,7 @@ class WorkerState(object):
             env_overrides = self.environment_variables(testId, repoName, commitHash, environment, test_definition)
             
             logging.info("Machine %s is starting run for %s %s. Command: %s",
-                         self.machineInfo.machineId,
+                         self.machineId,
                          repoName, 
                          commitHash,
                          command)
@@ -535,8 +513,8 @@ class WorkerState(object):
             is_success = self._run_command(
                 command,
                 test_logfile,
+                test_definition.timeout or 60 * 60, #1 hour if unspecified
                 env_overrides,
-                self.timeout,
                 heartbeat,
                 docker_image=image
                 )
@@ -551,12 +529,11 @@ class WorkerState(object):
 
         heartbeat()
         
-        logging.info("machine %s uploading artifacts for test %s", self.machineInfo.machineId, testId)
+        logging.info("machine %s uploading artifacts for test %s", self.machineId, testId)
 
         with self.callHeartbeatInBackground(heartbeat, "Uploading test artifacts."):
             self.artifactStorage.uploadTestArtifacts(
                 testId,
-                self.machineInfo.machineId,
                 self.directories.test_output_dir
                 )
 
@@ -617,7 +594,9 @@ class WorkerState(object):
             'TEST_SCRATCH_DIR': "/test_looper/scratch",
             'TEST_OUTPUT_DIR': "/test_looper/output",
             'TEST_BUILD_OUTPUT_DIR': "/test_looper/build_output",
-            'TEST_CCACHE_DIR': "/test_looper/ccache"
+            'TEST_CCACHE_DIR': "/test_looper/ccache",
+            'TEST_CORES_AVAILABLE': str(self.hardwareConfig.cores),
+            'TEST_RAM_GB_AVAILABLE': str(self.hardwareConfig.ram_gb)
             })
         if testId is not None:
             res['TEST_LOOPER_TEST_ID'] = testId

@@ -1,145 +1,227 @@
-import boto
+import boto3
+import botocore
 import threading
 import os
-import subprocess
 import logging
 import traceback
 import tempfile
+import tarfile
 import shutil
-
-import test_looper.core.SubprocessRunner as SubprocessRunner
+import gzip
+import test_looper.core.algebraic as algebraic
 import test_looper.core.TimerQueue as TimerQueue
 
 timerQueue = TimerQueue.TimerQueue(16)
 
-class AwsArtifactStorage(object):
-    def __init__(self, ec2_config, aws_region):
-        self.bucket_name = ec2_config['bucket']
-        self.aws_region = ec2_config['aws_region']
+FileContents = algebraic.Alternative("FileContents")
+FileContents.Inline = {
+    "content_type": str,
+    "content_encoding": str,
+    "content_disposition": str,
+    "content": str
+    }
+FileContents.Redirect = {"url": str}
 
-    def testResultKeysFor(self, testId):
-        keys = list(self.get_test_result_bucket().list(prefix=testId))
+Encoding = algebraic.Alternative("Encoding")
 
-        result = []
+class ArtifactStorage(object):
+    @staticmethod
+    def keyname_to_encoding(key):
+        if key.endswith(".out.gz") or key.endswith(".log.gz") or key.endswith(".txt.gz"):
+            return ("text/plain", key[:-3], True)
+        if key.endswith(".txt") or key.endswith(".log") or key.endswith(".out"):
+            return ("text/plain", key, False)
+        if key.endswith(".stdout") or key.endswith(".stderr"):
+            return ("text/plain", key, False)
+        return ("application/octet-stream", key, False)
 
-        for k in keys:
-            prefix = testId + '/'
-            assert k.name.startswith(prefix)
-            result.append(k.name[len(prefix):])
-
-        logging.info("result: %s", result)
-
-        return result
-
-    def testContentsHtml(self, testId, key, cherrypy):
-        bucket = self.get_test_result_bucket()
-
-        keys = list(bucket.list(prefix=testId + "/" + key))
-
-        logging.info("Prefix = %s. keys = %s. key = %s", testId, keys, key)
-
-        redirect = keys[0].generate_url(expires_in=300)
-
-        raise cherrypy.HTTPRedirect(redirect)
-
-    @property
-    def connection(self):
-        return boto.s3.connect_to_region(self.aws_region)
-
-    def uploadTestArtifacts(self, testId, machineId, testOutputDir):
-        bucket = self.get_test_result_bucket()
-
+    def uploadTestArtifacts(self, testId, testOutputDir):
         def uploadFile(path, semaphore):
             try:
-                logging.info("Uploading %s", path)
-                headers = {}
-                if '.log' in path:
-                    headers['Content-Type'] = 'text/plain'
-                elif '.xml' in path:
-                    headers['Content-Type'] = 'text/xml'
+                full_path = os.path.join(testOutputDir, path)
 
-                if path.endswith('.gz'):
-                    headers['Content-Encoding'] = 'gzip'
-                key = bucket.new_key(testId + "/" + machineId + '/' + os.path.split(path)[-1])
-                key.set_contents_from_filename(path, headers=headers)
+                if os.path.isdir(full_path):
+                    with tarfile.open(full_path + ".tar.gz", "w:gz") as tf:
+                        tf.add(full_path, arcname=path)
+
+                    path += ".tar.gz"
+                    full_path += ".tar.gz"                   
+                elif path.endswith(('.log', '.out', ".stdout", ".stderr")):
+                    with gzip.open(full_path + ".gz", "wb") as gzip_f:
+                        with open(full_path, "rb") as f:
+                            shutil.copyfileobj(f, gzip_f)
+
+                    full_path = full_path + ".gz"
+                    path = path + ".gz"
+
+                self.uploadSingleTestArtifact(testId, path, full_path)
             except:
                 logging.error("Failed to upload %s:\n%s", path, traceback.format_exc())
             finally:
                 semaphore.release()
 
-        for logFile in os.listdir(testOutputDir):
-            if logFile.endswith(('.log', '.out')):
-                logFile = os.path.join(testOutputDir, logFile)
-                subprocess.call(['gzip %s' % logFile], shell=True)
-
-
         sem = threading.Semaphore(0)
+        counts = 0
         for logFile in os.listdir(testOutputDir):
-            logFile = os.path.join(testOutputDir, logFile)
             timerQueue.enqueueWorkItem(uploadFile, (logFile, sem))
+            counts += 1
 
-        for logFile in os.listdir(testOutputDir):
+        for _ in xrange(counts):
             sem.acquire()
 
-    def get_test_result_bucket(self):
-        return self.connection.get_bucket(self.test_result_bucket_name)
+    def testResultKeysFor(self, testId):
+        """Return a list of test results for a given testId.
 
-    def get_build_bucket(self):
-        return self.connection.get_bucket(self.builds_bucket_name)
+        testId: str
+        returns: list of strings with result keys
+        """
+        assert False, "Subclasses implement"
 
-    def get_build_s3_url(self, key_name):
-        return "s3://%s/%s" % (self.builds_bucket_name, key_name)
+    def testContentsHtml(self, testId, key):
+        """Get a FileContents for a given testId and key"""
+        assert False, "Subclasses implement"
+
+    def uploadSingleTestArtifact(self, testId, artifact_name, path):
+        """Upload a single file as a test artifact for 'testId'"""
+        assert False, "Subclasses implement"
+
+    def buildContentsHtml(self, key):
+        """Get a FileContents for a given build key"""
+        assert False, "Subclasses implement"
 
     def upload_build(self, key_name, file_name):
-        logging.info("Uploading build '%s' to %s", file_name,key_name)
-
-        key = boto.s3.key.Key(self.get_build_bucket(), key_name)
-        key.set_contents_from_filename(file_name)
+        """Upload a build in 'file_name' to build key 'key_name'"""
+        assert False, "Subclasses implement"
 
     def download_build(self, key_name, dest):
-        key = boto.s3.key.Key(self.get_build_bucket(), key_name)
-        key.get_contents_to_filename(dest)
+        """Download a build in 'key_name' to 'dest'"""
+        assert False, "Subclasses implement"
 
     def build_exists(self, key_name):
-        return self.get_build_bucket().get_key(key_name) is not None
+        """Returns true if a build with 'key_name' exists. False otherwise."""
+        assert False, "Subclasses implement"
 
-class LocalArtifactStorage(object):
+class AwsArtifactStorage(ArtifactStorage):
     def __init__(self, config):
-        def expand(x):
-            if x is None:
-                return x
-            return os.path.expandvars(x)
-        self.build_storage_path = expand(config["build_storage_path"])
-        self.test_artifacts_storage_path = expand(config["test_artifacts_storage_path"])
+        ArtifactStorage.__init__(self)
 
-    def buildContents(self, key):  
+        self.bucket_name = config.bucket
+        self.region = config.region
+        self.build_artifact_key_prefix = config.build_artifact_key_prefix
+        self.test_artifact_key_prefix = config.test_artifact_key_prefix
+
+    @property
+    def _session(self):
+        return boto3.Session(region_name=self.region)
+
+    @property
+    def _bucket(self):
+        return self._session.resource('s3').Bucket(self.bucket_name)
+
+    def testResultKeysFor(self, testId):
+        prefix = self.test_artifact_key_prefix + "/" + testId + "/"
+
+        keys = list(self._bucket.objects.filter(Prefix=prefix))
+
+        result = []
+
+        for k in keys:
+            assert k.key.startswith(prefix)
+            result.append(k.key[len(prefix):])
+
+        return result
+
+    def uploadSingleTestArtifact(self, testId, key, full_path):
+        content_type, keyname, is_gzipped = ArtifactStorage.keyname_to_encoding(key)
+
+        with open(full_path, "rb") as f:
+            kwargs = {}
+            if is_gzipped:
+                kwargs["ContentEncoding"] = "gzip"
+
+            self._bucket.put_object(
+                Body=f,
+                ContentDisposition="attachment; filename=\"" + keyname + "\";",
+                ContentType=content_type,
+                Key=self.test_artifact_key_prefix + "/" + testId + "/" + key,
+                **kwargs
+                )
+
+    def testContentsHtml(self, testId, key):
+        return FileContents.Redirect(
+            self._session.client('s3').generate_presigned_url(
+                'get_object', 
+                Params = {'Bucket': self.bucket_name, 'Key': self.test_artifact_key_prefix + "/" + testId + "/" + key}, 
+                ExpiresIn = 300
+                )
+            )
+
+    def buildContentsHtml(self, key):
+        return FileContents.Redirect(
+            self._session.client('s3').generate_presigned_url(
+                'get_object', 
+                Params = {'Bucket': self.bucket_name, 'Key': self.build_artifact_key_prefix + "/" + key}, 
+                ExpiresIn = 300
+                )
+            )
+
+    def upload_build(self, key_name, path):
+        self._bucket.upload_file(path, self.build_artifact_key_prefix + "/" + key_name)
+
+    def download_build(self, key_name, dest):
+        self._bucket.download_file(self.build_artifact_key_prefix + "/" + key_name, dest)
+
+    def build_exists(self, key_name):
+        try:
+            self._bucket.Object(self.build_artifact_key_prefix + "/" + key_name).load()
+            return True
+        except botocore.exceptions.ClientError as e:
+            return False
+
+class LocalArtifactStorage(ArtifactStorage):
+    def __init__(self, config):
+        ArtifactStorage.__init__(self)
+        
+        self.build_storage_path = config.path_to_build_artifacts
+        self.test_artifacts_storage_path = config.path_to_test_artifacts
+
+    def _buildContents(self, key):  
         with open(os.path.join(self.build_storage_path, key), "r") as f:
             return f.read()
 
-    def buildContentsHtml(self, key, cherrypy):  
-        cherrypy.response.headers['Content-Type'] = 'application/octet-stream'
-        cherrypy.response.headers["Content-Disposition"] = "attachment; filename=\"" + key + "\";"
+    def buildContentsHtml(self, key):
+        content_type, keyname, is_gzipped = ArtifactStorage.keyname_to_encoding(key)
 
-        return self.buildContents(key)
+        return FileContents.Inline(
+            content_type=content_type,
+            content_disposition="attachment; filename=\"" + keyname + "\";",
+            content=self._buildContents(key),
+            content_encoding="gzip" if is_gzipped else ""
+            )
     
     def testContents(self, testId, key):  
         with open(os.path.join(self.test_artifacts_storage_path, testId, key), "r") as f:
             return f.read()
 
-    def testContentsHtml(self, testId, key, cherrypy):
-        if key.endswith(".txt") or key.endswith(".stdout") or key.endswith(".stderr"):
-            cherrypy.response.headers['Content-Type'] = 'text/plain'
-            cherrypy.response.headers["Content-Disposition"] = "filename=\"" + key[:-3] + "\";"
-        elif key.endswith(".log.gz"):
-            cherrypy.response.headers['Content-Type'] = 'text/plain'
-            cherrypy.response.headers['Content-Encoding'] = 'gzip'
-            cherrypy.response.headers["Content-Disposition"] = "filename=\"" + key[:-3] + "\";"
-        else:
-            cherrypy.response.headers['Content-Type'] = 'application/octet-stream'
-            cherrypy.response.headers["Content-Disposition"] = "attachment; filename=\"" + key + "\";"
+    def testContentsHtml(self, testId, key):
+        contents = self.testContents(testId, key)
 
-        return self.testContents(testId, key)
-    
+        content_type, keyname, is_gzipped = ArtifactStorage.keyname_to_encoding(key)
+
+        return FileContents.Inline(
+            content_type=content_type,
+            content_disposition="attachment; filename=\"" + keyname + "\";" if content_type == "application/octet-stream" else "",
+            content=contents,
+            content_encoding="gzip" if is_gzipped else ""
+            )
+
+    def get_failure_log(self, testId):
+        keys = self.testResultKeysFor(testId)
+        assert len(keys) == 1 and keys[0].endswith(".gz")
+
+        with gzip.open(os.path.join(self.test_artifacts_storage_path, testId, keys[0]), "rb") as f:
+            return f.read()
+
     def filecopy(self, dest_path, src_path):
         assert not os.path.exists(dest_path), dest_path
 
@@ -152,12 +234,7 @@ class LocalArtifactStorage(object):
         try:
             with open(dest_path, "w") as target:
                 with open(src_path, "r") as src:
-                    while True:
-                        data = src.read(1024 * 1024)
-                        if data:
-                            target.write(data)
-                        else:
-                            break
+                    shutil.copyfileobj(src, target)
         except:
             if os.path.exists(dest_path):
                 os.unlink(dest_path)
@@ -178,46 +255,16 @@ class LocalArtifactStorage(object):
     def download_build(self, key_name, dest):
         self.filecopy(dest, os.path.join(self.build_storage_path, key_name))
 
-    def uploadTestArtifacts(self, testId, machineId, testOutputDir):
-        try:
-            os.makedirs(os.path.join(self.test_artifacts_storage_path, testId))
-        except OSError:
-            pass
-
-        def uploadFile(path, semaphore):
-            try:
-                logging.info("Uploading %s", path)
-                target_path = testId + "/" + machineId + '-' + os.path.split(path)[-1]
-
-                self.filecopy(
-                    os.path.join(self.test_artifacts_storage_path, target_path),
-                    path
-                    )
-            except:
-                logging.error("Failed to upload %s:\n%s", path, traceback.format_exc())
-            finally:
-                semaphore.release()
-
-        for logFile in os.listdir(testOutputDir):
-            if logFile.endswith(('.log', '.out')):
-                logFile = os.path.join(testOutputDir, logFile)
-                subprocess.call(['gzip %s' % logFile], shell=True)
-
-        sem = threading.Semaphore(0)
-        for logFile in os.listdir(testOutputDir):
-            logFile = os.path.join(testOutputDir, logFile)
-            timerQueue.enqueueWorkItem(uploadFile, (logFile, sem))
-
-        for logFile in os.listdir(testOutputDir):
-            sem.acquire()
+    def uploadSingleTestArtifact(self, testId, artifact_name, path):
+        self.filecopy(os.path.join(self.test_artifacts_storage_path,testId, artifact_name), path)
 
     def build_exists(self, key_name):
         return os.path.exists(os.path.join(self.build_storage_path, key_name))
 
 def storageFromConfig(config):
-    if config['type'] == 's3':
+    if config.matches.S3:
         return AwsArtifactStorage(config)
-    elif config['type'] == 'local_disk':
+    elif config.matches.LocalDisk:
         return LocalArtifactStorage(config)
     else:
-        raise Exception("Invalid artifact storage type. Pick 's3' or 'local_disk'.")
+        raise Exception("Invalid artifact storage type.")

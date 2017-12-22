@@ -34,40 +34,31 @@ def joinLinks(linkList):
 
 class TestLooperHttpServer(object):
     def __init__(self,
-                 address,
+                 portConfig,
+                 serverConfig,
                  testManager,
-                 cloud_connection,
+                 machine_management,
                  artifactStorage,
                  src_ctrl,
-                 event_log,
-                 auth_level,
-                 httpPort,
-                 enable_advanced_views,
-                 wetty_port,
-                 certs
+                 event_log
                  ):
         """Initialize the TestLooperHttpServer
 
         testManager - a TestManager.TestManager object
         httpPortOverride - the port to listen on for http requests
-        auth_level - none: no authentication at all
-                     write: need authentication for "write" operations
-                     full: must authenticate to access anything
         """
-        self.address = address
         self.testManager = testManager
-        self.cloud_connection = cloud_connection
-        self.accessTokenHasPermission = {}
-        self.httpPort = httpPort
-        self.auth_level = auth_level
+        self.machine_management = machine_management
+        self.httpPort = portConfig.server_https_port
         self.src_ctrl = src_ctrl
         self.eventLog = event_log
-        self.wetty_port = wetty_port
         self.eventLog.addLogMessage("test-looper", "TestLooper initialized")
         self.defaultCoreCount = 4
-        self.enable_advanced_views = enable_advanced_views
         self.artifactStorage = artifactStorage
-        self.certs = certs
+        self.certs = serverConfig.path_to_certs.val if serverConfig.path_to_certs.matches.Value else None
+        self.address = ("https" if self.certs else "http") + "://" + portConfig.server_address + ":" + str(portConfig.server_https_port)
+        
+        self.accessTokenHasPermission = {}
 
 
     def addLogMessage(self, format_string, *args, **kwargs):
@@ -108,9 +99,6 @@ class TestLooperHttpServer(object):
 
 
     def can_write(self):
-        if self.auth_level == 'none':
-            return True
-
         if not self.is_authenticated():
             return False
 
@@ -128,9 +116,6 @@ class TestLooperHttpServer(object):
 
 
     def authorize(self, read_only):
-        if self.auth_level == 'none' or (self.auth_level == 'write' and read_only):
-            return
-
         if not self.is_authenticated():
             # this redirects to the login page. Authorization will take place
             # again once the user is redirected back to the app.
@@ -143,6 +128,7 @@ class TestLooperHttpServer(object):
                 "You are not authorized to access this repository" if read_only else
                 "You are not authorized to perform the requested operation"
                 )
+
             raise cherrypy.HTTPError(403, message)
 
 
@@ -227,7 +213,21 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def test_contents(self, testId, key):
-        return self.artifactStorage.testContentsHtml(testId, key, cherrypy)
+        return self.processFileContents(self.artifactStorage.testContentsHtml(testId, key))
+
+    def processFileContents(self, contents):
+        if contents.matches.Redirect:
+            raise cherrypy.HTTPRedirect(contents.url)
+
+        if contents.content_type:
+            cherrypy.response.headers['Content-Type'] = contents.content_type
+        if contents.content_disposition:
+            cherrypy.response.headers["Content-Disposition"] = contents.content_disposition
+        if contents.content_encoding:
+            cherrypy.response.headers["Content-Encoding"] = contents.content_encoding
+
+        return contents.content
+
 
     def testResultDownloadUrl(self, testId, key):
         return "/test_contents?testId=%s&key=%s" % (testId, key)
@@ -237,13 +237,12 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def build_contents(self, key):
-        return self.artifactStorage.buildContentsHtml(key, cherrypy)
+        return self.processFileContents(self.artifactStorage.buildContentsHtml(key))
 
     def buildDownloadUrl(self, key):
         return "/build_contents?key=%s" % key
 
-    @staticmethod
-    def commitLink(commit, failuresOnly=False, testName=None, textIsSubject=True):
+    def commitLink(self, commit, failuresOnly=False, testName=None, textIsSubject=True):
         subject = "<not loaded yet>" if not commit.data else commit.data.subject
 
         if textIsSubject:
@@ -263,7 +262,7 @@ class TestLooperHttpServer(object):
 
         return HtmlGeneration.link(
             text,
-            "/commit/" + ("?" if extras else "") + urllib.urlencode(extras),
+            self.address + "/commit" + ("?" if extras else "") + urllib.urlencode(extras),
             hover_text=subject
             )
 
@@ -420,37 +419,38 @@ class TestLooperHttpServer(object):
 
             buttons = []
             
-            env_vals = [x.testDefinition for x in self.testManager.database.Test.lookupAll(commitData=commit.data)
-                if x.testDefinition.matches.Deployment]
+            if False:
+                env_vals = [x.testDefinition for x in self.testManager.database.Test.lookupAll(commitData=commit.data)
+                    if x.testDefinition.matches.Deployment]
 
-            if env_vals:
-                buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Environments")))
-                for env in sorted(env_vals, key=lambda e: e.name):
-                    buttons.append(
-                        HtmlGeneration.Link(self.bootTestOrEnvUrl(repoName, commitHash, env.name, env.portExpose),
-                           env.name,
-                           is_button=True,
-                           button_style=self.disable_if_cant_write('btn-danger btn-xs')
-                           )
-                        )
-                    buttons.append(HtmlGeneration.makeHtmlElement("&nbsp;"*2))
-                buttons.append(HtmlGeneration.makeHtmlElement("<br>"*2))
+                if env_vals:
+                    buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Environments")))
+                    for env in sorted(env_vals, key=lambda e: e.name):
+                        buttons.append(
+                            HtmlGeneration.Link(self.bootTestOrEnvUrl(repoName, commitHash, env.name, env.portExpose),
+                               env.name,
+                               is_button=True,
+                               button_style=self.disable_if_cant_write('btn-danger btn-xs')
+                               )
+                            )
+                        buttons.append(HtmlGeneration.makeHtmlElement("&nbsp;"*2))
+                    buttons.append(HtmlGeneration.makeHtmlElement("<br>"*2))
 
-            test_vals = [x.testDefinition for x in self.testManager.database.Test.lookupAll(commitData=commit.data)
-                if x.testDefinition.matches.Test or x.testDefinition.matches.Build]
+                test_vals = [x.testDefinition for x in self.testManager.database.Test.lookupAll(commitData=commit.data)
+                    if x.testDefinition.matches.Test or x.testDefinition.matches.Build]
 
-            if test_vals:
-                buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Tests")))
-                for test in sorted(test_vals, key=lambda e: e.name):
-                    buttons.append(
-                        HtmlGeneration.Link(self.bootTestOrEnvUrl(repoName, commitHash, test.name, {}),
-                           test.name,
-                           is_button=True,
-                           button_style=self.disable_if_cant_write('btn-danger btn-xs')
-                           )
-                        )
-                    buttons.append(HtmlGeneration.makeHtmlElement("&nbsp;"*2))
-                buttons.append(HtmlGeneration.makeHtmlElement("<br>"*2))
+                if test_vals:
+                    buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Tests")))
+                    for test in sorted(test_vals, key=lambda e: e.name):
+                        buttons.append(
+                            HtmlGeneration.Link(self.bootTestOrEnvUrl(repoName, commitHash, test.name, {}),
+                               test.name,
+                               is_button=True,
+                               button_style=self.disable_if_cant_write('btn-danger btn-xs')
+                               )
+                            )
+                        buttons.append(HtmlGeneration.makeHtmlElement("&nbsp;"*2))
+                    buttons.append(HtmlGeneration.makeHtmlElement("<br>"*2))
 
             return header + HtmlGeneration.HtmlElements(buttons).render() + HtmlGeneration.grid(grid)
 
@@ -556,10 +556,9 @@ class TestLooperHttpServer(object):
 
             nav_links.append(("Branches", "/branches?" + urllib.urlencode({"repoName":reponame})))
 
-        if self.enable_advanced_views:
-            nav_links += [
-                ('Activity Log', '/eventLogs')
-                ]
+        nav_links += [
+            ('Activity Log', '/eventLogs')
+            ]
         
         headers += ['<ul class="nav nav-pills">'] + [
             '<li role="presentation" class="{is_active}"><a href="{link}">{label}</a></li>'.format(
@@ -590,7 +589,7 @@ class TestLooperHttpServer(object):
     def toggleBranchUnderTest(self, repo, branchname, redirect):
         self.authorize(read_only=False)
 
-        with self.testManager.database.transaction_and_lock():
+        with self.testManager.transaction_and_lock():
             branch = self.testManager.database.Branch.lookupOne(reponame_and_branchname=(repo, branchname))
             self.testManager.toggleBranchUnderTest(branch)
 
@@ -1269,9 +1268,9 @@ class TestLooperHttpServer(object):
         if self.certs:
             config['global'].update({
                 'server.ssl_module':'pyopenssl',
-                'server.ssl_certificate':self.certs['cert'],
-                'server.ssl_private_key':self.certs['private_key'],
-                'server.ssl_certificate_chain':self.certs['chain']
+                'server.ssl_certificate':self.certs.cert,
+                'server.ssl_private_key':self.certs.key,
+                'server.ssl_certificate_chain':self.certs.chain
                 })
 
         cherrypy.config.update(config)

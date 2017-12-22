@@ -8,10 +8,11 @@ import gzip
 
 import test_looper_tests.common as common
 import test_looper.worker.WorkerState as WorkerState
+import test_looper.core.Config as Config
 import test_looper.core.tools.Git as Git
 import test_looper.core.ArtifactStorage as ArtifactStorage
 import test_looper.core.source_control.ReposOnDisk as ReposOnDisk
-import test_looper.core.cloud.MachineInfo as MachineInfo
+import test_looper.core.machine_management.MachineManagement as MachineManagement
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import docker
 
@@ -55,7 +56,14 @@ class WorkerStateTests(unittest.TestCase):
 
                 commits.append(source_repo.commit("commit #%s" % (commit_ix + 2), timestamp))
 
-        return source_repo, ReposOnDisk.ReposOnDisk(os.path.join(self.testdir,"repos")), [(repo_name,c) for c in commits]
+        return (
+            source_repo, 
+            ReposOnDisk.ReposOnDisk(
+                os.path.join(self.testdir,"repo_cache"),
+                Config.SourceControlConfig.Local(os.path.join(self.testdir,"repos"))
+                ), 
+            [(repo_name,c) for c in commits]
+            )
 
     def get_worker(self, repo_name):
         source_repo, source_control, c = self.get_repo(repo_name)
@@ -65,11 +73,14 @@ class WorkerStateTests(unittest.TestCase):
             "test_looper_testing",
             os.path.join(self.testdir, "worker"),
             source_control,
-            ArtifactStorage.LocalArtifactStorage({
-                "build_storage_path": os.path.join(self.testdir, "build_artifacts"),
-                "test_artifacts_storage_path": os.path.join(self.testdir, "test_artifacts")
-                }),
-            MachineInfo.MachineInfo("worker1", "worker1.ip", 4, "worker_zone", "worker_machine_type")
+            ArtifactStorage.LocalArtifactStorage(
+                Config.ArtifactsConfig.LocalDisk(
+                    path_to_build_artifacts = os.path.join(self.testdir, "build_artifacts"),
+                    path_to_test_artifacts = os.path.join(self.testdir, "test_artifacts")
+                    )
+                ),
+            "worker",
+            MachineManagement.HardwareConfig(cores=1,ram_gb=4)
             )
 
         return source_repo, repoName, commitHash, worker
@@ -172,7 +183,7 @@ class WorkerStateTests(unittest.TestCase):
 
         self.assertTrue(
             worker.runTest("testId2", repoName, commitHash, "docker/linux", lambda *args: None).success,
-            worker.get_failure_log("testId2")
+            worker.artifactStorage.get_failure_log("testId2")
             )
         
         self.assertEqual(container_count, len(docker_client.containers.list()))
@@ -186,7 +197,7 @@ class WorkerStateTests(unittest.TestCase):
 
         self.assertTrue(
             worker.runTest("testId2", repoName, commitHash, "docker/linux", lambda *args: None).success,
-            worker.get_failure_log("testId2")
+            worker.artifactStorage.get_failure_log("testId2")
             )
 
     def test_cross_project_dependencies(self):
@@ -197,17 +208,17 @@ class WorkerStateTests(unittest.TestCase):
         self.assertTrue(worker.runTest("testId", repoName, commitHash, "build/linux", lambda *args: None).success)        
         self.assertTrue(
             worker.runTest("testId2", commit2Name, commit2Hash, "build2/linux", lambda *args: None).success,
-            worker.get_failure_log("testId2")
+            worker.artifactStorage.get_failure_log("testId2")
             )
         self.assertTrue(
             worker.runTest("testId3", commit2Name, commit2Hash, "test2/linux", lambda *args: None).success,
-            worker.get_failure_log("testId3")
+            worker.artifactStorage.get_failure_log("testId3")
             )
         self.assertFalse(
             worker.runTest("testId4", commit2Name, commit2Hash, "test2_fails/linux", lambda *args: None).success
             )
         self.assertTrue(
             worker.runTest("testId5", commit2Name, commit2Hash, "test2_dep_from_env/linux2", lambda *args: None).success,
-            worker.get_failure_log("testId5")
+            worker.artifactStorage.get_failure_log("testId5")
             )
 

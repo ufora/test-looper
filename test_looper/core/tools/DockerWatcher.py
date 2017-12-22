@@ -456,11 +456,11 @@ class DockerWatcher:
 
             orig_volumes = dict(volumes)
 
-            if 'name' in kwargs:
-                unmangled_name = kwargs['name']
-                kwargs['name'] = self.mangleName_(kwargs['name'])
-            else:
-                unmangled_name = None
+            if 'name' not in kwargs:
+                kwargs['name'] = "uuid_" + str(uuid.uuid4()).replace("-","")
+
+            unmangled_name = kwargs['name']
+            kwargs['name'] = self.mangleName_(kwargs['name'])
 
             image = docker_client.images.get(image.image)
 

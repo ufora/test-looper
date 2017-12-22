@@ -7,6 +7,7 @@ import simplejson
 import threading
 import test_looper.core.object_database as object_database
 import test_looper.core.algebraic as algebraic
+import test_looper.core.machine_management.MachineManagement as MachineManagement
 
 import test_looper.data_model.Types as Types
 
@@ -17,22 +18,17 @@ import test_looper.data_model.Commit as Commit
 pending = Types.BackgroundTaskStatus.Pending()
 running = Types.BackgroundTaskStatus.Running()
 
-TestManagerSettings = algebraic.Alternative("TestManagerSettings")
-TestManagerSettings.Settings = {
-    "max_test_count": int
-    }
-
 MAX_TEST_PRIORITY = 100
 TEST_TIMEOUT_SECONDS = 60
+IDLE_TIME_BEFORE_SHUTDOWN = 30
 
 class TestManager(object):
-    def __init__(self, source_control, kv_store, settings):
+    def __init__(self, source_control, machine_management, kv_store):
         self.source_control = source_control
+        self.machine_management = machine_management
 
         self.database = object_database.Database(kv_store)
         Types.setup_types(self.database)
-
-        self.settings = settings
 
         self.writelock = threading.Lock()
 
@@ -126,20 +122,13 @@ class TestManager(object):
             else:
                 return None
 
-    def recordMachineHeartbeat(self, machineId, curTimestamp):
-        with self.transaction_and_lock():
-            machine = self.database.Machine.lookupAny(machineId=machineId)
-
-            if machine is None:
-                machine = self.database.Machine.New(machineId=machineId)
-                machine.lastHeartbeat=curTimestamp
-                machine.firstSeen=curTimestamp
-                return True
-            else:
-                machine.lastHeartbeat=curTimestamp
-                return False
+    def _machineHeartbeat(self, machine, curTimestamp):
+        if machine.firstHeartbeat == 0.0:
+            machine.firstHeartbeat = curTimestamp
+        machine.lastHeartbeat=curTimestamp
             
-            
+    def triggerPruneDeadWorkerMachines(self, curTimestamp):            
+        self.createTask(self.database.BackgroundTask.PruneDeadWorkerMachines())
 
     def markRepoListDirty(self, curTimestamp):
         self.createTask(self.database.BackgroundTask.RefreshRepos())
@@ -164,53 +153,73 @@ class TestManager(object):
             if success:
                 testRun.test.successes = testRun.test.successes + 1
 
+            testRun.machine.lastTestCompleted = curTimestamp
+
+            os = testRun.machine.os
+
+            if os.matches.WindowsOneshot or os.matches.LinuxOneshot:
+                #we need to shut down this machine since we used it for only one test
+                self._terminateMachine(testRun.machine)
+
             for dep in self.database.TestDependency.lookupAll(dependsOn=testRun.test):
                 self._updateTestPriority(dep.test)
+
+            self._updateTestPriority(testRun.test)
 
     def testHeartbeat(self, testId, timestamp):
         logging.info('test %s heartbeating', testId)
         with self.transaction_and_lock():
-            test = self.database.TestRun(str(testId))
+            testRun = self.database.TestRun(str(testId))
 
-            if not test.exists():
+            if not testRun.exists():
                 return False
 
-            if test.canceled:
+            if testRun.canceled:
                 return False
 
-            test.lastHeartbeat = timestamp
+            if not testRun.machine.isAlive:
+                self._cancelTestRun(testRun)
+            else:
+                self._machineHeartbeat(testRun.machine, timestamp)
 
-            return True
+                testRun.lastHeartbeat = timestamp
 
-    def _lookupHighestPriorityTest(self):
+                return True
+
+    def _lookupHighestPriorityTest(self, machine):
         for priorityType in [
                 self.database.TestPriority.FirstBuild,
                 self.database.TestPriority.FirstTest,
                 self.database.TestPriority.WantsMoreTests
                 ]:
             for priority in reversed(range(1,MAX_TEST_PRIORITY+1)):
-                test = self.database.Test.lookupAny(priority=priorityType(priority))
-                if test:
-                    logging.info("Returning test %s of priority %s", test.fullname, priorityType(priority))
-                    return test
+                for test in self.database.Test.lookupAll(priority=priorityType(priority)):
+                    if self._machineCategoryPairForTest(test) == (machine.hardware, machine.os):
+                        return test
 
     def startNewTest(self, machineId, timestamp):
         """Allocates a new test and returns (repoName, commitHash, testName, testId) or (None,None,None) if no work."""
-        self.recordMachineHeartbeat(machineId, timestamp)
-
         with self.transaction_and_lock():
-            test = self._lookupHighestPriorityTest()
+            machine = self.database.Machine.lookupAny(machineId=machineId)
+
+            assert machine is not None
+
+            self._machineHeartbeat(machine, timestamp)
+
+            test = self._lookupHighestPriorityTest(machine)
 
             if not test:
                 return None, None, None, None
 
             test.activeRuns = test.activeRuns + 1
 
+            machine = self.database.Machine.lookupOne(machineId=machineId)
+
             runningTest = self.database.TestRun.New(
                 test=test,
                 startedTimestamp=timestamp,
                 lastHeartbeat=timestamp,
-                machine=self.database.Machine.lookupOne(machineId=machineId)
+                machine=machine
                 )
 
             self._updateTestPriority(test)
@@ -226,9 +235,24 @@ class TestManager(object):
         with self.transaction_and_lock():
             for t in self.database.TestRun.lookupAll(isRunning=True):
                 if t.lastHeartbeat < curTimestamp - TEST_TIMEOUT_SECONDS:
-                    t.canceled = True
-                    t.test.activeRuns = t.test.activeRuns - 1
-                    self._triggerTestPriorityUpdate(t.test)
+                    self._cancelTestRun(t)
+
+        with self.transaction_and_lock():
+            self._scheduleBootCheck()
+            self._shutdownMachinesIfNecessary(curTimestamp)
+            
+    def _scheduleBootCheck(self):
+        if not self.database.DataTask.lookupAny(pending_boot_machine_check=True):
+            self.database.DataTask.New(
+                task=self.database.BackgroundTask.BootMachineCheck(),
+                status=pending
+                )
+
+    def _cancelTestRun(self, testRun):
+        testRun.canceled = True
+        testRun.test.activeRuns = testRun.test.activeRuns - 1
+        
+        self._triggerTestPriorityUpdate(testRun.test)
 
     def performBackgroundWork(self, curTimestamp):
         with self.transaction_and_lock():
@@ -239,6 +263,7 @@ class TestManager(object):
             task.status = running
 
             testDef = task.task
+
         try:
             self._processTask(testDef, curTimestamp)
         except:
@@ -250,8 +275,32 @@ class TestManager(object):
 
         return testDef
 
+    def _machineTerminated(self, machineId):
+        machine = self.database.Machine.lookupOne(machineId=machineId)
+
+        if not machine.isAlive:
+            return
+        
+        for testRun in list(self.database.TestRun.lookupAll(runningOnMachine=machine)):
+            self._cancelTestRun(machine.runningTest)
+
+        machine.isAlive = False
+
+        mc = self._machineCategoryForPair(machine.hardware, machine.os)
+        mc.booted = mc.booted - 1
+
+        self._scheduleBootCheck()
+
     def _processTask(self, task, curTimestamp):
-        if task.matches.RefreshRepos:
+        if task.matches.PruneDeadWorkerMachines:
+            with self.transaction_and_lock():
+                known_workers = [x.machineId for x in self.database.Machine.lookupAll(isAlive=True)]
+                to_kill = self.machine_management.synchronize_workers(known_workers)
+
+                for machineId in to_kill:
+                    self._machineTerminated(machineId)
+
+        elif task.matches.RefreshRepos:
             all_repos = set(self.source_control.listRepos())
 
             with self.transaction_and_lock():
@@ -325,6 +374,9 @@ class TestManager(object):
                 commit = task.commit
 
                 if commit.data is self.database.CommitData.Null:
+                    if not repo.source_repo.commitExists(commit.hash):
+                        return
+
                     hashParentsAndTitle = repo.commitsLookingBack(commit.hash, 1)[0]
 
                     subject=hashParentsAndTitle[2]
@@ -374,11 +426,81 @@ class TestManager(object):
         elif task.matches.UpdateTestPriority:
             with self.transaction_and_lock():
                 self._updateTestPriority(task.test)
+        elif task.matches.BootMachineCheck:
+            with self.transaction_and_lock():
+                self._bootMachinesIfNecessary(curTimestamp)
         elif task.matches.UpdateCommitPriority:
             with self.transaction_and_lock():
                 self._updateCommitPriority(task.commit)
         else:
             raise Exception("Unknown task: %s" % task)
+
+    def _bootMachinesIfNecessary(self, curTimestamp):
+        #repeatedly check if we can boot any machines. If we can't,
+        #but we want to, we need to check whether there are any machines we can
+        #shut down
+        def check():
+            wantingBoot = self.database.MachineCategory.lookupAll(want_more=True)
+            wantingShutdown = self.database.MachineCategory.lookupAll(want_less=True)
+
+            def canBoot():
+                for c in wantingBoot:
+                    if self.machine_management.canBoot(c.hardware, c.os):
+                        return c
+
+            while wantingBoot and not canBoot() and wantingShutdown:
+                self._shutdown(wantingShutdown[0], curTimestamp, onlyIdle=False)
+
+            c = canBoot()
+
+            if c:
+                return self._boot(c, curTimestamp)
+            else:
+                return False
+
+        while check():
+            pass
+
+
+    def _boot(self, category, curTimestamp):
+        """Try to boot a machine from 'category'. Returns True if booted."""
+        machineId = self.machine_management.boot_worker(category.hardware, category.os)
+        if machineId:
+            self.database.Machine.New(
+                machineId=machineId,
+                hardware=category.hardware,
+                bootTime=curTimestamp,
+                os=category.os,
+                isAlive=True
+                )
+            category.booted = category.booted + 1
+            return True
+        return False
+
+    def _shutdown(self, category, curTimestamp, onlyIdle):
+        for machine in self.database.Machine.lookupAll(hardware_and_os=(category.hardware, category.os)):
+            if not self.database.TestRun.lookupAny(runningOnMachine=machine):
+                if not onlyIdle or (curTimestamp - machine.lastTestCompleted > IDLE_TIME_BEFORE_SHUTDOWN):
+                    self._terminateMachine(machine)
+                    return True
+        return False
+
+    def _shutdownMachinesIfNecessary(self, curTimestamp):
+        def check():
+            for cat in self.database.MachineCategory.lookupAll(want_less=True):
+                if cat.desired < cat.booted:
+                    return self._shutdown(cat, curTimestamp, onlyIdle=True)
+
+        while check():
+            pass
+
+    def _terminateMachine(self, machine):
+        try:
+            self.machine_management.terminate_worker(machine.machineId)
+        except:
+            logging.error("Failed to terminate worker %s because:\n%s", machine.machineId, traceback.format_exc())
+
+        self._machineTerminated(machine.machineId)
 
     def _updateCommitPriority(self, commit):
         priority = self._computeCommitPriority(commit)
@@ -395,13 +517,6 @@ class TestManager(object):
             commit.priority = priority
 
             if commit.data:
-                if commit.priority == 0:
-                    for test in self.database.Test.lookupAll(commitData=commit.data):
-                        for run in self.database.TestRun.lookupAll(test=test):
-                            if run.endTimestamp == 0.0:
-                                run.canceled = True
-                                test.activeRuns = test.activeRuns - 1
-
                 for p in commit.data.parents:
                     self._triggerCommitPriorityUpdate(p)
 
@@ -428,6 +543,15 @@ class TestManager(object):
 
     def _updateTestPriority(self, test):
         self._checkAllTestDependencies(test)
+        
+        #cancel any runs already going if this gets deprioritized
+        if test.commitData.commit.priority == 0:
+            for run in self.database.TestRun.lookupAll(test=test):
+                if run.endTimestamp == 0.0 and not run.canceled:
+                    self._cancelTestRun(run)
+
+        oldPriority = test.priority
+        oldTargetMachineBoot = test.targetMachineBoot
 
         if (self.database.UnresolvedTestDependency.lookupAll(test=test) or 
                 self.database.UnresolvedRepoDependency.lookupAll(test=test) or 
@@ -437,17 +561,91 @@ class TestManager(object):
             test.priority = self.database.TestPriority.WaitingOnBuilds()
         elif self._testHasFailedDeps(test):
             test.priority = self.database.TestPriority.DependencyFailed()
-        elif self._testNeedsNoMoreBuilds(test):
-            test.priority = self.database.TestPriority.NoMoreTests()
-        elif test.testDefinition.matches.Build:
-            test.priority = self.database.TestPriority.FirstBuild(priority=test.commitData.commit.priority)
-        elif (test.totalRuns + test.activeRuns) == 0:
-            test.priority = self.database.TestPriority.FirstTest(priority=test.commitData.commit.priority)
         else:
-            test.priority = self.database.TestPriority.WantsMoreTests(priority=test.commitData.commit.priority)
+            #sets test.targetMachineBoot
+            if self._updateTestTargetMachineCountAndReturnIsDone(test):
+                test.priority = self.database.TestPriority.NoMoreTests()
+            elif test.testDefinition.matches.Build:
+                test.priority = self.database.TestPriority.FirstBuild(priority=test.commitData.commit.priority)
+            elif (test.totalRuns + test.activeRuns) == 0:
+                test.priority = self.database.TestPriority.FirstTest(priority=test.commitData.commit.priority)
+            else:
+                test.priority = self.database.TestPriority.WantsMoreTests(priority=test.commitData.commit.priority)
 
-    def _testNeedsNoMoreBuilds(self, test):
+        category = self._machineCategoryForTest(test)
+
+        if category is not None:
+            net_change = test.targetMachineBoot - oldTargetMachineBoot
+
+            if net_change != 0:
+                category.desired = category.desired + net_change
+                self._scheduleBootCheck()
+
+
+    def _machineCategoryForTest(self, test):
+        hardware_and_os = self._machineCategoryPairForTest(test)
+        
+        if hardware_and_os is None:
+            return None
+        
+        return self._machineCategoryForPair(hardware_and_os[0], hardware_and_os[1])
+
+    def _machineCategoryForPair(self, hardware, os):
+        hardware_and_os = (hardware, os)
+
+        cat = self.database.MachineCategory.lookupAny(hardware_and_os=hardware_and_os)
+        if cat:
+            return cat
+
+        return self.database.MachineCategory.New(
+            hardware=hardware_and_os[0],
+            os=hardware_and_os[1]
+            )
+
+    def _machineCategoryPairForTest(self, test):
+        if not test.fullyResolvedEnvironment.matches.Resolved:
+            return None
+
+        env = test.fullyResolvedEnvironment.Environment
+
+        if env.platform.matches.linux:
+            if env.image.matches.Dockerfile or env.image.matches.DockerfileInline:
+                os = MachineManagement.OsConfiguration.LinuxWithDocker()
+            elif env.image.matches.AMI:
+                os = MachineManagement.OsConfiguration.LinuxOneshot(env.image.base_ami)
+            else:
+                return None
+
+        if env.platform.matches.windows:
+            if env.image.matches.Dockerfile or env.image.matches.DockerfileInline:
+                os = MachineManagement.OsConfiguration.WindowsWithDocker()
+            elif env.image.matches.AMI:
+                os = MachineManagement.OsConfiguration.WindowsOneshot(env.image.base_ami)
+            else:
+                return None
+
+        min_cores = test.testDefinition.min_cores
+        max_cores = test.testDefinition.max_cores
+        min_ram_gb = test.testDefinition.min_ram_gb
+
+        viable = []
+        for hardware in self.machine_management.all_hardware_configs():
+            if hardware.cores >= min_cores and hardware.ram_gb >= min_ram_gb and (max_cores <= 0 or hardware.cores <= max_cores):
+                viable.append(hardware)
+
+        if not viable:
+            return None
+
+        if max_cores > 0:
+            #pick the largest number of cores less than or equal to this
+            desired_cores = max([v.cores for v in viable])
+            viable = [v for v in viable if v.cores == desired_cores]
+
+        return (viable[0], os)
+
+    def _updateTestTargetMachineCountAndReturnIsDone(self, test):
         if test.commitData.commit.priority == 0:
+            test.targetMachineBoot = 0
             return True
 
         if test.testDefinition.matches.Deployment:
@@ -455,7 +653,9 @@ class TestManager(object):
         elif test.testDefinition.matches.Build:
             needed = 1
         else:
-            needed = max(test.runsDesired, self.settings.max_test_count)
+            needed = max(test.runsDesired, 1)
+
+        test.targetMachineBoot = max(needed - test.totalRuns, 0)
 
         return test.totalRuns + test.activeRuns >= needed
 
@@ -482,6 +682,7 @@ class TestManager(object):
             commitData=commitData, 
             fullname=fullname, 
             testDefinition=testDefinition, 
+            fullyResolvedEnvironment=self.database.FullyResolvedTestEnvironment.Unresolved(),
             priority=self.database.TestPriority.UnresolvedDependencies()
             )
 
@@ -503,6 +704,9 @@ class TestManager(object):
                 env = commit.data.environments.get(env.name, None)
             else:
                 env = None
+
+        if env is not None:
+            test.fullyResolvedEnvironment = self.database.FullyResolvedTestEnvironment.Resolved(env)
 
         all_dependencies = {}
         if env is not None and env.matches.Environment:

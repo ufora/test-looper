@@ -9,42 +9,30 @@ import threading
 import os
 
 from test_looper.core.source_control import SourceControl
-from test_looper.core.source_control import GitlabRepo
-from test_looper.core.TestScriptDefinition import TestScriptDefinition
 from test_looper.core.tools.Git import Git
+import test_looper.core.source_control.RemoteRepo as RemoteRepo
 
 class Gitlab(SourceControl.SourceControl):
     def __init__(self,
-                 path_to_local_repos,
-                 oauth_key,
-                 oauth_secret,
-                 private_token,
-                 webhook_secret,
-                 owner,
-                 gitlab_url = "https://gitlab.com",
-                 gitlab_login_url = "https://gitlab.com",
-                 gitlab_api_url = "https://api.gitlab.com",
-                 gitlab_clone_url = "git@gitlab.com",
-                 auth_disabled = False
+                 path_to_local_repo_cache,
+                 config
                  ):
         super(Gitlab, self).__init__()
 
-        assert private_token is not None
-        assert path_to_local_repos is not None
+        self.auth_disabled = config.auth_disabled
 
-        self.auth_disabled = auth_disabled
+        self.path_to_local_repo_cache = path_to_local_repo_cache
 
-        self.path_to_local_repo_cache = path_to_local_repos
-
-        self.oauth_key = oauth_key
-        self.oauth_secret = oauth_secret
-        self.private_token = private_token
-        self.webhook_secret = webhook_secret
-        self.owner = owner
-        self.gitlab_url = gitlab_url
-        self.gitlab_api_url = gitlab_api_url
-        self.gitlab_login_url = gitlab_login_url
-        self.gitlab_clone_url = gitlab_clone_url
+        self.oauth_key = config.oauth_key
+        self.oauth_secret = config.oauth_secret
+        self.private_token = config.private_token
+        self.webhook_secret = config.webhook_secret
+        self.owner = config.group
+        self.gitlab_url = config.gitlab_url
+        self.gitlab_api_url = config.gitlab_api_url
+        self.gitlab_login_url = config.gitlab_login_url
+        self.gitlab_clone_url = config.gitlab_clone_url
+        
         self.lock = threading.Lock()
         self.repos = {}
 
@@ -85,7 +73,7 @@ class Gitlab(SourceControl.SourceControl):
         with self.lock:
             if repoName not in self.repos:
                 path = os.path.join(self.path_to_local_repo_cache, repoName)
-                self.repos[repoName] = GitlabRepo.GitlabRepo(self, path, repoName)
+                self.repos[repoName] = RemoteRepo.RemoteRepo(repoName, path, self)
                 logging.info("Initializing repo %s at %s", repoName, path)
 
             repo = self.repos[repoName]
@@ -201,6 +189,8 @@ class Gitlab(SourceControl.SourceControl):
             requests.get(self.gitlab_api_url + "/user?access_token=" + access_token, verify=self.shouldVerify()).text
             )['login']
 
+    def cloneUrl(self, repoName):
+        return self.gitlab_clone_url + ":" + repoName + ".git"
 
     def commit_url(self, repoName, commitHash):
         assert repoName is not None

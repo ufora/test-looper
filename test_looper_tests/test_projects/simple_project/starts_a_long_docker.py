@@ -29,7 +29,7 @@ def query(query):
 		)
 
 t0 = time.time()
-while time.time() - t0 < 10:
+while time.time() - t0 < 30:
 	res = query("SELECT 1")
 	print "query result = ", repr(res)
 	if '1 rows affected' in res:

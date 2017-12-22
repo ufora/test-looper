@@ -1,28 +1,24 @@
 {
     "server": {
-        "port": 3333,
-        "http_port": 9081,
-        "wetty_port": 3010,
-        "address": "localhost",
-        "web_address": "http://localhost:9081",
-        "redis_prefix": "",
-        "redis_port": 1115,
-        "enable_advanced_views": true
+        "path_to_local_repos": "$TEST_LOOPER_INSTALL/server/repos",
+        "database": "InMemory"
+        },
+    "server_ports": {
+        "server_address": "localhost",
+        "server_https_port": 9081,
+        "server_worker_port": 9000,
+        "server_worker_port_use_ssl": false
         },
     "artifacts": {
-        "type": "local_disk",
-        "test_artifacts_storage_path": "$TEST_LOOPER_INSTALL/test_artifacts",
-        "build_storage_path": "$TEST_LOOPER_INSTALL/build_storage"
+        "path_to_test_artifacts": "$TEST_LOOPER_INSTALL/test_artifacts",
+        "path_to_build_artifacts": "$TEST_LOOPER_INSTALL/build_storage"
         },
-    "worker": {
-        "path": "$TEST_LOOPER_INSTALL/worker",
-        "test_timeout": 900,
-        "core_dump_dir": "cores",
-        "repo_name": "nativepython",
-        "scope":"test_looper_dev"
+    "machine_management": {
+        "local_storage_path": "$TEST_LOOPER_INSTALL/worker",
+        "docker_scope": "test_looper_dev",
+        "max_workers": 4
         },
     "source_control": {
-        "type": "local_git",
         "path_to_repos": "$TEST_LOOPER_INSTALL/repos"
         }
 }

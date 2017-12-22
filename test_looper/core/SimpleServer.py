@@ -56,7 +56,7 @@ class SimpleServer(Stoppable.Stoppable):
     '''A simple server that abstracts the process of connecting sockets'''
     def __init__(self, port, nodelay=True, cert_and_key_paths = None):
         Stoppable.Stoppable.__init__(self)
-        assert isinstance(port, int)
+        assert isinstance(port, int), port
         self._port = port
         self._nodelay = nodelay
         self._timeout = 1
