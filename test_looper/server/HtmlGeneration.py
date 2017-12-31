@@ -182,9 +182,10 @@ class HtmlElements(HtmlElement):
         return self.lengthStash
 
 class Link(HtmlElement):
-    def __init__(self, url, text, hover_text=None, is_button=False, button_style=None):
+    def __init__(self, url, text, hover_text=None, is_button=False, button_style=None, new_tab=False):
         self.url = url
         self.text = text
+        self.new_tab = new_tab
         self.hover_text = hover_text or ''
         self.is_button = is_button
         self.button_style = button_style or "btn-default"
@@ -194,8 +195,8 @@ class Link(HtmlElement):
 
     def render(self):
         button_class = ('class="btn %s" role="button"' % self.button_style) if self.is_button else ''
-        return """<a href="%s" title="%s" %s>%s</a>""" % (
-            self.url, self.hover_text, button_class, render(self.text)
+        return """<a href="%s" title="%s" %s %s>%s</a>""" % (
+            self.url, self.hover_text, button_class, 'target="_blank"' if self.new_tab else "", render(self.text)
             )
 
     def withTextReplaced(self, newText):

@@ -30,3 +30,6 @@ tests:
     command: "cat $TEST_INPUTS/simplesource/starts_a_long_docker.py"
     dependencies:
       build_import: simple/build/linux
+  sleeper/linux:
+    command: "./sleeper.py"
+    

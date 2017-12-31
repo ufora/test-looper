@@ -3,13 +3,33 @@ import json
 import logging
 import threading
 import traceback
+import base64
 import time
 
 import test_looper.core.SimpleServer as SimpleServer
 import test_looper.core.socket_util as socket_util
-import test_looper.data_model.TestResult as TestResult
+import test_looper.core.algebraic as algebraic
+import test_looper.core.algebraic_to_json as algebraic_to_json
 
 SWEEP_FREQUENCY = 30
+
+ServerToClientMsg = algebraic.Alternative("ServerToClientMsg")
+ServerToClientMsg.TerminalInput = {'deploymentId': str, 'bytes': str}
+ServerToClientMsg.TestAssignment = {'repoName': str, 'commitHash': str, 'testId': str, 'testName': str}
+ServerToClientMsg.CancelTest = {'testId': str}
+
+ServerToClientMsg.DeploymentAssignment = {'repoName': str, 'commitHash': str, 'deploymentId': str, 'testName': str}
+ServerToClientMsg.ShutdownDeployment = {'deploymentId': str}
+
+ClientToServerMsg = algebraic.Alternative("ClientToServerMsg")
+
+ClientToServerMsg.WaitingHeartbeat = {'machineId': str}
+ClientToServerMsg.TestHeartbeat = {'testId': str}
+ClientToServerMsg.TestLogOutput = {'testId': str, 'log': str}
+ClientToServerMsg.DeploymentHeartbeat = {'deploymentId': str}
+ClientToServerMsg.DeploymentTerminalOutput = {'deploymentId': str, 'data': str}
+ClientToServerMsg.TestFinished = {'testId': str, 'success': bool}
+
 
 class Session(object):
     def __init__(self, testManager, machine_management, socket, address):
@@ -17,14 +37,18 @@ class Session(object):
         self.address = address
         self.testManager = testManager
         self.machine_management = machine_management
+        self.currentTestId = None
+        self.currentDeploymentId = None
+        self.socketLock = threading.Lock()
 
     def __call__(self):
         try:
-            if not self.handshake(TestLooperServer.protocolVersion):
-                return
-
-            self.processRequest()
-
+            while True:
+                msg = algebraic_to_json.Encoder().from_json(
+                    json.loads(self.readString()),
+                    ClientToServerMsg
+                    )
+                self.processMsg(msg)
         except socket_util.SocketException as e:
             logging.info("Socket error: %s", e.message)
         except:
@@ -32,99 +56,63 @@ class Session(object):
         finally:
             self.socket.close()
 
+    def send(self, msg):
+        self.writeString(json.dumps(algebraic_to_json.Encoder().to_json(msg)))
 
-    def handshake(self, serverProtocolVersion):
-        logging.debug("Waiting for client to initiate handshake")
-        clientProtocolVersion = self.readString()
+    def processMsg(self, msg):
+        if msg.matches.WaitingHeartbeat:
+            self.testManager.machineHeartbeat(msg.machineId, time.time())
+            if self.currentDeploymentId is None and self.currentTestId is None:
+                repoName, commitHash, testName, deploymentId = self.testManager.startNewDeployment(msg.machineId, time.time())
+                if repoName is not None:
+                    self.currentDeploymentId = deploymentId
+                    self.send(ServerToClientMsg.DeploymentAssignment(
+                        repoName=repoName,
+                        commitHash=commitHash,
+                        testName=testName,
+                        deploymentId=deploymentId
+                        ))
+                    def onMessage(msg):
+                        if self.currentDeploymentId == deploymentId:
+                            self.send(ServerToClientMsg.TerminalInput(deploymentId=deploymentId,bytes=msg))
+                    self.testManager.subscribeToClientMessages(deploymentId, onMessage)
+                else:
+                    repoName, commitHash, testName, testId = self.testManager.startNewTest(msg.machineId, time.time())
+                    if repoName is not None:
+                        self.currentTestId = testId
+                        self.send(ServerToClientMsg.TestAssignment(
+                            repoName=repoName,
+                            commitHash=commitHash,
+                            testName=testName,
+                            testId=testId
+                            ))
 
-        if clientProtocolVersion != serverProtocolVersion:
-            logging.error("protocol version mismatch: %s", clientProtocolVersion)
-            self.writeString('error:protocol_version_mismatch')
-            self.socket.close()
-            return False
-
-        self.writeString('protocol_match')
-        logging.debug("Handshake completed successfully")
-        return True
-
-
-    def processRequest(self):
-        requestJsonStr = self.readString()
-        requestDict = json.loads(requestJsonStr)
-
-        requestType = requestDict["request"]
-        args = requestDict["args"]
-
-        assert len(requestDict) == 2
-
-        try:
-            if requestType == 'getTask':
-                self.getTask(args)
-            elif requestType == 'publishTestResult':
-                self.publishTestResult(args)
-            elif requestType == 'heartbeat':
-                self.heartbeat(args)
+        elif msg.matches.TestHeartbeat or msg.matches.TestLogOutput:
+            if msg.matches.TestHeartbeat:
+                log = None
             else:
-                self.writeString('error:protocol_violation:unknown_request')
-                raise Exception("Protocol violation: unknown request type '%s'" % requestType)
-        except:
-            logging.error("%s", traceback.format_exc())
-            self.writeString('error:protocol_violation:unknown_error')
+                log = msg.log
 
-
-    def heartbeat(self, args):
-        try:
-            if self.testManager.testHeartbeat(args['testId'], time.time()):
-                self.writeString("ack")
-            else:
-                self.writeString("cancel")
-        except:
-            logging.error("Error processing test hearbeat for %s:\n\n%s", args.testId, traceback.format_exc())
-            self.writeString("error")
-
-    def getTask(self, machineId):
-        commit = None
-
-        try:
-            t0 = time.time()
-            repoName, commitHash, testName, testId = self.testManager.startNewTest(machineId, time.time())
-
-            if repoName:
-                logging.info("Checking out commit %s/%s, test %s, identity %s to %s",
-                    repoName, 
-                    commitHash,
-                    testName,
-                    testId,
-                    machineId
-                    )
-
-                self.writeString(
-                    json.dumps({
-                        "repoName": repoName,
-                        "commitHash": commitHash,
-                        'testId': testId,
-                        'testName': testName
-                        })
-                    )
-            else:
-                logging.debug("No tests assigned to client at %s", self.address)
-                self.writeString(json.dumps(None))
-        except:
-            logging.error("Error getting the set of tests to run %s, %s",
-                          self.address,
-                          traceback.format_exc())
-            self.writeString(json.dumps(None))
-
-    def publishTestResult(self, testResultAsJson):
-        result = TestResult.TestResultOnMachine.fromJson(testResultAsJson)
-
-        self.testManager.recordTestResults(result.success, result.testId, time.time())
+            if msg.testId == self.currentTestId:
+                if not self.testManager.testHeartbeat(msg.testId, time.time(), log):
+                    self.send(ServerToClientMsg.CancelTest())
+                    self.currentTestId = None
+        elif msg.matches.DeploymentHeartbeat or msg.matches.DeploymentTerminalOutput:
+            log = msg.data if msg.matches.DeploymentTerminalOutput else None
+            if msg.deploymentId == self.currentDeploymentId:
+                if not self.testManager.handleMessageFromDeployment(msg.deploymentId, time.time(), log):
+                    self.send(ServerToClientMsg.ShutdownDeployment(msg.deploymentId))
+                    self.currentDeploymentId = None
+        elif msg.matches.TestFinished:
+            self.testManager.recordTestResults(msg.success, msg.testId, time.time())
+            self.currentTestId = None
 
     def readString(self):
         return socket_util.readString(self.socket)
 
     def writeString(self, s):
-        return socket_util.writeString(self.socket, s)
+        with self.socketLock:
+            return socket_util.writeString(self.socket, s)
 
 class TestLooperServer(SimpleServer.SimpleServer):
     #if we modify this protocol version, the loopers should reboot and pull a new copy of the code

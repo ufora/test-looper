@@ -1,5 +1,4 @@
 *.pyc
 dist/
 *.egg-info/
-test_looper/server/wetty/node_modules
 test_looper_tests/system_test/test_looper_install

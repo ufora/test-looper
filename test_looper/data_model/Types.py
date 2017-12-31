@@ -137,6 +137,14 @@ def setup_types(database):
         isAlive=bool
         )
 
+    database.Deployment.define(
+        deploymentId=str,
+        createdTimestamp=float,
+        machine=database.Machine,
+        test=database.Test,
+        isAlive=bool
+        )
+
     database.addIndex(database.DataTask, 'status')
     database.addIndex(database.DataTask, 'pending_boot_machine_check', lambda d: True if d.status.matches.Pending and d.task.matches.BootMachineCheck else None)
     database.addIndex(database.Machine, 'machineId')
@@ -170,6 +178,8 @@ def setup_types(database):
     database.addIndex(database.Commit, 'repo_and_hash', lambda o: (o.repo, o.hash))
     database.addIndex(database.CommitRelationship, 'parent')
     database.addIndex(database.CommitRelationship, 'child')
+    database.addIndex(database.Deployment, 'isAlive', lambda d: d.isAlive or None)
+    database.addIndex(database.Deployment, 'isAliveAndPending', lambda d: d.isAlive and not d.machine or None)
     database.addIndex(database.Test, 'fullname')
     database.addIndex(database.Test, 'commitData')
     database.addIndex(database.Test, 'machineCategoryAndPrioritized',

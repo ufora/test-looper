@@ -29,8 +29,10 @@ class UnbootableWorkerCombination(Exception):
 
 class MachineManagement(object):
     """Base class for 'machine management' which is responsible for booting workers to work on tests."""
-    def __init__(self, config):
+    def __init__(self, config, sourceControl, artifactStorage):
         self.config = config
+        self.source_control = sourceControl
+        self.artifactStorage = artifactStorage
 
         self.hardwareConfigs = {}
         self.osConfigs = {}
@@ -109,7 +111,7 @@ class MachineManagement(object):
 
 
 class DummyMachineManagement(MachineManagement):
-    def __init__(self, config):
+    def __init__(self, config, sourceControl, artifactStorage):
         MachineManagement.__init__(self, config)
 
     def all_hardware_configs(self):
@@ -147,8 +149,8 @@ class DummyMachineManagement(MachineManagement):
             return machineId
 
 class LocalMachineManagement(MachineManagement):
-    def __init__(self, config):
-        MachineManagement.__init__(self, config)
+    def __init__(self, config, sourceControl, artifactStorage):
+        MachineManagement.__init__(self, config, sourceControl, artifactStorage)
 
     def all_hardware_configs(self):
         return [
@@ -197,7 +199,7 @@ class LocalMachineManagement(MachineManagement):
                     hardware_config
                     ),
                 machineId,
-                self.serverPortConfig
+                self.config.server_ports
                 )
 
             self._machineBooted(machineId, hardware_config, os_config, worker)
@@ -207,8 +209,8 @@ class LocalMachineManagement(MachineManagement):
             return machineId
 
 class AwsMachineManagement(MachineManagement):
-    def __init__(self, config):
-        MachineManagement.__init__(self, config)
+    def __init__(self, config, sourceControl, artifactStorage):
+        MachineManagement.__init__(self, config, sourceControl, artifactStorage)
         self.api = AwsCloudAPI.API(config)
 
         self.instance_types = config.machine_management.instance_types
@@ -271,12 +273,12 @@ class AwsMachineManagement(MachineManagement):
 
             return machineId
 
-def fromConfig(config):
+def fromConfig(config, sourceControl, artifactStorage):
     if config.machine_management.matches.Aws:
-        return AwsMachineManagement(config)
+        return AwsMachineManagement(config, sourceControl, artifactStorage)
     elif config.machine_management.matches.Local:
-        return LocalMachineManagement(config)
+        return LocalMachineManagement(config, sourceControl, artifactStorage)
     elif config.machine_management.matches.Dummy:
-        return DummyMachineManagement(config)
+        return DummyMachineManagement(config, sourceControl, artifactStorage)
     else:
         assert False, "Can't instantiate machine management from %s" % config

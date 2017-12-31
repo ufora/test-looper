@@ -69,7 +69,7 @@ if __name__ == "__main__":
 
         if args.test_name != "build":
             print "Beginning build."
-            if not worker.runTest("test", "<working_copy>", "build", lambda *args: None).success:
+            if not worker.runTest("test", "<working_copy>", "build", WorkerState.DummyWorkerCallbacks(), False).success:
                 print "Failed to build!"
                 sys.exit(1)
 
@@ -77,7 +77,7 @@ if __name__ == "__main__":
         test_id = "test_" + str(uuid.uuid4())
         print "TEST_ID is ", test_id
 
-        if not worker.runTest(test_id, "<working_copy>", args.test_name, lambda *args: None).success:
+        if not worker.runTest(test_id, "<working_copy>", args.test_name, WorkerState.DummyWorkerCallbacks(), False).success:
             print "Failed to run!"
             sys.exit(1)
 

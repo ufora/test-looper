@@ -10,12 +10,15 @@ import tempfile
 import threading
 import markdown
 import urllib
+import urlparse
 import pytz
 import simplejson
 import os
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
+from ws4py.server.cherrypyserver import WebSocketPlugin, WebSocketTool
+from ws4py.websocket import WebSocket
 
 import traceback
 
@@ -30,6 +33,111 @@ def joinLinks(linkList):
         res = res + l
 
     return res
+
+class LogHandler:
+    def __init__(self, testManager, testId, websocket):
+        self.testManager = testManager
+        self.testId = testId
+        self.websocket = websocket
+
+        testManager.heartbeatHandler.addListener(testId, self.logMsg)
+
+    def logMsg(self, message):
+        try:
+            self.websocket.send(message.replace("\n","\n\r"), False)
+        except:
+            logging.error("error in websocket handler:\n%s", traceback.format_exc())
+
+    def onData(self, message):
+        pass
+
+    def onClosed(self):
+        pass
+
+class InteractiveEnvironmentHandler:
+    def __init__(self, testManager, deploymentId, websocket):
+        self.testManager = testManager
+        self.deploymentId = deploymentId
+        self.websocket = websocket
+
+        testManager.subscribeToDeployment(self.deploymentId, self.onTestOutput)
+
+    def onTestOutput(self, testOutput):
+        try:
+            if testOutput:
+                self.websocket.send(testOutput, False)
+        except:
+            logging.error("Error in websocket handler: \n%s", traceback.format_exc())
+
+    def onData(self, message):
+        self.testManager.writeMessageToDeployment(self.deploymentId, message)
+
+    def onClosed(self):
+        testManager.unsubscribeFromDeployment(self.deploymentId, self.onTestOutput)
+
+
+
+def MakeWebsocketHandler(httpServer):
+    def caller(*args, **kwargs):
+        everGotAMessage = [False]
+        handler = [None]
+
+        class WebsocketHandler(WebSocket):
+            def logMsg(self, message):
+                try:
+                    self.send(message.replace("\n","\n\r"), False)
+                except:
+                    logging.error("error in websocket handler:\n%s", traceback.format_exc())
+
+            def initialize(self):
+                try:
+                    try:
+                        query = urlparse.parse_qs(urlparse.urlparse(self.environ["REQUEST_URI"]).query)
+                    except:
+                        self.send("Invalid query string.", False)
+                        return
+
+                    if "testId" in query:
+                        handler[0] = LogHandler(httpServer.testManager, query["testId"][0], self)
+                    elif "deploymentId" in query:
+                        handler[0] = InteractiveEnvironmentHandler(
+                            httpServer.testManager,
+                            query['deploymentId'][0],
+                            self 
+                            )
+                    else:
+                        logging.error("Invalid query string: %s", self.environ["REQUEST_URI"])
+                        self.send("Invalid query string.", False)
+                        return
+                except:
+                    logging.error("error in websocket handler:\n%s", traceback.format_exc())
+
+            def received_message(self, message):
+                try:
+                    msg = message.data
+
+                    if not everGotAMessage[0]:
+                        everGotAMessage[0] = True
+                        self.initialize()
+                        msg = msg[1:]
+
+                    if handler[0]:
+                        handler[0].onData(msg)
+                except:
+                    logging.error("error in websocket handler:\n%s", traceback.format_exc())
+
+            def closed(self, *args):
+                try:
+                    WebSocket.closed(self, *args)
+
+                    if handler[0]:
+                        handler[0].onClosed()
+                except:
+                    logging.error("error in websocket handler:\n%s", traceback.format_exc())
+
+
+        return WebsocketHandler(*args, **kwargs)
+    return caller
 
 
 class TestLooperHttpServer(object):
@@ -57,6 +165,7 @@ class TestLooperHttpServer(object):
         self.artifactStorage = artifactStorage
         self.certs = serverConfig.path_to_certs.val if serverConfig.path_to_certs.matches.Value else None
         self.address = ("https" if self.certs else "http") + "://" + portConfig.server_address + ":" + str(portConfig.server_https_port)
+        self.websocket_address = ("wss" if self.certs else "ws") + "://" + portConfig.server_address + ":" + str(portConfig.server_https_port)
         
         self.accessTokenHasPermission = {}
 
@@ -207,6 +316,7 @@ class TestLooperHttpServer(object):
                 self.commonHeader(testRun.test.commitData.commit.repo) +
                 markdown.markdown("# Test\n") +
                 markdown.markdown("Test: %s\n" % testId) +
+                HtmlGeneration.link("LOGS", self.testLogsUrl(testId)).render() + 
                 markdown.markdown("## Artifacts\n") +
                 (HtmlGeneration.grid(grid) if grid else "")
                 )
@@ -228,9 +338,12 @@ class TestLooperHttpServer(object):
 
         return contents.content
 
+    def testLogsUrl(self, testId):
+        return self.address + "/terminalForTest?testId=%s" % testId
 
+    
     def testResultDownloadUrl(self, testId, key):
-        return "/test_contents?testId=%s&key=%s" % (testId, key)
+        return self.address + "/test_contents?testId=%s&key=%s" % (testId, key)
 
     def testResultKeys(self, testId):
         return self.artifactStorage.testResultKeysFor(testId)
@@ -240,7 +353,7 @@ class TestLooperHttpServer(object):
         return self.processFileContents(self.artifactStorage.buildContentsHtml(key))
 
     def buildDownloadUrl(self, key):
-        return "/build_contents?key=%s" % key
+        return self.address + "/build_contents?key=%s" % key
 
     def commitLink(self, commit, failuresOnly=False, testName=None, textIsSubject=True):
         subject = "<not loaded yet>" if not commit.data else commit.data.subject
@@ -419,58 +532,58 @@ class TestLooperHttpServer(object):
 
             buttons = []
             
-            if False:
-                env_vals = [x.testDefinition for x in self.testManager.database.Test.lookupAll(commitData=commit.data)
-                    if x.testDefinition.matches.Deployment]
+            env_vals = [x.testDefinition for x in self.testManager.database.Test.lookupAll(commitData=commit.data)
+                if x.testDefinition.matches.Deployment]
 
-                if env_vals:
-                    buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Environments")))
-                    for env in sorted(env_vals, key=lambda e: e.name):
-                        buttons.append(
-                            HtmlGeneration.Link(self.bootTestOrEnvUrl(repoName, commitHash, env.name, env.portExpose),
-                               env.name,
-                               is_button=True,
-                               button_style=self.disable_if_cant_write('btn-danger btn-xs')
-                               )
-                            )
-                        buttons.append(HtmlGeneration.makeHtmlElement("&nbsp;"*2))
-                    buttons.append(HtmlGeneration.makeHtmlElement("<br>"*2))
+            if env_vals:
+                buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Interactive Deployment Booters")))
+                for env in sorted(env_vals, key=lambda e: e.name):
+                    buttons.append(
+                        HtmlGeneration.Link(self.bootTestOrEnvUrl(repoName + "/" + commitHash + "/" + env.name),
+                           env.name,
+                           is_button=True,
+                           new_tab=True,
+                           button_style=self.disable_if_cant_write('btn-danger btn-xs')
+                           )
+                        )
+                    buttons.append(HtmlGeneration.makeHtmlElement("&nbsp;"*2))
+                buttons.append(HtmlGeneration.makeHtmlElement("<br>"*2))
 
-                test_vals = [x.testDefinition for x in self.testManager.database.Test.lookupAll(commitData=commit.data)
-                    if x.testDefinition.matches.Test or x.testDefinition.matches.Build]
+            test_vals = [x.testDefinition for x in self.testManager.database.Test.lookupAll(commitData=commit.data)
+                if x.testDefinition.matches.Test or x.testDefinition.matches.Build]
 
-                if test_vals:
-                    buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Tests")))
-                    for test in sorted(test_vals, key=lambda e: e.name):
-                        buttons.append(
-                            HtmlGeneration.Link(self.bootTestOrEnvUrl(repoName, commitHash, test.name, {}),
-                               test.name,
-                               is_button=True,
-                               button_style=self.disable_if_cant_write('btn-danger btn-xs')
-                               )
-                            )
-                        buttons.append(HtmlGeneration.makeHtmlElement("&nbsp;"*2))
-                    buttons.append(HtmlGeneration.makeHtmlElement("<br>"*2))
+            if test_vals:
+                buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Interactive Test Booters")))
+                for test in sorted(test_vals, key=lambda e: e.name):
+                    buttons.append(
+                        HtmlGeneration.Link(self.bootTestOrEnvUrl(repoName + "/" + commitHash + "/" + test.name),
+                           test.name,
+                           is_button=True,
+                           new_tab=True,
+                           button_style=self.disable_if_cant_write('btn-danger btn-xs')
+                           )
+                        )
+                    buttons.append(HtmlGeneration.makeHtmlElement("&nbsp;"*2))
+                buttons.append(HtmlGeneration.makeHtmlElement("<br>"*2))
 
             return header + HtmlGeneration.HtmlElements(buttons).render() + HtmlGeneration.grid(grid)
 
-    def bootTestOrEnvUrl(self, repoName, commitHash, testName, ports):
-        addr = self.address
-        items = addr.split(":")
-        def isint(x):
-            try:
-                int(x)
-                return True
-            except:
-                return False
-        if isint(items[-1]):
-            addr = ":".join(items[:-1])
+    def bootTestOrEnvUrl(self, fullname):
+        return self.address + "/bootDeployment?" + urllib.urlencode({"fullname":fullname})
 
-        args = {'repoName': repoName, "commitHash": commitHash, 'test': testName}
-        if ports:
-            args["ports"] = ports
-        return addr + ":" + str(self.wetty_port) + "/wetty?" + urllib.urlencode(args)
+    @cherrypy.expose
+    def bootDeployment(self, fullname):
+        logging.info("HERE with %s", fullname)
 
+        try:
+            deploymentId = self.testManager.createDeployment(fullname, time.time())
+        except Exception as e:
+            logging.error("Failed to boot a deployment:\n%s", traceback.format_exc())
+            return self.errorPage("Couldn't boot a deployment for %s: %s" % (fullname, str(e)))
+
+        logging.info("Redirecting for %s", fullname)
+        
+        raise cherrypy.HTTPRedirect(self.address + "/terminalForDeployment?deploymentId=" + deploymentId)
 
     def gridForTestList_(self, sortedTests, commit=None, failuresOnly=False):
         grid = [["TEST", "TYPE", "RESULT", "STARTED", "MACHINE", "ELAPSED (MIN)",
@@ -543,7 +656,8 @@ class TestLooperHttpServer(object):
             )
 
         nav_links = [
-            ('Repos', '/repos')
+            ('Repos', '/repos'),
+            ('Deployments', '/deployments')
             ]
 
         if currentRepo:
@@ -640,6 +754,83 @@ class TestLooperHttpServer(object):
                 grid.append(row)
 
             return grid
+
+    @cherrypy.expose
+    def deployments(self):
+        self.authorize(read_only=True)
+
+        grid = HtmlGeneration.grid(self.deploymentsGrid())
+        
+        return self.commonHeader() + grid
+
+    def deploymentsGrid(self):
+        with self.testManager.database.view():
+            deployments = sorted(
+                self.testManager.database.Deployment.lookupAll(isAlive=True),
+                key=lambda d:d.createdTimestamp
+                )
+            
+            grid = [["REPO", "COMMIT", "TEST", "BOOTED AT", "UP FOR", "CLIENTS", "", ""]]
+
+            for d in deployments:
+                row = []
+
+                commit = d.test.commitData.commit
+                repo = commit.repo
+
+                row.append(
+                    HtmlGeneration.link(repo.name, "/branches?" + urllib.urlencode({'repoName':repo.name}))
+                    )
+
+                row.append(
+                    self.commitLink(commit)
+                    )
+
+                row.append(d.test.testDefinition.name)
+
+                row.append(time.asctime(time.gmtime(d.createdTimestamp)))
+
+                up_for = time.time() - d.createdTimestamp
+
+                if up_for < 60:
+                    row.append("%d seconds" % up_for)
+                elif up_for < 60 * 60 * 2:
+                    row.append("%d minutes" % (up_for / 60))
+                elif up_for < 24 * 60 * 60 * 2:
+                    row.append("%.1f hours" % (up_for / 60 / 60))
+                else:
+                    row.append("%.1f days" % (up_for / 60 / 60 / 24))
+
+                row.append(str(self.testManager.streamForDeployment(d._identity).clientCount()))
+
+                row.append(
+                    HtmlGeneration.Link( 
+                        self.address + "/terminalForDeployment?deploymentId=" + d._identity,
+                        "connect",
+                        is_button=True,
+                        new_tab=True,
+                        button_style=self.disable_if_cant_write('btn-danger btn-xs')
+                        )
+                    )
+
+                row.append(
+                    HtmlGeneration.Link(
+                        self.address + "/shutdownDeployment?deploymentId=" + d._identity,
+                        "shutdown", 
+                        is_button=True,
+                        button_style=self.disable_if_cant_write('btn-danger btn-xs')
+                        )
+                    )
+
+                grid.append(row)
+
+            return grid
+
+    @cherrypy.expose
+    def shutdownDeployment(self, deploymentId):
+        self.testManager.shutdownDeployment(str(deploymentId), time.time())
+
+        raise cherrypy.HTTPRedirect(self.address + "/deployments")
 
     @cherrypy.expose
     def repos(self):
@@ -1253,6 +1444,131 @@ class TestLooperHttpServer(object):
         #don't block the webserver itself, so we can do this in a background thread
         self.refreshBranches()
 
+
+    @cherrypy.expose
+    def interactive_socket(self, **kwargs):
+        pass
+
+    @cherrypy.expose
+    def terminalForTest(self, testId):
+        return self.websocketText(urllib.urlencode({"testId":testId}))
+
+    @cherrypy.expose
+    def terminalForDeployment(self, deploymentId):
+        return self.websocketText(urllib.urlencode({"deploymentId":deploymentId}))
+
+    def websocketText(self, urlQuery):
+        return """
+        <!doctype html>
+        <html lang="en">
+
+        <head>
+            <meta charset="UTF-8">
+            <title>TestLooper Interactive</title>
+            <script src="/js/hterm_all.js"></script>
+            <script>
+            var term;
+            var websocket;
+            var address = "__websocket_address__";
+
+            if (window.WebSocket) { 
+                websocket = new WebSocket(address, ['protocol']); 
+            }
+            else if (window.MozWebSocket) {
+                websocket = MozWebSocket(address);
+            }
+            else {
+                console.log('WebSocket Not Supported');
+            }
+
+            var buf = '';
+
+            function Terminal(argv) {
+                this.argv_ = argv;
+                this.io = null;
+                this.pid_ = -1;
+            }
+
+            Terminal.prototype.run = function() {
+                this.io = this.argv_.io.push();
+
+                this.io.onVTKeystroke = this.sendString_.bind(this);
+                this.io.sendString = this.sendString_.bind(this);
+                this.io.onTerminalResize = this.onTerminalResize.bind(this);
+            }
+
+            Terminal.prototype.sendString_ = function(str) {
+                websocket.send(str);
+            };
+
+            Terminal.prototype.onTerminalResize = function(col, row) {
+                //socket.emit('resize', { col: col, row: row });
+            };
+
+            websocket.onopen = function() {
+                lib.init(function() {
+                    hterm.defaultStorage = new lib.Storage.Local();
+                    term = new hterm.Terminal();
+                    window.term = term;
+                    term.decorate(document.getElementById('terminal'));
+
+                    term.setCursorPosition(0, 0);
+                    term.setCursorVisible(true);
+                    term.prefs_.set('ctrl-c-copy', true);
+                    term.prefs_.set('ctrl-v-paste', true);
+                    term.prefs_.set('use-default-window-copy', true);
+
+                    term.runCommandClass(Terminal, document.location.hash.substr(1));
+                    
+                    websocket.send(" ")
+
+                    /*
+                    socket.emit('resize', {
+                        col: term.screenSize.width,
+                        row: term.screenSize.height
+                    });
+                    */
+
+                    if (buf && buf != '')
+                    {
+                        term.io.writeUTF16(buf);
+                        buf = '';
+                    }
+                });
+            };
+
+            websocket.onmessage = function(data) {
+                if (!term) {
+                    buf += data.data;
+                    return;
+                }
+                term.io.writeUTF16(data.data);
+            };
+            
+            </script>
+            <style>
+                html,
+                body {
+                    height: 100%;
+                    width: 100%;
+                    margin: 0px;
+                }
+                #terminal {
+                    display: block;
+                    position: relative;
+                    width: 100%;
+                    height: 100%;
+                }
+            </style>
+        </head>
+
+        <body>
+            <div id="terminal"></div>
+        </body>
+
+        </html>
+        """.replace("__websocket_address__", self.websocket_address + "/interactive_socket?" + urlQuery)
+
     def start(self):
         config = {
             'global': {
@@ -1275,6 +1591,8 @@ class TestLooperHttpServer(object):
 
         cherrypy.config.update(config)
         
+        cherrypy.tools.websocket = WebSocketTool()
+
         logging.info("STARTING HTTP SERVER")
 
         current_dir = os.path.dirname(__file__)
@@ -1306,6 +1624,11 @@ class TestLooperHttpServer(object):
             '/js': {
                 'tools.staticdir.on': True,
                 'tools.staticdir.dir': os.path.join(current_dir, 'content', 'js')
+                },
+            '/interactive_socket': {
+                'tools.websocket.on': True, 
+                'tools.websocket.handler_cls': MakeWebsocketHandler(self),
+                'tools.websocket.protocols': ['protocol']
                 }
             })
 
@@ -1314,6 +1637,8 @@ class TestLooperHttpServer(object):
         cherrypy.engine.autoreload.on = False
 
         cherrypy.engine.signals.subscribe()
+
+        WebSocketPlugin(cherrypy.engine).subscribe()
 
         cherrypy.engine.start()
 

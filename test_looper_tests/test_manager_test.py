@@ -337,7 +337,9 @@ class TestManagerTests(unittest.TestCase):
                             max_ram_gb=1000,
                             max_workers=max_workers
                             )
-                        )
+                        ),
+                    None,
+                    None
                     ),
                 InMemoryJsonStore.InMemoryJsonStore()
                 )

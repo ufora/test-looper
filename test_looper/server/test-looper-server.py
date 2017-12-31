@@ -86,7 +86,7 @@ def main():
 
     src_ctrl = SourceControlFromConfig.getFromConfig(config.server.path_to_local_repos, config.source_control)
     artifact_storage = ArtifactStorage.storageFromConfig(config.artifacts)
-    machine_management = MachineManagement.fromConfig(config)
+    machine_management = MachineManagement.fromConfig(config, src_ctrl, artifact_storage)
 
     testManager = TestManager.TestManager(src_ctrl, machine_management, jsonStore)
     

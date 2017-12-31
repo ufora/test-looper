@@ -21,6 +21,135 @@ running = Types.BackgroundTaskStatus.Running()
 MAX_TEST_PRIORITY = 100
 TEST_TIMEOUT_SECONDS = 60
 IDLE_TIME_BEFORE_SHUTDOWN = 30
+MAX_LOG_MESSAGES_PER_TEST = 10000
+
+class MessageBuffer:
+    def __init__(self, name):
+        self.name = name
+        self._lock = threading.RLock()
+        self._subscribers = set()
+        self._messages = []
+        
+    def addMessage(self, msg):
+        with self._lock:
+            toRemove = []
+            for l in self._subscribers:
+                try:
+                    l(msg)
+                except:
+                    logging.error("Failed to write message %s: %s", self.name, traceback.format_exc())
+                    toRemove.append(l)
+            for l in toRemove:
+                self._subscribers.discard(l)
+
+            self._messages.append(msg)
+
+    def subscribe(self, onMessage):
+        try:
+            with self._lock:
+                toSend = list(self._messages)
+
+            #send all the existing messages outside of the lock since this could take a while
+            for m in toSend:
+                onMessage(m)
+
+            with self._lock:
+                #catch up on any new messages
+                for m in self._messages[len(toSend):]:
+                    onMessage(m)
+
+                self._subscribers.add(onMessage)
+        except:
+            logging.error("Failed in subscribe: \n%s", traceback.format_exc())
+
+    def unsubscribe(self, onMessage):
+        with self._lock:
+            self._subscribers.discard(onMessage)
+
+
+class DeploymentStream:
+    def __init__(self, deploymentId):
+        self.deploymentId = deploymentId
+        self._messagesFromClient = MessageBuffer("Client messages for %s" % self.deploymentId)
+        self._messagesFromDeployment = MessageBuffer("Deployment messages for %s" % self.deploymentId)
+
+    def clientCount(self):
+        return len(self._messagesFromClient._subscribers)
+
+    def addMessageFromClient(self, msg):
+        self._messagesFromClient.addMessage(msg)
+
+    def addMessageFromDeployment(self, msg):
+        self._messagesFromDeployment.addMessage(msg)
+
+    def subscribeToDeploymentMessages(self, onMessage):
+        self._messagesFromDeployment.subscribe(onMessage)
+
+    def subscribeToClientMessages(self, onMessage):
+        self._messagesFromClient.subscribe(onMessage)
+
+    def unsubscribeFromDeploymentMessages(self, onMessage):
+        self._messagesFromDeployment.unsubscribe(onMessage)
+
+    def unsubscribeFromClientMessages(self, onMessage):
+        self._messagesFromClient.unsubscribe(onMessage)
+
+
+class HeartbeatHandler(object):
+    def __init__(self):
+        self.lock = threading.RLock()
+        self.logs = {}
+        self.timestamps = {}
+        self.listeners = {}
+        self.testFinishedTimestamp = None
+
+    def addListener(self, testId, listener):
+        with self.lock:
+            if testId not in self.listeners:
+                self.listeners[testId] = []
+
+            if testId in self.logs:
+                try:
+                    for l in self.logs[testId]:
+                        listener(l)
+                except:
+                    logging.error("Failed to write log message for testId %s to listener %s:\n%s", testId, listener, traceback.format_exc())
+                    return
+                
+                self.listeners[testId].append(listener)
+
+    def testFinished(self, testId):
+        self.testFinishedTimestamp = time.time()
+
+    def testHeartbeat(self, testId, timestamp, logMessage=None):
+        """Record the log message, fire off socket connections, and return whether to log the heartbeat in the database."""
+        with self.lock:
+            if testId not in self.timestamps:
+                self.timestamps[testId] = timestamp
+                self.logs[testId] = []
+
+            if logMessage is not None:
+                self.logs[testId].append(logMessage)
+                if len(self.logs[testId]) > MAX_LOG_MESSAGES_PER_TEST:
+                    self.logs[testId] = self.logs[testId][100:]
+
+                new_listeners = []
+                for l in self.listeners.get(testId, []):
+                    try:
+                        l(logMessage)
+                        new_listeners.append(l)
+                    except:
+                        logging.error("Failed to write log message for testId %s to listener %s:\n%s", testId, l, traceback.format_exc())
+                self.listeners[testId] = new_listeners
+
+
+            if timestamp - self.timestamps[testId] > 5.0:
+                self.timestamps[testId] = timestamp
+                return True
+            else:
+                return False
+
+
 
 class TestManager(object):
     def __init__(self, source_control, machine_management, kv_store):
@@ -30,7 +159,17 @@ class TestManager(object):
         self.database = object_database.Database(kv_store)
         Types.setup_types(self.database)
 
-        self.writelock = threading.Lock()
+        self.writelock = threading.RLock()
+
+        self.heartbeatHandler = HeartbeatHandler()
+
+        self.deploymentStreams = {}
+
+    def streamForDeployment(self, deploymentId):
+        with self.writelock:
+            if deploymentId not in self.deploymentStreams:
+                self.deploymentStreams[deploymentId] = DeploymentStream(deploymentId)
+            return self.deploymentStreams[deploymentId]
 
     def transaction_and_lock(self):
         t = [None]
@@ -90,6 +229,64 @@ class TestManager(object):
 
         return ordered
 
+    def shutdownDeployment(self, deploymentId, timestamp):
+        with self.transaction_and_lock():
+            d = self.database.Deployment(deploymentId)
+            if not d.exists():
+                raise Exception("Deployment %s doesn't exist" % deploymentId)
+
+            self.streamForDeployment(deploymentId).addMessageFromDeployment(
+                "\r\n\r\n" + 
+                time.asctime(time.gmtime(timestamp)) + " TestLooper> Session Terminated\r\n\r\n"
+                )
+
+            d.isAlive = False
+
+        
+
+    def createDeployment(self, fullname, timestamp):
+        with self.transaction_and_lock():
+            logging.info("Trying to boot a deployment for %s", fullname)
+
+            test = self.database.Test.lookupAny(fullname=fullname)
+
+            if not test:
+                raise Exception("Can't find test %s" % fullname)
+
+            cat = self._machineCategoryForTest(test)
+            assert cat
+
+            if cat.hardwareComboUnbootable:
+                raise Exception("Can't boot %s, %s" % (cat.hardware, cat.os))
+
+            deploymentId = self.database.Deployment.New(
+                test=test,
+                createdTimestamp=timestamp,
+                isAlive=True
+                )._identity
+
+            cat.desired = cat.desired + 1
+
+            self.streamForDeployment(deploymentId).addMessageFromDeployment(
+                time.asctime() + " TestLooper> Deployment for %s waiting for hardware.\n\r" % fullname
+                )
+
+            self._scheduleBootCheck()
+
+            return deploymentId
+
+    def subscribeToClientMessages(self, deploymentId, onTestOutput):
+        self.streamForDeployment(deploymentId).subscribeToClientMessages(onTestOutput)
+
+    def subscribeToDeployment(self, deploymentId, onTestOutput):
+        self.streamForDeployment(deploymentId).subscribeToDeploymentMessages(onTestOutput)
+
+    def unsubscribeFromDeployment(self, deploymentId, onTestOutput):
+        self.streamForDeployment(deploymentId).unsubscribeFromDeploymentMessages(onTestOutput)
+
+    def writeMessageToDeployment(self, deploymentId, msg):
+        self.streamForDeployment(deploymentId).addMessageFromClient(msg)
+
     def totalRunningCountForCommit(self, commit):
         if not commit.data:
             return 0
@@ -122,6 +319,11 @@ class TestManager(object):
             else:
                 return None
 
+    def machineHeartbeat(self, machineId, curTimestamp):
+        with self.transaction_and_lock():
+            machine = self.database.Machine.lookupAny(machineId=machineId)
+            self._machineHeartbeat(machine, curTimestamp)
+
     def _machineHeartbeat(self, machine, curTimestamp):
         if machine.firstHeartbeat == 0.0:
             machine.firstHeartbeat = curTimestamp
@@ -149,6 +351,7 @@ class TestManager(object):
             testRun.test.totalRuns = testRun.test.totalRuns + 1
 
             testRun.success = success
+            self.heartbeatHandler.testFinished(testId)
 
             if success:
                 testRun.test.successes = testRun.test.successes + 1
@@ -166,7 +369,10 @@ class TestManager(object):
 
             self._updateTestPriority(testRun.test)
 
-    def testHeartbeat(self, testId, timestamp):
+    def testHeartbeat(self, testId, timestamp, logMessage = None):
+        if not self.heartbeatHandler.testHeartbeat(testId, timestamp, logMessage):
+            return True
+
         logging.info('test %s heartbeating', testId)
         with self.transaction_and_lock():
             testRun = self.database.TestRun(str(testId))
@@ -197,8 +403,47 @@ class TestManager(object):
                     if self._machineCategoryPairForTest(test) == (machine.hardware, machine.os):
                         return test
 
+    def startNewDeployment(self, machineId, timestamp):
+        """Allocates a new test and returns (repoName, commitHash, testName, deploymentId) or (None,None,None, None) if no work."""
+        with self.transaction_and_lock():
+            machine = self.database.Machine.lookupAny(machineId=machineId)
+
+            assert machine is not None
+
+            self._machineHeartbeat(machine, timestamp)
+
+            for deployment in self.database.Deployment.lookupAll(isAliveAndPending=True):
+                if self._machineCategoryForTest(deployment.test) == self._machineCategoryForPair(machine.hardware, machine.os):
+                    deployment.machine = machine
+                    
+                    self.streamForDeployment(deployment._identity).addMessageFromDeployment(
+                        time.asctime(time.gmtime(timestamp)) + 
+                            " TestLooper> Machine %s accepting deployment.\n\r" % machineId
+                        )
+                    
+                    test = deployment.test
+
+                    return (test.commitData.commit.repo.name, test.commitData.commit.hash, test.testDefinition.name, deployment._identity)
+
+            return None, None, None, None
+
+    def isDeployment(self, deploymentId):
+        with self.database.view():
+            return self.database.Deployment(deploymentId).exists()
+
+    def handleMessageFromDeployment(self, deploymentId, timestamp, msg):
+        with self.transaction_and_lock():
+            deployment = self.database.Deployment(deploymentId)
+
+            if not deployment.exists() or not deployment.isAlive:
+                return False
+
+        self.streamForDeployment(deploymentId).addMessageFromDeployment(msg)
+
+        return True
+
     def startNewTest(self, machineId, timestamp):
-        """Allocates a new test and returns (repoName, commitHash, testName, testId) or (None,None,None) if no work."""
+        """Allocates a new test and returns (repoName, commitHash, testName, testId) or (None,None,None, None) if no work."""
         with self.transaction_and_lock():
             machine = self.database.Machine.lookupAny(machineId=machineId)
 
@@ -251,6 +496,7 @@ class TestManager(object):
     def _cancelTestRun(self, testRun):
         testRun.canceled = True
         testRun.test.activeRuns = testRun.test.activeRuns - 1
+        self.heartbeatHandler.testFinished(testRun.testId)
         
         self._triggerTestPriorityUpdate(testRun.test)
 
