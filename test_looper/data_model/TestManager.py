@@ -8,12 +8,8 @@ import threading
 import test_looper.core.object_database as object_database
 import test_looper.core.algebraic as algebraic
 import test_looper.core.machine_management.MachineManagement as MachineManagement
-
 import test_looper.data_model.Types as Types
-
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
-import test_looper.data_model.Branch as Branch
-import test_looper.data_model.Commit as Commit
 
 pending = Types.BackgroundTaskStatus.Pending()
 running = Types.BackgroundTaskStatus.Running()
@@ -496,7 +492,7 @@ class TestManager(object):
     def _cancelTestRun(self, testRun):
         testRun.canceled = True
         testRun.test.activeRuns = testRun.test.activeRuns - 1
-        self.heartbeatHandler.testFinished(testRun.testId)
+        self.heartbeatHandler.testFinished(testRun.test._identity)
         
         self._triggerTestPriorityUpdate(testRun.test)
 

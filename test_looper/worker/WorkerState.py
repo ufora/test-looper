@@ -192,6 +192,9 @@ class WorkerState(object):
 
         assert docker_image is not None
 
+        env = dict(env)
+        env["TERM"] = "xterm-256color"
+
         with DockerWatcher.DockerWatcher(self.name_prefix) as watcher:
             container = watcher.run(
                 docker_image,
@@ -204,7 +207,8 @@ class WorkerState(object):
                 tty=True,
                 stdin_open=True
                 )
-            container.resize(80,80)
+
+            container.resize(140,60)
 
             #these are standard socket objects connected to the container's TTY input/output
             stdin = docker.from_env().api.attach_socket(container.id, params={'stdin':1,'stream':1,'logs':None})
@@ -217,11 +221,13 @@ class WorkerState(object):
                     if not data:
                         logging.info("Socket stdout connection to %s terminated", container.id)
                         return
-                    print "output: ", repr(data)
+                    
                     workerCallback.terminalOutput(data)
 
             readthread = threading.Thread(target=readloop)
             readthread.start()
+
+            stdin.sendall("\n")
 
             writeFailed = [False]
             def write(msg):

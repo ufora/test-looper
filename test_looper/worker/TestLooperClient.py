@@ -86,7 +86,6 @@ class TestLooperClient(object):
             return socket_util.writeString(self._socket, s)
 
     def send(self, msg):
-        print "sending ", msg
         self._writeString(json.dumps(algebraic_to_json.Encoder().to_json(msg)))
 
     def checkoutWork(self, waitTime):

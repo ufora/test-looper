@@ -141,7 +141,6 @@ class Encoder:
                 try:
                     return which_alternative(_fill_in_missing=True, **subs)
                 except:
-                    print "FAILING:", which_alternative, subs
                     raise
         
         if hasattr(algebraic_type, "from_json"):

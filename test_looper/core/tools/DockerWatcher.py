@@ -231,7 +231,6 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
                     
         except:
             logging.error("DockerWatcher failed in read loop:\n%s", traceback.format_exc())
-            print traceback.format_exc()
         finally:
             sock.close()
 
@@ -279,7 +278,7 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
                 if "Id" in json:
                     onContainerIDKnown(json["Id"])
                 else:
-                    print "Didn't understand response ", json
+                    logging.critical("Didn't understand response: %s", json)
 
             return "\r\n".join(lines), simplejson.dumps(data_json), onResponseMessage
 

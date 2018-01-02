@@ -138,8 +138,7 @@ class TestDefinitionScriptTests(unittest.TestCase):
 
     def test_squashing(self):
         res = TestDefinitionScript.expand_macros(yaml.load(foreach_and_squash_yaml), {})
-        print res
-
+        
         self.assertEqual(
           res, {
             'test/G1/T1': 'P1 T1.test',

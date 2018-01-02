@@ -112,7 +112,7 @@ class MachineManagement(object):
 
 class DummyMachineManagement(MachineManagement):
     def __init__(self, config, sourceControl, artifactStorage):
-        MachineManagement.__init__(self, config)
+        MachineManagement.__init__(self, config, sourceControl, artifactStorage)
 
     def all_hardware_configs(self):
         return [
