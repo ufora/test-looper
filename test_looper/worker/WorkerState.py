@@ -1,7 +1,6 @@
 import collections
 import errno
 import logging
-import docker
 import os
 import shutil
 import signal
@@ -12,16 +11,23 @@ import threading
 import time
 import requests
 import traceback
-import virtualenv
-import psutil
+import base64
 import tempfile
 import cStringIO as StringIO
 
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.tools.Git as Git
 import test_looper.core.DirectoryScope as DirectoryScope
-import test_looper.core.tools.Docker as Docker
-import test_looper.core.tools.DockerWatcher as DockerWatcher
+
+if sys.platform != "win32":
+    import docker
+    import test_looper.core.tools.Docker as Docker
+    import test_looper.core.tools.DockerWatcher as DockerWatcher
+else:
+    docker = None
+    Docker = None
+    DockerWatcher = None
+
 import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper
@@ -36,7 +42,10 @@ class DummyWorkerCallbacks:
     def subscribeToTerminalInput(self, callback):
         pass
 
-HEARTBEAT_INTERVAL=1
+HEARTBEAT_INTERVAL=10
+
+class NAKED_MACHINE:
+    pass
 
 class TestLooperDirectories:
     def __init__(self, worker_directory):
@@ -136,13 +145,9 @@ class WorkerState(object):
 
         return self.repos_by_name[name]
 
-
-    @staticmethod
-    def directoryScope(directoryScope):
-        return DirectoryScope.DirectoryScope(directoryScope)
-
     def cleanup(self):
-        Docker.DockerImage.removeDanglingDockerImages()
+        if Docker is not None:
+            Docker.DockerImage.removeDanglingDockerImages()
         self.clearDirectoryAsRoot(
             self.directories.test_data_dir, 
             self.directories.test_output_dir,
@@ -152,15 +157,23 @@ class WorkerState(object):
             self.directories.command_dir,
             self.directories.repo_copy_dir
             )
-        
-    @staticmethod
-    def clearDirectoryAsRoot(*args):
-        image = Docker.DockerImage("ubuntu:16.04")
-        image.run(
-            "rm -rf " + " ".join(["%s/*" % p for p in args]), 
-            volumes={a:a for a in args}, 
-            options="--rm"
-            )
+    
+    def clearDirectoryAsRoot(self, *args):
+        if Docker:
+            image = Docker.DockerImage("ubuntu:16.04")
+            image.run(
+                "rm -rf " + " ".join(["%s/*" % p for p in args]), 
+                volumes={a:a for a in args}, 
+                options="--rm"
+                )
+        else:
+            for a in args:
+                try:
+                    self.ensureDirectoryExists(a)
+                    shutil.rmtree(a)
+                    self.ensureDirectoryExists(a)
+                except:
+                    logging.error("Failure clearing directory %s:\n%s", a, traceback.format_exc())
 
     def volumesToExpose(self):
         return {
@@ -175,59 +188,30 @@ class WorkerState(object):
 
     def _run_deployment(self, command, env, workerCallback, docker_image):
         build_log = StringIO.StringIO()
+
         self.dumpPreambleLog(build_log, env, docker_image, command)
 
         workerCallback.terminalOutput(build_log.getvalue().replace("\n","\r\n"))
 
-        logging.info("Running command: '%s'. Docker Image: %s", 
+        logging.info("Running command: '%s' on %s", 
             command, 
-            docker_image.image if docker_image is not None else "<none>"
+            "Docker image: " + docker_image.image if docker_image is not NAKED_MACHINE else "the naked machine"
             )
 
-        with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
-            print >> f, command
+        if sys.platform == "win32":
+            assert docker_image is NAKED_MACHINE
 
-        with open(os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w") as f:
-            print >> f, "bash /test_looper/command/cmd.sh\nbash"
+            def onOutput(output):
+                workerCallback.terminalOutput(output)
 
-        assert docker_image is not None
-
-        env = dict(env)
-        env["TERM"] = "xterm-256color"
-
-        with DockerWatcher.DockerWatcher(self.name_prefix) as watcher:
-            container = watcher.run(
-                docker_image,
-                ["/bin/bash", "/test_looper/command/cmd_invoker.sh"],
-                volumes=self.volumesToExpose(),
-                privileged=True,
-                shm_size="1G",
-                environment=env,
-                working_dir="/test_looper/src",
-                tty=True,
-                stdin_open=True
+            running_subprocess = SubprocessRunner.SubprocessRunner(
+                ["C:\\Program Files\\OpenSSH-Win64\\ssh-shellhost.exe", base64.b64encode("powershell.exe")],
+                onOutput, onOutput, 
+                enablePartialLineOutput=True, 
+                shell=True
                 )
-
-            container.resize(140,60)
-
-            #these are standard socket objects connected to the container's TTY input/output
-            stdin = docker.from_env().api.attach_socket(container.id, params={'stdin':1,'stream':1,'logs':None})
-            stdout = docker.from_env().api.attach_socket(container.id, params={'stdout':1,'stream':1,'logs':None})
-
-            readthreadStop = threading.Event()
-            def readloop():
-                while not readthreadStop.is_set():
-                    data = stdout.recv(4096)
-                    if not data:
-                        logging.info("Socket stdout connection to %s terminated", container.id)
-                        return
-                    
-                    workerCallback.terminalOutput(data)
-
-            readthread = threading.Thread(target=readloop)
-            readthread.start()
-
-            stdin.sendall("\n")
+            running_subprocess.start()
+            time.sleep(.5)
 
             writeFailed = [False]
             def write(msg):
@@ -235,34 +219,106 @@ class WorkerState(object):
                     return
                 try:
                     if not writeFailed[0]:
-                        stdin.sendall(msg)
+                        running_subprocess.write(msg)
+                        running_subprocess.flush()
                 except:
                     writeFailed[0] = True 
                     logging.error("Failed to write to stdin: %s", traceback.format_exc())
 
-            workerCallback.subscribeToTerminalInput(write)
-            
-            try:
-                t0 = time.time()
-                ret_code = None
-                extra_message = None
-                while ret_code is None:
-                    try:
-                        ret_code = container.wait(timeout=HEARTBEAT_INTERVAL)
-                    except requests.exceptions.ReadTimeout:
-                        pass
-                    except requests.exceptions.ConnectionError:
-                        pass
+            write(command + "\n")
 
-                    workerCallback.heartbeat()
-            finally:
+            workerCallback.subscribeToTerminalInput(write)
+
+            ret_code = None
+            while ret_code is None:
                 try:
-                    container.remove(force=True)
-                except:
+                    ret_code = running_subprocess.wait(timeout=HEARTBEAT_INTERVAL)
+                except requests.exceptions.ReadTimeout:
                     pass
-                readthreadStop.set()
-                readthread.join()
+                except requests.exceptions.ConnectionError:
+                    pass
+
+                workerCallback.heartbeat()
+        else:
+            with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
+                print >> f, command
+
+            with open(os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w") as f:
+                print >> f, "bash /test_looper/command/cmd.sh\nbash"
+
+            assert docker_image is not None
+
+            env = dict(env)
+            env["TERM"] = "xterm-256color"
+
+            with DockerWatcher.DockerWatcher(self.name_prefix) as watcher:
+                container = watcher.run(
+                    docker_image,
+                    ["/bin/bash", "/test_looper/command/cmd_invoker.sh"],
+                    volumes=self.volumesToExpose(),
+                    privileged=True,
+                    shm_size="1G",
+                    environment=env,
+                    working_dir="/test_looper/src",
+                    tty=True,
+                    stdin_open=True
+                    )
+
+                container.resize(140,60)
+
+                #these are standard socket objects connected to the container's TTY input/output
+                stdin = docker.from_env().api.attach_socket(container.id, params={'stdin':1,'stream':1,'logs':None})
+                stdout = docker.from_env().api.attach_socket(container.id, params={'stdout':1,'stream':1,'logs':None})
+
+                readthreadStop = threading.Event()
+                def readloop():
+                    while not readthreadStop.is_set():
+                        data = stdout.recv(4096)
+                        if not data:
+                            logging.info("Socket stdout connection to %s terminated", container.id)
+                            return
+                        
+                        workerCallback.terminalOutput(data)
+
+                readthread = threading.Thread(target=readloop)
+                readthread.start()
+
+                stdin.sendall("\n")
+
+                writeFailed = [False]
+                def write(msg):
+                    if not msg:
+                        return
+                    try:
+                        if not writeFailed[0]:
+                            stdin.sendall(msg)
+                    except:
+                        writeFailed[0] = True 
+                        logging.error("Failed to write to stdin: %s", traceback.format_exc())
+
+                workerCallback.subscribeToTerminalInput(write)
                 
+                try:
+                    t0 = time.time()
+                    ret_code = None
+                    extra_message = None
+                    while ret_code is None:
+                        try:
+                            ret_code = container.wait(timeout=HEARTBEAT_INTERVAL)
+                        except requests.exceptions.ReadTimeout:
+                            pass
+                        except requests.exceptions.ConnectionError:
+                            pass
+
+                        workerCallback.heartbeat()
+                finally:
+                    try:
+                        container.remove(force=True)
+                    except:
+                        pass
+                    readthreadStop.set()
+                    readthread.join()
+                    
     def dumpPreambleLog(self, build_log, env, docker_image, command):
         print >> build_log, "********************************************"
 
@@ -271,7 +327,7 @@ class WorkerState(object):
             print >> build_log, "\t%s=%s" % (e, env[e])
         print >> build_log
 
-        if docker_image is not None:
+        if docker_image is not NAKED_MACHINE:
             print >> build_log, "DockerImage is ", docker_image.image
         build_log.flush()
 
@@ -439,15 +495,14 @@ class WorkerState(object):
 
     @staticmethod
     def getDockerImageFromRepo(git_repo, commitHash, image):
-        if image.matches.Dockerfile:
-            pathToDockerfile = image.dockerfile
+        assert image.matches.Dockerfile
 
-            source = git_repo.getFileContents(commitHash, pathToDockerfile)
+        pathToDockerfile = image.dockerfile
 
-            if source is None:
-                raise Exception("No file found at %s in commit %s" % (pathToDockerfile, commitHash))
-        else:
-            source = image.dockerfile_contents
+        source = git_repo.getFileContents(commitHash, pathToDockerfile)
+
+        if source is None:
+            raise Exception("No file found at %s in commit %s" % (pathToDockerfile, commitHash))
 
         return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True)
 
@@ -465,13 +520,16 @@ class WorkerState(object):
         assert testEnvironment.platform.matches.linux
         assert testEnvironment.image.matches.Dockerfile or testEnvironment.image.matches.DockerfileInline
 
-        repoName = testEnvironment.image.repo
-        commitHash = testEnvironment.image.commitHash
-
-        git_repo = self.getRepoCacheByName(repoName)
-
         try:
-            return self.getDockerImageFromRepo(git_repo, commitHash, testEnvironment.image)
+            if testEnvironment.image.matches.Dockerfile:
+                repoName = testEnvironment.image.repo
+                commitHash = testEnvironment.image.commitHash
+
+                git_repo = self.getRepoCacheByName(repoName)
+
+                return self.getDockerImageFromRepo(git_repo, commitHash, testEnvironment.image)
+            else:
+                return Docker.DockerImage.from_dockerfile_as_string(None, testEnvironment.image.dockerfile_contents, create_missing=True)
         except Exception as e:
             logging.error("Failed to produce docker image:\n%s", traceback.format_exc())
             
@@ -589,8 +647,11 @@ class WorkerState(object):
         else:
             command = test_definition.testCommand
 
-        with self.callHeartbeatInBackground(workerCallback.heartbeat, "Extracting docker image for environment %s" % environment):
-            image = self.getDockerImage(environment)
+        if environment.image.matches.AMI:
+            image = NAKED_MACHINE
+        else:
+            with self.callHeartbeatInBackground(workerCallback.heartbeat, "Extracting docker image for environment %s" % environment):
+                image = self.getDockerImage(environment)
 
         if image is None:
             is_success = False
@@ -598,7 +659,7 @@ class WorkerState(object):
                 workerCallback.terminalOutput("Couldn't find docker image...")
                 return
         else:
-            env_overrides = self.environment_variables(testId, repoName, commitHash, environment, test_definition)
+            env_overrides = self.environment_variables(testId, repoName, commitHash, environment, test_definition, image)
             
             logging.info("Machine %s is starting run for %s %s. Command: %s",
                          self.machineId,
@@ -651,9 +712,11 @@ class WorkerState(object):
 
         if not os.path.exists(tarball_name):
             logging.info("Tarballing %s into %s", self.directories.build_output_dir, tarball_name)
-            SubprocessRunner.callAndAssertSuccess(
-                ["tar", "cvf", tarball_name, "--directory", self.directories.build_output_dir, "."
-                ])
+
+            with tarfile.open(tarball_name, "w:gz") as tf:
+                with DirectoryScope.DirectoryScope(self.directories.build_output_dir):
+                    tf.add(".")
+
             logging.info("Resulting tarball at %s is %.2f MB", tarball_name, os.stat(tarball_name).st_size / 1024.0**2)
         else:
             logging.warn("A build for %s/%s/%s already exists at %s", repoName, commitHash, testName, tarball_name)
@@ -681,7 +744,7 @@ class WorkerState(object):
 
         return path
 
-    def environment_variables(self, testId, repoName, commitHash, environment, test_definition):
+    def environment_variables(self, testId, repoName, commitHash, environment, test_definition, image):
         isBuild = test_definition.matches.Build
         res = {}
         res.update(environment.variables)
@@ -689,16 +752,30 @@ class WorkerState(object):
         res.update({
             'TEST_REPO': repoName,
             'REVISION': commitHash,
-            'TEST_SRC_DIR': "/test_looper/src",
-            'TEST_INPUTS': "/test_looper/test_inputs",
-            'TEST_SCRATCH_DIR': "/test_looper/scratch",
-            'TEST_OUTPUT_DIR': "/test_looper/output",
-            'TEST_BUILD_OUTPUT_DIR': "/test_looper/build_output",
-            'TEST_CCACHE_DIR': "/test_looper/ccache",
             'TEST_CORES_AVAILABLE': str(self.hardwareConfig.cores),
             'TEST_RAM_GB_AVAILABLE': str(self.hardwareConfig.ram_gb),
             'PYTHONUNBUFFERED': "TRUE"
             })
+
+        if image is NAKED_MACHINE:
+            res.update({
+                'TEST_SRC_DIR': self.directories.repo_copy_dir,
+                'TEST_INPUTS': self.directories.test_inputs_dir,
+                'TEST_SCRATCH_DIR': self.directories.scratch_dir,
+                'TEST_OUTPUT_DIR': self.directories.test_output_dir,
+                'TEST_BUILD_OUTPUT_DIR': self.directories.build_output_dir,
+                'TEST_CCACHE_DIR': self.directories.ccache_dir
+                })
+        else:
+            res.update({
+                'TEST_SRC_DIR': "/test_looper/src",
+                'TEST_INPUTS': "/test_looper/test_inputs",
+                'TEST_SCRATCH_DIR': "/test_looper/scratch",
+                'TEST_OUTPUT_DIR': "/test_looper/output",
+                'TEST_BUILD_OUTPUT_DIR': "/test_looper/build_output",
+                'TEST_CCACHE_DIR': "/test_looper/ccache"
+                })
+
         if testId is not None:
             res['TEST_LOOPER_TEST_ID'] = testId
 

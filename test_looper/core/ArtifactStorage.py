@@ -45,7 +45,7 @@ class ArtifactStorage(object):
                         tf.add(full_path, arcname=path)
 
                     path += ".tar.gz"
-                    full_path += ".tar.gz"                   
+                    full_path += ".tar.gz"
                 elif path.endswith(('.log', '.out', ".stdout", ".stderr")):
                     with gzip.open(full_path + ".gz", "wb") as gzip_f:
                         with open(full_path, "rb") as f:

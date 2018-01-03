@@ -10,11 +10,17 @@ environments:
       dockerfile: "Dockerfile.txt"
     dependencies:
       simplesource: simple
+  windows:
+    platform: windows
+    image:
+      base_ami: "ami-123"
 builds:
   build2/linux:
     command: "cp $TEST_INPUTS/build_import/* $TEST_BUILD_OUTPUT_DIR"
     dependencies:
       build_import: simple/build/linux
+  winbuild/windows:
+    command: "echo 'hi'"
 tests:
   test2/linux:
     command: "cat $TEST_INPUTS/simplesource/starts_a_long_docker.py"
@@ -32,4 +38,3 @@ tests:
       build_import: simple/build/linux
   sleeper/linux:
     command: "./sleeper.py"
-    

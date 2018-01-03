@@ -3,23 +3,11 @@ import logging
 import subprocess
 import traceback
 import os
+import sys
 import threading
 import time
-
+import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.core.OutOfProcessDownloader as OutOfProcessDownloader
-
-class DirectoryScope:
-    def __init__(self, path):
-        self.old_path = None
-        self.path = path
-
-    def __enter__(self, *args):
-        self.old_path = os.getcwd()
-        os.chdir(self.path)
-
-    def __exit__(self, *args):
-        os.chdir(self.old_path)
-
 
 class SubprocessCheckCall(object):
     def __init__(self, path, args, kwds):
@@ -28,7 +16,7 @@ class SubprocessCheckCall(object):
         self.kwds = kwds
 
     def __call__(self):
-        with DirectoryScope(self.path):
+        with DirectoryScope.DirectoryScope(self.path):
             return pickle.dumps(subprocess.check_call(*self.args, **self.kwds))
 
 class SubprocessCheckOutput(object):
@@ -38,7 +26,7 @@ class SubprocessCheckOutput(object):
         self.kwds = kwds
 
     def __call__(self):
-        with DirectoryScope(self.path):
+        with DirectoryScope.DirectoryScope(self.path):
             return pickle.dumps(subprocess.check_output(*self.args, **self.kwds))
 
 
@@ -49,7 +37,7 @@ class Git(object):
         self.path_to_repo = str(path_to_repo)
         
         self.outOfProcessDownloaderPool = \
-            OutOfProcessDownloader.OutOfProcessDownloaderPool(1, dontImportSetup=True)
+            OutOfProcessDownloader.OutOfProcessDownloaderPool(1, actuallyRunOutOfProcess=sys.platform != "win32")
         
         self.git_repo_lock = threading.RLock()
 
@@ -60,12 +48,12 @@ class Git(object):
             f.write(text)
 
     def listRemotes(self):
-        return [x.strip() for x in self.subprocessCheckOutput("git remote",shell=True).split("\n")]
+        return [x.strip() for x in self.subprocessCheckOutput(["git","remote"]).split("\n")]
 
     def pullLatest(self):
         remotes = self.listRemotes()
         if "origin" in remotes:
-            return self.subprocessCheckCall(['git fetch origin -p'], shell=True) == 0
+            return self.subprocessCheckCall(['git' ,'fetch', 'origin', '-p']) == 0
         else:
             return True
 
@@ -75,7 +63,7 @@ class Git(object):
         if not self.pullLatest():
             return False
 
-        return self.subprocessCheckCall('git reset --hard ' + revision, shell=True) == 0
+        return self.subprocessCheckCall(['git', 'reset','--hard', revision]) == 0
 
     def resetToCommitInDirectory(self, revision, directory):
         directory = os.path.abspath(directory)
@@ -92,8 +80,7 @@ class Git(object):
 
         if self.subprocessCheckCallAltDir(
                 directory,
-                "git reset --hard " + revision,
-                shell=True
+                ["git", "reset", "--hard", revision]
                 ):
             raise Exception("Failed to checkout revision %s" % revision)
 
@@ -124,7 +111,7 @@ class Git(object):
             os.makedirs(self.path_to_repo)
 
         with self.git_repo_lock:
-            if self.subprocessCheckCall('git init .', shell=True) != 0:
+            if self.subprocessCheckCall(['git', 'init', '.']) != 0:
                 msg = "Failed to init repo at %s" % self.path_to_repo
                 logging.error(msg)
                 raise Exception(msg)
@@ -135,17 +122,17 @@ class Git(object):
             os.makedirs(self.path_to_repo)
 
         with self.git_repo_lock:
-            if self.subprocessCheckCall('git clone %s .' % sourceRepo, shell=True) != 0:
+            if self.subprocessCheckCall(['git', 'clone', sourceRepo, '.']) != 0:
                 logging.error("Failed to clone source repo %s")
 
     def pruneRemotes(self):
-        if self.subprocessCheckCall('git remote prune origin', shell=True) != 0:
+        if self.subprocessCheckCall(['git','remote','prune','origin']) != 0:
             logging.error("Failed to 'git remote prune origin'. " +
                               "Deleted remote branches may continue to be tested.")
             
     def listBranches(self):
         with self.git_repo_lock:
-            output = self.subprocessCheckOutput('git branch --list', shell=True).strip().split('\n')
+            output = self.subprocessCheckOutput(['git','branch','--list']).strip().split('\n')
             
             output = [l.strip() for l in output if l]
             output = [l[1:] if l[0] == '*' else l for l in output if l]
@@ -155,7 +142,7 @@ class Git(object):
             
     def listBranchesForRemote(self, remote):
         with self.git_repo_lock:
-            lines = self.subprocessCheckOutput('git branch -r', shell=True).strip().split('\n')
+            lines = self.subprocessCheckOutput(['git', 'branch', '-r']).strip().split('\n')
             lines = [l[:l.find(" -> ")].strip() if ' -> ' in l else l.strip() for l in lines]
             lines = [l[7:].strip() for l in lines if l.startswith("origin/")]
 
@@ -180,12 +167,15 @@ class Git(object):
     def getFileContents(self, commit, path):
         with self.git_repo_lock:
             try:
-                return self.subprocessCheckOutput("git show '%s:%s'" % (commit,path), shell=True)
+                return self.subprocessCheckOutput(["git", "show", "%s:%s" % (commit,path)])
             except:
                 return None
 
     def commitExists(self, commitHash):
-        return commitHash in self.subprocessCheckOutput("git rev-parse --quiet --verify %s^{commit}; exit 0" % commitHash, shell=True)
+        try:
+            return commitHash in self.subprocessCheckOutput(["git", "rev-parse", "--quiet", "--verify", "%s^{commit}" % commitHash])
+        except:
+            return False
 
     def getTestDefinitionsPath(self, commit):
         """Breadth-first search through the git repo to find testDefinitions.json"""
@@ -218,13 +208,13 @@ class Git(object):
 
     def fetchOrigin(self):
         with self.git_repo_lock:
-            if self.subprocessCheckCall('git fetch -p', shell=True) != 0:
+            if self.subprocessCheckCall(['git', 'fetch', '-p']) != 0:
                 logging.error("Failed to fetch from origin!")
 
 
     def pullOrigin(self):
         with self.git_repo_lock:
-            if self.subprocessCheckCall('git pull', shell=True) != 0:
+            if self.subprocessCheckCall(['git', 'pull']) != 0:
                 logging.error("Failed to pull from origin!")
 
 

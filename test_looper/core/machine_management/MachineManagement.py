@@ -151,6 +151,7 @@ class DummyMachineManagement(MachineManagement):
 class LocalMachineManagement(MachineManagement):
     def __init__(self, config, sourceControl, artifactStorage):
         MachineManagement.__init__(self, config, sourceControl, artifactStorage)
+        self.windows_oneshots = 0
 
     def all_hardware_configs(self):
         return [
@@ -184,29 +185,40 @@ class LocalMachineManagement(MachineManagement):
         with self._lock:
             assert hardware_config in self.all_hardware_configs()
 
-            if not os_config.matches.LinuxWithDocker:
-                raise UnbootableWorkerCombination(hardware_config, os_config)
+            logging.info("Trying to boot %s / %s", hardware_config, os_config)
 
-            machineId = "worker_" + str(uuid.uuid4()).replace("-","")[:10]
+            if os_config.matches.WindowsOneshot:
+                machineId = "worker_" + str(self.windows_oneshots)
+                logging.info("Booted fake windows one-shot worker %s" % machineId)
+                self.windows_oneshots += 1
 
-            worker = TestLooperWorker.TestLooperWorker(
-                WorkerState.WorkerState(
-                    self.config.machine_management.docker_scope + "_" + machineId,
-                    os.path.join(self.config.machine_management.local_storage_path, machineId),
-                    self.source_control,
-                    self.artifactStorage,
+                self._machineBooted(machineId, hardware_config, os_config, True)
+
+                return machineId
+            else:
+                if not os_config.matches.LinuxWithDocker:
+                    raise UnbootableWorkerCombination(hardware_config, os_config)
+
+                machineId = "worker_" + str(uuid.uuid4()).replace("-","")[:10]
+
+                worker = TestLooperWorker.TestLooperWorker(
+                    WorkerState.WorkerState(
+                        self.config.machine_management.docker_scope + "_" + machineId,
+                        os.path.join(self.config.machine_management.local_storage_path, machineId),
+                        self.source_control,
+                        self.artifactStorage,
+                        machineId,
+                        hardware_config
+                        ),
                     machineId,
-                    hardware_config
-                    ),
-                machineId,
-                self.config.server_ports
-                )
+                    self.config.server_ports
+                    )
 
-            self._machineBooted(machineId, hardware_config, os_config, worker)
+                self._machineBooted(machineId, hardware_config, os_config, worker)
 
-            worker.start()
+                worker.start()
 
-            return machineId
+                return machineId
 
 class AwsMachineManagement(MachineManagement):
     def __init__(self, config, sourceControl, artifactStorage):
@@ -216,7 +228,7 @@ class AwsMachineManagement(MachineManagement):
         self.instance_types = config.machine_management.instance_types
 
     def all_hardware_configs(self):
-        return sorted(instance_types.keys(), lambda hw: hw.cores)
+        return sorted(self.instance_types.keys(), key=lambda hw: hw.cores)
 
     def synchronize_workers(self, machineIds):
         with self._lock:

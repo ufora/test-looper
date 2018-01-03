@@ -97,9 +97,9 @@ def map_image(reponame, commitHash, image_def):
             repo=reponame,
             commitHash=commitHash
             )
-    if image_def.matches.DockerImage:
+    if image_def.matches.DockerfileInline:
         return TestDefinition.Image.DockerfileInline(
-            text=image_def.dockerfile_contents
+            dockerfile_contents=image_def.dockerfile_contents
             )
     elif image_def.matches.AMI:
         return TestDefinition.Image.AMI(

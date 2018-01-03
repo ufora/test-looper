@@ -34,12 +34,18 @@ class TestLooperClient(object):
         self._readThread.start()
 
     def stop(self):
-        if not self._readThread:
-            return
+        logging.info("TestLooperClient stopping")
+        try:
+            if not self._readThread:
+                return
 
-        self._socket.close()
-        self._readThread.join()
-        self._readThread = None
+            self._socket.shutdown(socket.SHUT_RDWR)    
+            self._socket.close()
+
+            self._readThread.join()
+            self._readThread = None
+        finally:
+            logging.info("TestLooperClient stopped")
 
     def _connect(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

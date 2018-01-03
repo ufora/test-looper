@@ -45,13 +45,19 @@ class TestLooperWorker(object):
             )
 
     def stop(self, join=True):
-        self.stopEvent.set()
-        if self.testLooperClient:
-            self.testLooperClient.stop()
-        if self.thread:
-            if join:
-                self.thread.join()
-            self.thread = None
+        try:
+            logging.info("TestLooperWorker stopping")
+            self.stopEvent.set()
+
+            if self.testLooperClient:
+                self.testLooperClient.stop()
+
+            if self.thread:
+                if join:
+                    self.thread.join()
+                self.thread = None
+        finally:
+            logging.info("TestLooperWorker stopped")
 
     def start(self):
         assert self.thread is None

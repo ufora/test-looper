@@ -10,7 +10,8 @@ import threading
 import time
 import os
 
-import test_looper.core.tools.Git as Git
+import test_looper.core.algebraic_to_json as algebraic_to_json
+import test_looper.core.Config as Config
 import test_looper.worker.TestLooperClient as TestLooperClient
 import test_looper.worker.TestLooperWorker as TestLooperWorker
 import test_looper.worker.WorkerState as WorkerState
@@ -22,10 +23,12 @@ def createArgumentParser():
     parser = argparse.ArgumentParser()
     parser.add_argument('config',
                         help="Configuration file")
-    parser.add_argument('worker_count',
-                        type=int,
-                        default=1,
+    parser.add_argument('machineId',
+                        type=str,
                         help="Number of workers to run")
+    parser.add_argument('worker_path',
+                        type=str,
+                        help="Path to storage we can use")
     return parser
 
 def configureLogging(verbose=False):
@@ -46,36 +49,22 @@ def configureLogging(verbose=False):
     logging.getLogger().addHandler(handler)
 
 
-def createTestWorker(config, machineId, worker_index):
-    artifactStorage = ArtifactStorage.storageFromConfig(config['artifacts'])
-
-    source_control = SourceControlFromConfig.getFromConfig(config["source_control"])
-
-    worker_path = str(os.path.join(os.path.expandvars(config['worker']['path']), worker_index))
-
+def createTestWorker(config, worker_path, machineId):
+    config = algebraic_to_json.Encoder().from_json(config, Config.WorkerConfig)
+    
+    source_control = SourceControlFromConfig.getFromConfig(os.path.join(worker_path,"worker_repo_cache"), config.source_control)
+    artifact_storage = ArtifactStorage.storageFromConfig(config.artifacts)
+    
     workerState = WorkerState.WorkerState(
-        config['worker'].get('scope',"test_looper") + "_" + worker_index + "_",
-        worker_path,
-        source_control,
-        artifactStorage=artifactStorage,
+        name_prefix="test_looper_worker",
+        worker_directory=worker_path,
+        source_control=source_control,
+        artifactStorage=artifact_storage,
         machineId=machineId,
-        Config.HardwareConfig(cores=1,ram_gb=4)
+        hardwareConfig=Config.HardwareConfig(cores=1,ram_gb=4)
         )
 
-    def createTestLooperClient():
-        return TestLooperClient.TestLooperClient(
-            host=config['worker']['address'],
-            port=config['worker']['port'],
-            use_ssl=config['worker']["use_ssl"]
-            )
-
-    workerSettings = TestLooperWorker.TestLooperSettings(
-        osInteractions=osInteractions,
-        testLooperClientFactory=createTestLooperClient,
-        timeout=config['worker']['test_timeout']
-        )
-
-    return TestLooperWorker.TestLooperWorker(workerSettings, machineId)
+    return TestLooperWorker.TestLooperWorker(workerState, machineId, config.server_ports)
 
 def loadConfiguration(configFile):
     with open(configFile, 'r') as fin:
@@ -88,31 +77,19 @@ if __name__ == "__main__":
     config = loadConfiguration(args.config)
 
     logging.info(
-        "Starting test-looper on %s with %s workers and config\n%s", 
+        "Starting test-looper on %s with and config\n%s", 
         "machineId", 
-        args.worker_count,
         pprint.PrettyPrinter().pformat(config)
         )
 
-    testLooperWorkers = [createTestWorker(config, "machineId", str(ix)) for ix in xrange(args.worker_count)]
-    workerThreads = [threading.Thread(target=w.startTestLoop) for w in testLooperWorkers]
+    testLooperWorker = createTestWorker(config, args.worker_path, args.machineId)
 
-    def handleStopSignal(signum, _):
-        logging.info("Signal received: %s. Stopping service.", signum)
-        for w in testLooperWorkers:
-            w.stop()
+    testLooperWorker.start()
 
-        logging.info("Waiting for workers to shut down.")
-
-        for thread in workerThreads:
-            thread.join()
-
-    signal.signal(signal.SIGTERM, handleStopSignal) # handle kill
-    signal.signal(signal.SIGINT, handleStopSignal)  # handle ctrl-c
-
-    for w in workerThreads:
-        w.start()
-
-    while [w for w in workerThreads if w.is_alive()]:
-        time.sleep(0.1)
+    try:
+        while True:
+            testLooperWorker.thread.join(.1)
+    except KeyboardInterrupt:
+        logging.info("Stopping worker thread and exiting on keyboard interrupt.")
+        testLooperWorker.stop()
 

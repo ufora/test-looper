@@ -25,6 +25,7 @@ class HeartbeatLogger:
         self.t0 = None
         self.timeout = timeout
         self.thread = threading.Thread(target=self)
+        self.thread.daemon = True
         self.completedQueue = Queue.Queue()
 
     def start(self):
@@ -55,12 +56,11 @@ class OutOfProcessDownloader:
     the result passed to them as a file descriptor and a bytecount containing the answer.
     """
 
-    def __init__(self, actuallyRunOutOfProcess, childPipes=None, dontImportSetup=False, verbose=True):
+    def __init__(self, actuallyRunOutOfProcess, childPipes=None, verbose=True):
         self.hasStarted = False
         self.isChild = False
         self.childSubprocess = None
         self.backgroundThread = None
-        self.dontImportSetup = dontImportSetup
         self.lock = threading.Lock()
         self.writeQueue = Queue.Queue()
         self.actuallyRunOutOfProcess = actuallyRunOutOfProcess
@@ -76,7 +76,11 @@ class OutOfProcessDownloader:
 
     def closeAllUnusedFileDescriptors(self):
         #we need to ensure that we don't hold sockets open that we're not supposed to
-        maxFD = os.sysconf("SC_OPEN_MAX")
+        try:
+            maxFD = os.sysconf("SC_OPEN_MAX")
+        except:
+            maxFD = 256
+
 
         for fd in range(3, maxFD):
             if fd not in (self.childWriteFD, self.childReadFD):
@@ -260,15 +264,14 @@ class OutOfProcessDownloader:
 
 class OutOfProcessDownloaderPool:
     """Models a pool of out-of-process-downloaders"""
-    def __init__(self, maxProcesses, actuallyRunOutOfProcess=True, dontImportSetup=False):
+    def __init__(self, maxProcesses, actuallyRunOutOfProcess=True):
         self.downloadersQueue = Queue.Queue()
 
         self.allDownloaders = []
 
         for _ in range(maxProcesses):
             downloader = OutOfProcessDownloader(
-                actuallyRunOutOfProcess,
-                dontImportSetup=dontImportSetup
+                actuallyRunOutOfProcess
                 )
 
             downloader.start()

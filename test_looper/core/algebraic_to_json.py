@@ -13,6 +13,8 @@
 #   limitations under the License.
 
 import test_looper.core.algebraic as algebraic
+import logging
+import json
 
 class Encoder:
     """An algebraic <---> json encoder.
@@ -66,85 +68,91 @@ class Encoder:
             assert False, "Can't convert %s" % (value,)
 
     def from_json(self, value, algebraic_type):
-        if isinstance(value, unicode):
-            value = str(value)
-
-        if value is None:
-            return value
-
-        if isinstance(algebraic_type, algebraic.NullableAlternative):
-            if value is None:
-                return None
-            return algebraic_type.Value(val=self.from_json(value, algebraic_type._subtype))
-
-        if isinstance(algebraic_type, tuple):
-            value = list(value)
-
-            assert len(algebraic_type) == len(value), "Can't convert %s to %s" % (value, algebraic_type)
-            return tuple([self.from_json(value[x], algebraic_type[x]) for x in xrange(len(value))])
-
-        if isinstance(algebraic_type, algebraic.Dict):
-            return {self.from_json(k, algebraic_type.keytype):self.from_json(v, algebraic_type.valtype) for k,v in value.iteritems()}
-
-        if isinstance(algebraic_type, algebraic.List):
-            #allow objects to be treated as lists of tuples
-            if isinstance(value, dict):
-                value = value.items()
-
-            return [self.from_json(v, algebraic_type.subtype) for v in value]
-
-        if algebraic_type in algebraic._primitive_types:
-            return value
-
-        if isinstance(algebraic_type, algebraic.Alternative):
+        try:
             if isinstance(value, unicode):
                 value = str(value)
 
-            if isinstance(value, str):
-                assert hasattr(algebraic_type, value), "Algebraic type %s has no subtype %s" % (algebraic_type, value)
-                return getattr(algebraic_type, value)()
-            else:
-                assert isinstance(value, dict)
+            if value is None:
+                return value
 
-                if '_type' in value:
-                    if isinstance(value['_type'], unicode):
-                        value['_type'] = str(value['_type'])
-                    
-                    if not isinstance(value['_type'], str):
-                        raise UserWarning('typenames have to be strings')
+            if isinstance(algebraic_type, algebraic.NullableAlternative):
+                if value is None:
+                    return None
+                return algebraic_type.Value(val=self.from_json(value, algebraic_type._subtype))
 
-                    if not hasattr(algebraic_type, value['_type']):
-                        raise UserWarning(
-                            "Can't find type %s in %s" % (value['type'], algebraic_type)
-                            )
+            if isinstance(algebraic_type, tuple):
+                value = list(value)
 
-                    which_alternative = getattr(algebraic_type, value['_type'])
+                assert len(algebraic_type) == len(value), "Can't convert %s to %s" % (value, algebraic_type)
+                return tuple([self.from_json(value[x], algebraic_type[x]) for x in xrange(len(value))])
+
+            if isinstance(algebraic_type, algebraic.Dict):
+                if isinstance(value, dict):
+                    return {self.from_json(k, algebraic_type.keytype):self.from_json(v, algebraic_type.valtype) for k,v in value.iteritems()}
                 else:
-                    possible = list(algebraic_type._types)
-                    for fname in value:
-                        possible = [p for p in possible if fname in algebraic_type._types[p]]
-                        if not possible:
-                            raise UserWarning("Can't find a type with fieldnames " + str(sorted(value)))
+                    return {self.from_json(k, algebraic_type.keytype):self.from_json(v, algebraic_type.valtype) for k,v in value}
+
+            if isinstance(algebraic_type, algebraic.List):
+                #allow objects to be treated as lists of tuples
+                if isinstance(value, dict):
+                    value = value.items()
+
+                return [self.from_json(v, algebraic_type.subtype) for v in value]
+
+            if algebraic_type in algebraic._primitive_types:
+                return value
+
+            if isinstance(algebraic_type, algebraic.Alternative):
+                if isinstance(value, unicode):
+                    value = str(value)
+
+                if isinstance(value, str):
+                    assert hasattr(algebraic_type, value), "Algebraic type %s has no subtype %s" % (algebraic_type, value)
+                    return getattr(algebraic_type, value)()
+                else:
+                    assert isinstance(value, dict)
+
+                    if '_type' in value:
+                        if isinstance(value['_type'], unicode):
+                            value['_type'] = str(value['_type'])
+                        
+                        if not isinstance(value['_type'], str):
+                            raise UserWarning('typenames have to be strings')
+
+                        if not hasattr(algebraic_type, value['_type']):
+                            raise UserWarning(
+                                "Can't find type %s in %s" % (value['type'], algebraic_type)
+                                )
+
+                        which_alternative = getattr(algebraic_type, value['_type'])
+                    else:
+                        possible = list(algebraic_type._types)
+                        for fname in value:
+                            possible = [p for p in possible if fname in algebraic_type._types[p]]
+                            if not possible:
+                                raise UserWarning("Can't find a type with fieldnames " + str(sorted(value)))
 
 
-                    if len(possible) > 1:
-                        possible = [p for p in possible if len(algebraic_type._types[p]) == len(value)]
-                    
-                    if len(possible) > 1:
-                        raise UserWarning("Type is ambiguous: %s could be any of %s" % (sorted(value), possible))
+                        if len(possible) > 1:
+                            possible = [p for p in possible if len(algebraic_type._types[p]) == len(value)]
+                        
+                        if len(possible) > 1:
+                            raise UserWarning("Type is ambiguous: %s could be any of %s" % (sorted(value), possible))
 
-                    which_alternative = getattr(algebraic_type, possible[0])
+                        which_alternative = getattr(algebraic_type, possible[0])
 
-                subs = dict([(k, self.from_json(value[k], which_alternative._typedict[k])) 
-                                for k in value if k != '_type'])
+                    subs = dict([(k, self.from_json(value[k], which_alternative._typedict[k])) 
+                                    for k in value if k != '_type'])
 
-                try:
-                    return which_alternative(_fill_in_missing=True, **subs)
-                except:
-                    raise
-        
-        if hasattr(algebraic_type, "from_json"):
-            return algebraic_type.from_json(value)
+                    try:
+                        return which_alternative(_fill_in_missing=True, **subs)
+                    except:
+                        raise
+            
+            if hasattr(algebraic_type, "from_json"):
+                return algebraic_type.from_json(value)
 
-        assert False, "Can't handle type %s as value %s" % (algebraic_type,value)
-
+            assert False, "Can't handle type %s as value %s" % (algebraic_type,value)
+        except:
+            logging.error("Parsing error making %s:\n%s", algebraic_type, json.dumps(value,indent=2))
+            raise

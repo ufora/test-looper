@@ -7,7 +7,9 @@
 ########################################################################
 
 try {
-    md -Force C:\ProgramData\TestLooper
+    C:\ProgramData\Amazon\EC2-Windows\Launch\Scripts\InitializeDisks.ps1
+    
+    md -Force D:\TestLooper
     md -Force C:\Users\Administrator\.ssh
 
     #fixup the hosts file.
@@ -18,27 +20,16 @@ try {
     echo "__test_key_pub__" | Out-File -FilePath "C:\Users\Administrator\.ssh\id_rsa.pub" -Encoding ASCII
     echo "StrictHostKeyChecking=no" | Out-File -FilePath "C:\Users\Administrator\.ssh\config" -Encoding ASCII
 
-    while (1) {
-        $data_exists = 0
-        while ($data_exists -eq 0) {
-            try {
-                Read-S3Object -BucketName __bootstrap_bucket__ -Key __bootstrap_key__  -File C:\ProgramData\TestLooper\SetupBootstrap.ps1
-                Remove-S3Object -Force -BucketName __bootstrap_bucket__ -Key __bootstrap_key__
-                $data_exists = 1
-            }
-            catch {
-                sleep 1.0
-            }
-        }
+    Read-S3Object -BucketName __bootstrap_bucket__ -Key __bootstrap_key__  -File D:\TestLooper\SetupBootstrap.ps1
+    Remove-S3Object -Force -BucketName __bootstrap_bucket__ -Key __bootstrap_key__
 
-        powershell -ExecutionPolicy Bypass 'C:\ProgramData\TestLooper\SetupBootstrap.ps1' > C:\ProgramData\TestLooper\SetupBootstrap.log 2>&1
-        rm C:\ProgramData\TestLooper\SetupBootstrap.ps1
+    powershell -ExecutionPolicy Bypass 'D:\TestLooper\SetupBootstrap.ps1' > D:\TestLooper\SetupBootstrap.log 2>&1
+    rm D:\TestLooper\SetupBootstrap.ps1
 
-        Write-S3Object -ContentType "application/octet-stream" -BucketName "__bootstrap_bucket__" -Key "__bootstrap_log_key__"  -File "C:\ProgramData\TestLooper\SetupBootstrap.log"
-        rm C:\ProgramData\TestLooper\SetupBootstrap.log
-    }
+    Write-S3Object -ContentType "application/octet-stream" -BucketName "__bootstrap_bucket__" -Key "__bootstrap_log_key__"  -File "D:\TestLooper\SetupBootstrap.log"
+    
+    rm D:\TestLooper\SetupBootstrap.log
 } catch {
     Write-S3Object -ContentType "application/octet-stream" -BucketName "__bootstrap_bucket__" -Key "__bootstrap_log_key__"  -Content $_
 }
-
 </powershell>

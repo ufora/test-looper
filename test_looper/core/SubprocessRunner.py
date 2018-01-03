@@ -1,5 +1,11 @@
 import os
-import fcntl
+import sys
+
+if sys.platform=="win32":
+    fcntl = None
+else:
+    import fcntl
+
 import time
 import select
 import threading
@@ -63,7 +69,7 @@ class SubprocessRunner(object):
         self.subprocessStdErr = os.fdopen(stdErrRead, 'r', 1)
 
 
-        if self.enablePartialLineOutput:
+        if self.enablePartialLineOutput and sys.platform != "win32":
             # enable non-blocking reads
             fcntl.fcntl(self.subprocessStdOut, fcntl.F_SETFL, os.O_NONBLOCK)
             fcntl.fcntl(self.subprocessStdErr, fcntl.F_SETFL, os.O_NONBLOCK)
@@ -192,9 +198,12 @@ class SubprocessRunner(object):
         try:
             while not self.isShuttingDown:
                 if self.enablePartialLineOutput:
-                    r, _, _ = select.select([outputFile], [], [])
-                    if len(r):
-                        stdErrMessage = r[0].read(self.pipeReadBufferSize)
+                    if sys.platform=="win32":
+                        stdErrMessage = os.read(outputFile.fileno(), self.pipeReadBufferSize)
+                    else:
+                        r, _, _ = select.select([outputFile], [], [])
+                        if len(r):
+                            stdErrMessage = r[0].read(self.pipeReadBufferSize)
                 else:
                     stdErrMessage = outputFile.readline().rstrip()
                 try:

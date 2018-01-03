@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import logging
 import requests
+import urllib
 import simplejson
 import traceback
 import threading
@@ -40,7 +41,7 @@ class Gitlab(SourceControl.SourceControl):
         return True
 
     def listRepos(self):
-        url = self.gitlab_api_url + '/projects?private_token=%s&owner=%s' % (self.private_token, self.owner)
+        url = self.gitlab_api_url + '/projects?' + urllib.urlencode({"private_token": self.private_token})
 
         headers={'accept': 'application/json'}
         
@@ -67,7 +68,7 @@ class Gitlab(SourceControl.SourceControl):
             logging.error(traceback.format_exc())
             return []
 
-        return res
+        return [x for x in res if x.startswith(self.owner)]
 
     def getRepo(self, repoName):
         with self.lock:

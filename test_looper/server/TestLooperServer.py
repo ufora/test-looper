@@ -41,6 +41,8 @@ class Session(object):
         self.currentDeploymentId = None
         self.socketLock = threading.Lock()
 
+        logging.info("Incoming Server Connection initialized.")
+
     def __call__(self):
         try:
             while True:
@@ -134,6 +136,7 @@ class TestLooperServer(SimpleServer.SimpleServer):
         self.httpServer = httpServer
         self.machine_management = machine_management
         self.workerThread = threading.Thread(target=self.executeManagerWork)
+        self.workerThread.daemon=True
 
     def executeManagerWork(self):
         lastSweep = None
@@ -178,9 +181,12 @@ class TestLooperServer(SimpleServer.SimpleServer):
 
     def stop(self):
         super(TestLooperServer, self).stop()
-        self.workerThread.join()
+        
+        logging.info("waiting for worker thread...")
 
-        logging.info("successfully stopped TestLooperServer")
+        #self.workerThread.join()
+
+        #logging.info("successfully stopped TestLooperServer")
 
     def _onConnect(self, socket, address):
         logging.debug("Accepting connection from %s", address)

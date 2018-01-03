@@ -131,3 +131,10 @@ Config.Config = {
     "artifacts": ArtifactsConfig,
     "machine_management": MachineManagementConfig
     }
+
+WorkerConfig = algebraic.Alternative("WorkerConfig")
+WorkerConfig.Config = {
+    "server_ports": ServerPortConfig,
+    "source_control": SourceControlConfig,
+    "artifacts": ArtifactsConfig
+    }

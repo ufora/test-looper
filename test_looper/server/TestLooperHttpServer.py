@@ -14,6 +14,7 @@ import urlparse
 import pytz
 import simplejson
 import os
+import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
@@ -23,6 +24,17 @@ from ws4py.websocket import WebSocket
 import traceback
 
 time.tzset()
+
+def secondsUpToString(upFor):
+    if up_for < 60:
+        return ("%d seconds" % up_for)
+    elif up_for < 60 * 60 * 2:
+        return ("%d minutes" % (up_for / 60))
+    elif up_for < 24 * 60 * 60 * 2:
+        return ("%.1f hours" % (up_for / 60 / 60))
+    else:
+        return ("%.1f days" % (up_for / 60 / 60 / 24))
+
 
 def joinLinks(linkList):
     res = ""
@@ -73,7 +85,7 @@ class InteractiveEnvironmentHandler:
         self.testManager.writeMessageToDeployment(self.deploymentId, message)
 
     def onClosed(self):
-        testManager.unsubscribeFromDeployment(self.deploymentId, self.onTestOutput)
+        self.testManager.unsubscribeFromDeployment(self.deploymentId, self.onTestOutput)
 
 
 
@@ -447,32 +459,25 @@ class TestLooperHttpServer(object):
     def machines(self):
         self.authorize(read_only=True)
 
-        return self.errorPage("Not implemented")
-
-    @cherrypy.expose
-    def machine(self, machineId):
-        self.authorize(read_only=True)
-
         with self.testManager.database.view():
-            tests = []
+            machines = self.testManager.database.Machine.lookupAll(isAlive=True)
 
-            for commit in self.testManager.commits.values():
-                for test in commit.testsById.values():
-                    if test.machine == machineId:
-                        tests.append(test)
-
-            sortedTests = sorted(
-                tests,
-                key=lambda test: test.startTime(),
-                reverse=True
-                )
-
-            grid = self.gridForTestList_(sortedTests)
-
-            header = """### Machine %s\n""" % machineId
-
-            return self.commonHeader() + markdown.markdown(header) + HtmlGeneration.grid(grid)
-
+            grid = [["MachineID", "Hardware", "OS", "BOOTED AT", "UP FOR", "STATUS"]]
+            for m in sorted(machines, key=lambda m: -m.bootTime):
+                row = []
+                row.append(m.machineId)
+                row.append(str(m.hardware))
+                row.append(str(m.os))
+                row.append(time.asctime(time.gmtime(m.bootTime)))
+                row.append(secondsUpToString(time.time() - m.bootTime))
+                
+                if m.firstHeartbeat < 1.0:
+                    row.append("BOOTING")
+                else:
+                    row.append("Heartbeat %s seconds ago" % int(time.time() - m.lastHeartbeat))
+                grid.append(row)
+                
+            return self.commonHeader() + HtmlGeneration.grid(grid)
 
 
     @cherrypy.expose
@@ -573,8 +578,6 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def bootDeployment(self, fullname):
-        logging.info("HERE with %s", fullname)
-
         try:
             deploymentId = self.testManager.createDeployment(fullname, time.time())
         except Exception as e:
@@ -657,6 +660,7 @@ class TestLooperHttpServer(object):
 
         nav_links = [
             ('Repos', '/repos'),
+            ('Machines', '/machines'),
             ('Deployments', '/deployments')
             ]
 
@@ -790,16 +794,7 @@ class TestLooperHttpServer(object):
 
                 row.append(time.asctime(time.gmtime(d.createdTimestamp)))
 
-                up_for = time.time() - d.createdTimestamp
-
-                if up_for < 60:
-                    row.append("%d seconds" % up_for)
-                elif up_for < 60 * 60 * 2:
-                    row.append("%d minutes" % (up_for / 60))
-                elif up_for < 24 * 60 * 60 * 2:
-                    row.append("%.1f hours" % (up_for / 60 / 60))
-                else:
-                    row.append("%.1f days" % (up_for / 60 / 60 / 24))
+                row.append(secondsUpToString(time.time() - d.createdTimestamp))
 
                 row.append(str(self.testManager.streamForDeployment(d._identity).clientCount()))
 
@@ -1604,7 +1599,18 @@ class TestLooperHttpServer(object):
             ["tar", "cvfz", os.path.join(temp_dir_for_tarball, "test_looper.tar.gz"), 
                 "--directory", path_to_source_root, "test_looper"
             ])
-        
+
+        with DirectoryScope.DirectoryScope(path_to_source_root):
+            SubprocessRunner.callAndAssertSuccess(
+                ["zip", "-r", os.path.join(temp_dir_for_tarball, "test_looper.zip"), "test_looper", "-x", "*.pyc", "*.js"]
+                )
+
+        with DirectoryScope.DirectoryScope(temp_dir_for_tarball):
+            SubprocessRunner.callAndReturnOutput(
+                ["curl", "https://bootstrap.pypa.io/get-pip.py", "-O", os.path.join(temp_dir_for_tarball, "get-pip.py")]
+                )
+            assert os.path.exists(os.path.join(temp_dir_for_tarball, "get-pip.py"))
+
         cherrypy.tree.mount(self, '/', {
             '/favicon.ico': {
                 'tools.staticfile.on': True,
@@ -1612,10 +1618,20 @@ class TestLooperHttpServer(object):
                                                           'content',
                                                           'favicon.ico')
                 },
+            '/get-pip.py': {
+                'tools.staticfile.on': True,
+                'tools.staticfile.filename': os.path.join(temp_dir_for_tarball,
+                                                          'get-pip.py')
+                },
             '/test_looper.tar.gz': {
                 'tools.staticfile.on': True,
                 'tools.staticfile.filename': os.path.join(temp_dir_for_tarball,
                                                           'test_looper.tar.gz')
+                },
+            '/test_looper.zip': {
+                'tools.staticfile.on': True,
+                'tools.staticfile.filename': os.path.join(temp_dir_for_tarball,
+                                                          'test_looper.zip')
                 },
             '/css': {
                 'tools.staticdir.on': True,

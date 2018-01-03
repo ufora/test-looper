@@ -70,7 +70,7 @@ class DeploymentStream:
         self._messagesFromDeployment = MessageBuffer("Deployment messages for %s" % self.deploymentId)
 
     def clientCount(self):
-        return len(self._messagesFromClient._subscribers)
+        return len(self._messagesFromDeployment._subscribers)
 
     def addMessageFromClient(self, msg):
         self._messagesFromClient.addMessage(msg)
@@ -231,6 +231,9 @@ class TestManager(object):
             if not d.exists():
                 raise Exception("Deployment %s doesn't exist" % deploymentId)
 
+            cat = self._machineCategoryForTest(d.test)
+            cat.desired = cat.desired - 1
+
             self.streamForDeployment(deploymentId).addMessageFromDeployment(
                 "\r\n\r\n" + 
                 time.asctime(time.gmtime(timestamp)) + " TestLooper> Session Terminated\r\n\r\n"
@@ -238,7 +241,8 @@ class TestManager(object):
 
             d.isAlive = False
 
-        
+            self._scheduleBootCheck()
+            self._shutdownMachinesIfNecessary(timestamp)
 
     def createDeployment(self, fullname, timestamp):
         with self.transaction_and_lock():
@@ -318,7 +322,10 @@ class TestManager(object):
     def machineHeartbeat(self, machineId, curTimestamp):
         with self.transaction_and_lock():
             machine = self.database.Machine.lookupAny(machineId=machineId)
-            self._machineHeartbeat(machine, curTimestamp)
+            if machine:
+                self._machineHeartbeat(machine, curTimestamp)
+            else:
+                logging.warn("Hearbeat from unknown machine %s", machineId)
 
     def _machineHeartbeat(self, machine, curTimestamp):
         if machine.firstHeartbeat == 0.0:
@@ -404,7 +411,9 @@ class TestManager(object):
         with self.transaction_and_lock():
             machine = self.database.Machine.lookupAny(machineId=machineId)
 
-            assert machine is not None
+            if machine is None:
+                logging.warn("Can't assign work to a machine we don't know about: %s", machineId)
+                return None, None, None, None
 
             self._machineHeartbeat(machine, timestamp)
 
@@ -430,6 +439,9 @@ class TestManager(object):
     def handleMessageFromDeployment(self, deploymentId, timestamp, msg):
         with self.transaction_and_lock():
             deployment = self.database.Deployment(deploymentId)
+
+            if deployment.machine:
+                deployment.machine.lastHeartbeat = timestamp
 
             if not deployment.exists() or not deployment.isAlive:
                 return False
@@ -661,7 +673,7 @@ class TestManager(object):
                         if not str(e):
                             logging.error("%s", traceback.format_exc())
 
-                        logging.warn("Got an error parsing tests for %s: '%s'", commit.hash, str(e))
+                        logging.warn("Got an error parsing tests for %s:\n%s", commit.hash, traceback.format_exc())
 
                         commit.data.testDefinitionsError=str(e)
 

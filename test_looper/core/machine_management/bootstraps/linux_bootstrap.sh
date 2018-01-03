@@ -9,6 +9,22 @@
 
 export STORAGE=/media/ephemeral0
 
+#if this is an EBS volume, we have to mount our storage
+if [ -d $STORAGE ]
+then
+	echo "storage=$STORAGE is already mounted as an SSD."
+else
+	echo "storage=$STORAGE is not mounted. Creating it at /dev/xvdb"
+	sudo mkfs -t ext4 /dev/xvdb
+	sudo mkdir $STORAGE
+	sudo mount /dev/xvdb $STORAGE
+fi
+
+echo "****************"
+echo 'df -h $STORAGE'
+df -h $STORAGE
+echo "****************"
+
 sudo yum install -y docker
 sudo yum install -y gcc
 sudo yum install -y git
@@ -69,4 +85,6 @@ echo "TestLooper configured as: "
 cat worker_config.json
 
 echo "TestLooper starting"
-python -u test_looper/worker/test-looper.py worker_config.json 1 > logs/worker_log.txt 2>&1
+machineID=`curl http://169.254.169.254/latest/meta-data/instance-id`
+
+python -u test_looper/worker/test-looper.py worker_config.json $machineID $TEST_LOOPER_INSTALL > logs/worker_log.txt 2>&1
