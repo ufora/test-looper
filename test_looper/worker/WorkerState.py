@@ -11,6 +11,7 @@ import threading
 import time
 import requests
 import traceback
+import subprocess
 import base64
 import tempfile
 import cStringIO as StringIO
@@ -201,44 +202,65 @@ class WorkerState(object):
         if sys.platform == "win32":
             assert docker_image is NAKED_MACHINE
 
-            def onOutput(output):
-                workerCallback.terminalOutput(output)
-
-            running_subprocess = SubprocessRunner.SubprocessRunner(
-                ["C:\\Program Files\\OpenSSH-Win64\\ssh-shellhost.exe", base64.b64encode("powershell.exe")],
-                onOutput, onOutput, 
-                enablePartialLineOutput=True, 
-                shell=True
+            running_subprocess = subprocess.Popen(
+                ["powershell.exe", "-ExecutionPolicy", "Bypass"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=True,
+                creationflags=subprocess.CREATE_NEW_CONSOLE
                 )
-            running_subprocess.start()
+
             time.sleep(.5)
 
-            writeFailed = [False]
-            def write(msg):
-                if not msg:
-                    return
+            readthreadStop = threading.Event()
+            def readloop(file):
                 try:
-                    if not writeFailed[0]:
-                        running_subprocess.write(msg)
-                        running_subprocess.flush()
+                    while not readthreadStop.is_set():
+                        data = os.read(file.fileno(), 4096)
+                        if not data:
+                            #do a little throttling
+                            time.sleep(0.01)
+                        else:
+                            workerCallback.terminalOutput(data)
                 except:
-                    writeFailed[0] = True 
-                    logging.error("Failed to write to stdin: %s", traceback.format_exc())
+                    logging.error("Read loop failed:\n%s", traceback.format_exc())
 
-            write(command + "\n")
+            readthreads = [threading.Thread(target=readloop, args=(x,)) for x in [running_subprocess.stdout, running_subprocess.stderr]]
+            for t in readthreads:
+                t.start()
 
-            workerCallback.subscribeToTerminalInput(write)
+            try:
+                writeFailed = [False]
+                def write(msg):
+                    if not msg:
+                        return
+                    try:
+                        if not writeFailed[0]:
+                            running_subprocess.stdin.write(msg)
+                    except:
+                        writeFailed[0] = True 
+                        logging.error("Failed to write to stdin: %s", traceback.format_exc())
 
-            ret_code = None
-            while ret_code is None:
-                try:
-                    ret_code = running_subprocess.wait(timeout=HEARTBEAT_INTERVAL)
-                except requests.exceptions.ReadTimeout:
-                    pass
-                except requests.exceptions.ConnectionError:
-                    pass
+                write(command + "\n")
 
-                workerCallback.heartbeat()
+                workerCallback.subscribeToTerminalInput(write)
+
+                ret_code = None
+                while ret_code is None:
+                    try:
+                        ret_code = running_subprocess.poll()
+                        time.sleep(HEARTBEAT_INTERVAL)
+                    except requests.exceptions.ReadTimeout:
+                        pass
+                    except requests.exceptions.ConnectionError:
+                        pass
+
+                    workerCallback.heartbeat()
+            finally:
+                readthreadStop.set()
+                for t in readthreads:
+                    t.join()
         else:
             with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
                 print >> f, command

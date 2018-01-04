@@ -25,7 +25,7 @@ import traceback
 
 time.tzset()
 
-def secondsUpToString(upFor):
+def secondsUpToString(up_for):
     if up_for < 60:
         return ("%d seconds" % up_for)
     elif up_for < 60 * 60 * 2:
@@ -462,7 +462,7 @@ class TestLooperHttpServer(object):
         with self.testManager.database.view():
             machines = self.testManager.database.Machine.lookupAll(isAlive=True)
 
-            grid = [["MachineID", "Hardware", "OS", "BOOTED AT", "UP FOR", "STATUS"]]
+            grid = [["MachineID", "Hardware", "OS", "BOOTED AT", "UP FOR", "STATUS", "LASTMSG"]]
             for m in sorted(machines, key=lambda m: -m.bootTime):
                 row = []
                 row.append(m.machineId)
@@ -475,6 +475,9 @@ class TestLooperHttpServer(object):
                     row.append("BOOTING")
                 else:
                     row.append("Heartbeat %s seconds ago" % int(time.time() - m.lastHeartbeat))
+                
+                row.append(m.lastHeartbeatMsg)
+                
                 grid.append(row)
                 
             return self.commonHeader() + HtmlGeneration.grid(grid)
@@ -1451,6 +1454,10 @@ class TestLooperHttpServer(object):
     @cherrypy.expose
     def terminalForDeployment(self, deploymentId):
         return self.websocketText(urllib.urlencode({"deploymentId":deploymentId}))
+
+    @cherrypy.expose
+    def machineHeartbeatMessage(self, machineId, heartbeatmsg):
+        self.testManager.machineHeartbeat(machineId, time.time(), heartbeatmsg)
 
     def websocketText(self, urlQuery):
         return """

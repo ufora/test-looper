@@ -134,7 +134,8 @@ def setup_types(database):
         firstHeartbeat=float,
         lastHeartbeat=float,
         lastTestCompleted=float,
-        isAlive=bool
+        isAlive=bool,
+        lastHeartbeatMsg=str
         )
 
     database.Deployment.define(

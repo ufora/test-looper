@@ -319,18 +319,20 @@ class TestManager(object):
             else:
                 return None
 
-    def machineHeartbeat(self, machineId, curTimestamp):
+    def machineHeartbeat(self, machineId, curTimestamp, msg=None):
         with self.transaction_and_lock():
             machine = self.database.Machine.lookupAny(machineId=machineId)
             if machine:
-                self._machineHeartbeat(machine, curTimestamp)
+                self._machineHeartbeat(machine, curTimestamp, msg)
             else:
                 logging.warn("Hearbeat from unknown machine %s", machineId)
 
-    def _machineHeartbeat(self, machine, curTimestamp):
+    def _machineHeartbeat(self, machine, curTimestamp, msg=None):
         if machine.firstHeartbeat == 0.0:
             machine.firstHeartbeat = curTimestamp
         machine.lastHeartbeat=curTimestamp
+        if msg:
+            machine.lastHeartbeatMsg = msg
             
     def triggerPruneDeadWorkerMachines(self, curTimestamp):            
         self.createTask(self.database.BackgroundTask.PruneDeadWorkerMachines())
