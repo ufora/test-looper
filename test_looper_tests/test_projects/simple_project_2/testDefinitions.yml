@@ -38,3 +38,13 @@ tests:
       build_import: simple/build/linux
   sleeper/linux:
     command: "./sleeper.py"
+  test3_dep_on_cached_source/linux:
+    command: |
+      if [ -f $TEST_INPUTS/simplesource/starts_a_long_docker.py ]
+      then 
+        exit 0
+      else
+        exit 1
+      fi
+    dependencies:
+      simplesource: simple

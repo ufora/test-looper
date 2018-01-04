@@ -34,8 +34,12 @@ import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper
 
 class DummyWorkerCallbacks:
+    def __init__(self):
+        self.logMessages = []
+
     def heartbeat(self, logMessage=None):
-        pass
+        if logMessage is not None:
+            self.logMessages.append(logMessage)
 
     def terminalOutput(self, output):
         pass
@@ -482,38 +486,25 @@ class WorkerState(object):
         self.ensureDirectoryExists(testOutputDir)
         return testOutputDir
 
-    @staticmethod
-    def extractPerformanceTests(outPerformanceTestsFile, testName):
-        if os.path.exists(outPerformanceTestsFile):
-            performanceTestsList = []
-
-            #verify that we can dump this as json. If we fail, we'll still be able to understand
-            #what happened
-            simplejson.dumps(performanceTestsList)
-
-            return performanceTestsList
-        else:
-            return []
-
-    def _purge_build_cache(self):
+    def purge_build_cache(self, cacheSize=None):
         self.ensureDirectoryExists(self.directories.build_cache_dir)
         
-        while self._is_build_cache_full():
+        while self._is_build_cache_full(cacheSize if cacheSize is not None else self.max_build_cache_depth):
             self._remove_oldest_cached_build()
 
-    def _is_build_cache_full(self):
+    def _is_build_cache_full(self, cacheSize):
         cache_count = len(os.listdir(self.directories.build_cache_dir))
 
         logging.info("Checking the build cache: there are %s items in it", cache_count)
 
-        return cache_count >= self.max_build_cache_depth
+        return cache_count > cacheSize
 
     def _remove_oldest_cached_build(self):
         def full_path(p):
             return os.path.join(self.directories.build_cache_dir, p)
         cached_builds = sorted([(os.path.getctime(full_path(p)), full_path(p))
                                 for p in os.listdir(self.directories.build_cache_dir)])
-        shutil.rmtree(cached_builds[0][1])
+        os.remove(cached_builds[0][1])
 
     @staticmethod
     def getDockerImageFromRepo(git_repo, commitHash, image):
@@ -618,7 +609,7 @@ class WorkerState(object):
             logging.info("Extracting package %s to %s", package_file, target_dir)
             tar.extractall(target_dir)
 
-    def grabDependency(self, expose_as, dep, repoName, commitHash):
+    def grabDependency(self, heartbeat, expose_as, dep, repoName, commitHash):
         target_dir = os.path.join(self.directories.test_inputs_dir, expose_as)
 
         if dep.matches.InternalBuild or dep.matches.ExternalBuild:
@@ -635,7 +626,38 @@ class WorkerState(object):
             return None
 
         if dep.matches.Source:
-            self.resetToCommitInDir(dep.repo, dep.commitHash, target_dir)
+            sourceArtifactName = self.artifactKeyForTest(dep.repo, dep.commitHash, "source")
+            tarball_name = os.path.join(self.directories.build_cache_dir, sourceArtifactName)
+
+            if not self.artifactStorage.build_exists(sourceArtifactName):
+                heartbeat("Building source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
+
+                self.resetToCommitInDir(dep.repo, dep.commitHash, target_dir)
+
+                with tarfile.open(tarball_name, "w:gz") as tf:
+                    with DirectoryScope.DirectoryScope(target_dir):
+                        tf.add(".")
+
+                logging.info("Resulting tarball at %s is %.2f MB", tarball_name, os.stat(tarball_name).st_size / 1024.0**2)
+
+                try:
+                    logging.info("Uploading %s to %s", tarball_name, sourceArtifactName)
+                    self.artifactStorage.upload_build(sourceArtifactName, tarball_name)
+                except:
+                    logging.error("Failed to upload package '%s':\n%s",
+                          tarball_name,
+                          traceback.format_exc()
+                          )
+            else:
+                if not os.path.exists(tarball_name):
+                    heartbeat("Downloading source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
+                
+                    self.artifactStorage.download_build(sourceArtifactName, tarball_name)
+
+                heartbeat("Extracting source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
+
+                self.extract_package(tarball_name, target_dir)
+
             return None
 
         return "Unknown dependency type: %s" % dep
@@ -650,7 +672,7 @@ class WorkerState(object):
 
         for expose_as, dep in all_dependencies.iteritems():
             with self.callHeartbeatInBackground(heartbeat, "Pulling dependency %s" % dep):
-                errStringOrNone = self.grabDependency(expose_as, dep, repoName, commitHash)
+                errStringOrNone = self.grabDependency(heartbeat, expose_as, dep, repoName, commitHash)
 
             if errStringOrNone is not None:
                 raise Exception(errStringOrNone)
@@ -723,7 +745,7 @@ class WorkerState(object):
         return is_success
 
     def artifactKeyForTest(self, repoName, commitHash, testName):
-        return (repoName + "/" + commitHash + "/" + testName).replace("/", "_") + ".tar"
+        return (repoName + "/" + commitHash + "/" + testName).replace("/", "_") + ".tar.gz"
 
     def _upload_build(self, repoName, commitHash, testName):
         #upload all the data in our directory

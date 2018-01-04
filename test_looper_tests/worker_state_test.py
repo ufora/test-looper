@@ -277,7 +277,58 @@ class WorkerStateTests(unittest.TestCase):
             runThread.join()
 
 
+    def test_cached_source_builds(self):
+        repo, repoName, commitHash, worker = self.get_worker("simple_project")
+        repo2, _, commit2 = self.get_repo("simple_project_2")
+        commit2Name, commit2Hash = commit2[0]
+
+        callbacks1 = WorkerState.DummyWorkerCallbacks()
+        callbacks2 = WorkerState.DummyWorkerCallbacks()
+        callbacks3 = WorkerState.DummyWorkerCallbacks()
+
+        self.assertTrue(
+            worker.runTest("testId1", commit2Name, commit2Hash, "test3_dep_on_cached_source/linux", callbacks1, isDeploy=False)
+            )
+
+        self.assertTrue(
+            worker.runTest("testId2", commit2Name, commit2Hash, "test3_dep_on_cached_source/linux", callbacks2, isDeploy=False)
+            )
+
+        logs1 = "\n".join(callbacks1.logMessages)
+        logs2 = "\n".join(callbacks2.logMessages)
 
 
+        test1_uploaded = "Building source cache" in logs1
+        test1_downloaded = "Downloading source cache" in logs1
+        test1_extracted = "Extracting source cache" in logs1
+
+        test2_uploaded = "Building source cache" in logs2
+        test2_downloaded = "Downloading source cache" in logs2
+        test2_extracted = "Extracting source cache" in logs2
+
+        self.assertTrue(test1_uploaded and not test1_downloaded and not test1_extracted)
+        self.assertTrue(test2_extracted and not test2_downloaded and not test2_uploaded)
+
+        self.assertTrue(worker.artifactStorage.build_exists(commit2Name + "_" + commit2Hash + "_source.tar.gz"))
+
+        #after purging, we should have to download the build
+        worker.purge_build_cache(0)
+
+        self.assertTrue(
+            worker.runTest("testId3", commit2Name, commit2Hash, "test3_dep_on_cached_source/linux", callbacks3, isDeploy=False)
+            )
+
+        logs3 = "\n".join(callbacks3.logMessages)
+        
+        test3_uploaded = "Building source cache" in logs3
+        test3_downloaded = "Downloading source cache" in logs3
+        test3_extracted = "Extracting source cache" in logs3
+
+        self.assertTrue(test3_downloaded and test3_extracted and not test3_uploaded)
 
         
+
+        
+        
+
+

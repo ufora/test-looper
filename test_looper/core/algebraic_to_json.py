@@ -107,6 +107,16 @@ class Encoder:
                     value = str(value)
 
                 if isinstance(value, str):
+                    single_arg_types = []
+                    for t in algebraic_type._types:
+                        if len(algebraic_type._types[t]) == 1 and list(algebraic_type._types[t].values())[0] is str:
+                            single_arg_types.append(t)
+
+                    if len(single_arg_types) == 1:
+                        #there's exactly one type that takes a single string
+                        which_alternative = getattr(algebraic_type, single_arg_types[0])
+                        return which_alternative(value)
+
                     assert hasattr(algebraic_type, value), "Algebraic type %s has no subtype %s" % (algebraic_type, value)
                     return getattr(algebraic_type, value)()
                 else:

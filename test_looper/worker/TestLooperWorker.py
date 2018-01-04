@@ -87,6 +87,8 @@ class TestLooperWorker(object):
                      repoName, 
                      commitHash
                      )
+        
+        self.workerState.purge_build_cache()
 
         result = self.workerState.runTest(testId, repoName, commitHash, testName, self.testLooperClient, isDeploy)
         

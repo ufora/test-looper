@@ -7,6 +7,7 @@ import test_looper.core.algebraic as algebraic
 import test_looper.core.algebraic_to_json as algebraic_to_json
 import test_looper.data_model.TestDefinition as TestDefinition
 import yaml
+import json
 import simplejson 
 import logging
 
@@ -119,6 +120,9 @@ def extract_tests(curRepoName, curCommitHash, testScript):
         assert len(repoDef.split("/")) >= 2, "Improperly formed repo definition: %s" % repoDef
 
         parts = repoDef.split("/")
+
+        assert len(parts) >= 2, "Improperly formed repo definition: %s" % repoDef
+
         repoName = "/".join(parts[:-1])
         commitHash = parts[-1]
 
@@ -151,7 +155,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                     #this is a source dependency
                     return TestDefinition.TestDependency.Source(
                         repo=repos[deps[0]][0],
-                        commitHash=repos[deps[0]][1],
+                        commitHash=repos[deps[0]][1]
                         )
 
                 if len(deps) < 3:
@@ -232,7 +236,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 #this is a source dependency
                 return TestDefinition.TestDependency.Source(
                     repo=repos[deps[0]][0],
-                    commitHash=repos[deps[0]][1],
+                    commitHash=repos[deps[0]][1]
                     )
 
             #this is a remote dependency: repoRef/buildName/environment
@@ -459,23 +463,23 @@ def extract_tests_from_str(repoName, commitHash, extension, text):
         text = str(text)
 
     if extension == ".yml":
-        json = yaml.load(text)
+        test_defs_json = yaml.load(text)
     elif extension == ".json":
-        json = simplejson.loads(text)
+        test_defs_json = simplejson.loads(text)
     else:
         raise Exception("Can't load testDefinitions from file ending in '%s'. Use json or yml." % extension)
 
-    if 'looper_version' not in json:
+    if 'looper_version' not in test_defs_json:
         raise Exception("No looper version specified. Current version is 2")
 
-    json = expand_macros(json, {})
+    test_defs_json = expand_macros(test_defs_json, {})
 
-    version = json['looper_version']
-    del json['looper_version']
+    version = test_defs_json['looper_version']
+    del test_defs_json['looper_version']
 
     if version != 2:
         raise Exception("Can't handle looper version %s" % version)
 
     e = algebraic_to_json.Encoder()
 
-    return extract_tests(repoName, commitHash, e.from_json(json, TestDefinitionScript))
+    return extract_tests(repoName, commitHash, e.from_json(test_defs_json, TestDefinitionScript))
