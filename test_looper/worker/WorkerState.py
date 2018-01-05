@@ -1,5 +1,6 @@
 import collections
 import errno
+import json
 import logging
 import os
 import shutil
@@ -579,7 +580,7 @@ class WorkerState(object):
 
         with self.callHeartbeatInBackground(workerCallback.heartbeat, "Resetting the repo to %s/%s" % (repoName, commitHash)):
             if not self.resetToCommit(repoName, commitHash):
-                workerCallback.heartbest("Failed to checout code")
+                workerCallback.heartbeat("Failed to checout code")
 
         try:
             with self.callHeartbeatInBackground(workerCallback.heartbeat, "Extracting test definitions."):
@@ -587,11 +588,11 @@ class WorkerState(object):
 
             if not testDefinition:
                 workerCallback.heartbeat("No test named %s", testName)
-                return False
+                return False, {}
 
             if testDefinition.matches.Build and self.artifactStorage.build_exists(self.artifactKeyForTest(repoName, commitHash, testName)):
                 workerCallback.heartbeat("Build already exists")
-                return True
+                return True, {}
             
             return self._run_task(testId, repoName, commitHash, testDefinition, workerCallback, isDeploy)
 
@@ -599,7 +600,7 @@ class WorkerState(object):
             error_message = "Test failed because of exception: %s" % traceback.format_exc()
             logging.error(error_message)
             workerCallback.heartbeat(error_message)
-            return False
+            return False, {}
 
     def extract_package(self, package_file, target_dir):
         with tarfile.open(package_file) as tar:
@@ -634,7 +635,7 @@ class WorkerState(object):
 
                 self.resetToCommitInDir(dep.repo, dep.commitHash, target_dir)
 
-                with tarfile.open(tarball_name, "w:gz") as tf:
+                with tarfile.open(tarball_name, "w:gz", compresslevel=1) as tf:
                     with DirectoryScope.DirectoryScope(target_dir):
                         tf.add(".")
 
@@ -736,13 +737,28 @@ class WorkerState(object):
         
         logging.info("machine %s uploading artifacts for test %s", self.machineId, testId)
 
+        individualTestSuccesses = {}
+
         with self.callHeartbeatInBackground(workerCallback.heartbeat, "Uploading test artifacts."):
             self.artifactStorage.uploadTestArtifacts(
                 testId,
                 self.directories.test_output_dir
                 )
 
-        return is_success
+            testSummaryJsonPath = os.path.join(self.directories.test_output_dir, "testSummary.json")
+
+            if os.path.exists(testSummaryJsonPath):
+                try:
+                    individualTestSuccesses = json.loads(open(testSummaryJsonPath,"r").read())
+                    if not isinstance(individualTestSuccesses, dict):
+                        raise Exception("testSummary.json should be a dict from str to bool")
+                    individualTestSuccesses = {str(k): bool(v) for k,v in individualTestSuccesses.iteritems()}
+                except Exception as e:
+                    individualTestSuccesses = {}
+                    workerCallback.heartbeat("Failed to pull in testSummary.json: " + str(e))
+                    logging.error("Error processing testSummary.json:\n%s", traceback.format_exc())
+
+        return is_success, individualTestSuccesses
 
     def artifactKeyForTest(self, repoName, commitHash, testName):
         return (repoName + "/" + commitHash + "/" + testName).replace("/", "_") + ".tar.gz"
@@ -757,7 +773,7 @@ class WorkerState(object):
         if not os.path.exists(tarball_name):
             logging.info("Tarballing %s into %s", self.directories.build_output_dir, tarball_name)
 
-            with tarfile.open(tarball_name, "w:gz") as tf:
+            with tarfile.open(tarball_name, "w:gz", compresslevel=1) as tf:
                 with DirectoryScope.DirectoryScope(self.directories.build_output_dir):
                     tf.add(".")
 

@@ -319,7 +319,7 @@ class TestManagerTestHarness:
                 self.timestamp += .1
 
             for _,_,_,testId in tests:
-                self.manager.recordTestResults(True, testId, self.timestamp)
+                self.manager.recordTestResults(True, testId, {"ATest":True, "AnotherTest": False}, self.timestamp)
                 self.timestamp += .1
 
 FakeConfig = algebraic.Alternative("FakeConfig")

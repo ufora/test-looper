@@ -97,7 +97,7 @@ class Encoder:
                 if isinstance(value, dict):
                     value = value.items()
 
-                return [self.from_json(v, algebraic_type.subtype) for v in value]
+                return tuple(self.from_json(v, algebraic_type.subtype) for v in value)
 
             if algebraic_type in algebraic._primitive_types:
                 return value

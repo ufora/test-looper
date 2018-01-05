@@ -161,8 +161,8 @@ class TestLooperClient(object):
                 except:
                     logging.error("Error passing terminal input to callback: %s", traceback.format_exc())
 
-    def publishTestResult(self, succeeded):
+    def publishTestResult(self, succeeded, individualTestSuccesses):
         assert self._curTestId is not None
 
-        self.send(TestLooperServer.ClientToServerMsg.TestFinished(testId=self._curTestId, success=succeeded))
+        self.send(TestLooperServer.ClientToServerMsg.TestFinished(testId=self._curTestId, success=succeeded, testSuccesses=individualTestSuccesses))
         self._curTestId = None

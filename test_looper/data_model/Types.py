@@ -1,3 +1,4 @@
+import test_looper.core.Bitstring as Bitstring
 import test_looper.core.algebraic as algebraic
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.data_model.TestDefinition as TestDefinition
@@ -69,6 +70,8 @@ def setup_types(database):
         successes=int,
         totalRuns=int,
         activeRuns=int,
+        totalTestCount=float,
+        totalFailedTestCount=float,
         priority=database.TestPriority,
         targetMachineBoot=int, #the number of machines we want to boot to achieve this
         runsDesired=int, #the number of runs the _user_ indicated they wanted
@@ -103,7 +106,16 @@ def setup_types(database):
         endTimestamp=float,
         success=bool,
         machine=database.Machine,
-        canceled=bool
+        canceled=bool,
+        testNames=database.IndividualTestNameSet,
+        testFailures=Bitstring.Bitstring, #encoded as an 8-bit bitstring
+        totalTestCount=int,
+        totalFailedTestCount=int
+        )
+
+    database.IndividualTestNameSet.define(
+        shaHash=str,
+        test_names=algebraic.List(str)
         )
 
     database.Repo.define(
@@ -146,6 +158,8 @@ def setup_types(database):
         isAlive=bool
         )
 
+    database.addIndex(database.IndividualTestNameSet, 'shaHash')
+
     database.addIndex(database.DataTask, 'status')
     database.addIndex(database.DataTask, 'pending_boot_machine_check', lambda d: True if d.status.matches.Pending and d.task.matches.BootMachineCheck else None)
     database.addIndex(database.Machine, 'machineId')
@@ -181,6 +195,7 @@ def setup_types(database):
     database.addIndex(database.CommitRelationship, 'child')
     database.addIndex(database.Deployment, 'isAlive', lambda d: d.isAlive or None)
     database.addIndex(database.Deployment, 'isAliveAndPending', lambda d: d.isAlive and not d.machine or None)
+    database.addIndex(database.Deployment, 'runningOnMachine', lambda d: d.machine if d.isAlive else None)
     database.addIndex(database.Test, 'fullname')
     database.addIndex(database.Test, 'commitData')
     database.addIndex(database.Test, 'machineCategoryAndPrioritized',

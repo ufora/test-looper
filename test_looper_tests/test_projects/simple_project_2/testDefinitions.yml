@@ -48,3 +48,6 @@ tests:
       fi
     dependencies:
       simplesource: simple
+  test_with_individual_failures/linux:
+    command: |
+      echo '{"Test1": true, "Test2": false}' > $TEST_OUTPUT_DIR/testSummary.json

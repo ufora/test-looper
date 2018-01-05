@@ -328,7 +328,10 @@ class TestLooperHttpServer(object):
                 self.commonHeader(testRun.test.commitData.commit.repo) +
                 markdown.markdown("# Test\n") +
                 markdown.markdown("Test: %s\n" % testId) +
-                HtmlGeneration.link("LOGS", self.testLogsUrl(testId)).render() + 
+                markdown.markdown("## Commit ") + 
+                self.commitLink(testRun.test.commitData.commit).render() + 
+                markdown.markdown("##") + 
+                self.testLogsButton(testId).render() + 
                 markdown.markdown("## Artifacts\n") +
                 (HtmlGeneration.grid(grid) if grid else "")
                 )
@@ -349,6 +352,14 @@ class TestLooperHttpServer(object):
             cherrypy.response.headers["Content-Encoding"] = contents.content_encoding
 
         return contents.content
+
+    def testLogsButton(self, testId):
+        return HtmlGeneration.Link(
+            self.testLogsUrl(testId),
+            "LOGS", 
+            is_button=True,
+            button_style=self.disable_if_cant_write('btn-danger btn-xs')
+            )
 
     def testLogsUrl(self, testId):
         return self.address + "/terminalForTest?testId=%s" % testId
@@ -456,13 +467,36 @@ class TestLooperHttpServer(object):
             raise cherrypy.HTTPRedirect(redirect)
 
     @cherrypy.expose
+    def cancelTestRun(self, testRunId, redirect):
+        self.authorize(read_only=False)
+        
+        with self.testManager.transaction_and_lock():
+            testRun = self.testManager.getTestRunById(testRunId)
+
+            if testRun is None:
+                return self.errorPage("Unknown testid %s" % testRunId)
+
+            if not testRun.canceled:
+                self.testManager._cancelTestRun(testRun)
+
+        raise cherrypy.HTTPRedirect(redirect)
+
+    def cancelTestRunButton(self, testRunId):
+        return HtmlGeneration.Link(
+            self.address + "/cancelTestRun?" + urllib.urlencode({"testRunId":testRunId, "redirect": self.redirect()}),
+            "cancel", 
+            is_button=True,
+            button_style=self.disable_if_cant_write('btn-danger btn-xs')
+            )        
+    
+    @cherrypy.expose
     def machines(self):
         self.authorize(read_only=True)
 
         with self.testManager.database.view():
             machines = self.testManager.database.Machine.lookupAll(isAlive=True)
 
-            grid = [["MachineID", "Hardware", "OS", "BOOTED AT", "UP FOR", "STATUS", "LASTMSG"]]
+            grid = [["MachineID", "Hardware", "OS", "BOOTED AT", "UP FOR", "STATUS", "LASTMSG", "RUNNING"]]
             for m in sorted(machines, key=lambda m: -m.bootTime):
                 row = []
                 row.append(m.machineId)
@@ -477,6 +511,20 @@ class TestLooperHttpServer(object):
                     row.append("Heartbeat %s seconds ago" % int(time.time() - m.lastHeartbeat))
                 
                 row.append(m.lastHeartbeatMsg)
+
+                tests = self.testManager.database.TestRun.lookupAll(runningOnMachine=m)
+                deployments = self.testManager.database.Deployment.lookupAll(runningOnMachine=m)
+                    
+                if len(tests) + len(deployments) > 1:
+                    row.append("ERROR: multiple test runs/deployments")
+                elif tests:
+                    row.append("TEST " + self.testRunLink(tests[0]).render() + self.cancelTestRunButton(tests[0]._identity).render())
+                elif deployments:
+                    d = deployments[0]
+                    row.append(
+                        "DEPLOYMENT " + self.commitLink(d.test.commitData.commit, textIsSubject=False).render() + self.connectDeploymentLink(d).render() 
+                            + self.shutdownDeployment(d).render()
+                        )
                 
                 grid.append(row)
                 
@@ -494,7 +542,7 @@ class TestLooperHttpServer(object):
 
             commit = self.testManager.database.Commit.lookupAny(repo_and_hash=(repo, commitHash))
             if not commit:
-                return self.errorPage("Commit %s doesn't exist" % repoName)
+                return self.errorPage("Commit %s/%s doesn't exist" % (repo, commitHash))
 
             if not commit.data:
                 return self.errorPage("Commit hasn't been imported yet")
@@ -591,16 +639,19 @@ class TestLooperHttpServer(object):
         
         raise cherrypy.HTTPRedirect(self.address + "/terminalForDeployment?deploymentId=" + deploymentId)
 
+    def testRunLink(self, testRun):
+        return HtmlGeneration.link(str(testRun._identity)[:8], "/test?testId=" + testRun._identity)
+
     def gridForTestList_(self, sortedTests, commit=None, failuresOnly=False):
-        grid = [["TEST", "TYPE", "RESULT", "STARTED", "MACHINE", "ELAPSED (MIN)",
-                 "SINCE LAST HEARTBEAT (SEC)"]]
+        grid = [["TEST", "TYPE", "STATUS", "LOGS", "STARTED", "MACHINE", "ELAPSED (MIN)",
+                 "SINCE LAST HEARTBEAT (SEC)", "TOTAL TESTS", "FAILING TESTS"]]
 
         sortedTests = [x for x in sortedTests if not x.canceled]
         
         for testRun in sortedTests:
             row = []
 
-            row.append(HtmlGeneration.link(str(testRun._identity)[:20], "/test?testId=" + testRun._identity))
+            row.append(self.testRunLink(testRun))
 
             name = testRun.test.testDefinition.name
 
@@ -614,7 +665,9 @@ class TestLooperHttpServer(object):
             if testRun.endTimestamp > 0.0:
                 row.append("passed" if testRun.success else "failed")
             else:
-                row.append("running")
+                row.append(self.cancelTestRunButton(testRun._identity))
+
+            row.append(self.testLogsButton(testRun._identity))
 
             row.append(time.ctime(testRun.startedTimestamp))
 
@@ -633,6 +686,13 @@ class TestLooperHttpServer(object):
                 timeSinceHB = None
 
             row.append(str("%.2f" % timeSinceHB) if timeSinceHB is not None else "")
+
+            if testRun.totalTestCount > 0:
+                row.append(str(testRun.totalTestCount))
+                row.append(str(testRun.totalFailedTestCount))
+            else:
+                row.append("")
+                row.append("")
 
             grid.append(row)
 
@@ -801,15 +861,7 @@ class TestLooperHttpServer(object):
 
                 row.append(str(self.testManager.streamForDeployment(d._identity).clientCount()))
 
-                row.append(
-                    HtmlGeneration.Link( 
-                        self.address + "/terminalForDeployment?deploymentId=" + d._identity,
-                        "connect",
-                        is_button=True,
-                        new_tab=True,
-                        button_style=self.disable_if_cant_write('btn-danger btn-xs')
-                        )
-                    )
+                row.append(self.connectDeploymentLink(d))
 
                 row.append(
                     HtmlGeneration.Link(
@@ -823,6 +875,24 @@ class TestLooperHttpServer(object):
                 grid.append(row)
 
             return grid
+
+    def connectDeploymentLink(self, d):
+        return HtmlGeneration.Link( 
+            self.address + "/terminalForDeployment?deploymentId=" + d._identity,
+            "connect",
+            is_button=True,
+            new_tab=True,
+            button_style=self.disable_if_cant_write('btn-danger btn-xs')
+            )
+
+    def shutdownDeploymentLink(self, d):
+        return HtmlGeneration.Link( 
+            self.address + "/shutdownDeployment?deploymentId=" + d._identity,
+            "shutdown",
+            is_button=True,
+            new_tab=True,
+            button_style=self.disable_if_cant_write('btn-danger btn-xs')
+            )
 
     @cherrypy.expose
     def shutdownDeployment(self, deploymentId):
@@ -1269,9 +1339,9 @@ class TestLooperHttpServer(object):
                 else:
                     message = ""
 
-                if self.totalRuns == 0:
+                if self.totalRuns == 0 or self.errRate is None:
                     blendedErrRate = other.errRate
-                elif other.totalRuns == 0:
+                elif other.totalRuns == 0 or other.errRate is None:
                     blendedErrRate = self.errRate
                 else:
                     blendedErrRate = 1.0 - (1.0 - other.errRate) * (1.0 - self.errRate)

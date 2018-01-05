@@ -28,7 +28,7 @@ ClientToServerMsg.TestHeartbeat = {'testId': str}
 ClientToServerMsg.TestLogOutput = {'testId': str, 'log': str}
 ClientToServerMsg.DeploymentHeartbeat = {'deploymentId': str}
 ClientToServerMsg.DeploymentTerminalOutput = {'deploymentId': str, 'data': str}
-ClientToServerMsg.TestFinished = {'testId': str, 'success': bool}
+ClientToServerMsg.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,bool)}
 
 
 class Session(object):
@@ -106,7 +106,7 @@ class Session(object):
                     self.send(ServerToClientMsg.ShutdownDeployment(msg.deploymentId))
                     self.currentDeploymentId = None
         elif msg.matches.TestFinished:
-            self.testManager.recordTestResults(msg.success, msg.testId, time.time())
+            self.testManager.recordTestResults(msg.success, msg.testId, msg.testSuccesses, time.time())
             self.currentTestId = None
 
     def readString(self):

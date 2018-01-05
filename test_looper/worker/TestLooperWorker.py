@@ -87,10 +87,10 @@ class TestLooperWorker(object):
                      repoName, 
                      commitHash
                      )
-        
+
         self.workerState.purge_build_cache()
 
-        result = self.workerState.runTest(testId, repoName, commitHash, testName, self.testLooperClient, isDeploy)
+        result, individualTestSuccesses = self.workerState.runTest(testId, repoName, commitHash, testName, self.testLooperClient, isDeploy)
         
         if not self.stopEvent.is_set() and not isDeploy:
-            self.testLooperClient.publishTestResult(result)
+            self.testLooperClient.publishTestResult(result, individualTestSuccesses)

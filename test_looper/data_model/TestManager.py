@@ -5,6 +5,8 @@ import time
 import traceback
 import simplejson
 import threading
+from test_looper.core.hash import sha_hash
+import test_looper.core.Bitstring as Bitstring
 import test_looper.core.object_database as object_database
 import test_looper.core.algebraic as algebraic
 import test_looper.core.machine_management.MachineManagement as MachineManagement
@@ -343,7 +345,15 @@ class TestManager(object):
     def markBranchListDirty(self, reponame, curTimestamp):
         self.createTask(self.database.BackgroundTask.RefreshBranches(repo=reponame))
 
-    def recordTestResults(self, success, testId, curTimestamp):
+    def _testNameSet(self, testNames):
+        shaHash = sha_hash(tuple(sorted(testNames))).hexdigest
+        cur = self.database.IndividualTestNameSet.lookupAny(shaHash=shaHash)
+        if not cur:
+            return self.database.IndividualTestNameSet.New(shaHash=shaHash, test_names=sorted(testNames))
+        else:
+            return cur
+
+    def recordTestResults(self, success, testId, testSuccesses, curTimestamp):
         with self.transaction_and_lock():
             testRun = self.database.TestRun(str(testId))
 
@@ -354,6 +364,15 @@ class TestManager(object):
             
             testRun.test.activeRuns = testRun.test.activeRuns - 1
             testRun.test.totalRuns = testRun.test.totalRuns + 1
+
+            names = sorted(testSuccesses.keys())
+            testRun.testNames = self._testNameSet(names)
+            testRun.testFailures = Bitstring.Bitstring.fromBools([testSuccesses[n] for n in names])
+            testRun.totalTestCount = len(names)
+            testRun.totalFailedTestCount = len([n for n in names if not testSuccesses[n]])
+
+            testRun.test.totalTestCount = testRun.test.totalTestCount + testRun.totalTestCount
+            testRun.test.totalFailedTestCount = testRun.test.totalFailedTestCount + testRun.totalFailedTestCount
 
             testRun.success = success
             self.heartbeatHandler.testFinished(testId)
@@ -550,11 +569,13 @@ class TestManager(object):
     def _processTask(self, task, curTimestamp):
         if task.matches.PruneDeadWorkerMachines:
             with self.transaction_and_lock():
-                known_workers = [(x.machineId, x.hardware, x.os) for x in self.database.Machine.lookupAll(isAlive=True)]
+                known_workers = {x.machineId: (x.hardware, x.os) for x in self.database.Machine.lookupAll(isAlive=True)}
+
                 to_kill = self.machine_management.synchronize_workers(known_workers)
 
                 for machineId in to_kill:
-                    self._machineTerminated(machineId)
+                    if machineId in known_workers:
+                        self._machineTerminated(machineId)
 
         elif task.matches.RefreshRepos:
             all_repos = set(self.source_control.listRepos())
