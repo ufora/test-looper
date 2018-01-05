@@ -9,24 +9,35 @@
 
 export STORAGE=/media/ephemeral0
 
-#if this is an EBS volume, we have to mount our storage
-if [ -d $STORAGE ]
-then
-	echo "storage=$STORAGE is already mounted as an SSD."
-else
-	echo "storage=$STORAGE is not mounted. Creating it at /dev/xvdb"
-	sudo mkfs -t ext4 /dev/xvdb
-	sudo mkdir $STORAGE
-	sudo mount /dev/xvdb $STORAGE
-fi
+machineID=`curl http://169.254.169.254/latest/meta-data/instance-id`
+
+function log() {
+	curl -k "https://__test_looper_https_server__:__test_looper_https_port__/machineHeartbeatMessage?machineId=$machineId&heartbeatmsg=$1" > /dev/null 2>&1
+}
+
+log "TestLooper%20Mounting%20External%20Storage"
+
+echo "****************"
+echo "Mounting /dev/xvdb to $STORAGE"
+sudo mkfs -t ext4 /dev/xvdb
+sudo mkdir -p $STORAGE
+sudo mount /dev/xvdb $STORAGE
 
 echo "****************"
 echo 'df -h $STORAGE'
 df -h $STORAGE
 echo "****************"
 
+log "TestLooper%20Installing%20Docker"
+
 sudo yum install -y docker
+
+log "TestLooper%20Installing%20GCC"
+
 sudo yum install -y gcc
+
+log "TestLooper%20Installing%20GIT"
+
 sudo yum install -y git
 
 echo "Moving docker directory to $STORAGE"
@@ -34,7 +45,11 @@ sudo cp /var/lib/docker $STORAGE -r
 sudo rm /var/lib/docker -rf
 (cd /var/lib; sudo ln -s $STORAGE/docker)
 
+log "TestLooper%20Starting%20DOCKER"
+
 sudo service docker start
+
+log "TestLooper%20Installing%20Python%20Dependencies"
 
 sudo pip install boto3 psutil docker==2.6.1
 
@@ -85,6 +100,5 @@ echo "TestLooper configured as: "
 cat worker_config.json
 
 echo "TestLooper starting"
-machineID=`curl http://169.254.169.254/latest/meta-data/instance-id`
 
 python -u test_looper/worker/test-looper.py worker_config.json $machineID $TEST_LOOPER_INSTALL > logs/worker_log.txt 2>&1

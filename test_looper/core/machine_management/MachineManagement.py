@@ -279,7 +279,7 @@ class AwsMachineManagement(MachineManagement):
             else:
                 raise UnbootableWorkerCombination(hardware_config, os_config)
 
-            machineId = self.api.bootWorker(platform, instance_type, amiOverride=amiOverride)
+            machineId = self.api.bootWorker(platform, instance_type, hardware_config, amiOverride=amiOverride)
 
             self._machineBooted(machineId, hardware_config, os_config, True)
 

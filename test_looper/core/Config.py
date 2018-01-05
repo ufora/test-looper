@@ -136,5 +136,7 @@ WorkerConfig = algebraic.Alternative("WorkerConfig")
 WorkerConfig.Config = {
     "server_ports": ServerPortConfig,
     "source_control": SourceControlConfig,
-    "artifacts": ArtifactsConfig
+    "artifacts": ArtifactsConfig,
+    "cores": int,
+    "ram_gb": int
     }

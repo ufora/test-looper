@@ -557,7 +557,7 @@ class TestManager(object):
             return
         
         for testRun in list(self.database.TestRun.lookupAll(runningOnMachine=machine)):
-            self._cancelTestRun(machine.runningTest)
+            self._cancelTestRun(testRun)
 
         machine.isAlive = False
 
@@ -642,7 +642,11 @@ class TestManager(object):
                 commit = repo.branchTopCommit(task.branch.branchname)
 
                 if commit:
+                    if task.branch.head:
+                        self._triggerCommitPriorityUpdate(task.branch.head)
                     task.branch.head = self._lookupCommitByHash(task.branch.repo, commit)
+                    if task.branch.head:
+                        self._triggerCommitPriorityUpdate(task.branch.head)
 
         elif task.matches.UpdateCommitData:
             with self.transaction_and_lock():
@@ -919,19 +923,32 @@ class TestManager(object):
         min_ram_gb = test.testDefinition.min_ram_gb
 
         viable = []
+
         for hardware in self.machine_management.all_hardware_configs():
-            if hardware.cores >= min_cores and hardware.ram_gb >= min_ram_gb and (max_cores <= 0 or hardware.cores <= max_cores):
+            if hardware.cores >= min_cores and hardware.ram_gb >= min_ram_gb:
                 viable.append(hardware)
 
         if not viable:
             return None
 
-        if max_cores > 0:
-            #pick the largest number of cores less than or equal to this
-            desired_cores = max([v.cores for v in viable])
-            viable = [v for v in viable if v.cores == desired_cores]
+        if max_cores:
+            #we want the biggest machine that's less than this
+            smaller = [x for x in viable if x.cores <= max_cores]
 
-        return (viable[0], os)
+            #if none are available, still do something!
+            if not smaller:
+                return (viable[0], os)
+
+            #otherwise, take the largest one we can
+            return (smaller[-1], os)
+        else:
+            viable = sorted(viable, key=lambda k: k.cores)
+
+            logging.info("Viable machine types for (%s/%s/%s) are %s. Taking the smallest.", 
+                min_cores, max_cores, min_ram_gb, viable
+                )
+
+            return (viable[0], os)
 
     def _updateTestTargetMachineCountAndReturnIsDone(self, test):
         if test.commitData.commit.priority == 0:

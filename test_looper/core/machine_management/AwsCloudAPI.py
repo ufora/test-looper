@@ -58,8 +58,9 @@ class API:
         instance.terminate()
 
     def bootWorker(self, 
-            platform="linux", 
-            instanceType="c3.xlarge",
+            platform, 
+            instanceType,
+            hardwareConfig,
             clientToken=None,
             amiOverride=None
             ):
@@ -76,7 +77,9 @@ class API:
                         {
                         "server_ports": to_json(self.config.server_ports),
                         "source_control": to_json(self.config.source_control),
-                        "artifacts": to_json(self.config.artifacts)
+                        "artifacts": to_json(self.config.artifacts),
+                        "cores": hardwareConfig.cores,
+                        "ram_gb": hardwareConfig.ram_gb
                         },
                         indent=4
                         )
@@ -116,7 +119,9 @@ class API:
                 windows_bootstrap_script.replace("__test_config__", json.dumps({
                         "server_ports": to_json(self.config.server_ports),
                         "source_control": to_json(self.config.source_control),
-                        "artifacts": to_json(self.config.artifacts)
+                        "artifacts": to_json(self.config.artifacts),
+                        "cores": hardwareConfig.cores,
+                        "ram_gb": hardwareConfig.ram_gb
                         }, indent=4))
                     .replace("__testlooper_server_and_port__", looper_server_and_port)
                 )

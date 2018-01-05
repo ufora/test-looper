@@ -716,6 +716,8 @@ class WorkerState(object):
                 self._run_deployment(command, env_overrides, workerCallback, image)
                 return
             else:
+                workerCallback.heartbeat(time.asctime() + " TestLooper> Starting Test Run\n")
+                
                 test_logfile = os.path.join(self.directories.test_output_dir, 'test_out.log')
 
                 is_success = self._run_test_command(

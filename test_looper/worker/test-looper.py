@@ -61,7 +61,7 @@ def createTestWorker(config, worker_path, machineId):
         source_control=source_control,
         artifactStorage=artifact_storage,
         machineId=machineId,
-        hardwareConfig=Config.HardwareConfig(cores=1,ram_gb=4)
+        hardwareConfig=Config.HardwareConfig(cores=config.cores,ram_gb=config.ram_gb)
         )
 
     return TestLooperWorker.TestLooperWorker(workerState, machineId, config.server_ports)
