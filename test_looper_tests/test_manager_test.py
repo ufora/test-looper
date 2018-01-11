@@ -272,7 +272,7 @@ class TestManagerTestHarness:
     def assertOneshotMachinesDoOneTest(self):
         for m in self.machine_record:
             os = self.machineConfig(m)[1]
-            if os.matches.WindowsOneshot or os.matches.LinuxOneshot:
+            if os.matches.WindowsVM or os.matches.LinuxVM:
                 assert len(self.machine_record[m]) == 1, self.machine_record[m]
 
     def startAllNewTests(self):

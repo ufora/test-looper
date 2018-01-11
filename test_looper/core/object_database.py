@@ -2,7 +2,10 @@ import test_looper.core.algebraic as algebraic
 import test_looper.core.algebraic_to_json as algebraic_to_json
 from test_looper.core.hash import sha_hash
 import threading
+import logging
 import uuid
+import traceback
+import time
 
 _encoder = algebraic_to_json.Encoder()
 
@@ -185,6 +188,8 @@ class DatabaseView(object):
         self._writes = {}
         self._reads = set()
         self._readlog_disabled=False
+        self._t0 = None
+        self._stack = None
 
     def _get_dbkey(self, key):
         if key in self._writes:
@@ -375,11 +380,16 @@ class DatabaseView(object):
         return Scope()
 
     def __enter__(self):
+        self._t0 = time.time()
+        self._stack = traceback.format_stack()
+
         assert not hasattr(_cur_view, 'view')
         _cur_view.view = self
         return self
 
     def __exit__(self, type, val, tb):
+        if time.time() - self._t0 > 1.0:
+            logging.warn("long db transaction: %s elapsed.\n%s", time.time() - self._t0, "".join(self._stack))
         del _cur_view.view
         if type is None and self._writes:
             self.commit()

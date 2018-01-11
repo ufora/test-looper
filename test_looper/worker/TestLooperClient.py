@@ -33,6 +33,8 @@ class TestLooperClient(object):
 
         self._readThread.start()
 
+        self.send(TestLooperServer.ClientToServerMsg.InitializeConnection(machineId=machineId))
+
     def stop(self):
         logging.info("TestLooperClient stopping")
         try:
@@ -75,10 +77,10 @@ class TestLooperClient(object):
                     if s is None:
                         pass
                     if isinstance(s,list):
-                        s.append(msg.bytes)
+                        s.append(msg.msg)
                     else:
                         try:
-                            s(msg.bytes)
+                            s(msg.msg)
                         except:
                             logging.error("Failed to callback subscription to terminal input: %s", traceback.format_exc())
             else:
@@ -97,7 +99,7 @@ class TestLooperClient(object):
     def checkoutWork(self, waitTime):
         t0 = time.time()
         while time.time() - t0 < waitTime:
-            self.send(TestLooperServer.ClientToServerMsg.WaitingHeartbeat(machineId=self.machineId))
+            self.send(TestLooperServer.ClientToServerMsg.WaitingHeartbeat())
 
             msg = None
             try:
@@ -108,10 +110,12 @@ class TestLooperClient(object):
             if msg is not None:
                 if msg.matches.TestAssignment:
                     self._curTestId = msg.testId
+                    logging.info("New TestID is %s", self._curTestId)
                     return msg.repoName, msg.commitHash, msg.testName, msg.testId, False
 
                 if msg.matches.DeploymentAssignment:
                     self._curDeploymentId = msg.deploymentId
+                    logging.info("New deploymentId is %s", self._curDeploymentId)
                     return msg.repoName, msg.commitHash, msg.testName, msg.deploymentId, True
 
     def consumeMessages(self):
@@ -119,8 +123,10 @@ class TestLooperClient(object):
             while True:
                 m = self._msgQueue.get_nowait()
                 if m.matches.CancelTest and self._curTestId == m.testId:
+                    logging.info("TestLooper canceling test %s", self._curTestId)
                     self._curTestId = None
                 if m.matches.ShutdownDeployment and self._curDeploymentId == m.deploymentId:
+                    logging.info("TestLooper canceling deployment %s", self._curDeploymentId)
                     self._curDeploymentId = None
         except Queue.Empty:
             pass
@@ -155,11 +161,12 @@ class TestLooperClient(object):
             existing = self._subscriptions.get(self._curDeploymentId)
             self._subscriptions[self._curDeploymentId] = callback
 
-            for e in existing:
-                try:
-                    callback(e)
-                except:
-                    logging.error("Error passing terminal input to callback: %s", traceback.format_exc())
+            if existing:
+                for e in existing:
+                    try:
+                        callback(e)
+                    except:
+                        logging.error("Error passing terminal input to callback: %s", traceback.format_exc())
 
     def publishTestResult(self, succeeded, individualTestSuccesses):
         assert self._curTestId is not None

@@ -97,6 +97,10 @@ class ArtifactStorage(object):
         """Download a build in 'key_name' to 'dest'"""
         assert False, "Subclasses implement"
 
+    def clear_build(self, key_name):
+        """Clear a build"""
+        assert False, "Subclasses implement"
+
     def build_exists(self, key_name):
         """Returns true if a build with 'key_name' exists. False otherwise."""
         assert False, "Subclasses implement"
@@ -139,28 +143,52 @@ class AwsArtifactStorage(ArtifactStorage):
             if is_gzipped:
                 kwargs["ContentEncoding"] = "gzip"
 
+            if content_type != "text/plain":
+                kwargs["ContentDisposition"]="attachment; filename=\"" + keyname + "\";"
+
             self._bucket.put_object(
                 Body=f,
-                ContentDisposition="attachment; filename=\"" + keyname + "\";",
                 ContentType=content_type,
                 Key=self.test_artifact_key_prefix + "/" + testId + "/" + key,
                 **kwargs
                 )
 
     def testContentsHtml(self, testId, key):
+        content_type, keyname, is_gzipped = ArtifactStorage.keyname_to_encoding(key)
+            
+        Params = {'Bucket': self.bucket_name, 'Key': self.test_artifact_key_prefix + "/" + testId + "/" + key}
+        if is_gzipped:
+            Params["ResponseContentEncoding"] = "gzip"
+        Params["ResponseContentType"] = content_type
+        if content_type != "text/plain":
+            Params["ResponseContentDisposition"] = "attachment; filename=\"" + keyname + "\";"
+        else:
+            Params["ResponseContentDisposition"] = "inline"
+
         return FileContents.Redirect(
             self._session.client('s3').generate_presigned_url(
                 'get_object', 
-                Params = {'Bucket': self.bucket_name, 'Key': self.test_artifact_key_prefix + "/" + testId + "/" + key}, 
+                Params = Params, 
                 ExpiresIn = 300
                 )
             )
 
     def buildContentsHtml(self, key):
+        content_type, keyname, is_gzipped = ArtifactStorage.keyname_to_encoding(key)
+            
+        Params = {'Bucket': self.bucket_name, 'Key': self.test_artifact_key_prefix + "/" + testId + "/" + key}
+        if is_gzipped:
+            Params["ResponseContentEncoding"] = "gzip"
+        Params["ResponseContentType"] = content_type
+        if content_type != "text/plain":
+            Params["ResponseContentDisposition"] = "attachment; filename=\"" + keyname + "\";"
+        else:
+            Params["ResponseContentDisposition"] = "inline"
+
         return FileContents.Redirect(
             self._session.client('s3').generate_presigned_url(
                 'get_object', 
-                Params = {'Bucket': self.bucket_name, 'Key': self.build_artifact_key_prefix + "/" + key}, 
+                Params = Params, 
                 ExpiresIn = 300
                 )
             )
@@ -170,6 +198,10 @@ class AwsArtifactStorage(ArtifactStorage):
 
     def download_build(self, key_name, dest):
         self._bucket.download_file(self.build_artifact_key_prefix + "/" + key_name, dest)
+
+    def clear_build(self, key_name):
+        """Clear a build"""
+        self._bucket.Object(self.build_artifact_key_prefix + "/" + key_name).delete()
 
     def build_exists(self, key_name):
         try:
@@ -257,6 +289,10 @@ class LocalArtifactStorage(ArtifactStorage):
 
     def uploadSingleTestArtifact(self, testId, artifact_name, path):
         self.filecopy(os.path.join(self.test_artifacts_storage_path,testId, artifact_name), path)
+
+    def clear_build(self, key_name):
+        """Clear a build"""
+        os.remove(os.path.join(self.build_storage_path,testId, key_name))
 
     def build_exists(self, key_name):
         return os.path.exists(os.path.join(self.build_storage_path, key_name))

@@ -13,8 +13,12 @@ import test_looper.core.algebraic_to_json as algebraic_to_json
 
 SWEEP_FREQUENCY = 30
 
+TerminalInputMsg = algebraic.Alternative("TerminalInputMsg")
+TerminalInputMsg.KeyboardInput = {"bytes": str}
+TerminalInputMsg.Resize = {"cols": int, "rows": int}
+
 ServerToClientMsg = algebraic.Alternative("ServerToClientMsg")
-ServerToClientMsg.TerminalInput = {'deploymentId': str, 'bytes': str}
+ServerToClientMsg.TerminalInput = {'deploymentId': str, 'msg': TerminalInputMsg}
 ServerToClientMsg.TestAssignment = {'repoName': str, 'commitHash': str, 'testId': str, 'testName': str}
 ServerToClientMsg.CancelTest = {'testId': str}
 
@@ -23,7 +27,8 @@ ServerToClientMsg.ShutdownDeployment = {'deploymentId': str}
 
 ClientToServerMsg = algebraic.Alternative("ClientToServerMsg")
 
-ClientToServerMsg.WaitingHeartbeat = {'machineId': str}
+ClientToServerMsg.InitializeConnection = {'machineId': str}
+ClientToServerMsg.WaitingHeartbeat = {}
 ClientToServerMsg.TestHeartbeat = {'testId': str}
 ClientToServerMsg.TestLogOutput = {'testId': str, 'log': str}
 ClientToServerMsg.DeploymentHeartbeat = {'deploymentId': str}
@@ -40,6 +45,7 @@ class Session(object):
         self.currentTestId = None
         self.currentDeploymentId = None
         self.socketLock = threading.Lock()
+        self.machineId = None
 
         logging.info("Incoming Server Connection initialized.")
 
@@ -62,10 +68,13 @@ class Session(object):
         self.writeString(json.dumps(algebraic_to_json.Encoder().to_json(msg)))
 
     def processMsg(self, msg):
-        if msg.matches.WaitingHeartbeat:
-            self.testManager.machineHeartbeat(msg.machineId, time.time())
+        if msg.matches.InitializeConnection:
+            self.machineId = msg.machineId
+            self.testManager.machineInitialized(msg.machineId, time.time())
+        elif msg.matches.WaitingHeartbeat:
+            self.testManager.machineHeartbeat(self.machineId, time.time())
             if self.currentDeploymentId is None and self.currentTestId is None:
-                repoName, commitHash, testName, deploymentId = self.testManager.startNewDeployment(msg.machineId, time.time())
+                repoName, commitHash, testName, deploymentId = self.testManager.startNewDeployment(self.machineId, time.time())
                 if repoName is not None:
                     self.currentDeploymentId = deploymentId
                     self.send(ServerToClientMsg.DeploymentAssignment(
@@ -76,10 +85,10 @@ class Session(object):
                         ))
                     def onMessage(msg):
                         if self.currentDeploymentId == deploymentId:
-                            self.send(ServerToClientMsg.TerminalInput(deploymentId=deploymentId,bytes=msg))
+                            self.send(ServerToClientMsg.TerminalInput(deploymentId=deploymentId,msg=msg))
                     self.testManager.subscribeToClientMessages(deploymentId, onMessage)
                 else:
-                    repoName, commitHash, testName, testId = self.testManager.startNewTest(msg.machineId, time.time())
+                    repoName, commitHash, testName, testId = self.testManager.startNewTest(self.machineId, time.time())
                     if repoName is not None:
                         self.currentTestId = testId
                         self.send(ServerToClientMsg.TestAssignment(
@@ -97,7 +106,9 @@ class Session(object):
 
             if msg.testId == self.currentTestId:
                 if not self.testManager.testHeartbeat(msg.testId, time.time(), log):
-                    self.send(ServerToClientMsg.CancelTest())
+                    logging.info("Server canceling test %s on machine %s", msg.testId, self.machineId)
+
+                    self.send(ServerToClientMsg.CancelTest(testId=msg.testId))
                     self.currentTestId = None
         elif msg.matches.DeploymentHeartbeat or msg.matches.DeploymentTerminalOutput:
             log = msg.data if msg.matches.DeploymentTerminalOutput else None
@@ -139,28 +150,35 @@ class TestLooperServer(SimpleServer.SimpleServer):
         self.workerThread.daemon=True
 
     def executeManagerWork(self):
-        lastSweep = None
+        try:
+            lastSweep = None
 
-        while not self.shouldStop():
-            task = self.testManager.performBackgroundWork(time.time())
+            while not self.shouldStop():
+                task = self.testManager.performBackgroundWork(time.time())
 
-            if lastSweep is None or time.time() - lastSweep > SWEEP_FREQUENCY:
-                lastSweep = time.time()
-                try:
-                    self.testManager.performCleanupTasks(time.time())
-                except:
-                    logging.critical("Test manager failed during cleanup:\n%s", traceback.format_exc())
+                if lastSweep is None or time.time() - lastSweep > SWEEP_FREQUENCY:
+                    lastSweep = time.time()
+                    try:
+                        self.testManager.performCleanupTasks(time.time())
+                    except:
+                        logging.critical("Test manager failed during cleanup:\n%s", traceback.format_exc())
 
-            logging.debug("Performed %s", task)
-            if task is None:
-                time.sleep(.1)
+                if task:
+                    logging.info("Performed %s", task)
+                if task is None:
+                    time.sleep(.1)
+        except:
+            logging.critical("Manager worker thread exiting:\n%s", traceback.format_exc())
 
     def port(self):
         return self.port_
 
     def initialize(self):
+        logging.info("Initializing TestManager.")
         self.testManager.markRepoListDirty(time.time())
-        self.testManager.triggerPruneDeadWorkerMachines(time.time())
+        self.testManager.pruneDeadWorkers(time.time())
+        logging.info("DONE Initializing TestManager.")
+        
 
     def runListenLoop(self):
         logging.info("Starting TestLooperServer listen loop")

@@ -14,7 +14,6 @@ def setup_types(database):
 
     database.BackgroundTask.RefreshRepos = {}
     database.BackgroundTask.BootMachineCheck = {}
-    database.BackgroundTask.PruneDeadWorkerMachines = {}
     database.BackgroundTask.RefreshBranches = {"repo": database.Repo}
     database.BackgroundTask.UpdateBranchTopCommit = {"branch": database.Branch}
     database.BackgroundTask.UpdateCommitData = {"commit": database.Commit}

@@ -7,8 +7,6 @@
 ########################################################################
 
 try {
-    C:\ProgramData\Amazon\EC2-Windows\Launch\Scripts\InitializeDisks.ps1
-    
     md -Force C:\ProgramData\TestLooper
     md -Force C:\Users\Administrator\.ssh
 

@@ -13,8 +13,8 @@ import os
 OsConfig = algebraic.Alternative("OsConfig")
 OsConfig.LinuxWithDocker = {}
 OsConfig.WindowsWithDocker = {}
-OsConfig.WindowsOneshot = {"ami": str}
-OsConfig.LinuxOneshot = {"ami": str}
+OsConfig.WindowsVM = {"ami": str}
+OsConfig.LinuxVM = {"ami": str}
 
 class UnbootableWorkerCombination(Exception):
     """An exception indicating that we can't meet this request for hardware/software,
@@ -139,7 +139,7 @@ class DummyMachineManagement(MachineManagement):
         with self._lock:
             assert hardware_config in self.all_hardware_configs()
 
-            if os_config.matches.WindowsOneshot and not os_config.ami.startswith("ami-"):
+            if os_config.matches.WindowsVM and not os_config.ami.startswith("ami-"):
                 raise UnbootableWorkerCombination(hardware_config, os_config)
 
             machineId = "worker_" + str(uuid.uuid4()).replace("-","")[:10]
@@ -187,7 +187,7 @@ class LocalMachineManagement(MachineManagement):
 
             logging.info("Trying to boot %s / %s", hardware_config, os_config)
 
-            if os_config.matches.WindowsOneshot:
+            if os_config.matches.WindowsVM:
                 machineId = "worker_" + str(self.windows_oneshots)
                 logging.info("Booted fake windows one-shot worker %s" % machineId)
                 self.windows_oneshots += 1
@@ -211,7 +211,9 @@ class LocalMachineManagement(MachineManagement):
                         hardware_config
                         ),
                     machineId,
-                    self.config.server_ports
+                    self.config.server_ports,
+                    False,
+                    2.0
                     )
 
                 self._machineBooted(machineId, hardware_config, os_config, worker)
@@ -234,6 +236,11 @@ class AwsMachineManagement(MachineManagement):
         with self._lock:
             activeMachines = set(self.api.machineIdsOfAllWorkers())
 
+            all_machine_ids = set(list(activeMachines) + list(machineIds) + list(self.runningMachines))
+
+            for m in all_machine_ids:
+                logging.info("Machine %s: AWS=%s  DB=%s  RUN=%s", m, m in activeMachines, m in machineIds, m in self.runningMachines)
+
             machinesThatAppearDead = [m for m in machineIds if m not in activeMachines]
 
             machinesToKill = [m for m in activeMachines if m not in machineIds]
@@ -250,6 +257,8 @@ class AwsMachineManagement(MachineManagement):
 
             for m in machineIds:
                 if m in activeMachines:
+                    logging.info("Machine %s is already up and running: %s/%s", m, machineIds[m][0], machineIds[m][1])
+
                     self._machineBooted(m, machineIds[m][0], machineIds[m][1], True)
 
             return machinesThatAppearDead
@@ -273,7 +282,7 @@ class AwsMachineManagement(MachineManagement):
             if os_config.matches.LinuxWithDocker:
                 platform = "linux"
                 amiOverride = None
-            elif os_config.matches.WindowsOneshot:
+            elif os_config.matches.WindowsVM:
                 platform = "windows"
                 amiOverride = os_config.ami
             else:

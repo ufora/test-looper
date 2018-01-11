@@ -13,11 +13,14 @@ import urllib
 import urlparse
 import pytz
 import simplejson
+import struct
 import os
 import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
+from test_looper.server.TestLooperServer import TerminalInputMsg
+
 from ws4py.server.cherrypyserver import WebSocketPlugin, WebSocketTool
 from ws4py.websocket import WebSocket
 
@@ -71,6 +74,7 @@ class InteractiveEnvironmentHandler:
         self.testManager = testManager
         self.deploymentId = deploymentId
         self.websocket = websocket
+        self.buffer = ""
 
         testManager.subscribeToDeployment(self.deploymentId, self.onTestOutput)
 
@@ -82,7 +86,44 @@ class InteractiveEnvironmentHandler:
             logging.error("Error in websocket handler: \n%s", traceback.format_exc())
 
     def onData(self, message):
-        self.testManager.writeMessageToDeployment(self.deploymentId, message)
+        try:
+            self.buffer += message
+
+            while len(self.buffer) >= 4:
+                which_msg = struct.unpack(">i", self.buffer[:4])[0]
+
+                if which_msg == 0:
+                    if len(self.buffer) < 8:
+                        return
+
+                    #this is a data message
+                    bytes_expected = struct.unpack(">i", self.buffer[4:8])[0]
+
+                    if len(self.buffer) >= bytes_expected + 8:
+                        msg = TerminalInputMsg.KeyboardInput(bytes=self.buffer[8:8+bytes_expected])
+                        self.buffer = self.buffer[8+bytes_expected:]
+                        self.testManager.writeMessageToDeployment(self.deploymentId, msg)
+                    else:
+                        return
+
+                elif which_msg == 1:
+                    if len(self.buffer) < 12:
+                        return
+                    
+                    #this is a console resize-message
+                    cols = struct.unpack(">i", self.buffer[4:8])[0]
+                    rows = struct.unpack(">i", self.buffer[8:12])[0]
+
+                    self.buffer = self.buffer[12:]
+
+                    msg = TerminalInputMsg.Resize(cols=cols, rows=rows)
+
+                    self.testManager.writeMessageToDeployment(self.deploymentId, msg)
+                else:
+                    self.websocket.close()
+                    return
+        except:
+            logging.error("Error in websocket handler:\n%s", traceback.format_exc())
 
     def onClosed(self):
         self.testManager.unsubscribeFromDeployment(self.deploymentId, self.onTestOutput)
@@ -131,7 +172,6 @@ def MakeWebsocketHandler(httpServer):
                     if not everGotAMessage[0]:
                         everGotAMessage[0] = True
                         self.initialize()
-                        msg = msg[1:]
 
                     if handler[0]:
                         handler[0].onData(msg)
@@ -308,7 +348,7 @@ class TestLooperHttpServer(object):
             grid = [["ARTIFACTS"]]
 
             if testRun.test.testDefinition.matches.Build:
-                build_key = testRun.test.fullname.replace("/","_") + ".tar"
+                build_key = testRun.test.fullname.replace("/","_") + ".tar.gz"
 
                 if self.artifactStorage.build_exists(build_key):
                     grid.append([
@@ -342,6 +382,7 @@ class TestLooperHttpServer(object):
 
     def processFileContents(self, contents):
         if contents.matches.Redirect:
+            logging.info("Redirecting to %s", contents.url)
             raise cherrypy.HTTPRedirect(contents.url)
 
         if contents.content_type:
@@ -353,6 +394,14 @@ class TestLooperHttpServer(object):
 
         return contents.content
 
+    def deleteTestRunButton(self, testId):
+        return HtmlGeneration.Link(
+            self.deleteTestRunUrl(testId),
+            "CLEAR", 
+            is_button=True,
+            button_style=self.disable_if_cant_write('btn-danger btn-xs')
+            )
+
     def testLogsButton(self, testId):
         return HtmlGeneration.Link(
             self.testLogsUrl(testId),
@@ -361,10 +410,27 @@ class TestLooperHttpServer(object):
             button_style=self.disable_if_cant_write('btn-danger btn-xs')
             )
 
+    @cherrypy.expose
+    def clearTestRun(self, testId, redirect):
+        self.authorize(read_only=False)
+
+        self.testManager.clearTestRun(testId)
+
+        with self.testManager.database.view():
+            testRun = self.testManager.getTestRunById(testId)
+
+            if testRun.test.testDefinition.matches.Build:
+                build_key = testRun.test.fullname.replace("/","_") + ".tar.gz"
+                self.artifactStorage.clear_build(build_key)
+
+        raise cherrypy.HTTPRedirect(redirect)
+
+    def deleteTestRunUrl(self, testId):
+        return self.address + "/clearTestRun?" + urllib.urlencode({"testId": testId, "redirect": self.redirect()})
+
     def testLogsUrl(self, testId):
         return self.address + "/terminalForTest?testId=%s" % testId
-
-    
+   
     def testResultDownloadUrl(self, testId, key):
         return self.address + "/test_contents?testId=%s&key=%s" % (testId, key)
 
@@ -434,6 +500,11 @@ class TestLooperHttpServer(object):
     def clearCommitIdLink(self, commitId):
         return self.small_clear_button(
             "/clearCommit?" + urllib.urlencode({'commitId': commitId, 'redirect': self.redirect()}),
+            )
+
+    def clearTestLink(self, testname):
+        return self.small_clear_button(
+            "/clearTest?" + urllib.urlencode({'testname': testname, 'redirect': self.redirect()}),
             )
 
     def sourceLinkForCommit(self, commit):
@@ -523,13 +594,75 @@ class TestLooperHttpServer(object):
                     d = deployments[0]
                     row.append(
                         "DEPLOYMENT " + self.commitLink(d.test.commitData.commit, textIsSubject=False).render() + self.connectDeploymentLink(d).render() 
-                            + self.shutdownDeployment(d).render()
+                            + self.shutdownDeploymentLink(d).render()
                         )
                 
                 grid.append(row)
                 
             return self.commonHeader() + HtmlGeneration.grid(grid)
 
+    @cherrypy.expose
+    def commit_2(self, repoName, commitHash):
+        self.authorize(read_only=True)
+
+        with self.testManager.database.view():
+            repo = self.testManager.database.Repo.lookupAny(name=repoName)
+            if not repo:
+                return self.errorPage("Repo %s doesn't exist" % repoName)
+
+            commit = self.testManager.database.Commit.lookupAny(repo_and_hash=(repo, commitHash))
+            if not commit:
+                return self.errorPage("Commit %s/%s doesn't exist" % (repo, commitHash))
+
+            if not commit.data:
+                return self.errorPage("Commit hasn't been imported yet")
+
+            tests = self.testManager.database.Test.lookupAll(commitData=commit.data)
+            
+            tests = sorted(tests, key=lambda test: (test.testDefinition.environment, test.fullname))
+            
+
+            grid = [["TEST", "", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", ""]]
+
+            for t in tests:
+                row = []
+
+                row.append(t.testDefinition.name)
+                row.append("") #self.clearTestLink(t.fullname))
+                row.append(
+                    HtmlGeneration.Link(self.bootTestOrEnvUrl(t.fullname),
+                       "BOOT",
+                       is_button=True,
+                       new_tab=True,
+                       button_style=self.disable_if_cant_write('btn-danger btn-xs')
+                       )
+                    )
+
+                row.append(t.fullname.split("/")[-1])
+
+                row.append(str(t.activeRuns))
+                row.append(str(t.totalRuns - t.activeRuns))
+                row.append(str(t.priority))
+                if t.totalRuns - t.activeRuns:
+                    row.append(str(t.totalTestCount / float(t.totalRuns - t.activeRuns)))
+                    row.append(str(t.totalFailedTestCount / float(t.totalRuns - t.activeRuns)))
+                else:
+                    row.append("")
+                    row.append("")                    
+
+                runButtons = []
+
+                for testRun in self.testManager.database.TestRun.lookupAll(test=t):
+                    runButtons.append(self.testLogsButton(testRun._identity).render())
+                row.append(" ".join(runButtons))
+
+                grid.append(row)
+
+
+            header = """## Commit `%s`: `%s`\n""" % (commit.hash[:10], commit.data.subject)
+            header = self.commonHeader(currentRepo=repoName) + markdown.markdown(header)
+
+            return header + HtmlGeneration.grid(grid)
 
     @cherrypy.expose
     def commit(self, repoName, commitHash, failuresOnly=False, testName=None):
@@ -643,7 +776,7 @@ class TestLooperHttpServer(object):
         return HtmlGeneration.link(str(testRun._identity)[:8], "/test?testId=" + testRun._identity)
 
     def gridForTestList_(self, sortedTests, commit=None, failuresOnly=False):
-        grid = [["TEST", "TYPE", "STATUS", "LOGS", "STARTED", "MACHINE", "ELAPSED (MIN)",
+        grid = [["TEST", "TYPE", "STATUS", "LOGS", "CLEAR", "STARTED", "MACHINE", "ELAPSED (MIN)",
                  "SINCE LAST HEARTBEAT (SEC)", "TOTAL TESTS", "FAILING TESTS"]]
 
         sortedTests = [x for x in sortedTests if not x.canceled]
@@ -668,6 +801,8 @@ class TestLooperHttpServer(object):
                 row.append(self.cancelTestRunButton(testRun._identity))
 
             row.append(self.testLogsButton(testRun._identity))
+
+            row.append(self.deleteTestRunButton(testRun._identity))
 
             row.append(time.ctime(testRun.startedTimestamp))
 
@@ -1362,7 +1497,16 @@ class TestLooperHttpServer(object):
 
                 test = tests[testGroup]
                 if test.priority.matches.UnresolvedDependencies:
-                    message="Unresolved Dependencies"
+                    message="Unresolved Dependencies: "
+                    bad_deps = []
+                    for dep in self.testManager.database.UnresolvedTestDependency.lookupAll(test=test):
+                        bad_deps.append(dep.dependsOnName)
+                    for dep in self.testManager.database.UnresolvedRepoDependency.lookupAll(test=test):
+                        bad_deps.append(dep.reponame + "/" + dep.commitHash)
+                    for dep in self.testManager.database.UnresolvedSourceDependency.lookupAll(test=test):
+                        bad_deps.append(dep.repo.name + "/" + dep.commitHash)
+
+                    message += "(" + ",".join(bad_deps) + ")"
                 elif test.priority.matches.DependencyFailed:
                     message="Dependency Failed"
                 else:
@@ -1569,12 +1713,23 @@ class TestLooperHttpServer(object):
                 this.io.onTerminalResize = this.onTerminalResize.bind(this);
             }
 
+            function toBytesInt32 (num) {
+                arr = new ArrayBuffer(4); // an Int32 takes 4 bytes
+                view = new DataView(arr);
+                view.setUint32(0, num, false); // byteOffset = 0; litteEndian = false
+                return arr;
+            }
+
             Terminal.prototype.sendString_ = function(str) {
+                websocket.send(toBytesInt32(0))
+                websocket.send(toBytesInt32(str.length))
                 websocket.send(str);
             };
 
             Terminal.prototype.onTerminalResize = function(col, row) {
-                //socket.emit('resize', { col: col, row: row });
+                websocket.send(toBytesInt32(1))
+                websocket.send(toBytesInt32(col))
+                websocket.send(toBytesInt32(row))
             };
 
             websocket.onopen = function() {
@@ -1592,14 +1747,7 @@ class TestLooperHttpServer(object):
 
                     term.runCommandClass(Terminal, document.location.hash.substr(1));
                     
-                    websocket.send(" ")
-
-                    /*
-                    socket.emit('resize', {
-                        col: term.screenSize.width,
-                        row: term.screenSize.height
-                    });
-                    */
+                    term.onTerminalResize(term.screenSize.width, term.screenSize.height)
 
                     if (buf && buf != '')
                     {

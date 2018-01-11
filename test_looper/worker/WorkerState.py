@@ -17,6 +17,9 @@ import base64
 import tempfile
 import cStringIO as StringIO
 
+for name in ["boto3", "requests", "urllib"]:
+    logging.getLogger(name).setLevel(logging.CRITICAL)
+
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.tools.Git as Git
 import test_looper.core.DirectoryScope as DirectoryScope
@@ -48,7 +51,7 @@ class DummyWorkerCallbacks:
     def subscribeToTerminalInput(self, callback):
         pass
 
-HEARTBEAT_INTERVAL=10
+HEARTBEAT_INTERVAL=3
 
 class NAKED_MACHINE:
     pass
@@ -56,7 +59,7 @@ class NAKED_MACHINE:
 class TestLooperDirectories:
     def __init__(self, worker_directory):
         self.repo_cache = os.path.join(worker_directory, "repos")
-        self.repo_copy_dir = os.path.join(worker_directory, "repo_copy")
+        self.repo_copy_dir = os.path.join(worker_directory, "src")
         self.scratch_dir = os.path.join(worker_directory, "scratch_dir")
         self.command_dir = os.path.join(worker_directory, "command")
         self.test_inputs_dir = os.path.join(worker_directory, "test_inputs")
@@ -75,6 +78,8 @@ class WorkerState(object):
         import test_looper.worker.TestLooperWorker
 
         self.name_prefix = name_prefix
+
+        self.isFirstTest = True
 
         assert isinstance(worker_directory, (str,unicode)), worker_directory
         worker_directory = str(worker_directory)
@@ -207,15 +212,34 @@ class WorkerState(object):
         if sys.platform == "win32":
             assert docker_image is NAKED_MACHINE
 
+            env_to_pass = dict(os.environ)
+            env_to_pass.update(env)
+
+            invoker_path = os.path.join(self.directories.command_dir,"command_invoker.ps1")
+            command_path = os.path.join(self.directories.command_dir,"command.ps1")
+            with open(command_path,"w") as cmd_file:
+                print >> cmd_file, "cd '" + self.directories.repo_copy_dir + "'"
+                print >> cmd_file, "echo 'Welcome to TestLooper on Windows. Here is the current environment:'"
+                print >> cmd_file, "gci env:* | sort-object name"
+                print >> cmd_file, "echo '********************************'"
+                print >> cmd_file, command
+
+            with open(invoker_path,"w") as cmd_file:
+                print >> cmd_file, "powershell.exe " + command_path
+                print >> cmd_file, "powershell.exe"
+
             running_subprocess = subprocess.Popen(
-                ["powershell.exe", "-ExecutionPolicy", "Bypass"],
+                ["powershell.exe", "-ExecutionPolicy", "Bypass", invoker_path],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 shell=True,
+                env=env_to_pass,
                 creationflags=subprocess.CREATE_NEW_CONSOLE
                 )
 
+            logging.info("Powershell process has pid %s", running_subprocess.pid)
+            
             time.sleep(.5)
 
             readthreadStop = threading.Event()
@@ -227,12 +251,13 @@ class WorkerState(object):
                             #do a little throttling
                             time.sleep(0.01)
                         else:
-                            workerCallback.terminalOutput(data)
+                            workerCallback.terminalOutput(data.replace("\n","\n\r"))
                 except:
                     logging.error("Read loop failed:\n%s", traceback.format_exc())
 
             readthreads = [threading.Thread(target=readloop, args=(x,)) for x in [running_subprocess.stdout, running_subprocess.stderr]]
             for t in readthreads:
+                t.daemon=True
                 t.start()
 
             try:
@@ -242,12 +267,11 @@ class WorkerState(object):
                         return
                     try:
                         if not writeFailed[0]:
-                            running_subprocess.stdin.write(msg)
+                            if msg.matches.KeyboardInput:
+                                running_subprocess.stdin.write(msg.bytes)
                     except:
                         writeFailed[0] = True 
                         logging.error("Failed to write to stdin: %s", traceback.format_exc())
-
-                write(command + "\n")
 
                 workerCallback.subscribeToTerminalInput(write)
 
@@ -263,15 +287,20 @@ class WorkerState(object):
 
                     workerCallback.heartbeat()
             finally:
+                try:
+                    if ret_code is not None:
+                        running_subprocess.terminate()
+                except:
+                    logging.info("Failed to terminate subprocess: %s", traceback.format_exc())
                 readthreadStop.set()
-                for t in readthreads:
-                    t.join()
         else:
             with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
                 print >> f, command
 
             with open(os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w") as f:
-                print >> f, "bash /test_looper/command/cmd.sh\nbash"
+                print >> f, "bash /test_looper/command/cmd.sh"
+                print >> f, "export PS1='${debian_chroot:+($debian_chroot)}\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ '"
+                print >> f, "bash --noprofile --norc"
 
             assert docker_image is not None
 
@@ -291,8 +320,6 @@ class WorkerState(object):
                     stdin_open=True
                     )
 
-                container.resize(140,60)
-
                 #these are standard socket objects connected to the container's TTY input/output
                 stdin = docker.from_env().api.attach_socket(container.id, params={'stdin':1,'stream':1,'logs':None})
                 stdout = docker.from_env().api.attach_socket(container.id, params={'stdout':1,'stream':1,'logs':None})
@@ -304,7 +331,6 @@ class WorkerState(object):
                         if not data:
                             logging.info("Socket stdout connection to %s terminated", container.id)
                             return
-                        
                         workerCallback.terminalOutput(data)
 
                 readthread = threading.Thread(target=readloop)
@@ -318,7 +344,11 @@ class WorkerState(object):
                         return
                     try:
                         if not writeFailed[0]:
-                            stdin.sendall(msg)
+                            if msg.matches.KeyboardInput:
+                                stdin.sendall(msg.bytes)
+                            elif msg.matches.Resize:
+                                logging.info("Terminal resizing to %s cols and %s rows", msg.cols, msg.rows)
+                                container.resize(msg.rows, msg.cols)
                     except:
                         writeFailed[0] = True 
                         logging.error("Failed to write to stdin: %s", traceback.format_exc())
@@ -368,7 +398,90 @@ class WorkerState(object):
         print >> build_log
 
 
-    def _run_test_command(self, command, log_filename, timeout, env, workerCallback, docker_image):
+    def _run_test_command(self, command, log_filename, timeout, env, workerCallback, docker_image, verbose=True):
+        if sys.platform == "win32":
+            return self._run_test_command_windows(command, log_filename, timeout, env, workerCallback, docker_image, verbose)
+        else:
+            return self._run_test_command_linux(command, log_filename, timeout, env, workerCallback, docker_image, verbose)
+
+    def _run_test_command_windows(self, command, log_filename, timeout, env, workerCallback, docker_image, verbose):
+        assert docker_image is NAKED_MACHINE
+
+        env_to_pass = dict(os.environ)
+        env_to_pass.update(env)
+
+        invoker_path = os.path.join(self.directories.command_dir,"command_invoker.ps1")
+        command_path = os.path.join(self.directories.command_dir,"command.ps1")
+        with open(command_path,"w") as cmd_file:
+            print >> cmd_file, "cd '" + self.directories.repo_copy_dir + "'"
+            print >> cmd_file, "echo 'Welcome to TestLooper on Windows. Here is the current environment:'"
+            print >> cmd_file, "gci env:* | sort-object name"
+            print >> cmd_file, "echo '********************************'"
+            print >> cmd_file, command
+
+        with open(invoker_path,"w") as cmd_file:
+            print >> cmd_file, (
+                "powershell.exe __cmd_path__ | Tee-Object -FilePath __log_path__ 2>&1"
+                .replace("__cmd_path__", command_path)
+                .replace("__log_path__", os.path.join(self.directories.test_output_dir,"test_out.log"))
+                )
+            print >> cmd_file, "exit $lastexitcode"
+
+        running_subprocess = subprocess.Popen(
+            ["powershell.exe", "-ExecutionPolicy", "Bypass", invoker_path],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            shell=True,
+            env=env_to_pass,
+            creationflags=subprocess.CREATE_NEW_CONSOLE
+            )
+
+        logging.info("Powershell process has pid %s", running_subprocess.pid)
+        time.sleep(.5)
+
+        readthreadStop = threading.Event()
+        def readloop(file):
+            try:
+                while not readthreadStop.is_set():
+                    data = os.read(file.fileno(), 4096)
+                    if not data:
+                        #do a little throttling
+                        time.sleep(0.01)
+                    else:
+                        workerCallback.heartbeat(data)
+            except:
+                logging.error("Read loop failed:\n%s", traceback.format_exc())
+
+        readthreads = [threading.Thread(target=readloop, args=(x,)) for x in [running_subprocess.stdout, running_subprocess.stderr]]
+        for t in readthreads:
+            t.daemon=True
+            t.start()
+
+        try:
+            ret_code = None
+            while ret_code is None:
+                try:
+                    ret_code = running_subprocess.poll()
+                    time.sleep(HEARTBEAT_INTERVAL)
+                except requests.exceptions.ReadTimeout:
+                    pass
+                except requests.exceptions.ConnectionError:
+                    pass
+
+                workerCallback.heartbeat()
+        finally:
+            try:
+                if ret_code is not None:
+                    running_subprocess.terminate()
+            except:
+                logging.info("Failed to terminate subprocess: %s", traceback.format_exc())
+
+            readthreadStop.set()
+
+        return ret_code == 0
+
+    def _run_test_command_linux(self, command, log_filename, timeout, env, workerCallback, docker_image, verbose):
         tail_proc = None
         
         try:
@@ -381,7 +494,11 @@ class WorkerState(object):
                 tail_proc = SubprocessRunner.SubprocessRunner(["tail", "-f",log_filename,"-n","+0"], printer, printer, enablePartialLineOutput=True)
                 tail_proc.start()
 
-                self.dumpPreambleLog(build_log, env, docker_image, command)
+                if verbose:
+                    self.dumpPreambleLog(build_log, env, docker_image, command)
+                else:
+                    print >> build_log, "TestLooper Running command ", command
+                    build_log.flush()
 
             logging.info("Running command: '%s'. Log: %s. Docker Image: %s", 
                 command, 
@@ -595,12 +712,13 @@ class WorkerState(object):
                 return True, {}
             
             return self._run_task(testId, repoName, commitHash, testDefinition, workerCallback, isDeploy)
-
         except:
             error_message = "Test failed because of exception: %s" % traceback.format_exc()
             logging.error(error_message)
             workerCallback.heartbeat(error_message)
             return False, {}
+        finally:
+            self.isFirstTest = False
 
     def extract_package(self, package_file, target_dir):
         with tarfile.open(package_file) as tar:
@@ -631,7 +749,7 @@ class WorkerState(object):
             tarball_name = os.path.join(self.directories.build_cache_dir, sourceArtifactName)
 
             if not self.artifactStorage.build_exists(sourceArtifactName):
-                heartbeat("Building source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
+                heartbeat(time.asctime() + " TestLooper> Building source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
 
                 self.resetToCommitInDir(dep.repo, dep.commitHash, target_dir)
 
@@ -651,11 +769,11 @@ class WorkerState(object):
                           )
             else:
                 if not os.path.exists(tarball_name):
-                    heartbeat("Downloading source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
+                    heartbeat(time.asctime() + " TestLooper> Downloading source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
                 
                     self.artifactStorage.download_build(sourceArtifactName, tarball_name)
 
-                heartbeat("Extracting source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
+                heartbeat(time.asctime() + " TestLooper> Extracting source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
 
                 self.extract_package(tarball_name, target_dir)
 
@@ -671,12 +789,54 @@ class WorkerState(object):
         all_dependencies.update(environment.dependencies)
         all_dependencies.update(test_definition.dependencies)
 
-        for expose_as, dep in all_dependencies.iteritems():
-            with self.callHeartbeatInBackground(heartbeat, "Pulling dependency %s" % dep):
-                errStringOrNone = self.grabDependency(heartbeat, expose_as, dep, repoName, commitHash)
+        if self.hardwareConfig.cores > 2:
+            lock = threading.Lock()
 
-            if errStringOrNone is not None:
-                raise Exception(errStringOrNone)
+            def heartbeatWithLock(msg=None):
+                with lock:
+                    heartbeat(msg)
+
+            with self.callHeartbeatInBackground(
+                    heartbeatWithLock, 
+                    "Pulling dependencies:\n%s" % "\n".join(["\t" + str(x) for x in all_dependencies.values()])
+                    ):
+
+                results = {}
+
+                def callFun(expose_as, dep):
+                    for tries in xrange(3):
+                        try:
+                            results[expose_as] = self.grabDependency(heartbeatWithLock, expose_as, dep, repoName, commitHash)
+                            heartbeatWithLock(time.asctime() + " TestLooper> Done pulling %s/%s.\n" % (dep.repo, dep.commitHash))
+                            return
+                        except Exception as e:
+                            results[expose_as] = str(e)
+
+                waiting_threads = [threading.Thread(target=callFun, args=(expose_as,dep))
+                                for (expose_as, dep) in all_dependencies.iteritems()]
+
+                running_threads = []
+
+                simultaneous = self.hardwareConfig.cores
+
+                while running_threads + waiting_threads:
+                    running_threads = [x for x in running_threads if x.isAlive()]
+                    while len(running_threads) < simultaneous and waiting_threads:
+                        t = waiting_threads.pop(0)
+                        t.start()
+                        running_threads.append(t)
+                    time.sleep(1.0)
+
+                for e in all_dependencies:
+                    if results[e] is not None:
+                        raise Exception("Failed to download dependency %s: %s" % (all_dependencies[e], results[e]))
+        else:
+            for expose_as, dep in all_dependencies.iteritems():
+                with self.callHeartbeatInBackground(heartbeat, "Pulling dependency %s" % dep):
+                    errStringOrNone = self.grabDependency(heartbeat, expose_as, dep, repoName, commitHash)
+
+                if errStringOrNone is not None:
+                    raise Exception(errStringOrNone)
 
         return environment, all_dependencies
 
@@ -685,15 +845,31 @@ class WorkerState(object):
             environment, all_dependencies = self.getEnvironmentAndDependencies(repoName, commitHash, test_definition, workerCallback.heartbeat)
         except Exception as e:
             workerCallback.heartbeat("Test failed because: " + str(e))
-            return False
+            return False, {}
 
         if test_definition.matches.Build:
             command = test_definition.buildCommand
-        else:
+            cleanup_command = ""
+        elif test_definition.matches.Test:
             command = test_definition.testCommand
+            cleanup_command = test_definition.cleanupCommand
+        elif test_definition.matches.Deployment:
+            command = test_definition.deployCommand
+            cleanup_command = ""
+        else:
+            assert False, test_definition
+
+        logging.info("Environment is: %s", environment)
 
         if environment.image.matches.AMI:
             image = NAKED_MACHINE
+
+            #prepend the command to the script contents - normally this should be part of the AMI cachine routine
+            #but we haven't implemented that yet.
+            if self.isFirstTest:
+                command = environment.image.setup_script_contents + "\n\n" + command
+            else:
+                logging.info("Not running setup script because it's not our first test.")
         else:
             with self.callHeartbeatInBackground(workerCallback.heartbeat, "Extracting docker image for environment %s" % environment):
                 image = self.getDockerImage(environment)
@@ -717,7 +893,7 @@ class WorkerState(object):
                 return
             else:
                 workerCallback.heartbeat(time.asctime() + " TestLooper> Starting Test Run\n")
-                
+
                 test_logfile = os.path.join(self.directories.test_output_dir, 'test_out.log')
 
                 is_success = self._run_test_command(
@@ -728,6 +904,18 @@ class WorkerState(object):
                     workerCallback,
                     image
                     )
+
+                #run the cleanup_command if necessary
+                if cleanup_command.strip() and not self._run_test_command(
+                        cleanup_command,
+                        test_logfile,
+                        test_definition.timeout or 60 * 60, #1 hour if unspecified
+                        env_overrides,
+                        workerCallback,
+                        image,
+                        verbose=False
+                        ):
+                    is_success = False
 
         if is_success and test_definition.matches.Build:
             with self.callHeartbeatInBackground(workerCallback.heartbeat, "Uploading build artifacts."):

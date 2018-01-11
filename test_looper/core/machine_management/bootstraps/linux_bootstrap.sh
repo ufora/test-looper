@@ -9,10 +9,14 @@
 
 export STORAGE=/media/ephemeral0
 
-machineID=`curl http://169.254.169.254/latest/meta-data/instance-id`
+echo "Extending hosts: "
+__hosts__
+
+machineId=`curl http://169.254.169.254/latest/meta-data/instance-id`
 
 function log() {
-	curl -k "https://__test_looper_https_server__:__test_looper_https_port__/machineHeartbeatMessage?machineId=$machineId&heartbeatmsg=$1" > /dev/null 2>&1
+	echo "logging: $1 for machine id $machineId"
+	curl -k "https://__test_looper_https_server__:__test_looper_https_port__/machineHeartbeatMessage?machineId=$machineId&heartbeatmsg=$1"
 }
 
 log "TestLooper%20Mounting%20External%20Storage"
@@ -54,10 +58,6 @@ log "TestLooper%20Installing%20Python%20Dependencies"
 sudo pip install boto3 psutil docker==2.6.1
 
 sudo chmod 777 /var/run/docker.sock
-
-echo "Extending hosts: "
-
-__hosts__
 
 mkdir -p ~/.ssh
 echo StrictHostKeyChecking=no >> ~/.ssh/config
@@ -101,4 +101,30 @@ cat worker_config.json
 
 echo "TestLooper starting"
 
-python -u test_looper/worker/test-looper.py worker_config.json $machineID $TEST_LOOPER_INSTALL > logs/worker_log.txt 2>&1
+while true;
+do
+	log "Executing%20test-looper"
+
+	echo `date`": booting test-looper." >> logs/worker_log.txt
+	python -u test_looper/worker/test-looper.py worker_config.json $machineId $TEST_LOOPER_INSTALL >> logs/worker_log.txt 2>&1
+
+	succeeded=0
+	while [ $succeeded -eq 0 ];
+	do
+		echo "re-downloading the looper sourcecode" >> logs/worker_log.txt
+		rm -rf test_looper
+		rm -rf test_looper.tar.gz
+
+		curl -k https://__test_looper_https_server__:__test_looper_https_port__/test_looper.tar.gz > test_looper.tar.gz
+		tar xvf test_looper.tar.gz
+
+		if [ -f test_looper/worker/test-looper.py ];
+		then
+			succeeded=1
+			log "Re-downloaded%20test-looper%20source"
+		else
+			echo "looper is unavailable. sleeping" >> logs/worker_log.txt
+			sleep 2
+		fi
+	done
+done

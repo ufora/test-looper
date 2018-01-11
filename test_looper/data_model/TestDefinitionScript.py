@@ -37,6 +37,7 @@ DefineBuild.Build = {
     'dependencies': algebraic.Dict(str,str),
     'variables': algebraic.Dict(str,str),
     "timeout": int, #max time, in seconds, for the test
+    "disabled": bool, #disabled by default?
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
     "max_cores": int, #maximum number of cores we can take advantage of, or zero
     "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
@@ -44,8 +45,10 @@ DefineBuild.Build = {
 
 DefineTest.Test = {
     'command': str,
+    'cleanup': str, #command to run to copy test outputs to relevant directories...
     'dependencies': algebraic.Dict(str,str),
     'variables': algebraic.Dict(str,str),
+    "disabled": bool, #disabled by default?
     "timeout": int, #max time, in seconds, for the test
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
     "max_cores": int, #maximum number of cores we can take advantage of, or zero
@@ -283,6 +286,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},
                 environment=environments[curEnv],
                 timeout=d.timeout,
+                disabled=d.disabled,
                 min_cores=d.min_cores,
                 max_cores=d.max_cores,
                 min_ram_gb=d.min_ram_gb
@@ -290,9 +294,11 @@ def extract_tests(curRepoName, curCommitHash, testScript):
         if d.matches.Test:
             return TestDefinition.TestDefinition.Test(
                 testCommand=d.command,
+                cleanupCommand=d.cleanup,
                 name=name,
                 variables=d.variables,
                 dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},
+                disabled=d.disabled,
                 environment=environments[curEnv],
                 timeout=d.timeout,
                 min_cores=d.min_cores,

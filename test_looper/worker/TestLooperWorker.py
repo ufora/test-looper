@@ -5,10 +5,24 @@ import socket
 import time
 import traceback
 import threading
+import psutil
 
 import test_looper.core.ManagedThread as ManagedThread
 import test_looper.data_model.TestResult as TestResult
 import test_looper.worker.TestLooperClient as TestLooperClient
+
+def kill_proc_tree(pid, including_parent=True):
+    parent = psutil.Process(pid)
+    children = parent.children(recursive=True)
+    for child in children:
+        child.kill()
+    
+    gone, still_alive = psutil.wait_procs(children, timeout=5)
+
+    if including_parent:
+        parent.kill()
+        parent.wait(5)
+
 
 HEARTBEAT_INTERVAL = TestLooperClient.TestLooperClient.HEARTBEAT_INTERVAL
 
@@ -20,7 +34,8 @@ class TestLooperWorker(object):
                  workerState,
                  machineId,
                  serverPortConfig,
-                 timeToSleepWhenThereIsNoWork=2.0
+                 exitProcessOnException,
+                 timeToSleepWhenThereIsNoWork
                 ):
         self.workerState = workerState
         self.machineId = machineId
@@ -30,9 +45,9 @@ class TestLooperWorker(object):
 
         self.stopEvent = threading.Event()
 
-        self.heartbeatResponse = None
-        
-        self.testLooperClient = self.createTestLooperClient()
+        self.exitProcessOnException = exitProcessOnException
+
+        self.testLooperClient = None
 
         self.thread = None
 
@@ -66,6 +81,8 @@ class TestLooperWorker(object):
 
     def _mainTestLoop(self):
         try:
+            self.testLooperClient = self.createTestLooperClient()
+
             while not self.stopEvent.is_set():
                 work = self.testLooperClient.checkoutWork(self.timeToSleepWhenThereIsNoWork)
                 if work is not None:
@@ -74,9 +91,12 @@ class TestLooperWorker(object):
         except:
             logging.critical("Unhandled error in TestLooperWorker socket loop:\n%s", traceback.format_exc())
         finally:
-            logging.info("Machine %s is exiting main testing loop",
-                         self.machineId)
+            if self.exitProcessOnException:
+                logging.info("Machine %s is exiting the test-looper process.", self.machineId)
 
+                kill_proc_tree(os.getpid())
+            else:
+                logging.info("Machine %s is exiting the TestLooperWorker but not the process.", self.machineId)
 
     def run_task(self, repoName, commitHash, testId, testName, isDeploy):
         logging.info("Machine %s is working on %s %s, test %s/%s, for commit %s",
@@ -90,7 +110,8 @@ class TestLooperWorker(object):
 
         self.workerState.purge_build_cache()
 
-        result, individualTestSuccesses = self.workerState.runTest(testId, repoName, commitHash, testName, self.testLooperClient, isDeploy)
+        result = self.workerState.runTest(testId, repoName, commitHash, testName, self.testLooperClient, isDeploy)
         
         if not self.stopEvent.is_set() and not isDeploy:
+            result, individualTestSuccesses = result
             self.testLooperClient.publishTestResult(result, individualTestSuccesses)

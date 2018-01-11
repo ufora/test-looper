@@ -64,7 +64,7 @@ def createTestWorker(config, worker_path, machineId):
         hardwareConfig=Config.HardwareConfig(cores=config.cores,ram_gb=config.ram_gb)
         )
 
-    return TestLooperWorker.TestLooperWorker(workerState, machineId, config.server_ports)
+    return TestLooperWorker.TestLooperWorker(workerState, machineId, config.server_ports, True, 2.0)
 
 def loadConfiguration(configFile):
     with open(configFile, 'r') as fin:
