@@ -444,7 +444,23 @@ class TestLooperHttpServer(object):
     def buildDownloadUrl(self, key):
         return self.address + "/build_contents?key=%s" % key
 
-    def commitLink(self, commit, failuresOnly=False, testName=None, textIsSubject=True):
+    def allTestsLink(self, text, commit, testName, failuresOnly=False):
+        extras = {}
+
+        if failuresOnly:
+            extras["failuresOnly"] = 'true'
+        if testName:
+            extras["testName"] = testName
+
+        extras["repoName"] = commit.repo.name
+        extras["commitHash"] = commit.hash
+
+        return HtmlGeneration.link(
+            text,
+            self.address + "/allTestRuns" + ("?" if extras else "") + urllib.urlencode(extras)
+            )
+
+    def commitLink(self, commit, textIsSubject=True):
         subject = "<not loaded yet>" if not commit.data else commit.data.subject
 
         if textIsSubject:
@@ -453,11 +469,6 @@ class TestLooperHttpServer(object):
             text = commit.repo.name + "/" + commit.hash[:8]
         
         extras = {}
-
-        if failuresOnly:
-            extras["failuresOnly"] = 'true'
-        if testName:
-            extras["testName"] = testName
 
         extras["repoName"] = commit.repo.name
         extras["commitHash"] = commit.hash
@@ -602,7 +613,7 @@ class TestLooperHttpServer(object):
             return self.commonHeader() + HtmlGeneration.grid(grid)
 
     @cherrypy.expose
-    def commit_2(self, repoName, commitHash):
+    def commit(self, repoName, commitHash):
         self.authorize(read_only=True)
 
         with self.testManager.database.view():
@@ -619,7 +630,7 @@ class TestLooperHttpServer(object):
 
             tests = self.testManager.database.Test.lookupAll(commitData=commit.data)
             
-            tests = sorted(tests, key=lambda test: (test.testDefinition.environment, test.fullname))
+            tests = sorted(tests, key=lambda test: (test.fullname.split("/")[-1], test.fullname))
             
 
             grid = [["TEST", "", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", ""]]
@@ -627,7 +638,9 @@ class TestLooperHttpServer(object):
             for t in tests:
                 row = []
 
-                row.append(t.testDefinition.name)
+                row.append(
+                    self.allTestsLink(t.testDefinition.name, commit, t.testDefinition.name)
+                    )
                 row.append("") #self.clearTestLink(t.fullname))
                 row.append(
                     HtmlGeneration.Link(self.bootTestOrEnvUrl(t.fullname),
@@ -641,11 +654,11 @@ class TestLooperHttpServer(object):
                 row.append(t.fullname.split("/")[-1])
 
                 row.append(str(t.activeRuns))
-                row.append(str(t.totalRuns - t.activeRuns))
+                row.append(str(t.totalRuns))
                 row.append(str(t.priority))
-                if t.totalRuns - t.activeRuns:
-                    row.append(str(t.totalTestCount / float(t.totalRuns - t.activeRuns)))
-                    row.append(str(t.totalFailedTestCount / float(t.totalRuns - t.activeRuns)))
+                if t.totalRuns:
+                    row.append(str(t.totalTestCount / float(t.totalRuns)))
+                    row.append(str(t.totalFailedTestCount / float(t.totalRuns)))
                 else:
                     row.append("")
                     row.append("")                    
@@ -653,7 +666,8 @@ class TestLooperHttpServer(object):
                 runButtons = []
 
                 for testRun in self.testManager.database.TestRun.lookupAll(test=t):
-                    runButtons.append(self.testLogsButton(testRun._identity).render())
+                    if not testRun.canceled:
+                        runButtons.append(self.testLogsButton(testRun._identity).render())
                 row.append(" ".join(runButtons))
 
                 grid.append(row)
@@ -665,7 +679,7 @@ class TestLooperHttpServer(object):
             return header + HtmlGeneration.grid(grid)
 
     @cherrypy.expose
-    def commit(self, repoName, commitHash, failuresOnly=False, testName=None):
+    def allTestRuns(self, repoName, commitHash, failuresOnly=False, testName=None):
         self.authorize(read_only=True)
 
         with self.testManager.database.view():
@@ -700,62 +714,14 @@ class TestLooperHttpServer(object):
             
             if failuresOnly:
                 header += "showing failures only. %s<br/><br/>" % \
-                    self.commitLink(commit,
-                                    False,
-                                    testName).withTextReplaced("Show all test results").render()
+                    self.allTestsLink("Show all test results", commit, testName).render()
             else:
                 header += "showing both successes and failures. %s<br/><br/>" % \
-                    self.commitLink(commit,
-                                    True,
-                                    testName).withTextReplaced("Show only failures").render()
-
-            if testName:
-                header += "showing only %s tests. %s<br/>" % (
-                    testName,
-                    self.commitLink(commit,
-                                    failuresOnly,
-                                    None).withTextReplaced("Show all tests").render()
-                    )
+                    self.allTestsLink("Show only failures", commit, testName, failuresOnly=True).render()
 
             header = self.commonHeader(currentRepo=repoName) + markdown.markdown(header)
 
-            buttons = []
-            
-            env_vals = [x.testDefinition for x in self.testManager.database.Test.lookupAll(commitData=commit.data)
-                if x.testDefinition.matches.Deployment]
-
-            if env_vals:
-                buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Interactive Deployment Booters")))
-                for env in sorted(env_vals, key=lambda e: e.name):
-                    buttons.append(
-                        HtmlGeneration.Link(self.bootTestOrEnvUrl(repoName + "/" + commitHash + "/" + env.name),
-                           env.name,
-                           is_button=True,
-                           new_tab=True,
-                           button_style=self.disable_if_cant_write('btn-danger btn-xs')
-                           )
-                        )
-                    buttons.append(HtmlGeneration.makeHtmlElement("&nbsp;"*2))
-                buttons.append(HtmlGeneration.makeHtmlElement("<br>"*2))
-
-            test_vals = [x.testDefinition for x in self.testManager.database.Test.lookupAll(commitData=commit.data)
-                if x.testDefinition.matches.Test or x.testDefinition.matches.Build]
-
-            if test_vals:
-                buttons.append(HtmlGeneration.makeHtmlElement(markdown.markdown("#### Interactive Test Booters")))
-                for test in sorted(test_vals, key=lambda e: e.name):
-                    buttons.append(
-                        HtmlGeneration.Link(self.bootTestOrEnvUrl(repoName + "/" + commitHash + "/" + test.name),
-                           test.name,
-                           is_button=True,
-                           new_tab=True,
-                           button_style=self.disable_if_cant_write('btn-danger btn-xs')
-                           )
-                        )
-                    buttons.append(HtmlGeneration.makeHtmlElement("&nbsp;"*2))
-                buttons.append(HtmlGeneration.makeHtmlElement("<br>"*2))
-
-            return header + HtmlGeneration.HtmlElements(buttons).render() + HtmlGeneration.grid(grid)
+            return header + HtmlGeneration.grid(grid)
 
     def bootTestOrEnvUrl(self, fullname):
         return self.address + "/bootDeployment?" + urllib.urlencode({"fullname":fullname})
@@ -788,12 +754,7 @@ class TestLooperHttpServer(object):
 
             name = testRun.test.testDefinition.name
 
-            if commit is None:
-                row.append(name)
-            else:
-                row.append(
-                    self.commitLink(commit, failuresOnly=failuresOnly, testName=name).withTextReplaced(name)
-                    )
+            row.append(name)
 
             if testRun.endTimestamp > 0.0:
                 row.append("passed" if testRun.success else "failed")
@@ -912,12 +873,13 @@ class TestLooperHttpServer(object):
         raise cherrypy.HTTPRedirect(redirect)
 
     @cherrypy.expose
-    def refresh(self, redirect=None):
-        self.refreshBranches()
-        raise cherrypy.HTTPRedirect(redirect or self.address + "/repos")
+    def refresh(self, reponame=None, redirect=None):
+        if reponame is None:
+            self.testManager.markRepoListDirty(time.time())
+        else:
+            self.testManager.markBranchListDirty(reponame, time.time())
 
-    def refreshBranches(self):
-        self.testManager.markRepoListDirty(time.time())
+        raise cherrypy.HTTPRedirect(redirect or self.address + "/repos")
 
     def redirect(self):
         qs = cherrypy.request.query_string
@@ -1654,8 +1616,8 @@ class TestLooperHttpServer(object):
             raise cherrypy.HTTPError(400, "Invalid webhook request")
 
         #don't block the webserver itself, so we can do this in a background thread
-        self.refreshBranches()
-
+        logging.info("Triggering refresh branches on repo=%s branch=%s", event['repo'], event['branch'])
+        self.testManager.refreshBranchList(event['repo'], time.time())
 
     @cherrypy.expose
     def interactive_socket(self, **kwargs):
@@ -1747,7 +1709,7 @@ class TestLooperHttpServer(object):
 
                     term.runCommandClass(Terminal, document.location.hash.substr(1));
                     
-                    term.onTerminalResize(term.screenSize.width, term.screenSize.height)
+                    Terminal.prototype.onTerminalResize(term.screenSize.width, term.screenSize.height)
 
                     if (buf && buf != '')
                     {

@@ -21,6 +21,8 @@ TEST_TIMEOUT_SECONDS = 60
 IDLE_TIME_BEFORE_SHUTDOWN = 30
 MAX_LOG_MESSAGES_PER_TEST = 10000
 
+DISABLE_MACHINE_TERMINATION = False
+
 class MessageBuffer:
     def __init__(self, name):
         self.name = name
@@ -433,7 +435,7 @@ class TestManager(object):
             if (os.matches.WindowsVM or os.matches.LinuxVM) and testRun.test.testDefinition.matches.Test:
                 #we need to shut down this machine since we used it for only one test
                 #we allow multiple builds
-                if False:
+                if not DISABLE_MACHINE_TERMINATION:
                     self._terminateMachine(testRun.machine, curTimestamp)
 
             for dep in self.database.TestDependency.lookupAll(dependsOn=testRun.test):
@@ -796,6 +798,11 @@ class TestManager(object):
         #repeatedly check if we can boot any machines. If we can't,
         #but we want to, we need to check whether there are any machines we can
         #shut down
+        logging.info("Entering _bootMachinesIfNecessary:")
+        for cat in (self.database.MachineCategory.lookupAll(want_more=True) +  
+                            self.database.MachineCategory.lookupAll(want_less=True)):
+            logging.info("\t%s/%s: %s vs %s", cat.hardware, cat.os, cat.desired, cat.booted)
+
         def check():
             wantingBoot = self.database.MachineCategory.lookupAll(want_more=True)
             wantingShutdown = self.database.MachineCategory.lookupAll(want_less=True)
@@ -869,11 +876,15 @@ class TestManager(object):
 
             if not self._anythingRunningOnMachine(machine):
                 if not onlyIdle or self._machineLooksIdle(machine, curTimestamp):
-                    self._terminateMachine(machine, curTimestamp)
+                    if not DISABLE_MACHINE_TERMINATION:
+                        self._terminateMachine(machine, curTimestamp)
                     return True
         return False
 
     def _shutdownMachinesIfNecessary(self, curTimestamp):
+        if DISABLE_MACHINE_TERMINATION:
+            return
+
         def check():
             for cat in self.database.MachineCategory.lookupAll(want_less=True):
                 if cat.desired < cat.booted:

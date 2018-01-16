@@ -421,7 +421,7 @@ class WorkerState(object):
 
         with open(invoker_path,"w") as cmd_file:
             print >> cmd_file, (
-                "powershell.exe __cmd_path__ | Tee-Object -FilePath __log_path__ 2>&1"
+                "powershell.exe __cmd_path__ | Tee-Object -FilePath __log_path__ -Append 2>&1"
                 .replace("__cmd_path__", command_path)
                 .replace("__log_path__", os.path.join(self.directories.test_output_dir,"test_out.log"))
                 )
