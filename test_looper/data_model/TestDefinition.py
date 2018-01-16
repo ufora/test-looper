@@ -23,15 +23,19 @@ TestDependency.Source = {"repo": str, "commitHash": str}
 
 TestEnvironment = algebraic.Alternative("TestEnvironment")
 TestEnvironment.Environment = {
+    "environment_name": str,
+    "inheritance": algebraic.List(str),
     "platform": Platform,
     "image": Image,
     "variables": algebraic.Dict(str, str),
     "dependencies": algebraic.Dict(str, TestDependency)
     }
 TestEnvironment.Import = {
+    "environment_name": str,
+    "inheritance": algebraic.List(str),
     "repo": str,
     "commitHash": str,
-    "name": str,
+    "name": str, #the name we're importing from the named repo
     "setup_script_contents": str,
     "variables": algebraic.Dict(str, str),
     "dependencies": algebraic.Dict(str, TestDependency)
@@ -100,8 +104,12 @@ def merge_environments(import_environment, underlying_environment):
     """
     assert import_environment.matches.Import
 
+    underlying_full_name = import_environment.repo + "/" + import_environment.commitHash + "/" + import_environment.environment_name
+
     if underlying_environment.matches.Environment:
         return TestEnvironment.Environment(
+                environment_name=import_environment.environment_name,
+                inheritance=(underlying_full_name,) + tuple(underlying_environment.inheritance),
                 platform=underlying_environment.platform,
                 image=add_setup_contents_to_image(underlying_environment.image, import_environment.setup_script_contents),
                 variables=merge_dicts(underlying_environment.variables, import_environment.variables),
@@ -109,6 +117,8 @@ def merge_environments(import_environment, underlying_environment):
                 )
     else:
         return TestEnvironment.Import(
+            environment_name=import_environment.environment_name,
+            inheritance=(underlying_full_name,) + tuple(underlying_environment.inheritance),
             repo=underlying_environment.repo,
             commitHash=underlying_environment.commitHash,
             name=underlying_environment.name,
