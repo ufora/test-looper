@@ -12,6 +12,7 @@ import test_looper.core.algebraic as algebraic
 import test_looper.core.machine_management.MachineManagement as MachineManagement
 import test_looper.data_model.Types as Types
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
+import test_looper.data_model.TestDefinition as TestDefinition
 
 pending = Types.BackgroundTaskStatus.Pending()
 running = Types.BackgroundTaskStatus.Running()
@@ -778,7 +779,7 @@ class TestManager(object):
                         if not str(e):
                             logging.error("%s", traceback.format_exc())
 
-                        logging.warn("Got an error parsing tests for %s:\n%s", commit.hash, traceback.format_exc())
+                        logging.warn("Got an error parsing tests for %s/%s:\n%s", commit.repo.name, commit.hash, traceback.format_exc())
 
                         commit.data.testDefinitionsError=str(e)
 
@@ -1198,7 +1199,12 @@ class TestManager(object):
 
             if commit and commit.data:
                 #this dependency exists already
-                env = commit.data.environments.get(env.name, None)
+                underlying_env = commit.data.environments.get(env.name, None)
+                
+                if underlying_env is not None:
+                    env = TestDefinition.merge_environments(env, underlying_env)
+                else:
+                    env = None
             else:
                 env = None
 
@@ -1296,9 +1302,10 @@ class TestManager(object):
 
     def _lookupCommitByHash(self, repo, commitHash):
         if isinstance(repo, str):
+            repoName = repo
             repo = self.database.Repo.lookupAny(name=repo)
             if not repo:
-                logging.warn("Unknown repo %s", repo)
+                logging.warn("Unknown repo %s while looking up %s/%s", repo, repoName, commitHash)
                 return None
 
         commit = self.database.Commit.lookupAny(repo_and_hash=(repo, commitHash))

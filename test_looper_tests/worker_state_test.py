@@ -16,7 +16,10 @@ import test_looper.core.ArtifactStorage as ArtifactStorage
 import test_looper.core.source_control.ReposOnDisk as ReposOnDisk
 import test_looper.core.machine_management.MachineManagement as MachineManagement
 import test_looper.core.SubprocessRunner as SubprocessRunner
+import test_looper.server.TestLooperServer as TestLooperServer
 import docker
+
+common.configureLogging()
 
 docker_client = docker.from_env()
 docker_client.containers.list()
@@ -208,6 +211,7 @@ class WorkerStateTests(unittest.TestCase):
         commit2Name, commit2Hash = commit2[0]
 
         self.assertTrue(worker.runTest("testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
+
         self.assertTrue(
             worker.runTest("testId2", commit2Name, commit2Hash, "build2/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
             worker.artifactStorage.get_failure_log("testId2")
@@ -215,6 +219,17 @@ class WorkerStateTests(unittest.TestCase):
         self.assertTrue(
             worker.runTest("testId3", commit2Name, commit2Hash, "test2/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
             worker.artifactStorage.get_failure_log("testId3")
+            )
+        
+        self.assertTrue(
+            worker.runTest("testId6", commit2Name, commit2Hash, "test2/linux_dependent", WorkerState.DummyWorkerCallbacks(), False)[0],
+            worker.artifactStorage.get_failure_log("testId6")
+            )
+
+
+        self.assertTrue(
+            worker.runTest("testId7", commit2Name, commit2Hash, "test3/linux_dependent", WorkerState.DummyWorkerCallbacks(), False)[0],
+            worker.artifactStorage.get_failure_log("testId7")
             )
         self.assertFalse(
             worker.runTest("testId4", commit2Name, commit2Hash, "test2_fails/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
@@ -266,7 +281,7 @@ class WorkerStateTests(unittest.TestCase):
         runThread.start()
 
         try:
-            callbacks.write("echo 'hi'\n")
+            callbacks.write(TestLooperServer.TerminalInputMsg.KeyboardInput("echo 'hi'\n"))
 
             t0 = time.time()
             while "hi" not in callbacks.output:
@@ -309,7 +324,10 @@ class WorkerStateTests(unittest.TestCase):
         self.assertTrue(test1_uploaded and not test1_downloaded and not test1_extracted)
         self.assertTrue(test2_extracted and not test2_downloaded and not test2_uploaded)
 
-        self.assertTrue(worker.artifactStorage.build_exists(commit2Name + "_" + commit2Hash + "_source.tar.gz"))
+        self.assertTrue(
+            worker.artifactStorage.build_exists(repoName + "_" + commitHash + "_source.tar.gz"),
+            commit2Name + "_" + commit2Hash + "_source.tar.gz"
+            )
 
         #after purging, we should have to download the build
         worker.purge_build_cache(0)

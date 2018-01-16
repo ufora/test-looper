@@ -124,21 +124,41 @@ class MockRepo:
         assert "/" not in commitHash
         return self.source_control.commit_test_defs[self.repoName + "/" + commitHash], ".yml"
 
+basic_yml_file_repo0 = """
+looper_version: 2
+"""
+
 basic_yml_file_repo1 = """
 looper_version: 2
+repos:
+  repo0c0: repo0/c0
+  repo0c1: repo0/c1
 environments:
   linux: 
     platform: linux
     image:
       dockerfile: "test_looper/Dockerfile.txt"
     variables:
-      ENV_VAR: ENV_VAL
+      ENV_VAR: LINUX
   windows: 
     platform: windows
     image:
       base_ami: "ami-123"
+      setup_script_contents: |
+        echo 'ami-contents'
     variables:
-      ENV_VAR: ENV_VAL
+      ENV_VAR: WINDOWS
+    dependencies:
+      dep0: repo0c0
+  windows_2:
+    base: windows
+    variables:
+      ENV_VAR: OVERRIDDEN
+      ENV_VAR2: WINDOWS_2
+    setup_script_contents: |
+      echo 'more ami contents'
+    dependencies:
+      dep1: repo0c1
 builds:
   build/linux:
     command: "build.sh"
@@ -157,11 +177,27 @@ basic_yml_file_repo2 = """
 looper_version: 2
 repos:
   child: repo1/c0
+  repo0c0: repo0/c0
+  repo0c1: repo0/c1
 environments:
   linux: 
-    import: child/linux
-  windows: 
-    import: child/windows
+    base: child/linux
+    variables:
+      ENV_VAR_2: LINUX_2
+    dependencies:
+      dep1: repo0c1
+  windows:
+    base: child/windows
+    variables:
+      ENV_VAR_2: WINDOWS_2
+    dependencies:
+      dep1: repo0c1
+  windows_2: 
+    base: child/windows_2
+    variables:
+      ENV_VAR_2: WINDOWS_3
+    dependencies:
+      dep2: repo0c1
   test_linux:
     platform: linux
     image:
@@ -188,7 +224,7 @@ repos:
   child: repo2/c0
 environments:
   linux: 
-    import: child/linux
+    base: child/linux
 builds:
   build/linux:
     command: "build.sh $TEST_LOOPER_IMPORTS/child"
@@ -223,11 +259,16 @@ class TestManagerTestHarness:
         self.machine_record = {}
 
     def add_content(self):
+        self.manager.source_control.addCommit("repo0/c0", [], basic_yml_file_repo0)
+        self.manager.source_control.addCommit("repo0/c1", ["repo0/c0"], basic_yml_file_repo0)
+
         self.manager.source_control.addCommit("repo1/c0", [], basic_yml_file_repo1)
         self.manager.source_control.addCommit("repo1/c1", ["repo1/c0"], basic_yml_file_repo1)
+
         self.manager.source_control.addCommit("repo2/c0", [], basic_yml_file_repo2)
         self.manager.source_control.addCommit("repo2/c1", ["repo2/c0"], basic_yml_file_repo2)
 
+        self.manager.source_control.setBranch("repo0/master", "repo0/c1")
         self.manager.source_control.setBranch("repo1/master", "repo1/c1")
         self.manager.source_control.setBranch("repo2/master", "repo2/c1")
 
@@ -419,6 +460,10 @@ class TestManagerTests(unittest.TestCase):
     def test_manager_env_imports(self):
         manager = self.get_harness().manager
 
+        manager.source_control.addCommit("repo0/c0", [], basic_yml_file_repo0)
+        manager.source_control.addCommit("repo0/c1", ["repo0/c0"], basic_yml_file_repo0)
+        manager.source_control.setBranch("repo0/master", "repo0/c1")
+
         manager.source_control.addCommit("repo3/c0", [], basic_yml_file_repo3)
         manager.source_control.setBranch("repo3/master", "repo3/c0")
 
@@ -518,6 +563,12 @@ class TestManagerTests(unittest.TestCase):
         harness.toggleBranchUnderTest("repo1", "master")
 
         harness.timestamp += 500
+        harness.consumeBackgroundTasks()
+
+        #the two windows boxes should still be up
+        self.assertEqual(len(harness.manager.machine_management.runningMachines), 2)
+        
+        harness.timestamp += 5000
         harness.consumeBackgroundTasks()
 
         self.assertEqual(len(harness.manager.machine_management.runningMachines), 0)

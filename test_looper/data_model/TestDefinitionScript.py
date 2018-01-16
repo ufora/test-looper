@@ -19,7 +19,13 @@ Image.Dockerfile = {"dockerfile": str}
 Image.AMI = {"base_ami": str, "setup_script_contents": str}
 
 DefineEnvironment = algebraic.Alternative("DefineEnvironment")
-DefineEnvironment.Import = {'import': str}
+DefineEnvironment.Import = {
+    'base': str,
+    'setup_script_contents': str,
+    "variables": algebraic.Dict(str, str),
+    "dependencies": algebraic.Dict(str, str)
+    }
+
 DefineEnvironment.Group = {'group': algebraic.List(str)}
 DefineEnvironment.Environment = {
     "platform": Platform,
@@ -133,46 +139,79 @@ def extract_tests(curRepoName, curCommitHash, testScript):
 
     environments = {}
 
-    for envName, envDef in testScript.environments.iteritems():
-        if envDef.matches.Import:
-            importText = getattr(envDef,"import")
-            assert len(importText.split("/")) == 2, "Invalid import: %s" % importText
+    def map_dep(dep):
+        deps = dep.split("/")
+        if deps[0] not in repos:
+            raise Exception("Environment dependencies must reference a named repo. Can't find %s for %s" % (deps[0], dep))
 
-            repoName, importEnvName = importText.split("/")
-
-            if repoName not in repos:
-                raise Exception("Unknown repo %s" % repoName)
-
-            environments[envName] = TestDefinition.TestEnvironment.Import(
-                repo=repos[repoName][0], 
-                commitHash=repos[repoName][1],
-                name=importEnvName
+        if len(deps) == 1:
+            #this is a source dependency
+            return TestDefinition.TestDependency.Source(
+                repo=repos[deps[0]][0],
+                commitHash=repos[deps[0]][1]
                 )
+
+        if len(deps) < 3:
+            raise Exception("Malformed repo dependency: should be of form 'repoReference/buildName/environment'")
+        
+        env = deps[-1]
+
+        return TestDefinition.TestDependency.ExternalBuild(
+            repo=repos[deps[0]][0],
+            commitHash=repos[deps[0]][1],
+            name="/".join(deps[1:-1]),
+            environment=env
+            )
+
+    def parseEnvironment(envName, parents=()):
+        if parents and parents[-1] in parents[:-1]:
+            raise Exception("Circular environment dependencies: %s" % (parents,))
+
+        if envName in environments:
+            return environments[envName]
+
+        envDef = testScript.environments[envName]
+
+        if envDef.matches.Import:
+            importText = envDef.base
+
+            base_items = importText.split("/")
+            if len(base_items) == 1:
+                #this is a local import
+                if base_items[0] not in testScript.environments:
+                    raise Exception("Unknown environment %s" % base_items[0])
+
+                underlying_environment = parseEnvironment(base_items[0], parents + (base_items[0],))
+                repo = curRepoName
+                commitHash = curCommitHash
+                importEnvName = base_items[0]
+            else:
+                assert len(base_items) == 2, "Invalid import: %s" % importText
+
+                repoName, importEnvName = base_items
+
+                repo=repos[repoName][0]
+                commitHash=repos[repoName][1]
+
+                underlying_environment = None
+
+            import_env = TestDefinition.TestEnvironment.Import(
+                repo=repo,
+                commitHash=commitHash,
+                name=importEnvName,
+                setup_script_contents=envDef.setup_script_contents,
+                variables=envDef.variables,
+                dependencies={
+                    name: map_dep(dep) for name, dep in envDef.dependencies.iteritems()
+                    }
+                )
+
+            if underlying_environment is not None:
+                import_env = TestDefinition.merge_environments(import_env, underlying_environment)
+
+            environments[envName] = import_env
+                    
         elif envDef.matches.Environment:
-            def map_dep(dep):
-                deps = dep.split("/")
-                if deps[0] not in repos:
-                    raise Exception("Environment dependencies must reference an external repo's build output or source")
-
-                if len(deps) == 1:
-                    #this is a source dependency
-                    return TestDefinition.TestDependency.Source(
-                        repo=repos[deps[0]][0],
-                        commitHash=repos[deps[0]][1]
-                        )
-
-                if len(deps) < 3:
-                    raise Exception("Malformed repo dependency: should be of form 'repoReference/buildName/environment'")
-                
-                env = deps[-1]
-
-                return TestDefinition.TestDependency.ExternalBuild(
-                    repo=repos[deps[0]][0],
-                    commitHash=repos[deps[0]][1],
-                    name="/".join(deps[1:-1]),
-                    environment=env
-                    )
-
             environments[envName] = TestDefinition.TestEnvironment.Environment(
                 platform=envDef.platform,
                 image=map_image(curRepoName, curCommitHash, envDef.image),
@@ -181,6 +220,13 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                     name: map_dep(dep) for name, dep in envDef.dependencies.iteritems()
                     }
                 )  
+
+        return environments[envName]
+
+
+    for envName, envDef in testScript.environments.iteritems():
+        if not envDef.matches.Group:
+            environments[envName] = parseEnvironment(envName)
 
     environmentGroups = {}
 

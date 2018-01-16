@@ -3,7 +3,16 @@ repos:
   simple: simple_project/8ee69e550635478aa07935bad890f2158bbd4302
 environments:
   linux:
-    import: simple/linux
+    base: simple/linux
+    variables:
+      ENV_VAR: LINUX_OVERRIDE
+  linux_dependent:
+    base: linux
+    variables:
+      ENV_VAR: LINUX_OVERRIDE_SECOND
+      ENV_VAR_2: LINUX_OVERRIDE_2
+    dependencies:
+      simplesource: simple
   linux2:
     platform: linux
     image:
@@ -27,6 +36,16 @@ tests:
     dependencies:
       build_import: simple/build/linux
       simplesource: simple
+  test2/linux_dependent:
+    command: "cat $TEST_INPUTS/simplesource/starts_a_long_docker.py"
+    dependencies:
+      build_import: simple/build/linux
+  test3/linux_dependent:
+    command: |
+      if [ "$ENV_VAR" != "LINUX_OVERRIDE_SECOND" ]; then exit 1; fi
+      if [ "$ENV_VAR_2" != "LINUX_OVERRIDE_2" ]; then exit 1; fi
+    dependencies:
+      build_import: simple/build/linux
   test2_fails/linux:
     command: "cat $TEST_INPUTS/simplesource/doesntExist.py"
     dependencies:

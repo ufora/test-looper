@@ -22,9 +22,9 @@ repos:
   child: child-repo-name/repo_hash
 environments:
   linux: 
-    import: child/linux
+    base: child/linux
   windows: 
-    import: child/windows
+    base: child/windows
   test_linux:
     platform: linux
     image:

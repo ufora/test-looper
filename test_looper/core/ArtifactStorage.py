@@ -249,7 +249,7 @@ class LocalArtifactStorage(ArtifactStorage):
 
     def get_failure_log(self, testId):
         keys = self.testResultKeysFor(testId)
-        assert len(keys) == 1 and keys[0].endswith(".gz")
+        assert len(keys) == 1 and keys[0].endswith(".gz"), keys
 
         with gzip.open(os.path.join(self.test_artifacts_storage_path, testId, keys[0]), "rb") as f:
             return f.read()

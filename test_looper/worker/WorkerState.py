@@ -159,6 +159,7 @@ class WorkerState(object):
     def cleanup(self):
         if Docker is not None:
             Docker.DockerImage.removeDanglingDockerImages()
+
         self.clearDirectoryAsRoot(
             self.directories.test_data_dir, 
             self.directories.test_output_dir,
@@ -637,14 +638,20 @@ class WorkerState(object):
 
         return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True)
 
-    def resolveEnvironment(self, environment):
-        seen = set([environment])
-        while environment.matches.Import:
-            environment = self.environmentDefinitionFor(environment.repo, environment.commitHash, environment.name)
-            assert environment not in seen, "Circular environment definitions found"
-            seen.add(environment)
-            
-        return environment
+    def resolveEnvironment(self, environment, seen = ()):
+        assert environment not in seen, "Circular environment definitions found"
+
+        if environment.matches.Environment:
+            return environment
+
+        base_environment = self.resolveEnvironment(
+            self.environmentDefinitionFor(environment.repo, environment.commitHash, environment.name),
+            seen
+            )
+
+        assert base_environment.matches.Environment, base_environment
+
+        return TestDefinition.merge_environments(environment, base_environment)
 
     def getDockerImage(self, testEnvironment):
         assert testEnvironment.matches.Environment

@@ -4,7 +4,7 @@ import sys
 import os
 
 def configureLogging(verbose=False):
-    loglevel = logging.INFO if verbose else logging.ERROR
+    loglevel = logging.INFO if verbose else logging.WARN
     logging.getLogger().setLevel(loglevel)
 
     for handler in logging.getLogger().handlers:
