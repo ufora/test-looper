@@ -14,13 +14,14 @@ import test_looper.data_model.Types as Types
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.data_model.TestDefinition as TestDefinition
 
-pending = Types.BackgroundTaskStatus.Pending()
+pendingHigh = Types.BackgroundTaskStatus.PendingHigh()
+pendingLow = Types.BackgroundTaskStatus.PendingLow()
 running = Types.BackgroundTaskStatus.Running()
 
 MAX_TEST_PRIORITY = 100
 TEST_TIMEOUT_SECONDS = 60
-IDLE_TIME_BEFORE_SHUTDOWN = 30
-MAX_LOG_MESSAGES_PER_TEST = 10000
+IDLE_TIME_BEFORE_SHUTDOWN = 180
+MAX_LOG_MESSAGES_PER_TEST = 100000
 
 DISABLE_MACHINE_TERMINATION = False
 
@@ -30,7 +31,12 @@ class MessageBuffer:
         self._lock = threading.RLock()
         self._subscribers = set()
         self._messages = []
-        
+    
+    def setTotalMessages(self, all_data):
+        with self._lock:
+            bytes_so_far = sum([len(m) for m in self._messages])
+            self.addMessage(all_data[bytes_so_far:])
+
     def addMessage(self, msg):
         with self._lock:
             toRemove = []
@@ -80,6 +86,9 @@ class DeploymentStream:
     def addMessageFromClient(self, msg):
         self._messagesFromClient.addMessage(msg)
 
+    def allMessagesFromDeploymentFromStart(self, all_data):
+        self._messagesFromDeployment.setTotalMessages(all_data)
+
     def addMessageFromDeployment(self, msg):
         self._messagesFromDeployment.addMessage(msg)
 
@@ -102,8 +111,7 @@ class HeartbeatHandler(object):
         self.logs = {}
         self.timestamps = {}
         self.listeners = {}
-        self.testFinishedTimestamp = None
-
+        
     def addListener(self, testId, listener):
         with self.lock:
             if testId not in self.listeners:
@@ -120,7 +128,15 @@ class HeartbeatHandler(object):
                 self.listeners[testId].append(listener)
 
     def testFinished(self, testId):
-        self.testFinishedTimestamp = time.time()
+        #reset the logs since they're not live anymore.
+        #self.logs[testId] = []
+        pass
+        
+    def testHeartbeatReinitialized(self, testId, timestamp, logMessagesFromStart):
+        with self.lock:
+            message_len = sum([len(x) for x in self.logs.get(testId, [])])
+            self.testHeartbeat(testId, timestamp, logMessagesFromStart[message_len:])
+
 
     def testHeartbeat(self, testId, timestamp, logMessage=None):
         """Record the log message, fire off socket connections, and return whether to log the heartbeat in the database."""
@@ -153,7 +169,9 @@ class HeartbeatHandler(object):
 
 
 class TestManager(object):
-    def __init__(self, source_control, machine_management, kv_store):
+    def __init__(self, source_control, machine_management, kv_store, initialTimestamp=None):
+        self.initialTimestamp = initialTimestamp or time.time()
+
         self.source_control = source_control
         self.machine_management = machine_management
 
@@ -337,16 +355,6 @@ class TestManager(object):
             machine = self.database.Machine.lookupAny(machineId=machineId)
             if machine:
                 self._machineHeartbeat(machine, curTimestamp)
-
-                #this could be a reboot, so we need to cancel any tests this machine
-                #was running.
-                for testRun in self.database.TestRun.lookupAll(runningOnMachine=machine):
-                    self._cancelTestRun(testRun)
-                    machine.lastTestCompleted = curTimestamp
-
-                for deployment in self.database.Deployment.lookupAll(runningOnMachine=machine):
-                    self._cancelDeployment(deployment, curTimestamp)
-                    machine.lastTestCompleted = curTimestamp
             else:
                 logging.warn("Initialization from unknown machine %s", machineId)
 
@@ -367,10 +375,18 @@ class TestManager(object):
             machine.lastHeartbeatMsg = msg
             
     def markRepoListDirty(self, curTimestamp):
-        self.createTask(self.database.BackgroundTask.RefreshRepos())
+        with self.transaction_and_lock():
+            self.database.DataTask.New(
+                task=self.database.BackgroundTask.RefreshRepos(), 
+                status=pendingHigh
+                )
 
     def markBranchListDirty(self, reponame, curTimestamp):
-        self.createTask(self.database.BackgroundTask.RefreshBranches(repo=reponame))
+        with self.transaction_and_lock():
+            self.database.DataTask.New(
+                task=self.database.BackgroundTask.RefreshBranches(repo=reponame),
+                status=pendingHigh
+                )
 
     def _testNameSet(self, testNames):
         shaHash = sha_hash(tuple(sorted(testNames))).hexdigest
@@ -406,8 +422,11 @@ class TestManager(object):
         with self.transaction_and_lock():
             testRun = self.database.TestRun(str(testId))
 
-            assert testRun.exists(), "Can't find %s" % testId
-            assert not testRun.canceled, "test is already canceled"
+            if not testRun.exists():
+                return False
+
+            if testRun.canceled:
+                return False
 
             testRun.endTimestamp = curTimestamp
             
@@ -433,9 +452,8 @@ class TestManager(object):
 
             os = testRun.machine.os
 
-            if (os.matches.WindowsVM or os.matches.LinuxVM) and testRun.test.testDefinition.matches.Test:
-                #we need to shut down this machine since we used it for only one test
-                #we allow multiple builds
+            if (os.matches.WindowsVM or os.matches.LinuxVM):
+                #we need to shut down this machine since it has a setup script
                 if not DISABLE_MACHINE_TERMINATION:
                     self._terminateMachine(testRun.machine, curTimestamp)
 
@@ -444,11 +462,19 @@ class TestManager(object):
 
             self._updateTestPriority(testRun.test)
 
+            return True
+
+    def handleTestConnectionReinitialized(self, testId, timestamp, allLogs):
+        self.heartbeatHandler.testHeartbeatReinitialized(testId, timestamp, allLogs)
+
+        return self.testHeartbeat(testId, timestamp)
+
     def testHeartbeat(self, testId, timestamp, logMessage = None):
         if not self.heartbeatHandler.testHeartbeat(testId, timestamp, logMessage):
             return True
 
         logging.info('test %s heartbeating', testId)
+
         with self.transaction_and_lock():
             testRun = self.database.TestRun(str(testId))
 
@@ -519,6 +545,12 @@ class TestManager(object):
         with self.database.view():
             return self.database.Deployment(deploymentId).exists()
 
+
+    def handleDeploymentConnectionReinitialized(self, deploymentId, timestamp, allLogs):
+        self.streamForDeployment(deploymentId).allMessagesFromDeploymentFromStart(deploymentId, timestamp, allLogs)
+
+        return self.handleMessageFromDeployment(deploymentId, timestamp, "")
+
     def handleMessageFromDeployment(self, deploymentId, timestamp, msg):
         with self.transaction_and_lock():
             deployment = self.database.Deployment(deploymentId)
@@ -567,15 +599,11 @@ class TestManager(object):
 
             return (test.commitData.commit.repo.name, test.commitData.commit.hash, test.testDefinition.name, runningTest._identity)
 
-    def createTask(self, task):
-        with self.transaction_and_lock():
-            self.database.DataTask.New(task=task, status=pending)
-
     def performCleanupTasks(self, curTimestamp):
         #check all tests to see if we've exceeded the timeout and the test is dead
         with self.transaction_and_lock():
             for t in self.database.TestRun.lookupAll(isRunning=True):
-                if t.lastHeartbeat < curTimestamp - TEST_TIMEOUT_SECONDS:
+                if t.lastHeartbeat < curTimestamp - TEST_TIMEOUT_SECONDS and curTimestamp - self.initialTimestamp > TEST_TIMEOUT_SECONDS:
                     self._cancelTestRun(t)
 
         with self.transaction_and_lock():
@@ -586,7 +614,7 @@ class TestManager(object):
         if not self.database.DataTask.lookupAny(pending_boot_machine_check=True):
             self.database.DataTask.New(
                 task=self.database.BackgroundTask.BootMachineCheck(),
-                status=pending
+                status=pendingHigh
                 )
 
     def _cancelTestRun(self, testRun):
@@ -595,15 +623,25 @@ class TestManager(object):
         testRun.canceled = True
         testRun.test.activeRuns = testRun.test.activeRuns - 1
         self.heartbeatHandler.testFinished(testRun.test._identity)
-        
+    
+        os = testRun.machine.os
+
+        if (os.matches.WindowsVM or os.matches.LinuxVM):
+            #we need to shut down this machine since it has a setup script
+            if not DISABLE_MACHINE_TERMINATION:
+                self._terminateMachine(testRun.machine, curTimestamp)
+
         self._triggerTestPriorityUpdate(testRun.test)
 
     def performBackgroundWork(self, curTimestamp):
         with self.transaction_and_lock():
-            task = self.database.DataTask.lookupAny(status=pending)
+            task = self.database.DataTask.lookupAny(status=pendingHigh)
             if task is None:
-                return None
+                task = self.database.DataTask.lookupAny(status=pendingLow)
 
+            if task is None:
+                return
+                
             task.status = running
 
             testDef = task.task
@@ -672,7 +710,7 @@ class TestManager(object):
                 for r in self.database.Repo.lookupAll(isActive=True):
                     self.database.DataTask.New(
                         task=self.database.BackgroundTask.RefreshBranches(r),
-                        status=pending
+                        status=pendingHigh
                         )
 
         elif task.matches.RefreshBranches:
@@ -708,7 +746,7 @@ class TestManager(object):
                             task=self.database.BackgroundTask.UpdateBranchTopCommit(
                                 self.database.Branch.lookupOne(reponame_and_branchname=(db_repo.name, branchname))
                                 ),
-                            status=pending
+                            status=pendingHigh
                             )
                     except:
                         logging.error("Error scheduling branch commit lookup:\n\n%s", traceback.format_exc())
@@ -1024,6 +1062,12 @@ class TestManager(object):
 
                 test.machineCategory = real_cat            
 
+        for testRun in self.database.TestRun.lookupAll(isRunning=True):
+            cat = testRun.test.machineCategory
+            if cat not in desired:
+                desired[cat] = 0
+            desired[cat] += 1
+
         for priorityType in [
                 self.database.TestPriority.FirstBuild,
                 self.database.TestPriority.FirstTest,
@@ -1270,7 +1314,7 @@ class TestManager(object):
     def _triggerCommitPriorityUpdate(self, commit):
         self.database.DataTask.New(
             task=self.database.BackgroundTask.UpdateCommitPriority(commit=commit),
-            status=pending
+            status=pendingHigh
             )
 
     def _triggerTestPriorityUpdateIfNecessary(self, test):
@@ -1281,9 +1325,12 @@ class TestManager(object):
             self._triggerTestPriorityUpdate(test)
 
     def _triggerTestPriorityUpdate(self, test):
+        #test priority updates are always 'low' because we want to ensure
+        #that all commit updates have triggered first. This way we know that
+        #we're not accidentally going to cancel a test
         self.database.DataTask.New(
             task=self.database.BackgroundTask.UpdateTestPriority(test=test),
-            status=pending
+            status=pendingLow
             )
 
     def _createRepo(self, new_repo_name):
@@ -1315,7 +1362,7 @@ class TestManager(object):
 
             self.database.DataTask.New(
                 task=self.database.BackgroundTask.UpdateCommitData(commit=commit),
-                status=pending
+                status=pendingHigh
                 )
 
             for dep in self.database.UnresolvedSourceDependency.lookupAll(repo_and_hash=(repo, commitHash)):

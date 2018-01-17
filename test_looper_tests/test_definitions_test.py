@@ -77,6 +77,16 @@ repeat:
   "test/${group}/${name}": "${prerequisites} ${tests_to_run}"
 """
 
+foreach_2_yml = """
+tests:
+  foreach:
+    - {platform: platform-1}
+    - {platform: platform-2}
+  repeat:
+    "test/all/${platform}":
+      command: |
+        cmd in ${platform}
+"""
 
 class TestDefinitionScriptTests(unittest.TestCase):
     def test_basic(self):
@@ -138,6 +148,19 @@ class TestDefinitionScriptTests(unittest.TestCase):
 
     def test_squashing(self):
         res = TestDefinitionScript.expand_macros(yaml.load(foreach_and_squash_yaml), {})
+        
+        self.assertEqual(
+          res, {
+            'test/G1/T1': 'P1 T1.test',
+            'test/G1/T2': 'P1 T2.test',
+            'test/G2/T3': 'P2 T3.test',
+            'test/G2/T4': 'P2 T4.test'
+          })
+
+    def test_foreach(self):
+        res = TestDefinitionScript.expand_macros(yaml.load(foreach_2_yml), {})
+        
+        print res
         
         self.assertEqual(
           res, {

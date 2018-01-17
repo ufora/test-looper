@@ -5,12 +5,12 @@ import threading
 import traceback
 import base64
 import time
+import random
 
 import test_looper.core.SimpleServer as SimpleServer
 import test_looper.core.socket_util as socket_util
 import test_looper.core.algebraic as algebraic
 import test_looper.core.algebraic_to_json as algebraic_to_json
-
 SWEEP_FREQUENCY = 30
 
 TerminalInputMsg = algebraic.Alternative("TerminalInputMsg")
@@ -18,16 +18,25 @@ TerminalInputMsg.KeyboardInput = {"bytes": str}
 TerminalInputMsg.Resize = {"cols": int, "rows": int}
 
 ServerToClientMsg = algebraic.Alternative("ServerToClientMsg")
+ServerToClientMsg.IdentifyCurrentState = {}
 ServerToClientMsg.TerminalInput = {'deploymentId': str, 'msg': TerminalInputMsg}
 ServerToClientMsg.TestAssignment = {'repoName': str, 'commitHash': str, 'testId': str, 'testName': str}
 ServerToClientMsg.CancelTest = {'testId': str}
+ServerToClientMsg.AcknowledgeFinishedTest = {'testId': str}
 
 ServerToClientMsg.DeploymentAssignment = {'repoName': str, 'commitHash': str, 'deploymentId': str, 'testName': str}
 ServerToClientMsg.ShutdownDeployment = {'deploymentId': str}
 
 ClientToServerMsg = algebraic.Alternative("ClientToServerMsg")
 
-ClientToServerMsg.InitializeConnection = {'machineId': str}
+
+WorkerState = algebraic.Alternative("WorkerState")
+WorkerState.Waiting = {}
+WorkerState.WorkingOnDeployment = {'deploymentId': str, 'logs_so_far': str}
+WorkerState.WorkingOnTest = {'testId': str, 'logs_so_far': str}
+WorkerState.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,bool)}
+
+ClientToServerMsg.CurrentState = {'machineId': str, 'state': WorkerState}
 ClientToServerMsg.WaitingHeartbeat = {}
 ClientToServerMsg.TestHeartbeat = {'testId': str}
 ClientToServerMsg.TestLogOutput = {'testId': str, 'log': str}
@@ -37,7 +46,8 @@ ClientToServerMsg.TestFinished = {'testId': str, 'success': bool, 'testSuccesses
 
 
 class Session(object):
-    def __init__(self, testManager, machine_management, socket, address):
+    def __init__(self, server, testManager, machine_management, socket, address):
+        self.server = server
         self.socket = socket
         self.address = address
         self.testManager = testManager
@@ -51,12 +61,15 @@ class Session(object):
 
     def __call__(self):
         try:
-            while True:
+            self.send(ServerToClientMsg.IdentifyCurrentState())
+
+            while not self.server.shouldStop():
                 msg = algebraic_to_json.Encoder().from_json(
                     json.loads(self.readString()),
                     ClientToServerMsg
                     )
                 self.processMsg(msg)
+
         except socket_util.SocketException as e:
             logging.info("Socket error: %s", e.message)
         except:
@@ -68,11 +81,41 @@ class Session(object):
         self.writeString(json.dumps(algebraic_to_json.Encoder().to_json(msg)))
 
     def processMsg(self, msg):
-        if msg.matches.InitializeConnection:
+        if msg.matches.CurrentState:
             self.machineId = msg.machineId
+            logging.info("WorkerChannel initialized with machineId=%s", self.machineId)
+            
             self.testManager.machineInitialized(msg.machineId, time.time())
+
+            if msg.state.matches.WorkingOnDeployment:
+                deploymentId = msg.state.deploymentId
+
+                if not self.testManager.handleDeploymentConnectionReinitialized(deploymentId, time.time(), msg.state.logs_so_far):
+                    self.send(ServerToClientMsg.ShutdownDeployment(deploymentId))
+                else:
+                    self.currentDeploymentId = msg.state.deploymentId
+
+                    def onMessage(msg):
+                        if self.currentDeploymentId == deploymentId:
+                            self.send(ServerToClientMsg.TerminalInput(deploymentId=deploymentId,msg=msg))
+                    
+                    self.testManager.subscribeToClientMessages(deploymentId, onMessage)
+
+            elif msg.state.matches.WorkingOnTest:
+                if not self.testManager.handleTestConnectionReinitialized(msg.state.testId, time.time(), msg.state.logs_so_far):
+                    self.send(ServerToClientMsg.CancelTest(msg.state.testId))
+                else:
+                    self.currentTestId = msg.state.testId
+            elif msg.state.matches.TestFinished:
+                self.testManager.recordTestResults(msg.state.success, msg.state.testId, msg.state.testSuccesses, time.time())
+                self.send(ServerToClientMsg.AcknowledgeFinishedTest(msg.state.testId))
+
         elif msg.matches.WaitingHeartbeat:
+            if self.machineId is None:
+                return
+
             self.testManager.machineHeartbeat(self.machineId, time.time())
+
             if self.currentDeploymentId is None and self.currentTestId is None:
                 repoName, commitHash, testName, deploymentId = self.testManager.startNewDeployment(self.machineId, time.time())
                 if repoName is not None:
@@ -119,6 +162,7 @@ class Session(object):
         elif msg.matches.TestFinished:
             self.testManager.recordTestResults(msg.success, msg.testId, msg.testSuccesses, time.time())
             self.currentTestId = None
+            self.send(ServerToClientMsg.AcknowledgeFinishedTest(msg.testId))
 
     def readString(self):
         return socket_util.readString(self.socket)
@@ -169,6 +213,8 @@ class TestLooperServer(SimpleServer.SimpleServer):
                     time.sleep(.1)
         except:
             logging.critical("Manager worker thread exiting:\n%s", traceback.format_exc())
+        finally:
+            logging.info("Manager worker thread exited")
 
     def port(self):
         return self.port_
@@ -202,13 +248,14 @@ class TestLooperServer(SimpleServer.SimpleServer):
         
         logging.info("waiting for worker thread...")
 
-        #self.workerThread.join()
+        self.workerThread.join()
 
-        #logging.info("successfully stopped TestLooperServer")
+        logging.info("successfully stopped TestLooperServer")
 
     def _onConnect(self, socket, address):
         logging.debug("Accepting connection from %s", address)
-        threading.Thread(target=Session(self.testManager,
+        threading.Thread(target=Session(self,
+                                        self.testManager,
                                         self.machine_management,
                                         socket,
                                         address)).start()

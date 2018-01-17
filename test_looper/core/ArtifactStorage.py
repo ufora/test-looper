@@ -176,7 +176,7 @@ class AwsArtifactStorage(ArtifactStorage):
     def buildContentsHtml(self, key):
         content_type, keyname, is_gzipped = ArtifactStorage.keyname_to_encoding(key)
             
-        Params = {'Bucket': self.bucket_name, 'Key': self.test_artifact_key_prefix + "/" + testId + "/" + key}
+        Params = {'Bucket': self.bucket_name, 'Key': self.build_artifact_key_prefix + "/" + key}
         if is_gzipped:
             Params["ResponseContentEncoding"] = "gzip"
         Params["ResponseContentType"] = content_type
@@ -248,11 +248,7 @@ class LocalArtifactStorage(ArtifactStorage):
             )
 
     def get_failure_log(self, testId):
-        keys = self.testResultKeysFor(testId)
-        assert len(keys) == 1 and keys[0].endswith(".gz"), keys
-
-        with gzip.open(os.path.join(self.test_artifacts_storage_path, testId, keys[0]), "rb") as f:
-            return f.read()
+        return self.testContents(testId, "test_looper_log.txt")
 
     def filecopy(self, dest_path, src_path):
         assert not os.path.exists(dest_path), dest_path

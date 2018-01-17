@@ -34,7 +34,7 @@ def secondsUpToString(up_for):
     if up_for < 60:
         return ("%d seconds" % up_for)
     elif up_for < 60 * 60 * 2:
-        return ("%d minutes" % (up_for / 60))
+        return ("%.1f minutes" % (up_for / 60))
     elif up_for < 24 * 60 * 60 * 2:
         return ("%.1f hours" % (up_for / 60 / 60))
     else:
@@ -64,6 +64,7 @@ class LogHandler:
             self.websocket.send(message.replace("\n","\n\r"), False)
         except:
             logging.error("error in websocket handler:\n%s", traceback.format_exc())
+            raise
 
     def onData(self, message):
         pass
@@ -86,6 +87,7 @@ class InteractiveEnvironmentHandler:
                 self.websocket.send(testOutput, False)
         except:
             logging.error("Error in websocket handler: \n%s", traceback.format_exc())
+            raise
 
     def onData(self, message):
         try:
@@ -431,6 +433,18 @@ class TestLooperHttpServer(object):
         return self.address + "/clearTestRun?" + urllib.urlencode({"testId": testId, "redirect": self.redirect()})
 
     def testLogsUrl(self, testId):
+        return self.address + "/testLogs?testId=%s" % testId
+
+    @cherrypy.expose
+    def testLogs(self, testId):
+        with self.testManager.database.view():
+            testRun = self.testManager.getTestRunById(testId)
+            if testRun.endTimestamp < 1.0:
+                raise cherrypy.HTTPRedirect(self.testLogsLiveUrl(testId))
+            else:
+                raise cherrypy.HTTPRedirect(self.testResultDownloadUrl(testId, "test_looper_log.txt"))
+   
+    def testLogsLiveUrl(self, testId):
         return self.address + "/terminalForTest?testId=%s" % testId
    
     def testResultDownloadUrl(self, testId, key):
@@ -635,7 +649,7 @@ class TestLooperHttpServer(object):
             tests = sorted(tests, key=lambda test: (test.fullname.split("/")[-1], test.fullname))
             
 
-            grid = [["TEST", "", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", ""]]
+            grid = [["TEST", "", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "FAILED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", ""]]
 
             for t in tests:
                 row = []
@@ -657,19 +671,37 @@ class TestLooperHttpServer(object):
 
                 row.append(str(t.activeRuns))
                 row.append(str(t.totalRuns))
+                row.append(str(t.totalRuns - t.successes))
                 row.append(str(t.priority))
+
+                all_tests = list(self.testManager.database.TestRun.lookupAll(test=t))
+                all_noncanceled_tests = [testRun for testRun in all_tests if not testRun.canceled]
+                finished_tests = [testRun for testRun in all_noncanceled_tests if testRun.endTimestamp > 0.0]
+
                 if t.totalRuns:
-                    row.append(str(t.totalTestCount / float(t.totalRuns)))
-                    row.append(str(t.totalFailedTestCount / float(t.totalRuns)))
+                    if t.totalRuns == 1:
+                        #don't want to convert these to floats
+                        row.append("%d" % t.totalTestCount)
+                        row.append("%d" % t.totalFailedTestCount)
+                    else:
+                        row.append(str(t.totalTestCount / float(t.totalRuns)))
+                        row.append(str(t.totalFailedTestCount / float(t.totalRuns)))
+
+                    if finished_tests:
+                        row.append(secondsUpToString(sum([t.endTimestamp - t.startedTimestamp for t in finished_tests]) / len(finished_tests)))
+                    else:
+                        row.append("")
+
                 else:
                     row.append("")
-                    row.append("")                    
+                    row.append("")
+                    row.append("")
 
                 runButtons = []
 
-                for testRun in self.testManager.database.TestRun.lookupAll(test=t):
-                    if not testRun.canceled:
-                        runButtons.append(self.testLogsButton(testRun._identity).render())
+                for testRun in all_noncanceled_tests:
+                    runButtons.append(self.testLogsButton(testRun._identity).render())
+
                 row.append(" ".join(runButtons))
 
                 grid.append(row)
@@ -1550,9 +1582,7 @@ class TestLooperHttpServer(object):
 
                 if stat.failCount and testGroup in ungroupedUniqueTestIds:
                     row.append(
-                        self.commitLink(commit,
-                                        failuresOnly=True,
-                                        testName=testGroup).withTextReplaced(errRate)
+                        self.allTestsLink(errRate, commit,testName=testGroup,failuresOnly=True)
                         )
                 else:
                     row.append(HtmlGeneration.lightGrey(errRate))
@@ -1763,6 +1793,10 @@ class TestLooperHttpServer(object):
                 });
             };
 
+            websocket.onclose = function(event) {
+                term.io.writeUTF16("\\r\\n\\r\\n\\r\\n<<<<DISCONNECTED>>>>>>\\r\\n\\r\\n\\r\\n")
+            };
+
             websocket.onmessage = function(data) {
                 if (!term) {
                     buf += data.data;
@@ -1893,4 +1927,5 @@ class TestLooperHttpServer(object):
     def stop():
         logging.info("Stopping cherrypy engine")
         cherrypy.engine.exit()
+        cherrypy.server.httpserver = None
         logging.info("Cherrypy engine stopped")

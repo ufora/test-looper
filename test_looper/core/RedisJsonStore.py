@@ -13,14 +13,13 @@ class RedisJsonStore(object):
 
     This class is thread-safe.
     """
-    def __init__(self, db=0, port=None, uncached=False):
+    def __init__(self, db=0, port=None):
         self.lock = threading.Lock()
         kwds = {}
         
         if port is not None:
             kwds['port'] = port
 
-        self.uncached = uncached
         self.redis = redis.StrictRedis(db=db, **kwds)
         self.cache = {}
 
@@ -43,22 +42,18 @@ class RedisJsonStore(object):
 
             result = json.loads(result)
 
-            if not self.uncached:
-                self.cache[key] = result
+            self.cache[key] = result
 
             return result
 
     def set(self, key, value):
-        assert not self.uncached
-        
         with self.lock:
             if value is None:
                 self.redis.delete(key)
                 if key in self.cache:
                     del self.cache[key]
             else:
-                if not self.uncached:
-                    self.cache[key] = value
+                self.cache[key] = value
                 self.redis.set(key, json.dumps(value))
 
     def exists(self, key):

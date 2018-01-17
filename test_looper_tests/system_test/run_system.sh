@@ -75,7 +75,7 @@ for m in 4 5 6 7 8;
  git add .
  git commit -m "commit that produces a bad dependency"
 
- rm testDefinitions.yaml
+ rm testDefinitions.yml
  git add .
  git commit -m "commit that has no test file"
  )
@@ -83,5 +83,12 @@ for m in 4 5 6 7 8;
 
 rebuild;
 
+(
+	sleep 4
+	echo "TOGGLING BRANCH ENABLE"
+	curl "http://localhost:9081/toggleBranchUnderTest?repo=simple_project&redirect=%2Fbranches%3FrepoName%3Dsimple_project&branchname=master"
+)&
+
 echo "BOOTING SERVER"
 python -u $PROJ_ROOT/test_looper/server/test-looper-server.py $PROJ_ROOT/test_looper_tests/system_test/config.json
+

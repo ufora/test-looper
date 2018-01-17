@@ -6,7 +6,8 @@ import test_looper.core.Config as Config
 import test_looper.core.machine_management.MachineManagement as MachineManagement
 
 BackgroundTaskStatus = algebraic.Alternative("BackgroundTaskStatus")
-BackgroundTaskStatus.Pending = {}
+BackgroundTaskStatus.PendingHigh = {}
+BackgroundTaskStatus.PendingLow = {}
 BackgroundTaskStatus.Running = {}
 
 def setup_types(database):

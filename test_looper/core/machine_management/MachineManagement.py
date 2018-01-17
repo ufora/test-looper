@@ -42,6 +42,9 @@ class MachineManagement(object):
         self.cores_booted = 0
         self._lock = threading.RLock()
 
+    def shutdown(self):
+        pass
+
     def canBoot(self, hardwareConfig, osConfig):
         with self._lock:
             config = self.config.machine_management
@@ -180,6 +183,16 @@ class LocalMachineManagement(MachineManagement):
             if machineId in self.runningMachines:
                 self.runningMachines[machineId].stop(join=False)
                 self._machineRemoved(machineId)
+
+    def shutdown(self):
+        logging.info("LocalMachineManagement shutting down %s workers", len(self.runningMachines))
+        for machineId, worker in self.runningMachines.iteritems():
+            try:
+                logging.info("Initiating worker shutdown for %s", machineId)
+                worker.stop()
+                logging.info("Completed worker shutdown for %s", machineId)
+            except:
+                logging.error("Failed to shut down worker %s", machineId)
 
     def boot_worker(self, hardware_config, os_config):
         with self._lock:

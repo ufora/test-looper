@@ -79,8 +79,6 @@ class WorkerState(object):
 
         self.name_prefix = name_prefix
 
-        self.isFirstTest = True
-
         assert isinstance(worker_directory, (str,unicode)), worker_directory
         worker_directory = str(worker_directory)
 
@@ -107,9 +105,9 @@ class WorkerState(object):
 
         self.cleanup()
 
-    def callHeartbeatInBackground(self, heartbeat, logMessage=None):
+    def callHeartbeatInBackground(self, log_function, logMessage=None):
         if logMessage is not None:
-            heartbeat(time.asctime() + " TestLooper> " + logMessage + "\n")
+            log_function(time.asctime() + " TestLooper> " + logMessage + "\n")
 
         stop = threading.Event()
         receivedException = [None]
@@ -121,7 +119,7 @@ class WorkerState(object):
                     return
                 else:
                     try:
-                        heartbeat()
+                        log_function("")
                     except Exception as e:
                         stop.set()
                         receivedException[0] = e
@@ -399,19 +397,18 @@ class WorkerState(object):
         print >> build_log
 
 
-    def _run_test_command(self, command, log_filename, timeout, env, workerCallback, docker_image, verbose=True, dumpPreambleLog=True):
+    def _run_test_command(self, command, timeout, env, log_function, docker_image, dumpPreambleLog=True):
         if sys.platform == "win32":
-            return self._run_test_command_windows(command, log_filename, timeout, env, workerCallback, docker_image, verbose, dumpPreambleLog)
+            return self._run_test_command_windows(command, timeout, env, log_function, docker_image, dumpPreambleLog)
         else:
-            return self._run_test_command_linux(command, log_filename, timeout, env, workerCallback, docker_image, verbose, dumpPreambleLog)
+            return self._run_test_command_linux(command, timeout, env, log_function, docker_image, dumpPreambleLog)
 
-    def _run_test_command_windows(self, command, log_filename, timeout, env, workerCallback, docker_image, verbose, dumpPreambleLog):
+    def _run_test_command_windows(self, command, timeout, env, log_function, docker_image, dumpPreambleLog):
         assert docker_image is NAKED_MACHINE
 
         env_to_pass = dict(os.environ)
         env_to_pass.update(env)
 
-        invoker_path = os.path.join(self.directories.command_dir,"command_invoker.ps1")
         command_path = os.path.join(self.directories.command_dir,"command.ps1")
         with open(command_path,"w") as cmd_file:
             print >> cmd_file, "cd '" + self.directories.repo_copy_dir + "'"
@@ -421,16 +418,8 @@ class WorkerState(object):
                 print >> cmd_file, "echo '********************************'"
             print >> cmd_file, command
 
-        with open(invoker_path,"w") as cmd_file:
-            print >> cmd_file, (
-                "powershell.exe __cmd_path__ | Tee-Object -FilePath __log_path__ -Append 2>&1"
-                .replace("__cmd_path__", command_path)
-                .replace("__log_path__", os.path.join(self.directories.test_output_dir,"test_out.log"))
-                )
-            print >> cmd_file, "exit $lastexitcode"
-
         running_subprocess = subprocess.Popen(
-            ["powershell.exe", "-ExecutionPolicy", "Bypass", invoker_path],
+            ["powershell.exe", "-ExecutionPolicy", "Bypass", command_path],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -451,7 +440,7 @@ class WorkerState(object):
                         #do a little throttling
                         time.sleep(0.01)
                     else:
-                        workerCallback.heartbeat(data)
+                        log_function(data)
             except:
                 logging.error("Read loop failed:\n%s", traceback.format_exc())
 
@@ -471,7 +460,7 @@ class WorkerState(object):
                 except requests.exceptions.ConnectionError:
                     pass
 
-                workerCallback.heartbeat()
+                log_function("")
         finally:
             try:
                 if ret_code is not None:
@@ -483,17 +472,14 @@ class WorkerState(object):
 
         return ret_code == 0
 
-    def _run_test_command_linux(self, command, log_filename, timeout, env, workerCallback, docker_image, verbose, dumpPreambleLog):
+    def _run_test_command_linux(self, command, timeout, env, log_function, docker_image, dumpPreambleLog):
         tail_proc = None
         
         try:
-            with open(log_filename, 'a') as build_log:
-                def printer(l):
-                    if self.verbose:
-                        print l
-                    workerCallback.heartbeat(l)
+            log_filename = os.path.join(self.directories.command_dir, "log.txt")
 
-                tail_proc = SubprocessRunner.SubprocessRunner(["tail", "-f",log_filename,"-n","+0"], printer, printer, enablePartialLineOutput=True)
+            with open(log_filename, 'a') as build_log:
+                tail_proc = SubprocessRunner.SubprocessRunner(["tail","-f",log_filename,"-n","+0"], log_function, log_function, enablePartialLineOutput=True)
                 tail_proc.start()
 
                 if dumpPreambleLog:
@@ -512,15 +498,11 @@ class WorkerState(object):
                 print >> f, command
 
             with open(os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w") as f:
-                log_filename_in_container = os.path.join("/test_looper/output", os.path.relpath(log_filename, self.directories.test_output_dir))
-
-                print >> f, "bash /test_looper/command/cmd.sh >> ", log_filename_in_container, " 2>&1"
+                print >> f, "bash /test_looper/command/cmd.sh >> /test_looper/command/log.txt 2>&1"
 
             assert docker_image is not None
 
             with DockerWatcher.DockerWatcher(self.name_prefix) as watcher:
-                assert log_filename.startswith(self.directories.test_output_dir)
-
                 container = watcher.run(
                     docker_image,
                     ["/bin/bash", "/test_looper/command/cmd_invoker.sh"],
@@ -542,7 +524,7 @@ class WorkerState(object):
                     except requests.exceptions.ConnectionError:
                         pass
 
-                    workerCallback.heartbeat()
+                    log_function("")
                     if time.time() - t0 > timeout:
                         ret_code = 1
                         container.stop()
@@ -561,6 +543,7 @@ class WorkerState(object):
         finally:
             if tail_proc is not None:
                 tail_proc.stop()
+
 
     def resetToCommitInDir(self, repoName, commitHash, targetDir):
         git_repo = self.getRepoCacheByName(repoName)
@@ -703,30 +686,49 @@ class WorkerState(object):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
         self.cleanup()
 
-        with self.callHeartbeatInBackground(workerCallback.heartbeat, "Resetting the repo to %s/%s" % (repoName, commitHash)):
+        log_messages = []
+        def log_function(msg=""):
+            if isDeploy:
+                if msg is not None:
+                    workerCallback.terminalOutput(msg.replace("\n", "\r\n"))
+            else:
+                workerCallback.heartbeat(msg)
+
+            if msg is not None:
+                log_messages.append(msg)
+
+        with self.callHeartbeatInBackground(log_function, "Resetting the repo to %s/%s" % (repoName, commitHash)):
             if not self.resetToCommit(repoName, commitHash):
-                workerCallback.heartbeat("Failed to checout code")
+                workerCallback.heartbeat("Failed to checout code!\n")
 
         try:
-            with self.callHeartbeatInBackground(workerCallback.heartbeat, "Extracting test definitions."):
+            with self.callHeartbeatInBackground(log_function, "Extracting test definitions."):
                 testDefinition = self.testDefinitionFor(repoName, commitHash, testName)
 
             if not testDefinition:
-                workerCallback.heartbeat("No test named %s", testName)
+                log_function("No test named %s\n" % testName)
                 return False, {}
 
             if testDefinition.matches.Build and self.artifactStorage.build_exists(self.artifactKeyForTest(repoName, commitHash, testName)):
-                workerCallback.heartbeat("Build already exists")
+                log_function("Build already exists\n")
                 return True, {}
             
-            return self._run_task(testId, repoName, commitHash, testDefinition, workerCallback, isDeploy)
+            return self._run_task(testId, repoName, commitHash, testDefinition, log_function, workerCallback, isDeploy)
         except:
             error_message = "Test failed because of exception: %s" % traceback.format_exc()
             logging.error(error_message)
-            workerCallback.heartbeat(error_message)
+            log_function(error_message)
             return False, {}
         finally:
-            self.isFirstTest = False
+            log_function(time.asctime() + " TestLooper> Uploading logfile.\n")
+
+            try:
+                path = os.path.join(self.directories.scratch_dir, "test_looper_log.txt")
+                with open(path, "w") as f:
+                    f.write("\n".join(log_messages))
+                self.artifactStorage.uploadSingleTestArtifact(testId, "test_looper_log.txt", path)
+            except:
+                log_function("ERROR: Failed to upload the testlooper logfile to artifactStorage:\n\n%s" % traceback.format_exc())
 
     def extract_package(self, package_file, target_dir):
         with tarfile.open(package_file) as tar:
@@ -848,11 +850,11 @@ class WorkerState(object):
 
         return environment, all_dependencies
 
-    def _run_task(self, testId, repoName, commitHash, test_definition, workerCallback, isDeploy):
+    def _run_task(self, testId, repoName, commitHash, test_definition, log_function, workerCallback, isDeploy):
         try:
-            environment, all_dependencies = self.getEnvironmentAndDependencies(repoName, commitHash, test_definition, workerCallback.heartbeat)
+            environment, all_dependencies = self.getEnvironmentAndDependencies(repoName, commitHash, test_definition, log_function)
         except Exception as e:
-            workerCallback.heartbeat("Test failed because: " + str(e))
+            log_function("\n\nTest failed because: " + str(e) + "\n\n")
             return False, {}
 
         if test_definition.matches.Build:
@@ -872,20 +874,15 @@ class WorkerState(object):
         if environment.image.matches.AMI:
             image = NAKED_MACHINE
 
-            #prepend the command to the script contents - normally this should be part of the AMI cachine routine
-            #but we haven't implemented that yet.
-            if self.isFirstTest:
-                command = environment.image.setup_script_contents + "\n\n" + command
-            else:
-                logging.info("Not running setup script because it's not our first test.")
+            command = environment.image.setup_script_contents + "\n\n" + command
         else:
-            with self.callHeartbeatInBackground(workerCallback.heartbeat, "Extracting docker image for environment %s" % environment):
+            with self.callHeartbeatInBackground(log_function, "Extracting docker image for environment %s" % environment):
                 image = self.getDockerImage(environment)
 
         if image is None:
             is_success = False
             if isDeploy:
-                workerCallback.terminalOutput("Couldn't find docker image...")
+                log_function("Couldn't find docker image...")
                 return
         else:
             env_overrides = self.environment_variables(testId, repoName, commitHash, environment, test_definition, image)
@@ -900,16 +897,13 @@ class WorkerState(object):
                 self._run_deployment(command, env_overrides, workerCallback, image)
                 return
             else:
-                workerCallback.heartbeat(time.asctime() + " TestLooper> Starting Test Run\n")
-
-                test_logfile = os.path.join(self.directories.test_output_dir, 'test_out.log')
+                log_function(time.asctime() + " TestLooper> Starting Test Run\n")
 
                 is_success = self._run_test_command(
                     command,
-                    test_logfile,
                     test_definition.timeout or 60 * 60, #1 hour if unspecified
                     env_overrides,
-                    workerCallback,
+                    log_function,
                     image,
                     dumpPreambleLog=True
                     )
@@ -917,29 +911,27 @@ class WorkerState(object):
                 #run the cleanup_command if necessary
                 if cleanup_command.strip() and not self._run_test_command(
                         cleanup_command,
-                        test_logfile,
                         test_definition.timeout or 60 * 60, #1 hour if unspecified
                         env_overrides,
-                        workerCallback,
+                        log_function,
                         image,
-                        verbose=False,
                         dumpPreambleLog=False
                         ):
                     is_success = False
 
         if is_success and test_definition.matches.Build:
-            with self.callHeartbeatInBackground(workerCallback.heartbeat, "Uploading build artifacts."):
+            with self.callHeartbeatInBackground(log_function, "Uploading build artifacts."):
                 if not self._upload_build(repoName, commitHash, test_definition.name):
                     logging.error('Failed to upload build for %s/%s', repoName, commitHash, test_definition.name)
                     is_success = False
 
-        workerCallback.heartbeat()
+        log_function("")
         
         logging.info("machine %s uploading artifacts for test %s", self.machineId, testId)
 
         individualTestSuccesses = {}
 
-        with self.callHeartbeatInBackground(workerCallback.heartbeat, "Uploading test artifacts."):
+        with self.callHeartbeatInBackground(log_function, "Uploading test artifacts."):
             self.artifactStorage.uploadTestArtifacts(
                 testId,
                 self.directories.test_output_dir
@@ -955,7 +947,7 @@ class WorkerState(object):
                     individualTestSuccesses = {str(k): bool(v) for k,v in individualTestSuccesses.iteritems()}
                 except Exception as e:
                     individualTestSuccesses = {}
-                    workerCallback.heartbeat("Failed to pull in testSummary.json: " + str(e))
+                    log_function("Failed to pull in testSummary.json: " + str(e))
                     logging.error("Error processing testSummary.json:\n%s", traceback.format_exc())
 
         return is_success, individualTestSuccesses

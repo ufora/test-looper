@@ -179,7 +179,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
             if len(base_items) == 1:
                 #this is a local import
                 if base_items[0] not in testScript.environments:
-                    raise Exception("Unknown environment %s" % base_items[0])
+                    raise Exception("Unknown environment '%s'" % base_items[0])
 
                 underlying_environment = parseEnvironment(base_items[0], parents + (base_items[0],))
                 repo = curRepoName
@@ -264,7 +264,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
         actualName = "/".join(items[:-1])
         envName = items[-1]
         if envName not in environments and envName not in environmentGroups:
-            raise Exception("Unknown environment: %s" % envName)
+            raise Exception("Unknown environment: '%s' for build %s" % (envName, name))
 
         environments_for_this_build = []
         if envName in environments:

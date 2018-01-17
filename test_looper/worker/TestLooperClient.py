@@ -22,21 +22,27 @@ class TestLooperClient(object):
         self.port = port
         self.machineId = machineId
         self.use_ssl = use_ssl
+        self._shouldStop = False
         self._socketLock = threading.Lock()
-        self._socket = self._connect()
-        self._msgQueue = Queue.Queue()
+        self._socket = None
+        self._clientToServerMessageQueue = Queue.Queue()
+        self._serverToClientMessageQueue = Queue.Queue()
         self._readThread = threading.Thread(target=self._readLoop)
+        self._writeThread = threading.Thread(target=self._writeLoop)
         self._curTestId = None
+        self._curTestResults = None
         self._curDeploymentId = None
+        self._curOutputs = None
         self._subscriptions = {}
         self._subscriptionsLock = threading.Lock()
 
+        self._writeThread.start()
         self._readThread.start()
 
-        self.send(TestLooperServer.ClientToServerMsg.InitializeConnection(machineId=machineId))
-
     def stop(self):
-        logging.info("TestLooperClient stopping")
+        logging.info("TestLooperClient for %s stopping", self.machineId)
+        self._shouldStop = True
+
         try:
             if not self._readThread:
                 return
@@ -44,10 +50,16 @@ class TestLooperClient(object):
             self._socket.shutdown(socket.SHUT_RDWR)    
             self._socket.close()
 
+            self._serverToClientMessageQueue.put(None)
+            self._clientToServerMessageQueue.put(None)
+
             self._readThread.join()
             self._readThread = None
+
+            self._writeThread.join()
+            self._writeThread = None
         finally:
-            logging.info("TestLooperClient stopped")
+            logging.info("TestLooperClient for %s stopped", self.machineId)
 
     def _connect(self):
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -56,14 +68,28 @@ class TestLooperClient(object):
 
         try:
             s.connect((self.host, self.port))
+            logging.info("Connected to %s:%s", self.host, self.port)
         except:
-            logging.info("Failed to connect to %s:%s", self.host, self.port)
+            logging.info("Failed to connect to %s:%s for %s", self.host, self.port, self.machineId)
             raise
 
         return s
 
+    def _writeLoop(self):
+        while not self._shouldStop and self._socket is None:
+            time.sleep(0.01)
+        logging.info("TestLooperClient for %s connected...", self.machineId)
+
+        while not self._shouldStop:
+            msg = self._clientToServerMessageQueue.get()
+            if msg is not None:
+                try:
+                    self._writeString(json.dumps(algebraic_to_json.Encoder().to_json(msg)))
+                except:
+                    logging.error("Failed to send message %s to server:\n\n%s", msg, traceback.format_exc())
+
     def _readLoop(self):
-        while True:
+        while not self._shouldStop:
             msg = algebraic_to_json.Encoder().from_json(
                 json.loads(self._readString()),
                 TestLooperServer.ServerToClientMsg
@@ -84,74 +110,139 @@ class TestLooperClient(object):
                         except:
                             logging.error("Failed to callback subscription to terminal input: %s", traceback.format_exc())
             else:
-                self._msgQueue.put(msg)
+                self._serverToClientMessageQueue.put(msg)
 
     def _readString(self):
-        return socket_util.readString(self._socket)
+        """Read a single string from the other socket.
+
+        If we get disconnected, try to reconnect!
+        """
+        while not self._shouldStop:
+            try:
+                while self._socket is None and not self._shouldStop:
+                    try:
+                        self._socket = self._connect()
+                    except:
+                        logging.error("Socket connect failed. Retrying.\n\n%s", traceback.format_exc())
+                        time.sleep(5.0)
+
+                return socket_util.readString(self._socket)
+            except:
+                logging.error("Socket write failed: trying to reconnect.\n\n%s", traceback.format_exc())
+                self._socket = None
 
     def _writeString(self, s):
-        with self._socketLock:
-            return socket_util.writeString(self._socket, s)
+        return socket_util.writeString(self._socket, s)
 
-    def send(self, msg):
-        self._writeString(json.dumps(algebraic_to_json.Encoder().to_json(msg)))
+    def _send(self, msg):
+        self._clientToServerMessageQueue.put(msg)
 
     def checkoutWork(self, waitTime):
         t0 = time.time()
         while time.time() - t0 < waitTime:
-            self.send(TestLooperServer.ClientToServerMsg.WaitingHeartbeat())
+            self._send(TestLooperServer.ClientToServerMsg.WaitingHeartbeat())
 
             msg = None
             try:
-                msg = self._msgQueue.get(timeout=min(TestLooperClient.HEARTBEAT_INTERVAL, waitTime - (time.time() - t0)))
+                msg = self._serverToClientMessageQueue.get(timeout=min(TestLooperClient.HEARTBEAT_INTERVAL, waitTime - (time.time() - t0)))
             except Queue.Empty as e:
                 pass
 
             if msg is not None:
+                if msg.matches.IdentifyCurrentState:
+                    self._send(
+                        TestLooperServer.ClientToServerMsg.CurrentState(
+                            machineId=self.machineId,
+                            state=TestLooperServer.WorkerState.Waiting()
+                            )
+                        )
                 if msg.matches.TestAssignment:
                     self._curTestId = msg.testId
+                    self._curOutputs = []
                     logging.info("New TestID is %s", self._curTestId)
                     return msg.repoName, msg.commitHash, msg.testName, msg.testId, False
 
                 if msg.matches.DeploymentAssignment:
                     self._curDeploymentId = msg.deploymentId
+                    self._curOutputs = []
                     logging.info("New deploymentId is %s", self._curDeploymentId)
                     return msg.repoName, msg.commitHash, msg.testName, msg.deploymentId, True
 
     def consumeMessages(self):
         try:
-            while True:
-                m = self._msgQueue.get_nowait()
+            while not self._shouldStop:
+                m = self._serverToClientMessageQueue.get_nowait()
+                if m is None:
+                    return
+                if m.matches.IdentifyCurrentState:
+                    if self._curTestId and self._curTestResults is not None:
+                        workerState=TestLooperServer.WorkerState.TestFinished(
+                            testId=self._curTestId,
+                            success=self._curTestResults['success'],
+                            testSuccesses=self._curTestResults['testSuccesses']
+                            )
+                    elif self._curTestId is not None:
+                        workerState=TestLooperServer.WorkerState.WorkingOnTest(
+                            testId=self._curTestId,
+                            logs_so_far="".join(self._curOutputs)
+                            )
+                    elif self._curDeploymentId is not None:
+                        workerState=TestLooperServer.WorkerState.WorkingOnDeployment(
+                            deploymentId=self._curDeploymentId,
+                            logs_so_far="".join(self._curOutputs)
+                            )
+                    else:
+                        workerState=TestLooperServer.WorkerState.Waiting()
+
+                    self._send(
+                        TestLooperServer.ClientToServerMsg.CurrentState(
+                            machineId=self.machineId,
+                            state=workerState
+                            )
+                        )
+                if m.matches.AcknowledgeFinishedTest and self._curTestId == m.testId:
+                    logging.info("TestLooperServer acknowledged test completion.")
+                    self._curTestId = None
+                    self._curOutputs = None
+                    self._curTestResults = None
                 if m.matches.CancelTest and self._curTestId == m.testId:
                     logging.info("TestLooper canceling test %s", self._curTestId)
                     self._curTestId = None
+                    self._curOutputs = None
+                    self._curTestResults = None
                 if m.matches.ShutdownDeployment and self._curDeploymentId == m.deploymentId:
                     logging.info("TestLooper canceling deployment %s", self._curDeploymentId)
                     self._curDeploymentId = None
+                    self._curOutputs = None
         except Queue.Empty:
             pass
 
     def heartbeat(self, msg=None):
+        if self._shouldStop:
+            raise Exception("Shutting down")
+
         self.consumeMessages()
 
         if self._curTestId is not None:
             if msg is None:
-                self.send(TestLooperServer.ClientToServerMsg.TestHeartbeat(testId=self._curTestId))
+                self._send(TestLooperServer.ClientToServerMsg.TestHeartbeat(testId=self._curTestId))
             else:
-                self.send(TestLooperServer.ClientToServerMsg.TestLogOutput(testId=self._curTestId, log=msg))
+                self._curOutputs.append(msg)
+                self._send(TestLooperServer.ClientToServerMsg.TestLogOutput(testId=self._curTestId, log=msg))
 
         elif self._curDeploymentId is not None:
             if msg is None:
-                self.send(TestLooperServer.ClientToServerMsg.DeploymentHeartbeat(deploymentId=self._curDeploymentId))
+                self._send(TestLooperServer.ClientToServerMsg.DeploymentHeartbeat(deploymentId=self._curDeploymentId))
             else:
-                self.send(TestLooperServer.ClientToServerMsg.DeploymentTerminalOutput(deploymentId=self._curDeploymentId, data=msg.replace("\n","\r\n")))
-
+                self._curOutputs.append(msg)
+                self._send(TestLooperServer.ClientToServerMsg.DeploymentTerminalOutput(deploymentId=self._curDeploymentId, data=msg.replace("\n","\r\n")))
         else:
             raise Exception("No active test or deployment")
 
     def terminalOutput(self, output):
         if self._curDeploymentId is not None:
-            self.send(TestLooperServer.ClientToServerMsg.DeploymentTerminalOutput(deploymentId=self._curDeploymentId, data=output))
+            self._curOutputs.append(msg)
+            self._send(TestLooperServer.ClientToServerMsg.DeploymentTerminalOutput(deploymentId=self._curDeploymentId, data=output))
 
     def subscribeToTerminalInput(self, callback):
         if self._curDeploymentId is None:
@@ -171,5 +262,9 @@ class TestLooperClient(object):
     def publishTestResult(self, succeeded, individualTestSuccesses):
         assert self._curTestId is not None
 
-        self.send(TestLooperServer.ClientToServerMsg.TestFinished(testId=self._curTestId, success=succeeded, testSuccesses=individualTestSuccesses))
-        self._curTestId = None
+        self._curTestResults = {'success': succeeded, 'testSuccesses': individualTestSuccesses}
+        self._send(TestLooperServer.ClientToServerMsg.TestFinished(testId=self._curTestId, success=succeeded, testSuccesses=individualTestSuccesses))
+
+        while self._curTestId is not None:
+            self.consumeMessages()
+            time.sleep(.1)

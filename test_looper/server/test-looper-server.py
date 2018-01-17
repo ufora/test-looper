@@ -2,6 +2,7 @@
 
 import argparse
 import json
+import traceback
 import logging
 import os
 import signal
@@ -84,14 +85,10 @@ def main():
     else:
         jsonStore = RedisJsonStore(
             port=config.server.database.port or None, 
-            db=config.server.database.db, 
-            uncached=config.server.database.readonly
+            db=config.server.database.db
             )
 
-    if config.server.database.readonly:
-        eventLog = TestLooperHttpServerEventLog(InMemoryJsonStore())
-    else:
-        eventLog = TestLooperHttpServerEventLog(jsonStore)
+    eventLog = TestLooperHttpServerEventLog(jsonStore)
 
     src_ctrl = SourceControlFromConfig.getFromConfig(config.server.path_to_local_repos, config.source_control)
     artifact_storage = ArtifactStorage.storageFromConfig(config.artifacts)
@@ -109,29 +106,27 @@ def main():
         event_log=eventLog
         )
 
-    if not config.server.database.readonly:
-        server = TestLooperServer.TestLooperServer(config.server_ports,
-                                                   testManager,
-                                                   httpServer,
-                                                   machine_management
-                                                   )
+    server = TestLooperServer.TestLooperServer(config.server_ports,
+                                               testManager,
+                                               httpServer,
+                                               machine_management
+                                               )
 
-        serverThread = threading.Thread(target=server.runListenLoop)
-
-    else:
-        server = None
-        httpServer.start()
-
-        def waiter():
-            while True:
-                time.sleep(10)
-
-        serverThread = threading.Thread(target=waiter)
+    serverThread = threading.Thread(target=server.runListenLoop)
 
     def handleStopSignal(signum, _):
         logging.info("Signal received: %s. Stopping service.", signum)
         if serverThread and serverThread.isAlive() and server is not None:
             server.stop()
+            if isinstance(jsonStore, RedisJsonStore):
+                logging.info("REDIS saving database to disk")
+                try:
+                    jsonStore.redis.save()
+                except:
+                    logging.error("FAILED to save REDIS: %s", traceback.format_exc())
+                finally:
+                    logging.info("REDIS done saving database to disk")
+
         logging.info("Stopping service complete.")
         os._exit(0)
 
