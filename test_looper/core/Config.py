@@ -59,7 +59,7 @@ CertsPath.Paths = {
 
 DatabaseConfig = algebraic.Alternative("DatabaseConfig")
 DatabaseConfig.InMemory = {}
-DatabaseConfig.Redis = {"port": int, "db": int}
+DatabaseConfig.Redis = {"port": int, "db": int, "readonly": bool}
 
 ServerConfig = algebraic.Alternative("ServerConfig")
 ServerConfig.Config = {

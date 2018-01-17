@@ -399,13 +399,13 @@ class WorkerState(object):
         print >> build_log
 
 
-    def _run_test_command(self, command, log_filename, timeout, env, workerCallback, docker_image, verbose=True):
+    def _run_test_command(self, command, log_filename, timeout, env, workerCallback, docker_image, verbose=True, dumpPreambleLog=True):
         if sys.platform == "win32":
-            return self._run_test_command_windows(command, log_filename, timeout, env, workerCallback, docker_image, verbose)
+            return self._run_test_command_windows(command, log_filename, timeout, env, workerCallback, docker_image, verbose, dumpPreambleLog)
         else:
-            return self._run_test_command_linux(command, log_filename, timeout, env, workerCallback, docker_image, verbose)
+            return self._run_test_command_linux(command, log_filename, timeout, env, workerCallback, docker_image, verbose, dumpPreambleLog)
 
-    def _run_test_command_windows(self, command, log_filename, timeout, env, workerCallback, docker_image, verbose):
+    def _run_test_command_windows(self, command, log_filename, timeout, env, workerCallback, docker_image, verbose, dumpPreambleLog):
         assert docker_image is NAKED_MACHINE
 
         env_to_pass = dict(os.environ)
@@ -415,9 +415,10 @@ class WorkerState(object):
         command_path = os.path.join(self.directories.command_dir,"command.ps1")
         with open(command_path,"w") as cmd_file:
             print >> cmd_file, "cd '" + self.directories.repo_copy_dir + "'"
-            print >> cmd_file, "echo 'Welcome to TestLooper on Windows. Here is the current environment:'"
-            print >> cmd_file, "gci env:* | sort-object name"
-            print >> cmd_file, "echo '********************************'"
+            if dumpPreambleLog:
+                print >> cmd_file, "echo 'Welcome to TestLooper on Windows. Here is the current environment:'"
+                print >> cmd_file, "gci env:* | sort-object name"
+                print >> cmd_file, "echo '********************************'"
             print >> cmd_file, command
 
         with open(invoker_path,"w") as cmd_file:
@@ -482,7 +483,7 @@ class WorkerState(object):
 
         return ret_code == 0
 
-    def _run_test_command_linux(self, command, log_filename, timeout, env, workerCallback, docker_image, verbose):
+    def _run_test_command_linux(self, command, log_filename, timeout, env, workerCallback, docker_image, verbose, dumpPreambleLog):
         tail_proc = None
         
         try:
@@ -495,7 +496,7 @@ class WorkerState(object):
                 tail_proc = SubprocessRunner.SubprocessRunner(["tail", "-f",log_filename,"-n","+0"], printer, printer, enablePartialLineOutput=True)
                 tail_proc.start()
 
-                if verbose:
+                if dumpPreambleLog:
                     self.dumpPreambleLog(build_log, env, docker_image, command)
                 else:
                     print >> build_log, "TestLooper Running command ", command
@@ -909,7 +910,8 @@ class WorkerState(object):
                     test_definition.timeout or 60 * 60, #1 hour if unspecified
                     env_overrides,
                     workerCallback,
-                    image
+                    image,
+                    dumpPreambleLog=True
                     )
 
                 #run the cleanup_command if necessary
@@ -920,7 +922,8 @@ class WorkerState(object):
                         env_overrides,
                         workerCallback,
                         image,
-                        verbose=False
+                        verbose=False,
+                        dumpPreambleLog=False
                         ):
                     is_success = False
 

@@ -82,7 +82,16 @@ def main():
     if config.server.database.matches.InMemory:
         jsonStore = InMemoryJsonStore()
     else:
-        jsonStore = RedisJsonStore(port=config.server.database.port or None, db=config.server.database.db)
+        jsonStore = RedisJsonStore(
+            port=config.server.database.port or None, 
+            db=config.server.database.db, 
+            uncached=config.server.database.readonly
+            )
+
+    if config.server.database.readonly:
+        eventLog = TestLooperHttpServerEventLog(InMemoryJsonStore())
+    else:
+        eventLog = TestLooperHttpServerEventLog(jsonStore)
 
     src_ctrl = SourceControlFromConfig.getFromConfig(config.server.path_to_local_repos, config.source_control)
     artifact_storage = ArtifactStorage.storageFromConfig(config.artifacts)
@@ -97,20 +106,31 @@ def main():
         machine_management,
         artifact_storage,
         src_ctrl,
-        event_log=TestLooperHttpServerEventLog(jsonStore)
+        event_log=eventLog
         )
 
-    server = TestLooperServer.TestLooperServer(config.server_ports,
-                                               testManager,
-                                               httpServer,
-                                               machine_management
-                                               )
+    if not config.server.database.readonly:
+        server = TestLooperServer.TestLooperServer(config.server_ports,
+                                                   testManager,
+                                                   httpServer,
+                                                   machine_management
+                                                   )
 
-    serverThread = threading.Thread(target=server.runListenLoop)
+        serverThread = threading.Thread(target=server.runListenLoop)
+
+    else:
+        server = None
+        httpServer.start()
+
+        def waiter():
+            while True:
+                time.sleep(10)
+
+        serverThread = threading.Thread(target=waiter)
 
     def handleStopSignal(signum, _):
         logging.info("Signal received: %s. Stopping service.", signum)
-        if serverThread and serverThread.isAlive():
+        if serverThread and serverThread.isAlive() and server is not None:
             server.stop()
         logging.info("Stopping service complete.")
         os._exit(0)

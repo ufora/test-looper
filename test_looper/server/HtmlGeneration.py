@@ -130,6 +130,9 @@ class ParagraphTag(TextTag):
 
         super(ParagraphTag, self).__init__('p', contained, mods)
 
+class PreformattedTag(TextTag):
+    def __init__(self, contained):
+        super(PreformattedTag, self).__init__('pre', contained)
 
 class BoldTag(TextTag):
     def __init__(self, contained):

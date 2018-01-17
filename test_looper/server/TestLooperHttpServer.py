@@ -4,6 +4,7 @@ import itertools
 import math
 import os
 import sys
+import yaml
 import time
 import logging
 import tempfile
@@ -20,6 +21,7 @@ import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
 from test_looper.server.TestLooperServer import TerminalInputMsg
+import test_looper.core.algebraic_to_json as algebraic_to_json
 
 from ws4py.server.cherrypyserver import WebSocketPlugin, WebSocketTool
 from ws4py.websocket import WebSocket
@@ -651,7 +653,7 @@ class TestLooperHttpServer(object):
                        )
                     )
 
-                row.append(t.fullname.split("/")[-1])
+                row.append(self.environmentLink(t, t.fullname.split("/")[-1]))
 
                 row.append(str(t.activeRuns))
                 row.append(str(t.totalRuns))
@@ -737,6 +739,48 @@ class TestLooperHttpServer(object):
         logging.info("Redirecting for %s", fullname)
         
         raise cherrypy.HTTPRedirect(self.address + "/terminalForDeployment?deploymentId=" + deploymentId)
+
+    def environmentLink(self, test, environmentName):
+        return HtmlGeneration.link(environmentName, "/testEnvironment?" + urllib.urlencode(
+            {"repoName": test.commitData.commit.repo.name,
+             "commitHash": test.commitData.commit.hash,
+             "environmentName": environmentName}
+            ))
+
+    @cherrypy.expose
+    def testEnvironment(self, repoName, commitHash, environmentName):
+        with self.testManager.database.view():
+            repo = self.testManager.database.Repo.lookupAny(name=repoName)
+            if not repo:
+                return self.errorPage("Repo %s doesn't exist" % repoName)
+
+            commit = self.testManager.database.Commit.lookupAny(repo_and_hash=(repo, commitHash))
+            if not commit or not commit.data:
+                return self.errorPage("Commit %s/%s doesn't exist" % (repoName, commitHash))
+
+            env = commit.data.environments.get(environmentName)
+            if not env:
+                return self.errorPage("Environment %s/%s/%s doesn't exist" % (repoName, commitHash, environmentName))
+
+            def strings_to_unicode(x):
+                if isinstance(x, (str, unicode)):
+                    return str(x)
+                if isinstance(x, tuple):
+                    return tuple([strings_to_unicode(y) for y in x])
+                if isinstance(x, list):
+                    return [strings_to_unicode(y) for y in x]
+                if isinstance(x, dict):
+                    return {strings_to_unicode(k): strings_to_unicode(v) for k,v in x.iteritems()}
+                return x
+
+            text = yaml.dump(
+                strings_to_unicode(algebraic_to_json.Encoder().to_json(env)),
+                indent=4,
+                default_style='"'
+                )
+
+            return self.commonHeader(currentRepo=repoName) + HtmlGeneration.PreformattedTag(text).render()
+
 
     def testRunLink(self, testRun):
         return HtmlGeneration.link(str(testRun._identity)[:8], "/test?testId=" + testRun._identity)
