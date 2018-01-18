@@ -112,6 +112,12 @@ class HeartbeatHandler(object):
         self.timestamps = {}
         self.listeners = {}
         
+    def getAllLogsFor(self, testId):
+        with self.lock:
+            if testId in self.logs:
+                return "".join(self.logs[testId])
+            return ""        
+        
     def addListener(self, testId, listener):
         with self.lock:
             if testId not in self.listeners:
@@ -119,8 +125,7 @@ class HeartbeatHandler(object):
 
             if testId in self.logs:
                 try:
-                    for l in self.logs[testId]:
-                        listener(l)
+                    listener("".join(self.logs[testId]))
                 except:
                     logging.error("Failed to write log message for testId %s to listener %s:\n%s", testId, listener, traceback.format_exc())
                     return

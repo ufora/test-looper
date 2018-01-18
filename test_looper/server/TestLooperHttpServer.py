@@ -760,17 +760,17 @@ class TestLooperHttpServer(object):
                 raw_text, extension = self.testManager.getRawTestFileForCommit(commit)
                 try:
                     expansion = TestDefinitionScript.extract_postprocessed_test_definitions(extension, raw_text)
-                    post_expansion_text = markdown.markdown("### After macro expansion") + \
+                    post_expansion_text = markdown.markdown("#### After macro expansion") + \
                         HtmlGeneration.PreformattedTag(yaml.dump(expansion)).render()
                 except Exception as e:
-                    post_expansion_text = markdown.markdown("### Error parsing and expanding macros") + \
+                    post_expansion_text = markdown.markdown("#### Error parsing and expanding macros") + \
                         HtmlGeneration.PreformattedTag(traceback.format_exc()).render()
 
                 return (
                     header + 
-                    markdown.markdown("## Invalid Test\n\n### ERROR") + 
+                    markdown.markdown("## Invalid Test Definitions\n\n#### ERROR") + 
                     HtmlGeneration.PreformattedTag(commit.data.testDefinitionsError).render() + 
-                    markdown.markdown("### Raw Test File") + 
+                    markdown.markdown("#### Raw Test File") + 
                     HtmlGeneration.PreformattedTag(raw_text).render() + 
                     post_expansion_text
                     )
