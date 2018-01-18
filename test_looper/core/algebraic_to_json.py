@@ -96,7 +96,8 @@ class Encoder:
                 #allow objects to be treated as lists of tuples
                 if isinstance(value, dict):
                     value = value.items()
-
+                if isinstance(value, str):
+                    value = (value,)
                 return tuple(self.from_json(v, algebraic_type.subtype) for v in value)
 
             if algebraic_type in algebraic._primitive_types:

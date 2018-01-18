@@ -635,14 +635,20 @@ class WorkerState(object):
         if environment.matches.Environment:
             return environment
 
-        base_environment = self.resolveEnvironment(
-            self.environmentDefinitionFor(environment.repo, environment.commitHash, environment.name),
-            seen
-            )
+        seen = seen + (environment,)
 
-        assert base_environment.matches.Environment, base_environment
+        base_environments = []
 
-        return TestDefinition.merge_environments(environment, base_environment)
+        for dep in environment.imports:
+            base_environments.append(
+                self.resolveEnvironment(
+                    self.environmentDefinitionFor(dep.repo, dep.commitHash, dep.name),
+                    seen
+                    )
+                )
+            assert base_environments[-1].matches.Environment, base_environments[-1]
+
+        return TestDefinition.merge_environments(environment, base_environments)
 
     def getDockerImage(self, testEnvironment):
         assert testEnvironment.matches.Environment

@@ -1306,19 +1306,25 @@ class TestManager(object):
         env = test.testDefinition.environment
 
         while env is not None and env.matches.Import:
-            commit = self._lookupCommitByHash(env.repo, env.commitHash)
-            self._createSourceDep(test, env.repo, env.commitHash)
+            imported_envs = []
 
-            if commit and commit.data:
-                #this dependency exists already
-                underlying_env = commit.data.environments.get(env.name, None)
-                
-                if underlying_env is not None:
-                    env = TestDefinition.merge_environments(env, underlying_env)
+            for dep in env.imports:
+                commit = self._lookupCommitByHash(dep.repo, dep.commitHash)
+                self._createSourceDep(test, dep.repo, dep.commitHash)
+
+                if commit and commit.data:
+                    #this dependency exists already
+                    underlying_env = commit.data.environments.get(dep.name, None)
+                    
+                    if underlying_env is not None:
+                        imported_envs.append(underlying_env)
+                    else:
+                        env = None
                 else:
                     env = None
-            else:
-                env = None
+
+            if env is not None:
+                env = TestDefinition.merge_environments(env, imported_envs)
 
         if env is not None:
             test.fullyResolvedEnvironment = self.database.FullyResolvedTestEnvironment.Resolved(env)

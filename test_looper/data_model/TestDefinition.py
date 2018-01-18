@@ -21,6 +21,9 @@ TestDependency.InternalBuild = {"name": str, "environment": str}
 TestDependency.ExternalBuild = {"repo": str, "commitHash": str, "name": str, "environment": str}
 TestDependency.Source = {"repo": str, "commitHash": str}
 
+EnvironmentReference = algebraic.Alternative("EnvironmentReference")
+EnvironmentReference.Reference = {"repo": str, "commitHash": str, "name": str}
+
 TestEnvironment = algebraic.Alternative("TestEnvironment")
 TestEnvironment.Environment = {
     "environment_name": str,
@@ -30,12 +33,11 @@ TestEnvironment.Environment = {
     "variables": algebraic.Dict(str, str),
     "dependencies": algebraic.Dict(str, TestDependency)
     }
+
 TestEnvironment.Import = {
     "environment_name": str,
     "inheritance": algebraic.List(str),
-    "repo": str,
-    "commitHash": str,
-    "name": str, #the name we're importing from the named repo
+    "imports": algebraic.List(EnvironmentReference),
     "setup_script_contents": str,
     "variables": algebraic.Dict(str, str),
     "dependencies": algebraic.Dict(str, TestDependency)
@@ -96,7 +98,7 @@ def add_setup_contents_to_image(image, extra_setup):
 
     return Image.AMI(base_ami=image.base_ami, setup_script_contents=image.setup_script_contents + "\n" + extra_setup)
 
-def merge_environments(import_environment, underlying_environment):
+def merge_environments(import_environment, underlying_environments):
     """Given an 'Import' environment and its underlying environment, apply the state of the import to the underlying.
     
     This operation is associative: given a chain of imports terminating in a base environment,
@@ -104,27 +106,31 @@ def merge_environments(import_environment, underlying_environment):
     """
     assert import_environment.matches.Import
 
-    underlying_full_name = import_environment.repo + "/" + import_environment.commitHash + "/" + import_environment.environment_name
+    assert len(import_environment.imports) == len(underlying_environments)
 
-    if underlying_environment.matches.Environment:
-        return TestEnvironment.Environment(
+    for ix, dep in reversed(list(enumerate(import_environment.imports))):
+        underlying_environment = underlying_environments[ix]
+        underlying_full_name = dep.repo + "/" + dep.commitHash + "/" + dep.name
+
+        if underlying_environment.matches.Environment:
+            import_environment = TestEnvironment.Environment(
+                    environment_name=import_environment.environment_name,
+                    inheritance=import_environment.inheritance + (underlying_full_name,) + tuple(underlying_environment.inheritance),
+                    platform=underlying_environment.platform,
+                    image=add_setup_contents_to_image(underlying_environment.image, import_environment.setup_script_contents),
+                    variables=merge_dicts(underlying_environment.variables, import_environment.variables),
+                    dependencies=merge_dicts(underlying_environment.dependencies, import_environment.dependencies)
+                    )
+        else:
+            import_environment = TestEnvironment.Import(
                 environment_name=import_environment.environment_name,
-                inheritance=(underlying_full_name,) + tuple(underlying_environment.inheritance),
-                platform=underlying_environment.platform,
-                image=add_setup_contents_to_image(underlying_environment.image, import_environment.setup_script_contents),
+                inheritance=import_environment.inheritance + (underlying_full_name,) + tuple(underlying_environment.inheritance),
+                imports=import_environment.imports[:-1] + underlying_environment.imports,
+                setup_script_contents=
+                    underlying_environment.setup_script_contents + "\n" + import_environment.setup_script_contents
+                        if import_environment.setup_script_contents else "",
                 variables=merge_dicts(underlying_environment.variables, import_environment.variables),
                 dependencies=merge_dicts(underlying_environment.dependencies, import_environment.dependencies)
                 )
-    else:
-        return TestEnvironment.Import(
-            environment_name=import_environment.environment_name,
-            inheritance=(underlying_full_name,) + tuple(underlying_environment.inheritance),
-            repo=underlying_environment.repo,
-            commitHash=underlying_environment.commitHash,
-            name=underlying_environment.name,
-            setup_script_contents=
-                underlying_environment.setup_script_contents + "\n" + import_environment.setup_script_contents
-                    if import_environment.setup_script_contents else "",
-            variables=merge_dicts(underlying_environment.variables, import_environment.variables),
-            dependencies=merge_dicts(underlying_environment.dependencies, import_environment.dependencies)
-            )
+
+    return import_environment

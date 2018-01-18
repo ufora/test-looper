@@ -20,7 +20,7 @@ Image.AMI = {"base_ami": str, "setup_script_contents": str}
 
 DefineEnvironment = algebraic.Alternative("DefineEnvironment")
 DefineEnvironment.Import = {
-    'base': str,
+    'base': algebraic.List(str),
     'setup_script_contents': str,
     "variables": algebraic.Dict(str, str),
     "dependencies": algebraic.Dict(str, str)
@@ -173,43 +173,49 @@ def extract_tests(curRepoName, curCommitHash, testScript):
         envDef = testScript.environments[envName]
 
         if envDef.matches.Import:
-            importText = envDef.base
+            imports = []
 
-            base_items = importText.split("/")
-            if len(base_items) == 1:
-                #this is a local import
-                if base_items[0] not in testScript.environments:
-                    raise Exception("Unknown environment '%s'" % base_items[0])
+            for import_string in envDef.base:
+                import_parts = import_string.split("/")
 
-                underlying_environment = parseEnvironment(base_items[0], parents + (base_items[0],))
-                repo = curRepoName
-                commitHash = curCommitHash
-                importEnvName = base_items[0]
-            else:
-                assert len(base_items) == 2, "Invalid import: %s" % importText
+                if len(import_parts) == 1:
+                    #this is a local import
+                    if import_parts[0] not in testScript.environments:
+                        raise Exception("Unknown environment '%s'" % import_parts[0])
 
-                repoName, importEnvName = base_items
+                    imports.append(
+                        TestDefinition.EnvironmentReference(
+                            repo=curRepoName,
+                            commitHash=curCommitHash,
+                            name=import_parts[0]
+                            )
+                        )
+                else:
+                    assert len(import_parts) == 2, "Invalid import: %s" % import_string
 
-                repo=repos[repoName][0]
-                commitHash=repos[repoName][1]
+                    repoName, importEnvName = import_parts
 
-                underlying_environment = None
+                    repo=repos[repoName][0]
+                    commitHash=repos[repoName][1]
+
+                    imports.append(
+                        TestDefinition.EnvironmentReference(
+                            repo=repo,
+                            commitHash=commitHash,
+                            name=importEnvName
+                            )
+                        )
 
             import_env = TestDefinition.TestEnvironment.Import(
                 environment_name=envName,
                 inheritance=(),
-                repo=repo,
-                commitHash=commitHash,
-                name=importEnvName,
+                imports=tuple(imports),
                 setup_script_contents=envDef.setup_script_contents,
                 variables=envDef.variables,
                 dependencies={
                     name: map_dep(dep) for name, dep in envDef.dependencies.iteritems()
                     }
                 )
-
-            if underlying_environment is not None:
-                import_env = TestDefinition.merge_environments(import_env, underlying_environment)
 
             environments[envName] = import_env
                     
