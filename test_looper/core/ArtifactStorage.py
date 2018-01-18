@@ -27,7 +27,7 @@ Encoding = algebraic.Alternative("Encoding")
 class ArtifactStorage(object):
     @staticmethod
     def keyname_to_encoding(key):
-        if key.endswith(".out.gz") or key.endswith(".log.gz") or key.endswith(".txt.gz"):
+        if key.endswith(".out.gz") or key.endswith(".log.gz") or key.endswith(".txt.gz") or key.endswith(".stdout.gz") or key.endswith(".stderr.gz"):
             return ("text/plain", key[:-3], True)
         if key.endswith(".txt") or key.endswith(".log") or key.endswith(".out"):
             return ("text/plain", key, False)

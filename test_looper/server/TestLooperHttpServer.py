@@ -599,7 +599,7 @@ class TestLooperHttpServer(object):
                 return self.errorPage("Unknown testid %s" % testRunId)
 
             if not testRun.canceled:
-                self.testManager._cancelTestRun(testRun)
+                self.testManager._cancelTestRun(testRun, time.time())
 
         raise cherrypy.HTTPRedirect(redirect)
 
@@ -753,15 +753,24 @@ class TestLooperHttpServer(object):
                 grid.append(row)
 
 
-            header = """## Commit `%s`: `%s`\n""" % (commit.hash[:10], commit.data.subject)
-            header = self.commonHeader(currentRepo=repoName) + markdown.markdown(header)
+            markdown_header = """## Repo [%s](%s)\n""" % (repoName, self.branchesUrl(repoName))
+            markdown_header += """## Commit `%s`: `%s`\n""" % (commit.hash[:10], commit.data.subject)
+
+            branchgrid = [["Branches Containing This Commit"]]
+            for branch, path in self.testManager.commitFindAllBranches(commit).iteritems():
+                branchgrid.append([self.branchLink(branch).render() + path])
+
+            header = self.commonHeader(currentRepo=repoName) + markdown.markdown(markdown_header) + HtmlGeneration.grid(branchgrid)
 
             if commit.data.testDefinitionsError:
                 raw_text, extension = self.testManager.getRawTestFileForCommit(commit)
                 try:
-                    expansion = TestDefinitionScript.extract_postprocessed_test_definitions(extension, raw_text)
-                    post_expansion_text = markdown.markdown("#### After macro expansion") + \
-                        HtmlGeneration.PreformattedTag(yaml.dump(expansion)).render()
+                    if extension is None:
+                        post_expansion_text = ""
+                    else:
+                        expansion = TestDefinitionScript.extract_postprocessed_test_definitions(extension, raw_text)
+                        post_expansion_text = markdown.markdown("#### After macro expansion") + \
+                            HtmlGeneration.PreformattedTag(yaml.dump(expansion)).render()
                 except Exception as e:
                     post_expansion_text = markdown.markdown("#### Error parsing and expanding macros") + \
                         HtmlGeneration.PreformattedTag(traceback.format_exc()).render()
@@ -1068,6 +1077,9 @@ class TestLooperHttpServer(object):
         
         return self.commonHeader() + grid
 
+    def branchesUrl(self, reponame):
+        return self.address + "/branches?" + urllib.urlencode({'repoName':reponame})
+
     def deploymentsGrid(self):
         with self.testManager.database.view():
             deployments = sorted(
@@ -1084,7 +1096,7 @@ class TestLooperHttpServer(object):
                 repo = commit.repo
 
                 row.append(
-                    HtmlGeneration.link(repo.name, "/branches?" + urllib.urlencode({'repoName':repo.name}))
+                    HtmlGeneration.link(repo.name, self.branchesUrl(repo.name))
                     )
 
                 row.append(
@@ -1274,7 +1286,7 @@ class TestLooperHttpServer(object):
             return self.testPageForCommits(
                 reponame,
                 self.testManager.commitsToDisplayForBranch(branch, max_commit_count), 
-                "Branch `" + branch.branchname + "`",
+                "# Branch [%s](%s) / `%s`\n" % (reponame, self.branchesUrl(reponame), branch.branchname),
                 branch
                 )
 
@@ -1298,10 +1310,10 @@ class TestLooperHttpServer(object):
         collapsed_name_environments = []
         for name in collapsed_names:
             env = name.split("/")[-1]
-            if not collapsed_name_environments or collapsed_name_environments[-1] != env:
-                collapsed_name_environments.append(env)
+            if not collapsed_name_environments or collapsed_name_environments[-1]["content"] != env:
+                collapsed_name_environments.append({"content": env, "colspan": 1})
             else:
-                collapsed_name_environments.append("")
+                collapsed_name_environments[-1]["colspan"] += 1
 
         grid = [[""] * 2 + collapsed_name_environments + [""] * 4,
                 ["COMMIT", "(running)"] + 
@@ -1410,7 +1422,7 @@ class TestLooperHttpServer(object):
 
             grid.append(gridrow)
 
-        header = markdown.markdown("# " + headerText)
+        header = markdown.markdown(headerText)
         
         grid = HtmlGeneration.grid(grid, header_rows=2, rowHeightOverride=33)
         

@@ -252,11 +252,29 @@ def grid(rows, header_rows=1, rowHeightOverride=None):
     else:
         override_text = ""
 
-    rows = [[makeHtmlElement(x) for x in row] for row in rows]
-    col_count = len(rows[0])
+    def row_colcount(row):
+        cols = 0
+        for c in row:
+            if isinstance(c,dict) and 'colspan' in c:
+                cols += c['colspan']
+            else:
+                cols += 1
+        return cols
+
+    col_count = row_colcount(rows[0])
+
+    def format_cell(c, which='td'):
+        if isinstance(c, dict):
+            extras = ""
+            if 'colspan' in c:
+                extras += ' colspan="%d"' % c['colspan']
+
+            return '<%s class="fit"%s>%s</%s>' % (which, extras, makeHtmlElement(c['content']).render(), which)
+        else:
+            return '<%s class="fit">%s</%s>' % (which, makeHtmlElement(c).render(), which)
 
     table_headers = "\n".join(
-        "<tr%s>%s</tr>" % (override_text, "\n".join('<th class="fit">%s</th>' % h.render()
+        "<tr%s>%s</tr>" % (override_text, "\n".join(format_cell(h, "th")
                                   for h in row))
         for row in rows[:header_rows])
 
@@ -264,10 +282,13 @@ def grid(rows, header_rows=1, rowHeightOverride=None):
         if len(row) == 0:
             return '<tr class="blank_row"><td colspan="%d"/></tr>' % col_count
         else:
-            tr = "<tr" + override_text + ">%s" % "\n".join('<td class="fit">%s</td>' % c.render()
-                                      for c in row)
-            if len(row) < col_count:
-                tr += '<td colspan="%d"/>' % (col_count - len(row))
+            cols = row_colcount(row)
+
+            tr = "<tr" + override_text + ">%s" % "\n".join(format_cell(c) for c in row)
+
+            if cols < col_count:
+                tr += '<td colspan="%d"/>' % (col_count - cols)
+
             return tr + "</tr>"
 
     table_rows = "\n".join(format_row(row) for row in rows[header_rows:])

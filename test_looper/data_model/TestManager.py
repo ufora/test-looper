@@ -189,6 +189,54 @@ class TestManager(object):
 
         self.deploymentStreams = {}
 
+    def commitFindAllBranches(self, commit):
+        childCommits = {}
+
+        def children(c):
+            toCheck = {}
+            for r in self.database.CommitRelationship.lookupAll(parent=c):
+                child = r.child
+
+                ix = child.data.parents.index(c)
+
+                toCheck[child] = "^" + str(ix+1) if ix > 1 else "~"
+
+            return toCheck
+
+        def compress_pathback(path):
+            start = None
+            i = 0
+            while i <= len(path):
+                if i < len(path) and path[i] == "~":
+                    if start is None:
+                        start = i
+                    i += 1
+                else:
+                    if start is not None and i-start > 1:
+                        path = path[:start] + "~" + str(i - start) + path[i:]
+                        i = start+1
+                        start = None
+                    else:
+                        i += 1
+
+            return path
+
+        branches = {}
+
+        def check(c, path_back):
+            if c not in childCommits or len(path_back) < len(child_commits[c]):
+                childCommits[c] = path_back
+
+                for branch in self.database.Branch.lookupAll(head=c):
+                    branches[branch] = compress_pathback(path_back)
+
+                for child, to_add in children(c).items():
+                    check(child, to_add + path_back)
+
+        check(commit, "")
+
+        return branches
+
     def streamForDeployment(self, deploymentId):
         with self.writelock:
             if deploymentId not in self.deploymentStreams:
@@ -415,7 +463,7 @@ class TestManager(object):
             assert testRun.exists()
 
             if testRun.endTimestamp == 0.0:
-                self._cancelTestRun(testRun)
+                self._cancelTestRun(testRun, time.time())
                 return
 
             testRun.test.totalRuns = testRun.test.totalRuns - 1
@@ -468,9 +516,9 @@ class TestManager(object):
                     self._terminateMachine(testRun.machine, curTimestamp)
 
             for dep in self.database.TestDependency.lookupAll(dependsOn=testRun.test):
-                self._updateTestPriority(dep.test)
+                self._updateTestPriority(dep.test, curTimestamp)
 
-            self._updateTestPriority(testRun.test)
+            self._updateTestPriority(testRun.test, curTimestamp)
 
             return True
 
@@ -497,7 +545,7 @@ class TestManager(object):
             if not testRun.machine.isAlive:
                 logging.error("Test %s heartbeat, but machine %s is dead!", testId, testRun.machine.machineId)
 
-                self._cancelTestRun(testRun)
+                self._cancelTestRun(testRun, timestamp)
                 return False
             else:
                 self._machineHeartbeat(testRun.machine, timestamp)
@@ -605,7 +653,7 @@ class TestManager(object):
                 machine=machine
                 )
 
-            self._updateTestPriority(test)
+            self._updateTestPriority(test, timestamp)
 
             return (test.commitData.commit.repo.name, test.commitData.commit.hash, test.testDefinition.name, runningTest._identity)
 
@@ -614,7 +662,7 @@ class TestManager(object):
         with self.transaction_and_lock():
             for t in self.database.TestRun.lookupAll(isRunning=True):
                 if t.lastHeartbeat < curTimestamp - TEST_TIMEOUT_SECONDS and curTimestamp - self.initialTimestamp > TEST_TIMEOUT_SECONDS:
-                    self._cancelTestRun(t)
+                    self._cancelTestRun(t, curTimestamp)
 
         with self.transaction_and_lock():
             self._scheduleBootCheck()
@@ -627,7 +675,7 @@ class TestManager(object):
                 status=pendingHigh
                 )
 
-    def _cancelTestRun(self, testRun):
+    def _cancelTestRun(self, testRun, curTimestamp):
         assert testRun.endTimestamp == 0.0
 
         testRun.canceled = True
@@ -681,7 +729,7 @@ class TestManager(object):
         assert mc.booted >= 0
 
         for testRun in list(self.database.TestRun.lookupAll(runningOnMachine=machine)):
-            self._cancelTestRun(testRun)
+            self._cancelTestRun(testRun, timestamp)
 
         for deployment in list(self.database.Deployment.lookupAll(runningOnMachine=machine)):
             self._cancelDeployment(deployment, timestamp)
@@ -843,7 +891,7 @@ class TestManager(object):
 
         elif task.matches.UpdateTestPriority:
             with self.transaction_and_lock():
-                self._updateTestPriority(task.test)
+                self._updateTestPriority(task.test, curTimestamp)
         elif task.matches.BootMachineCheck:
             with self.transaction_and_lock():
                 self._bootMachinesIfNecessary(curTimestamp)
@@ -1005,14 +1053,14 @@ class TestManager(object):
 
         return priority
 
-    def _updateTestPriority(self, test):
+    def _updateTestPriority(self, test, curTimestamp):
         self._checkAllTestDependencies(test)
         
         #cancel any runs already going if this gets deprioritized
         if test.commitData.commit.priority == 0:
             for run in self.database.TestRun.lookupAll(test=test):
                 if run.endTimestamp == 0.0 and not run.canceled:
-                    self._cancelTestRun(run)
+                    self._cancelTestRun(run, curTimestamp)
 
         oldPriority = test.priority
         oldTargetMachineBoot = test.targetMachineBoot
