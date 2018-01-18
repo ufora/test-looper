@@ -382,7 +382,8 @@ class TestManagerTests(unittest.TestCase):
                     None,
                     None
                     ),
-                InMemoryJsonStore.InMemoryJsonStore()
+                InMemoryJsonStore.InMemoryJsonStore(),
+                initialTimestamp = -1000.0
                 )
             )
 

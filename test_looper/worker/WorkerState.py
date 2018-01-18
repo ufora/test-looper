@@ -390,11 +390,13 @@ class WorkerState(object):
         print >> build_log, "Working Directory: /test_looper/src"
         build_log.flush()
 
-        print >> build_log, "TestLooper Running command ", command
+        print >> build_log, "TestLooper Running command:"
+        print >> build_log, command
         build_log.flush()
 
         print >> build_log, "********************************************"
         print >> build_log
+        build_log.flush()
 
 
     def _run_test_command(self, command, timeout, env, log_function, docker_image, dumpPreambleLog=True):
@@ -485,7 +487,12 @@ class WorkerState(object):
                 if dumpPreambleLog:
                     self.dumpPreambleLog(build_log, env, docker_image, command)
                 else:
-                    print >> build_log, "TestLooper Running command ", command
+                    print >> build_log, "TestLooper Running command"
+                    print >> build_log, command
+                    print >> build_log, "********************************************"
+                    print >> build_log
+                    build_log.flush()
+
                     build_log.flush()
 
             logging.info("Running command: '%s'. Log: %s. Docker Image: %s", 
@@ -725,7 +732,7 @@ class WorkerState(object):
             try:
                 path = os.path.join(self.directories.scratch_dir, "test_looper_log.txt")
                 with open(path, "w") as f:
-                    f.write("\n".join(log_messages))
+                    f.write("".join(log_messages))
                 self.artifactStorage.uploadSingleTestArtifact(testId, "test_looper_log.txt", path)
             except:
                 log_function("ERROR: Failed to upload the testlooper logfile to artifactStorage:\n\n%s" % traceback.format_exc())
@@ -817,10 +824,10 @@ class WorkerState(object):
                     for tries in xrange(3):
                         try:
                             results[expose_as] = self.grabDependency(heartbeatWithLock, expose_as, dep, repoName, commitHash)
-                            heartbeatWithLock(time.asctime() + " TestLooper> Done pulling %s/%s.\n" % (dep.repo, dep.commitHash))
+                            heartbeatWithLock(time.asctime() + " TestLooper> Done pulling %s.\n" % dep)
                             return
                         except Exception as e:
-                            results[expose_as] = str(e)
+                            results[expose_as] = traceback.format_exc()
 
                 waiting_threads = [threading.Thread(target=callFun, args=(expose_as,dep))
                                 for (expose_as, dep) in all_dependencies.iteritems()]

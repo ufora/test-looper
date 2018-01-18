@@ -402,6 +402,24 @@ def flatten(l):
         res.extend(flatten(i))
     return res
 
+def dictionary_cross_product(kv_pairs):
+    if len(kv_pairs) == 0:
+        return [{}]
+
+    subs = dictionary_cross_product(kv_pairs[1:])
+
+    key, values = kv_pairs[0]
+
+    result = []
+    for v in values:
+        for s in subs:
+            s = dict(s)
+            s[key] = v
+            result.append(s)
+
+    return result
+
+
 def expand_macros(json, variables):
     if isinstance(json, unicode):
         json = str(json)
@@ -492,7 +510,17 @@ def expand_macros(json, variables):
         if sorted(json.keys()) == ["foreach", "repeat"]:
             assert isinstance(json['repeat'], dict), "Can't repeat %s because it's not a dictionary" % json['repeat']
 
-            items = flatten(expand_macros(json['foreach'], variables))
+            repeat_over = expand_macros(json['foreach'], variables)
+
+            if isinstance(repeat_over, dict):
+                #take the cross product of all elements of the dictionary
+                #e.g.
+                #A: [1,2,3]
+                #B: [1,2,3]
+                #will produce 9 items
+                items = dictionary_cross_product(repeat_over.items())
+            else:
+                items = flatten(repeat_over)
 
             res = {}
             for sub_replacements in items:
@@ -514,7 +542,7 @@ def expand_macros(json, variables):
 
     return json
 
-def extract_tests_from_str(repoName, commitHash, extension, text):
+def extract_postprocessed_test_definitions(extension, text):
     if isinstance(text, unicode):
         text = str(text)
 
@@ -525,10 +553,13 @@ def extract_tests_from_str(repoName, commitHash, extension, text):
     else:
         raise Exception("Can't load testDefinitions from file ending in '%s'. Use json or yml." % extension)
 
+    return expand_macros(test_defs_json, {})
+
+def extract_tests_from_str(repoName, commitHash, extension, text):
+    test_defs_json = extract_postprocessed_test_definitions(extension, text)
+    
     if 'looper_version' not in test_defs_json:
         raise Exception("No looper version specified. Current version is 2")
-
-    test_defs_json = expand_macros(test_defs_json, {})
 
     version = test_defs_json['looper_version']
     del test_defs_json['looper_version']

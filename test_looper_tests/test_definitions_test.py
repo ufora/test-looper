@@ -146,21 +146,22 @@ class TestDefinitionScriptTests(unittest.TestCase):
           res, [[20,30,1,2], {"a": [20,30], "b": [1,2]}]
           )
 
+    def test_cross_foreach(self):
+        res = TestDefinitionScript.expand_macros(
+          {"foreach": {"name": [20, 30], "name2": [1,2]},
+           "repeat": {"${name}-${name2}": "hi"}
+          }, {})
+
+        self.assertEqual(
+          res,
+            {"20-1": "hi",
+             "20-2": "hi",
+             "30-1": "hi",
+             "30-2": "hi"}
+          )
+
     def test_squashing(self):
         res = TestDefinitionScript.expand_macros(yaml.load(foreach_and_squash_yaml), {})
-        
-        self.assertEqual(
-          res, {
-            'test/G1/T1': 'P1 T1.test',
-            'test/G1/T2': 'P1 T2.test',
-            'test/G2/T3': 'P2 T3.test',
-            'test/G2/T4': 'P2 T4.test'
-          })
-
-    def test_foreach(self):
-        res = TestDefinitionScript.expand_macros(yaml.load(foreach_2_yml), {})
-        
-        print res
         
         self.assertEqual(
           res, {

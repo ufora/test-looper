@@ -16,10 +16,14 @@ import pytz
 import simplejson
 import struct
 import os
+import OpenSSL
+import OpenSSL.SSL
 import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
+import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
+
 from test_looper.server.TestLooperServer import TerminalInputMsg
 import test_looper.core.algebraic_to_json as algebraic_to_json
 
@@ -60,8 +64,13 @@ class LogHandler:
         testManager.heartbeatHandler.addListener(testId, self.logMsg)
 
     def logMsg(self, message):
+        if len(message) > 10000:
+            message = message[-10000:]
+
         try:
-            self.websocket.send(message.replace("\n","\n\r"), False)
+            message = message.replace("\n","\n\r")
+
+            self.websocket.send(message, False)
         except:
             logging.error("error in websocket handler:\n%s", traceback.format_exc())
             raise
@@ -81,10 +90,9 @@ class InteractiveEnvironmentHandler:
 
         testManager.subscribeToDeployment(self.deploymentId, self.onTestOutput)
 
-    def onTestOutput(self, testOutput):
+    def onTestOutput(self, message):
         try:
-            if testOutput:
-                self.websocket.send(testOutput, False)
+            self.websocket.send(message, False)
         except:
             logging.error("Error in websocket handler: \n%s", traceback.format_exc())
             raise
@@ -368,6 +376,21 @@ class TestLooperHttpServer(object):
                         self.testResultDownloadUrl(testId, artifactName)
                         )
                     ])
+
+            if testRun.totalTestCount:
+                individual_tests_grid = [["TEST_NAME", "PASSED"]]
+                pass_dict = {}
+
+                for ix in xrange(len(testRun.testNames.test_names)):
+                    pass_dict[testRun.testNames.test_names[ix]] = "PASS" if testRun.testFailures[ix] else "FAIL"
+
+                for k,v in sorted(pass_dict.items()):
+                    individual_tests_grid.append((k,v))
+
+                individual_tests = markdown.markdown("## Tests") + HtmlGeneration.grid(individual_tests_grid)
+            else:
+                individual_tests = ""
+
             return (
                 self.commonHeader(testRun.test.commitData.commit.repo) +
                 markdown.markdown("# Test\n") +
@@ -377,7 +400,8 @@ class TestLooperHttpServer(object):
                 markdown.markdown("##") + 
                 self.testLogsButton(testId).render() + 
                 markdown.markdown("## Artifacts\n") +
-                (HtmlGeneration.grid(grid) if grid else "")
+                (HtmlGeneration.grid(grid) if grid else "") + 
+                individual_tests
                 )
 
     @cherrypy.expose
@@ -594,7 +618,7 @@ class TestLooperHttpServer(object):
         with self.testManager.database.view():
             machines = self.testManager.database.Machine.lookupAll(isAlive=True)
 
-            grid = [["MachineID", "Hardware", "OS", "BOOTED AT", "UP FOR", "STATUS", "LASTMSG", "RUNNING"]]
+            grid = [["MachineID", "Hardware", "OS", "BOOTED AT", "UP FOR", "STATUS", "LASTMSG", "RUNNING", "", "", "", ""]]
             for m in sorted(machines, key=lambda m: -m.bootTime):
                 row = []
                 row.append(m.machineId)
@@ -616,13 +640,17 @@ class TestLooperHttpServer(object):
                 if len(tests) + len(deployments) > 1:
                     row.append("ERROR: multiple test runs/deployments")
                 elif tests:
-                    row.append("TEST " + self.testRunLink(tests[0]).render() + self.cancelTestRunButton(tests[0]._identity).render())
+                    row.append(self.testRunLink(tests[0], "TEST "))
+                    row.append(self.testLogsButton(tests[0]._identity))
+                    row.append(self.cancelTestRunButton(tests[0]._identity))
+                    row.append(self.commitLink(tests[0].test.commitData.commit))
+                    
                 elif deployments:
                     d = deployments[0]
-                    row.append(
-                        "DEPLOYMENT " + self.commitLink(d.test.commitData.commit, textIsSubject=False).render() + self.connectDeploymentLink(d).render() 
-                            + self.shutdownDeploymentLink(d).render()
-                        )
+                    row.append("DEPLOYMENT")
+                    row.append(self.connectDeploymentLink(d))
+                    row.append(self.shutdownDeploymentLink(d))
+                    row.append(self.commitLink(d.test.commitData.commit))
                 
                 grid.append(row)
                 
@@ -654,8 +682,10 @@ class TestLooperHttpServer(object):
             for t in tests:
                 row = []
 
+                partialName = "/".join(t.testDefinition.name.split("/")[:-1])
+
                 row.append(
-                    self.allTestsLink(t.testDefinition.name, commit, t.testDefinition.name)
+                    self.allTestsLink(partialName, commit, t.testDefinition.name)
                     )
                 row.append("") #self.clearTestLink(t.fullname))
                 row.append(
@@ -672,7 +702,19 @@ class TestLooperHttpServer(object):
                 row.append(str(t.activeRuns))
                 row.append(str(t.totalRuns))
                 row.append(str(t.totalRuns - t.successes))
-                row.append(str(t.priority))
+
+                def stringifyPriority(priority):
+                    if priority.matches.UnresolvedDependencies:
+                        return "UnresolvedDependencies"
+                    if priority.matches.WaitingOnBuilds:
+                        return "WaitingOnBuilds"
+                    if priority.matches.HardwareComboUnbootable:
+                        return "HardwareComboUnbootable"
+                    if priority.matches.NoMoreTests:
+                        return "HaveEnough"
+                    return "WaitingForHardware"
+
+                row.append(stringifyPriority(t.priority))
 
                 all_tests = list(self.testManager.database.TestRun.lookupAll(test=t))
                 all_noncanceled_tests = [testRun for testRun in all_tests if not testRun.canceled]
@@ -691,11 +733,15 @@ class TestLooperHttpServer(object):
                         row.append(secondsUpToString(sum([t.endTimestamp - t.startedTimestamp for t in finished_tests]) / len(finished_tests)))
                     else:
                         row.append("")
-
                 else:
                     row.append("")
                     row.append("")
-                    row.append("")
+                    
+                    if all_noncanceled_tests:
+                        row.append(secondsUpToString(sum([time.time() - t.startedTimestamp for t in all_noncanceled_tests]) / len(all_noncanceled_tests)) + " so far")
+                    else:
+                        row.append("")
+
 
                 runButtons = []
 
@@ -710,7 +756,26 @@ class TestLooperHttpServer(object):
             header = """## Commit `%s`: `%s`\n""" % (commit.hash[:10], commit.data.subject)
             header = self.commonHeader(currentRepo=repoName) + markdown.markdown(header)
 
-            return header + HtmlGeneration.grid(grid)
+            if commit.data.testDefinitionsError:
+                raw_text, extension = self.testManager.getRawTestFileForCommit(commit)
+                try:
+                    expansion = TestDefinitionScript.extract_postprocessed_test_definitions(extension, raw_text)
+                    post_expansion_text = markdown.markdown("### After macro expansion") + \
+                        HtmlGeneration.PreformattedTag(yaml.dump(expansion)).render()
+                except Exception as e:
+                    post_expansion_text = markdown.markdown("### Error parsing and expanding macros") + \
+                        HtmlGeneration.PreformattedTag(traceback.format_exc()).render()
+
+                return (
+                    header + 
+                    markdown.markdown("## Invalid Test\n\n### ERROR") + 
+                    HtmlGeneration.PreformattedTag(commit.data.testDefinitionsError).render() + 
+                    markdown.markdown("### Raw Test File") + 
+                    HtmlGeneration.PreformattedTag(raw_text).render() + 
+                    post_expansion_text
+                    )
+            else:
+                return header + HtmlGeneration.grid(grid)
 
     @cherrypy.expose
     def allTestRuns(self, repoName, commitHash, failuresOnly=False, testName=None):
@@ -814,8 +879,8 @@ class TestLooperHttpServer(object):
             return self.commonHeader(currentRepo=repoName) + HtmlGeneration.PreformattedTag(text).render()
 
 
-    def testRunLink(self, testRun):
-        return HtmlGeneration.link(str(testRun._identity)[:8], "/test?testId=" + testRun._identity)
+    def testRunLink(self, testRun, text_prefix=""):
+        return HtmlGeneration.link(text_prefix + str(testRun._identity)[:8], "/test?testId=" + testRun._identity)
 
     def gridForTestList_(self, sortedTests, commit=None, failuresOnly=False):
         grid = [["TEST", "TYPE", "STATUS", "LOGS", "CLEAR", "STARTED", "MACHINE", "ELAPSED (MIN)",
@@ -978,18 +1043,18 @@ class TestLooperHttpServer(object):
                 hover_text='Refresh branches'
                 )
 
-            grid = [["TEST", "BRANCH NAME", "COMMIT COUNT", refresh_button]]
+            grid = [["TEST", "BRANCH NAME", refresh_button, "TOP COMMIT"]]
 
             for branch in sorted(branches, key=lambda b:b.branchname):
-                commits = self.testManager.commitsToDisplayForBranch(branch)
-
                 row = []
                 row.append(self.toggleBranchUnderTestLink(branch))
                 row.append(self.branchLink(branch))
-                row.append(str(len(commits)))
+                row.append("")
 
-                if commits:
-                    row.append(self.clearBranchLink(branch))
+                if branch.head:
+                    row.append(self.commitLink(branch.head))
+                else:
+                    row.append("")
 
                 grid.append(row)
 
@@ -1105,25 +1170,9 @@ class TestLooperHttpServer(object):
         self.authorize(read_only=True)
 
         grid = HtmlGeneration.grid(self.branchesGrid(repoName))
-        grid += HtmlGeneration.Link("/disableAllTargetedTests?" + 
-                                        urllib.urlencode({'redirect': self.redirect()}),
-                                    "Stop all drilling",
-                                    is_button=True,
-                                    button_style=self.disable_if_cant_write("btn-default")).render()
-
+        
         return self.commonHeader(currentRepo=repoName) + grid
 
-
-    @cherrypy.expose
-    def disableAllTargetedTests(self, redirect):
-        self.authorize(read_only=False)
-
-        with self.testManager.database.view():
-            for branch in self.testManager.branches.itervalues():
-                branch.setTargetedTestList([])
-                branch.setTargetedCommitIds([])
-
-        raise cherrypy.HTTPRedirect(redirect)
 
     def toggleBranchTargetedTestListLink(self, branch, testType, testGroupsToExpand):
         is_drilling = False #testType in branch.targetedTestList()
@@ -1212,7 +1261,7 @@ class TestLooperHttpServer(object):
 
 
     @cherrypy.expose
-    def branch(self, reponame, branchname, testGroupsToExpand=None):
+    def branch(self, reponame, branchname, max_commit_count=100):
         self.authorize(read_only=True)
 
         t0 = time.time()
@@ -1224,40 +1273,42 @@ class TestLooperHttpServer(object):
 
             return self.testPageForCommits(
                 reponame,
-                self.testManager.commitsToDisplayForBranch(branch), 
-                "Branch `" + branch.branchname + "`", 
-                testGroupsToExpand, 
+                self.testManager.commitsToDisplayForBranch(branch, max_commit_count), 
+                "Branch `" + branch.branchname + "`",
                 branch
                 )
 
-    def testPageForCommits(self, reponame, commits, headerText, testGroupsToExpand, branch):
-        ungroupedUniqueTestIds = sorted(set(t.testDefinition.name for c in commits for t in self.testManager.database.Test.lookupAll(commitData=c.data)))
+    def collapseName(self, name):
+        return "/".join([p.split(":")[0] for p in name.split("/")])
 
-        testGroupsToTests = {}
-        for testName in ungroupedUniqueTestIds:
-            group = testName.split("/")[0]
-            if group not in testGroupsToTests:
-                testGroupsToTests[group] = []
-            testGroupsToTests[group].append(testName)
+    def testPageForCommits(self, reponame, commits, headerText, branch):
+        test_names = set()
 
-        testGroupsToExpand = [] if testGroupsToExpand is None else testGroupsToExpand.split(",")
+        for c in commits:
+            for test in self.testManager.database.Test.lookupAll(commitData=c.data):
+                if not test.testDefinition.matches.Deployment:
+                    test_names.add(test.testDefinition.name)
 
-        for group in list(testGroupsToTests):
-            if len(testGroupsToTests[group]) == 1:
-                testGroupsToExpand.append(group)
+        #this is how we will aggregate our tests
+        collapsed_names = sorted(
+            set([self.collapseName(name) for name in test_names]),
+            key=lambda name: (name.split("/")[-1], name)
+            )
 
-        def appropriateGroup(testName):
-            groupPrefix = testName.split("/")[0]
-            if groupPrefix in testGroupsToExpand:
-                return testName
+        collapsed_name_environments = []
+        for name in collapsed_names:
+            env = name.split("/")[-1]
+            if not collapsed_name_environments or collapsed_name_environments[-1] != env:
+                collapsed_name_environments.append(env)
+            else:
+                collapsed_name_environments.append("")
 
-            return groupPrefix
+        grid = [[""] * 2 + collapsed_name_environments + [""] * 4,
+                ["COMMIT", "(running)"] + 
+                ["/".join(n.split("/")[:-1]) for n in collapsed_names] + 
+                ["SOURCE", "", "UPSTREAM", "DOWNSTREAM"]
+            ]
 
-        testGroups = sorted(list(set(appropriateGroup(x) for x in ungroupedUniqueTestIds)))
-        grid = self.createGridForBranch(branch,
-                                        testGroups,
-                                        ungroupedUniqueTestIds,
-                                        testGroupsToExpand)
 
         commit_string = ""
         detail_divs = ""
@@ -1355,22 +1406,11 @@ class TestLooperHttpServer(object):
 
 
         for c in reversed(commits):
-            gridrow = self.getBranchCommitRow(branch,
-                                          c,
-                                          testGroups,
-                                          ungroupedUniqueTestIds,
-                                          testGroupsToTests)
+            gridrow = self.getBranchCommitRow(branch, c, collapsed_names)
 
             grid.append(gridrow)
 
-        header = (
-            markdown.markdown("# " + headerText) + "\n\n" +
-            '<p>Click the <span class="glyphicon glyphicon-plus" aria-hidden="true"></span>/'
-            '<span class="glyphicon glyphicon-minus" aria-hidden="true"></span> buttons '
-            'to increase/decrease the amount of testing on a given commit or test suite. '
-            'If both a test suite and a commit are selected within a branch'
-            ", only the cross section will received extra test coverage.</p><br>"
-            )
+        header = markdown.markdown("# " + headerText)
         
         grid = HtmlGeneration.grid(grid, header_rows=2, rowHeightOverride=33)
         
@@ -1402,200 +1442,58 @@ class TestLooperHttpServer(object):
                         if k not in remove_query_params)
             ).replace('http://', 'https://')
 
+    def aggregateTestInfo(self, testList):
+        if not testList:
+            return ""
 
-    def createGridForBranch(self,
-                            branch,
-                            testGroups,
-                            ungroupedUniqueTestIds,
-                            testGroupsToExpand):
-        testHeaders = []
-        testGroupExpandLinks = []
-        for testGroup in testGroups:
-            testGroupPrefix = testGroup.split(".")[0]
+        active = 0
+        for t in testList:
+            active += t.activeRuns
 
-            if testGroup in ungroupedUniqueTestIds:
-                if branch:
-                    testHeaders.append(
-                        self.toggleBranchTargetedTestListLink(branch,
-                                                              testGroup,
-                                                              ",".join(testGroupsToExpand))
-                        )
-                else:
-                    testHeaders.append("")
+        no_runs = 0
+        for t in testList:
+            if t.totalRuns == 0:
+                no_runs += 1
 
-                if branch:
-                    if testGroupPrefix in testGroupsToExpand:
-                        testGroupExpandLinks.append(
-                            HtmlGeneration.link(
-                                testGroupPrefix,
-                                self.branchUrl(branch, [x for x in testGroupsToExpand if x != testGroupPrefix])
-                                ) + (
-                                    "." + testGroup[len(testGroupPrefix)+1:] if testGroup != testGroupPrefix else ""
-                                )
-                            )
-                    else:
-                        testGroupExpandLinks.append(testGroup)
-                else:
-                    testGroupExpandLinks.append(testGroup)
+        if no_runs:
+            if active:
+                return "%d running" % active
             else:
-                testHeaders.append("")
-                if branch:
-                    testGroupExpandLinks.append(
-                        HtmlGeneration.link(
-                            testGroup,
-                            self.branchUrl(branch, testGroupsToExpand + [testGroup])
-                            )
-                        )
-                else:
-                    testGroupExpandLinks.append(testGroup)
-                
-            testGroupExpandLinks[-1] = HtmlGeneration.pad(testGroupExpandLinks[-1], 20)
-            testHeaders[-1] = HtmlGeneration.pad(testHeaders[-1], 20)
+                return HtmlGeneration.lightGrey("%d/%d suites unfinished" % (no_runs, len(testList)))
 
-        grid = [["", "", "", ""] + testHeaders + ["", "", ""]]
-        grid.append(
-            ["COMMIT", "", "(running)"] + \
-            testGroupExpandLinks + \
-            ["SOURCE", "", "UPSTREAM", "DOWNSTREAM"]
-            )
-        return grid
+        total = 0.0
+        failures = 0.0
 
+        for test in testList:
+            total += test.totalTestCount / float(test.totalRuns)
+            failures += test.totalFailedTestCount / float(test.totalRuns)
+
+        return "%d / %d failing" % (failures, total)
 
     def getBranchCommitRow(self,
                            branch,
                            commit,
-                           testGroups,
-                           ungroupedUniqueTestIds,
-                           testGroupsToTests):
-        def anyTestInGroupIsTargetedInCommit(commit, testGroup):
-            return False
-
-            for group in testGroupsToTests[testGroup]:
-                if commit.isTargetedTest(group):
-                    return True
-            return False
-
-        def allTestsInGroupAreTargetedInCommit(commit, testGroup):
-            return False
-
-            for group in testGroupsToTests[testGroup]:
-                if not commit.isTargetedTest(group):
-                    return False
-            return True
-
+                           collapsed_names):
         row = [self.commitLink(commit)]
 
-        if branch:
-            row.append(self.toggleBranchTargetedCommitIdLink(branch, commit))
+        all_tests = self.testManager.database.Test.lookupAll(commitData=commit.data)
 
-        row.append(self.testManager.totalRunningCountForCommit(commit) or "tests not enabled" if not commit.priority else "")
+        running = self.testManager.totalRunningCountForCommit(commit)
 
-        if commit.data:
-            tests = {t.testDefinition.name: t for t in self.testManager.database.Test.lookupAll(commitData=commit.data)}
+        if running:
+            row.append(str(running))
+        elif not all_tests:
+            row.append("")
         else:
-            tests = {}
+            row.append("tests not enabled" if not commit.priority else "")
 
-        class Stat:
-            def __init__(self, message, totalRuns, runningCount, passCount, failCount, errRate):
-                self.totalRuns = totalRuns
-                self.runningCount = runningCount
-                self.passCount = passCount
-                self.failCount = failCount
-                self.message = message
-                self.errRate = errRate
-                if errRate is None and self.totalRuns:
-                    self.errRate = 1.0 - self.passCount / float(self.totalRuns)
-
-            def __add__(self, other):
-                if self.message == other.message:
-                    message = self.message
-                else:
-                    message = ""
-
-                if self.totalRuns == 0 or self.errRate is None:
-                    blendedErrRate = other.errRate
-                elif other.totalRuns == 0 or other.errRate is None:
-                    blendedErrRate = self.errRate
-                else:
-                    blendedErrRate = 1.0 - (1.0 - other.errRate) * (1.0 - self.errRate)
-
-                return Stat(
-                    self.message,
-                    None,
-                    self.runningCount + other.runningCount,
-                    None,
-                    None,
-                    blendedErrRate
-                    )
-
-        def computeStatForTestGroup(testGroup):
-            if testGroup in ungroupedUniqueTestIds:
-                if testGroup not in tests:
-                    return Stat("", 0,0,0,0,None)
-
-                test = tests[testGroup]
-                if test.priority.matches.UnresolvedDependencies:
-                    message="Unresolved Dependencies: "
-                    bad_deps = []
-                    for dep in self.testManager.database.UnresolvedTestDependency.lookupAll(test=test):
-                        bad_deps.append(dep.dependsOnName)
-                    for dep in self.testManager.database.UnresolvedRepoDependency.lookupAll(test=test):
-                        bad_deps.append(dep.reponame + "/" + dep.commitHash)
-                    for dep in self.testManager.database.UnresolvedSourceDependency.lookupAll(test=test):
-                        bad_deps.append(dep.repo.name + "/" + dep.commitHash)
-
-                    message += "(" + ",".join(bad_deps) + ")"
-                elif test.priority.matches.DependencyFailed:
-                    message="Dependency Failed"
-                else:
-                    message=""
-
-                return Stat(
-                    message,
-                    test.totalRuns,
-                    test.activeRuns,
-                    test.successes,
-                    test.totalRuns - test.successes,
-                    None
-                    )
-
-            grp = [u for u in ungroupedUniqueTestIds if u.startswith(testGroup+"/")]
-
-            s = computeStatForTestGroup(grp[0])
-            for g in grp[1:]:
-                s = s + computeStatForTestGroup(g)
-            return s
-
-        for testGroup in testGroups:
-            stat = computeStatForTestGroup(testGroup)
-
-            if stat.errRate is None:
-                if stat.runningCount == 0:
-                    row.append(stat.message)
-                else:
-                    row.append("[%s running]" % stat.runningCount)
-            else:
-                errRate = self.errRateAndTestCount(stat.errRate, stat.totalRuns)
-
-                #check if this point in the commit-sequence has a statistically different
-                #probability of failure from its peers and mark it if so.
-
-                if stat.failCount and testGroup in ungroupedUniqueTestIds:
-                    row.append(
-                        self.allTestsLink(errRate, commit,testName=testGroup,failuresOnly=True)
-                        )
-                else:
-                    row.append(HtmlGeneration.lightGrey(errRate))
-
-            if testGroup in ungroupedUniqueTestIds:
-                if False: #commit.isTargetedTest(testGroup):
-                    row[-1] = HtmlGeneration.blueBacking(row[-1])
-            else:
-                if allTestsInGroupAreTargetedInCommit(commit, testGroup):
-                    row[-1] = HtmlGeneration.blueBacking(row[-1])
-
-                if anyTestInGroupIsTargetedInCommit(commit, testGroup):
-                    row[-1] = HtmlGeneration.lightGreyBacking(row[-1])
+        tests_by_name = {name: [] for name in collapsed_names}
+        if commit.data:
+            for t in all_tests:
+                tests_by_name[self.collapseName(t.testDefinition.name)].append(t)
+        
+        for name in collapsed_names:
+            row.append(self.aggregateTestInfo(tests_by_name[name]))
 
         row.append(self.sourceLinkForCommit(commit))
         
@@ -1691,7 +1589,7 @@ class TestLooperHttpServer(object):
 
         #don't block the webserver itself, so we can do this in a background thread
         logging.info("Triggering refresh branches on repo=%s branch=%s", event['repo'], event['branch'])
-        self.testManager.refreshBranchList(event['repo'], time.time())
+        self.testManager.markBranchListDirty(event['repo'], time.time())
 
     @cherrypy.expose
     def interactive_socket(self, **kwargs):

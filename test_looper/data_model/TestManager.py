@@ -231,16 +231,19 @@ class TestManager(object):
 
         return sorted(set(result), key=lambda k: k.repo.name + "/" + k.hash)
 
-    def commitsToDisplayForBranch(self, branch):
+    def commitsToDisplayForBranch(self, branch, max_commits):
         commits = set()
         ordered = []
         new = [branch.head]
         while new:
-            n = new.pop()
+            n = new.pop(0)
 
             if n and n not in commits:
                 commits.add(n)
                 ordered.append(n)
+
+                if max_commits is not None and len(ordered) >= max_commits:
+                    return ordered
 
                 if n.data:
                     for child in n.data.parents:
@@ -383,8 +386,10 @@ class TestManager(object):
 
     def markBranchListDirty(self, reponame, curTimestamp):
         with self.transaction_and_lock():
+            repo = self.database.Repo.lookupAny(name=reponame)
+            assert repo, "Can't find repo named %s" % reponame
             self.database.DataTask.New(
-                task=self.database.BackgroundTask.RefreshBranches(repo=reponame),
+                task=self.database.BackgroundTask.RefreshBranches(repo=repo),
                 status=pendingHigh
                 )
 
@@ -690,6 +695,16 @@ class TestManager(object):
                 if machineId in known_workers:
                     logging.info("Worker %s is unknown to machine management. Removing it.", machineId)
                     self._machineTerminated(machineId, curTimestamp)
+
+    def getRawTestFileForCommit(self, commit):
+        if not commit.data:
+            return None
+
+        repo = self.source_control.getRepo(commit.repo.name)
+        
+        defText, extension = repo.getTestScriptDefinitionsForCommit(commit.hash)
+
+        return defText, extension
 
     def _processTask(self, task, curTimestamp):
         if task.matches.RefreshRepos:
