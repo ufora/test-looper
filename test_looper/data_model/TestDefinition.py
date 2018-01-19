@@ -6,6 +6,8 @@ Objects modeling our tests.
 import test_looper.core.algebraic as algebraic
 import test_looper.core.algebraic_to_json as algebraic_to_json
 import logging
+import re
+import test_looper.data_model.VariableSubstitution as VariableSubstitution
 
 Platform = algebraic.Alternative("Platform")
 Platform.windows = {}
@@ -94,9 +96,17 @@ def add_setup_contents_to_image(image, extra_setup):
     if not extra_setup:
         return image
 
-    assert image.matches.AMI, "Can only add setup-script contents to an AMI image, not %s, and we were given %s" % (image, repr(extra_setup))
-
-    return Image.AMI(base_ami=image.base_ami, setup_script_contents=image.setup_script_contents + "\n" + extra_setup)
+    if image.matches.AMI:
+        return Image.AMI(
+            base_ami=image.base_ami, 
+            setup_script_contents=image.setup_script_contents + "\n" + extra_setup
+            )
+    elif image.matches.DockerfileInline:
+        return Image.DockerfileInline(
+            dockerfile_contents=image.dockerfile_contents + "\n" + extra_setup
+            )
+    else:
+        assert image.matches.AMI, "Can only add setup-script contents to an AMI image, not %s, and we were given %s" % (image, repr(extra_setup))
 
 def merge_environments(import_environment, underlying_environments):
     """Given an 'Import' environment and its underlying environment, apply the state of the import to the underlying.
@@ -134,3 +144,115 @@ def merge_environments(import_environment, underlying_environments):
                 )
 
     return import_environment
+
+def substitute_variables_in_image(image, vars):
+    if image.matches.AMI:
+        return Image.AMI(
+            base_ami=image.base_ami, 
+            setup_script_contents=VariableSubstitution.substitute_variables(image.setup_script_contents, vars)
+            )
+    else:
+        return image
+
+
+def apply_substitutions_to_dependency(dep, vardefs):
+    if dep.matches.InternalBuild:
+        return TestDependency.InternalBuild(
+            name=VariableSubstitution.substitute_variables(dep.name, vardefs),
+            environment=VariableSubstitution.substitute_variables(dep.environment, vardefs)
+            )
+    elif dep.matches.ExternalBuild:
+        return TestDependency.ExternalBuild(
+            name=VariableSubstitution.substitute_variables(dep.name, vardefs),
+            environment=VariableSubstitution.substitute_variables(dep.name, vardefs),
+            repo=dep.repo,
+            commitHash=dep.commitHash
+            )
+    else:
+        assert False, "Unknown dep type: %s" % dep
+
+def apply_substitutions_to_dependencies(deps, vardefs):
+    return {VariableSubstitution.substitute_variables(k, vardefs):
+                        apply_substitutions_to_dependency(v, vardefs)
+                    for k,v in deps.iteritems()}
+
+def apply_environment_substitutions(env):
+    """Apply replacement logic to variable definitions in an environment.
+
+    This is the final step when producing an environment. Every variable,
+    ami setup script, and dependency target-location can reference environment
+    variables as "${VAR}".
+
+    Only variables that are valid identifiers (letters, numbers, - and _) will 
+    have their state applied. We detect cycles and throw an exception if we get one, 
+    and we don't substitute variables in the names of variables.
+    """
+    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(env.variables)
+
+    deps = apply_substitutions_to_dependencies(env.dependencies, vardefs)
+
+    for d in deps:
+        assert "$" not in d, "Environment %s produced malformed dependency %s" % (env.environment_name, d)
+
+    if env.matches.Environment:
+        return TestEnvironment.Environment(
+                environment_name=env.environment_name,
+                inheritance=env.inheritance,
+                platform=env.platform,
+                image=substitute_variables_in_image(env.image, vardefs),
+                variables=vardefs,
+                dependencies=deps
+                )
+    else:
+        return TestEnvironment.Import(
+            environment_name=env.environment_name,
+            inheritance=env.inheritance,
+            imports=env.imports,
+            setup_script_contents=VariableSubstitution.substitute_variables(env.setup_script_contents, vardefs),
+            variables=vardefs,
+            dependencies=deps
+            )
+
+def apply_test_substitutions(test, env, input_var_defs):
+    vardefs = dict(env.variables)
+    vardefs.update(test.variables)
+
+    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(vardefs)
+
+    #dependencies need to resolve without use of 'input_var_defs'
+    dependencies = apply_substitutions_to_dependencies(test.dependencies, vardefs)
+
+    #now allow the input vars to apply
+    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(vardefs, input_var_defs)
+
+    def make(type, **kwargs):
+        return type(
+            name=test.name,
+            environment=env,
+            variables=vardefs,
+            dependencies=dependencies,
+            disabled=test.disabled,
+            timeout=test.timeout,
+            min_cores=test.min_cores,
+            max_cores=test.max_cores,
+            min_ram_gb=test.min_ram_gb,
+            **kwargs
+            )
+
+    if test.matches.Build:
+        return make(
+            TestDefinition.Build,
+            buildCommand=VariableSubstitution.substitute_variables(test.buildCommand, vardefs)
+            )
+    elif test.matches.Test:
+        return make(
+            TestDefinition.Test,
+            testCommand=VariableSubstitution.substitute_variables(test.testCommand, vardefs),
+            cleanupCommand=VariableSubstitution.substitute_variables(test.cleanupCommand, vardefs)
+            )
+    elif test.matches.Deployment:
+        return make(
+            TestDefinition.Deployment,
+            deployCommand=VariableSubstitution.substitute_variables(test.deployCommand, vardefs),
+            portExpose=test.portExpose
+            )

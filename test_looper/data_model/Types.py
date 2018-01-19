@@ -26,6 +26,7 @@ def setup_types(database):
     database.TestPriority.UnresolvedDependencies = {}
     database.TestPriority.DependencyFailed = {}
     database.TestPriority.WaitingOnBuilds = {}
+    database.TestPriority.InvalidTestDefinition = {}
     database.TestPriority.HardwareComboUnbootable = {}
     database.TestPriority.NoMoreTests = {}
     database.TestPriority.FirstBuild = {"priority": int}
@@ -34,6 +35,7 @@ def setup_types(database):
 
     database.FullyResolvedTestEnvironment = algebraic.Alternative("FullyResolvedTestEnvironment")
     database.FullyResolvedTestEnvironment.Unresolved = {}
+    database.FullyResolvedTestEnvironment.Error = {"Error": str}
     database.FullyResolvedTestEnvironment.Resolved = {"Environment": TestDefinition.TestEnvironment}
 
     database.DataTask.define(
@@ -205,6 +207,7 @@ def setup_types(database):
                 and not o.priority.matches.DependencyFailed
                 and not o.priority.matches.WaitingOnBuilds
                 and not o.priority.matches.HardwareComboUnbootable
+                and not o.priority.matches.InvalidTestDefinition
                 and o.machineCategory)
                 else None
             )
@@ -218,6 +221,7 @@ def setup_types(database):
                 and not o.priority.matches.UnresolvedDependencies
                 and not o.priority.matches.DependencyFailed
                 and not o.priority.matches.WaitingOnBuilds
-                and not o.priority.matches.HardwareComboUnbootable)
+                and not o.priority.matches.HardwareComboUnbootable
+                and not o.priority.matches.InvalidTestDefinition)
                 else None
             )

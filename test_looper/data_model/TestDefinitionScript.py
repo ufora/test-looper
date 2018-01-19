@@ -6,6 +6,7 @@ Models a test-script, and functions for extracting the TestDefinitions from it
 import test_looper.core.algebraic as algebraic
 import test_looper.core.algebraic_to_json as algebraic_to_json
 import test_looper.data_model.TestDefinition as TestDefinition
+
 import yaml
 import json
 import simplejson 
@@ -26,7 +27,6 @@ DefineEnvironment.Import = {
     "dependencies": algebraic.Dict(str, str)
     }
 
-DefineEnvironment.Group = {'group': algebraic.List(str)}
 DefineEnvironment.Environment = {
     "platform": Platform,
     "image": Image,
@@ -82,23 +82,7 @@ TestDefinitionScript.Definition = {
     "deployments": algebraic.Dict(str, DefineDeployment)
     }
 
-reservedNames = ["data", "source"]
-
-def ensure_graph_closed_and_noncyclic(graph):
-    for g in graph:
-        for i in graph[g]:
-            if i not in graph:
-                raise Exception("%s depends on %s for which we have no definition" % (g,i))
-
-    seen = set()
-    while len(seen) != len(graph):
-        added = False
-        for g in graph:
-            if not [x for x in graph[g] if x not in seen]:
-                seen.add(g)
-                added = True
-        if not added:
-            raise Exception("Builds %s are circular." % str([x for x in graph if x not in seen]))
+reservedNames = ["data", "source", "HEAD"]
 
 def map_image(reponame, commitHash, image_def):
     if image_def.matches.Dockerfile:
@@ -141,6 +125,12 @@ def extract_tests(curRepoName, curCommitHash, testScript):
 
     def map_dep(dep):
         deps = dep.split("/")
+
+        if "$" in deps[0]:
+            raise Exception("Invalid dependency: " + dep + 
+                    ". First part of dependencies can't have a substitution. " + 
+                    "Use 'HEAD' as a prefix if you need to refer to a build in the current commit.")
+
         if deps[0] not in repos:
             raise Exception("Environment dependencies must reference a named repo. Can't find %s for %s" % (deps[0], dep))
 
@@ -233,62 +223,19 @@ def extract_tests(curRepoName, curCommitHash, testScript):
 
         return environments[envName]
 
+    environments = {}
 
     for envName, envDef in testScript.environments.iteritems():
         if not envDef.matches.Group:
             environments[envName] = parseEnvironment(envName)
 
-    environmentGroups = {}
-
-    for envName, envDef in testScript.environments.iteritems():
-        if envDef.matches.Group:
-            environmentGroups[envName] = []
-
-    for envName, envDef in testScript.environments.iteritems():
-        if envDef.matches.Group:
-            for env in envDef.group:
-                if env in environments:
-                    environmentGroups[envName].append(env)
-                elif env in environmentGroups:
-                    raise Exception(
-                        "Environment group %s contains reference to %s which is also a group." % 
-                            (envName, env)
-                        )
-                else:
-                    raise Exception(
-                        "Environment group %s contains reference to %s which is undefined." % 
-                            (envName, env)
-                        )
-
-    def expand_build_name(name):
-        items = name.split("/")
-        if len(items) <= 1:
-            raise Exception(
-                "Invalid build name '%s'. Should be of the form 'name(/subname)*/environment'."
-                    % name
-                )
-        actualName = "/".join(items[:-1])
-        envName = items[-1]
-        if envName not in environments and envName not in environmentGroups:
-            raise Exception("Unknown environment: '%s' for build %s" % (envName, name))
-
-        environments_for_this_build = []
-        if envName in environments:
-            environments_for_this_build.append(envName)
-        else:
-            environments_for_this_build.extend(environmentGroups[envName])
-
-        return [actualName + "/" + e for e in environments_for_this_build]
-
-    all_local_build_names = set()
-
-    for name in testScript.builds:
-        for real_name in expand_build_name(name):
-            all_local_build_names.add(real_name)
-
-
     def convert_build_dep(dep,curEnv):
         deps = dep.split("/")
+
+        if "$" in deps[0]:
+            raise Exception("Invalid dependency: " + dep + 
+                    ". First part of dependencies can't have a substitution. " + 
+                    "Use 'HEAD' as a prefix if you need to refer to a build in the current commit.")
 
         if deps[0] in repos:
             if len(deps) == 1:
@@ -303,36 +250,26 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 raise Exception("Malformed repo dependency: should be of form 'repoReference/buildName/environment'")
             
             env = deps[-1]
-            if (env == '' or env =='*') and curEnv is not None:
-                env = curEnv
-
+            
             return TestDefinition.TestDependency.ExternalBuild(
                 repo=repos[deps[0]][0],
                 commitHash=repos[deps[0]][1],
                 name="/".join(deps[1:-1]),
                 environment=env
                 )
+        
+        if deps[0] == "HEAD":
+            deps = deps[1:]
 
-        env = deps[-1]
-        if (env == '' or env =='*') and curEnv is not None:
-            env = curEnv
-
-        actual_build = "/".join(deps[:-1]) + "/" + env
-
-        if actual_build in all_local_build_names:
-            #this is a local dependency: buildName/environment
-            if len(deps) < 2:
-                raise Exception("Malformed local dependency: should be of form 'buildName/environment'")
-            
-            return TestDefinition.TestDependency.InternalBuild(
-                name="/".join(deps[:-1]),
-                environment=env
-                )
-
-        raise Exception("Cant find reference to: %s" % actual_build)
+        return TestDefinition.TestDependency.InternalBuild(
+            name="/".join(deps[:-1]),
+            environment=deps[-1]
+            )
 
     def convert_def(name, d):
         curEnv = name.split("/")[-1]
+
+        assert "$" not in curEnv, "Malformed name %s" % name
 
         if d.matches.Build:
             return TestDefinition.TestDefinition.Build(
@@ -388,15 +325,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
         if name.split("/")[0] in repos:
             raise Exception("Cant produce a test with name %s, because %s is already a repo name." % (name, name.split("/")[0]))
 
-        for actualName in expand_build_name(name):
-            allTests[actualName] = convert_def(actualName, definition)
-
-    #ensure our tests don't have circular references
-    deps = {}
-    for name, definition in allTests.items():
-        deps[name] = set([x.name + "/" + x.environment for x in definition.dependencies.values() if x.matches.InternalBuild])
-
-    ensure_graph_closed_and_noncyclic(deps)
+        allTests[name] = convert_def(name, definition)
 
     return allTests, environments
 

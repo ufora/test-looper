@@ -13,6 +13,7 @@
 #   limitations under the License.
 
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
+import test_looper.data_model.VariableSubstitution as VariableSubstitution
 import unittest
 import yaml
 
@@ -87,6 +88,9 @@ tests:
       command: |
         cmd in ${platform}
 """
+
+def apply_and_merge(vars, extras=None):
+    return VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(vars, extras or {})
 
 class TestDefinitionScriptTests(unittest.TestCase):
     def test_basic(self):
@@ -170,3 +174,31 @@ class TestDefinitionScriptTests(unittest.TestCase):
             'test/G2/T3': 'P2 T3.test',
             'test/G2/T4': 'P2 T4.test'
           })
+
+
+    def test_variable_substitution(self):
+        self.assertEqual(apply_and_merge({"A": "B"}), {"A": "B"})
+        self.assertEqual(apply_and_merge({"A": "${B}"}), {"A": "${B}"})
+        self.assertEqual(apply_and_merge({"A": "${B}", "B": "C"}), {"A": "C", "B": "C"})
+        self.assertEqual(apply_and_merge({"A": "${B}"}, {"B": "C"}), {"A": "C", "B": "C"})
+
+    def test_variable_chains_and_cycles(self):
+        chain = {}
+        for i in xrange(20):
+          chain["A_%s" % i] = "${A_%s}_" % (i+1)
+        chain["A_20"] = ""
+        chain_merged = apply_and_merge(chain)
+
+        self.assertEqual(chain_merged["A_19"], "_")
+        self.assertEqual(chain_merged["A_10"], "_" * 10)
+        self.assertEqual(chain_merged["A_0"], "_" * 20)
+
+        chain["A_10"] = "${A_3}"
+
+        with self.assertRaises(Exception):
+            apply_and_merge(chain)
+
+    def test_variable_sublookup(self):
+        self.assertEqual(apply_and_merge({"A": "AB", "B": "BV", "ABBV": "FINAL", "D": "${${A}${B}}"})["D"], "FINAL")
+
+

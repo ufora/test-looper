@@ -15,6 +15,7 @@
 import test_looper.core.algebraic as algebraic
 import logging
 import json
+import yaml
 
 class Encoder:
     """An algebraic <---> json encoder.
@@ -108,12 +109,15 @@ class Encoder:
                     value = str(value)
 
                 if isinstance(value, str):
+                    zero_arg_types = []
                     single_arg_types = []
                     for t in algebraic_type._types:
+                        if len(algebraic_type._types[t]) == 0:
+                            zero_arg_types.append(t)
                         if len(algebraic_type._types[t]) == 1 and list(algebraic_type._types[t].values())[0] is str:
                             single_arg_types.append(t)
 
-                    if len(single_arg_types) == 1:
+                    if len(single_arg_types) == 1 and not zero_arg_types:
                         #there's exactly one type that takes a single string
                         which_alternative = getattr(algebraic_type, single_arg_types[0])
                         return which_alternative(value)
@@ -167,3 +171,22 @@ class Encoder:
         except:
             logging.error("Parsing error making %s:\n%s", algebraic_type, json.dumps(value,indent=2))
             raise
+
+
+def encode_and_dump_as_yaml(value):
+    def unicode_to_str(x):
+        if isinstance(x, (str, unicode)):
+            return str(x)
+        if isinstance(x, tuple):
+            return tuple([unicode_to_str(y) for y in x])
+        if isinstance(x, list):
+            return [unicode_to_str(y) for y in x]
+        if isinstance(x, dict):
+            return {unicode_to_str(k): unicode_to_str(v) for k,v in x.iteritems()}
+        return x
+
+    return yaml.dump(
+        unicode_to_str(Encoder().to_json(value)),
+        indent=4,
+        default_style='"'
+        )

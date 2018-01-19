@@ -710,6 +710,8 @@ class TestLooperHttpServer(object):
                         return "WaitingOnBuilds"
                     if priority.matches.HardwareComboUnbootable:
                         return "HardwareComboUnbootable"
+                    if priority.matches.InvalidTestDefinition:
+                        return "InvalidTestDefinition"
                     if priority.matches.NoMoreTests:
                         return "HaveEnough"
                     return "WaitingForHardware"
@@ -868,22 +870,7 @@ class TestLooperHttpServer(object):
             if not env:
                 return self.errorPage("Environment %s/%s/%s doesn't exist" % (repoName, commitHash, environmentName))
 
-            def strings_to_unicode(x):
-                if isinstance(x, (str, unicode)):
-                    return str(x)
-                if isinstance(x, tuple):
-                    return tuple([strings_to_unicode(y) for y in x])
-                if isinstance(x, list):
-                    return [strings_to_unicode(y) for y in x]
-                if isinstance(x, dict):
-                    return {strings_to_unicode(k): strings_to_unicode(v) for k,v in x.iteritems()}
-                return x
-
-            text = yaml.dump(
-                strings_to_unicode(algebraic_to_json.Encoder().to_json(env)),
-                indent=4,
-                default_style='"'
-                )
+            text = algebraic_to_json.encode_and_dump_as_yaml(env)
 
             return self.commonHeader(currentRepo=repoName) + HtmlGeneration.PreformattedTag(text).render()
 

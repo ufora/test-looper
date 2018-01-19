@@ -1,0 +1,68 @@
+looper_version: 2
+environments:
+  linux:
+    platform: linux
+    image:
+      dockerfile_contents: |
+        FROM ubuntu:16.04
+
+        RUN apt update
+        RUN apt-get update
+        RUN apt-get install -y python-pip
+        RUN apt-get install -y python-nose
+        RUN pip install numpy
+        RUN pip install docker==2.5.0
+
+        RUN echo "some text" > /some_file
+  k0:
+    base: [linux]
+    variables: { K: k0}
+  k1:
+    base: [linux]
+    variables: { K: k1}
+  k2:
+    base: [linux]
+    variables: { K: k2}
+  env:
+    base: [linux]
+    variables:
+      OVERRIDE_OUTPUT: ${OVERRIDE}
+      OVERRIDE: ENV
+      BUILD_KIND: k0
+  mixin1:
+    base: []
+    variables:
+      OVERRIDE: MIXIN_1
+      BUILD_KIND: k1
+  mixin2:
+    base: []
+    variables:
+      OVERRIDE: MIXIN_2
+      BUILD_KIND: k2
+  env_1:
+    base: [env, mixin1]
+  env_2:
+    base: [env, mixin2]
+  env_12:
+    base: [env_1, mixin2]
+  env_21:
+    base: [env_2, mixin1]
+
+#three kinds of builds
+builds:
+  foreach:
+    kind: [k0, k1, k2]
+  repeat:
+    build/${kind}:
+      command: |
+        echo ${K} > $TEST_BUILD_OUTPUT_DIR/build_output.txt
+tests:
+  foreach:
+    env: [env, env_1, env_2, env_12, env_21]
+  repeat:
+    test/${env}:
+      command: |
+        echo "${OVERRIDE_OUTPUT}" >> $TEST_OUTPUT_DIR/results.txt
+        cat $TEST_INPUTS/build/build_output.txt >> $TEST_OUTPUT_DIR/results.txt
+      dependencies:
+        build: build/${BUILD_KIND}

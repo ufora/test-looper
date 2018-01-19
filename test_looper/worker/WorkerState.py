@@ -646,7 +646,6 @@ class WorkerState(object):
                     seen
                     )
                 )
-            assert base_environments[-1].matches.Environment, base_environments[-1]
 
         return TestDefinition.merge_environments(environment, base_environments)
 
@@ -718,6 +717,8 @@ class WorkerState(object):
             with self.callHeartbeatInBackground(log_function, "Extracting test definitions."):
                 testDefinition = self.testDefinitionFor(repoName, commitHash, testName)
 
+            print "got ", testDefinition
+
             if not testDefinition:
                 log_function("No test named %s\n" % testName)
                 return False, {}
@@ -728,6 +729,9 @@ class WorkerState(object):
             
             return self._run_task(testId, repoName, commitHash, testDefinition, log_function, workerCallback, isDeploy)
         except:
+            print "*******************"
+            print traceback.format_exc()
+            print "*******************"
             error_message = "Test failed because of exception: %s" % traceback.format_exc()
             logging.error(error_message)
             log_function(error_message)
@@ -751,7 +755,7 @@ class WorkerState(object):
             logging.info("Extracting package %s to %s", package_file, target_dir)
             tar.extractall(target_dir)
 
-    def grabDependency(self, heartbeat, expose_as, dep, repoName, commitHash):
+    def grabDependency(self, log_function, expose_as, dep, repoName, commitHash):
         target_dir = os.path.join(self.directories.test_inputs_dir, expose_as)
 
         if dep.matches.InternalBuild or dep.matches.ExternalBuild:
@@ -772,7 +776,7 @@ class WorkerState(object):
             tarball_name = os.path.join(self.directories.build_cache_dir, sourceArtifactName)
 
             if not self.artifactStorage.build_exists(sourceArtifactName):
-                heartbeat(time.asctime() + " TestLooper> Building source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
+                log_function(time.asctime() + " TestLooper> Building source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
 
                 self.resetToCommitInDir(dep.repo, dep.commitHash, target_dir)
 
@@ -792,11 +796,11 @@ class WorkerState(object):
                           )
             else:
                 if not os.path.exists(tarball_name):
-                    heartbeat(time.asctime() + " TestLooper> Downloading source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
+                    log_function(time.asctime() + " TestLooper> Downloading source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
                 
                     self.artifactStorage.download_build(sourceArtifactName, tarball_name)
 
-                heartbeat(time.asctime() + " TestLooper> Extracting source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
+                log_function(time.asctime() + " TestLooper> Extracting source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
 
                 self.extract_package(tarball_name, target_dir)
 
@@ -804,9 +808,17 @@ class WorkerState(object):
 
         return "Unknown dependency type: %s" % dep
 
-    def getEnvironmentAndDependencies(self, repoName, commitHash, test_definition, heartbeat):
-        with self.callHeartbeatInBackground(heartbeat):
+    def getEnvironmentAndDependencies(self, testId, repoName, commitHash, test_definition, log_function):
+        with self.callHeartbeatInBackground(log_function):
             environment = self.resolveEnvironment(test_definition.environment)
+            if environment.matches.Import:
+                raise Exception("Environment didn't resolve to a real environment: inheritance is %s", environment.inheritance)
+            environment = TestDefinition.apply_environment_substitutions(environment)
+
+        env_overrides = self.environment_variables(testId, repoName, commitHash, environment, test_definition)
+
+        #update the test definition to resolve dependencies
+        test_definition = TestDefinition.apply_test_substitutions(test_definition, environment, env_overrides)
 
         all_dependencies = {}
         all_dependencies.update(environment.dependencies)
@@ -817,7 +829,7 @@ class WorkerState(object):
 
             def heartbeatWithLock(msg=None):
                 with lock:
-                    heartbeat(msg)
+                    log_function(msg)
 
             with self.callHeartbeatInBackground(
                     heartbeatWithLock, 
@@ -855,18 +867,20 @@ class WorkerState(object):
                         raise Exception("Failed to download dependency %s: %s" % (all_dependencies[e], results[e]))
         else:
             for expose_as, dep in all_dependencies.iteritems():
-                with self.callHeartbeatInBackground(heartbeat, "Pulling dependency %s" % dep):
-                    errStringOrNone = self.grabDependency(heartbeat, expose_as, dep, repoName, commitHash)
+                with self.callHeartbeatInBackground(log_function, "Pulling dependency %s" % dep):
+                    errStringOrNone = self.grabDependency(log_function, expose_as, dep, repoName, commitHash)
 
                 if errStringOrNone is not None:
                     raise Exception(errStringOrNone)
 
-        return environment, all_dependencies
+        return environment, all_dependencies, test_definition
 
     def _run_task(self, testId, repoName, commitHash, test_definition, log_function, workerCallback, isDeploy):
         try:
-            environment, all_dependencies = self.getEnvironmentAndDependencies(repoName, commitHash, test_definition, log_function)
+            environment, all_dependencies, test_definition = \
+                self.getEnvironmentAndDependencies(testId, repoName, commitHash, test_definition, log_function)
         except Exception as e:
+            logging.error(traceback.format_exc())
             log_function("\n\nTest failed because: " + str(e) + "\n\n")
             return False, {}
 
@@ -898,8 +912,6 @@ class WorkerState(object):
                 log_function("Couldn't find docker image...")
                 return
         else:
-            env_overrides = self.environment_variables(testId, repoName, commitHash, environment, test_definition, image)
-            
             logging.info("Machine %s is starting run for %s %s. Command: %s",
                          self.machineId,
                          repoName, 
@@ -907,7 +919,7 @@ class WorkerState(object):
                          command)
 
             if isDeploy:
-                self._run_deployment(command, env_overrides, workerCallback, image)
+                self._run_deployment(command, test_definition.variables, workerCallback, image)
                 return
             else:
                 log_function(time.asctime() + " TestLooper> Starting Test Run\n")
@@ -915,7 +927,7 @@ class WorkerState(object):
                 is_success = self._run_test_command(
                     command,
                     test_definition.timeout or 60 * 60, #1 hour if unspecified
-                    env_overrides,
+                    test_definition.variables,
                     log_function,
                     image,
                     dumpPreambleLog=True
@@ -925,7 +937,7 @@ class WorkerState(object):
                 if cleanup_command.strip() and not self._run_test_command(
                         cleanup_command,
                         test_definition.timeout or 60 * 60, #1 hour if unspecified
-                        env_overrides,
+                        test_definition.variables,
                         log_function,
                         image,
                         dumpPreambleLog=False
@@ -1009,11 +1021,8 @@ class WorkerState(object):
 
         return path
 
-    def environment_variables(self, testId, repoName, commitHash, environment, test_definition, image):
-        isBuild = test_definition.matches.Build
+    def environment_variables(self, testId, repoName, commitHash, environment, test_definition):
         res = {}
-        res.update(environment.variables)
-        res.update(test_definition.variables)
         res.update({
             'TEST_REPO': repoName,
             'REVISION': commitHash,
@@ -1022,7 +1031,7 @@ class WorkerState(object):
             'PYTHONUNBUFFERED': "TRUE"
             })
 
-        if image is NAKED_MACHINE:
+        if environment.image.matches.AMI:
             res.update({
                 'TEST_SRC_DIR': self.directories.repo_copy_dir,
                 'TEST_INPUTS': self.directories.test_inputs_dir,

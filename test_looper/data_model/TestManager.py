@@ -1067,7 +1067,10 @@ class TestManager(object):
 
         category = test.machineCategory
 
-        if category and category.hardwareComboUnbootable:
+        if test.fullyResolvedEnvironment.matches.Error:
+            test.priority = self.database.TestPriority.InvalidTestDefinition()
+            test.targetMachineBoot = 0
+        elif category and category.hardwareComboUnbootable:
             test.priority = self.database.TestPriority.HardwareComboUnbootable()
             test.targetMachineBoot = 0
         elif (self.database.UnresolvedTestDependency.lookupAll(test=test) or 
@@ -1305,34 +1308,47 @@ class TestManager(object):
 
         env = test.testDefinition.environment
 
-        while env is not None and env.matches.Import:
-            imported_envs = []
+        try:
+            while env is not None and env.matches.Import:
+                imported_envs = []
 
-            for dep in env.imports:
-                commit = self._lookupCommitByHash(dep.repo, dep.commitHash)
-                self._createSourceDep(test, dep.repo, dep.commitHash)
+                for dep in env.imports:
+                    commit = self._lookupCommitByHash(dep.repo, dep.commitHash)
+                    self._createSourceDep(test, dep.repo, dep.commitHash)
 
-                if commit and commit.data:
-                    #this dependency exists already
-                    underlying_env = commit.data.environments.get(dep.name, None)
-                    
-                    if underlying_env is not None:
-                        imported_envs.append(underlying_env)
+                    if commit and commit.data:
+                        #this dependency exists already
+                        underlying_env = commit.data.environments.get(dep.name, None)
+                        
+                        if underlying_env is not None:
+                            imported_envs.append(underlying_env)
+                        else:
+                            env = None
                     else:
                         env = None
-                else:
-                    env = None
 
-            if env is not None:
-                env = TestDefinition.merge_environments(env, imported_envs)
+                if env is not None:
+                    env = TestDefinition.merge_environments(env, imported_envs)
 
-        if env is not None:
-            test.fullyResolvedEnvironment = self.database.FullyResolvedTestEnvironment.Resolved(env)
-            test.machineCategory = self._machineCategoryForTest(test)
+            if env is None or env.matches.Import:
+                return
 
-        all_dependencies = {}
-        if env is not None and env.matches.Environment:
-            all_dependencies.update(env.dependencies)
+            env = TestDefinition.apply_environment_substitutions(env)
+        except Exception as e:
+            test.fullyResolvedEnvironment = self.database.FullyResolvedTestEnvironment.Error(Error=str(e))
+            return
+
+        #here we should have a fully populated environment, with all dependencies
+        #resolved
+        assert env.matches.Environment
+
+        test.fullyResolvedEnvironment = self.database.FullyResolvedTestEnvironment.Resolved(env)
+        test.machineCategory = self._machineCategoryForTest(test)
+
+        #now we can resolve the test definition, so that we get reasonable dependencies
+        dependencies = TestDefinition.apply_test_substitutions(test.testDefinition, env, {}).dependencies
+
+        all_dependencies = dict(env.dependencies)
         all_dependencies.update(test.testDefinition.dependencies)
 
         #now first check whether this test has any unresolved dependencies

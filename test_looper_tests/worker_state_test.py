@@ -239,6 +239,30 @@ class WorkerStateTests(unittest.TestCase):
             worker.artifactStorage.get_failure_log("testId5")
             )
 
+    def test_variable_expansions(self):
+        repo, repoName, commitHash, worker = self.get_worker("simple_project_3")
+
+        testId = [0]
+        def runTest(name):
+            testId[0] += 1
+            testName = "test_" + str(testId[0])
+
+            callbacks = WorkerState.DummyWorkerCallbacks()
+            self.assertTrue(
+                worker.runTest(testName, repoName, commitHash, name, callbacks, False)[0],
+                "".join(callbacks.logMessages)
+                )
+            if not name.startswith("build/"):
+                return [x.strip() for x in worker.artifactStorage.testContents(testName, "results.txt").split("\n") if x.strip()]
+
+        runTest("build/k0")
+        runTest("build/k1")
+        runTest("build/k2")
+        self.assertEqual(runTest("test/env"), ["ENV", "k0"])
+        self.assertEqual(runTest("test/env_1"), ["MIXIN_1", "k1"])
+        self.assertEqual(runTest("test/env_21"), ["MIXIN_1", "k1"])
+        self.assertEqual(runTest("test/env_2"), ["MIXIN_2", "k2"])
+        self.assertEqual(runTest("test/env_12"), ["MIXIN_2", "k2"])
 
     def test_deployments(self):
         repo, repoName, commitHash, worker = self.get_worker("simple_project")
@@ -302,7 +326,8 @@ class WorkerStateTests(unittest.TestCase):
         callbacks3 = WorkerState.DummyWorkerCallbacks()
 
         self.assertTrue(
-            worker.runTest("testId1", commit2Name, commit2Hash, "test3_dep_on_cached_source/linux", callbacks1, isDeploy=False)[0]
+            worker.runTest("testId1", commit2Name, commit2Hash, "test3_dep_on_cached_source/linux", callbacks1, isDeploy=False)[0],
+            "\n".join(callbacks1.logMessages)
             )
 
         self.assertTrue(
