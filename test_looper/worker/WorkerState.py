@@ -560,6 +560,8 @@ class WorkerState(object):
 
         try:
             git_repo.resetToCommitInDirectory(commitHash, targetDir)
+            with open(os.path.join(targetDir, ".git_commit"), "w") as f:
+                f.write(git_repo.standardCommitMessageFor(commitHash))
             os.unlink(os.path.join(targetDir, ".git"))
         except:
             logging.error(traceback.format_exc())
@@ -687,6 +689,9 @@ class WorkerState(object):
         testText = self.getRepoCacheByName(repoName).getFileContents(commitHash, path)
 
         return TestDefinitionScript.extract_tests_from_str(repoName, commitHash, os.path.splitext(path)[1], testText)
+
+    def repoDefinitionsFor(self, repoName, commitHash):
+        return self.testAndEnvironmentDefinitionFor(repoName, commitHash)[2]
 
     def environmentDefinitionFor(self, repoName, commitHash, envName):
         return self.testAndEnvironmentDefinitionFor(repoName, commitHash)[1].get(envName)

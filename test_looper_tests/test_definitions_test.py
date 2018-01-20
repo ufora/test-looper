@@ -32,18 +32,20 @@ environments:
       dockerfile: "test_looper/Dockerfile.txt"
     variables:
       ENV_VAR: ENV_VAL
-  all_linux:
-    group: [linux, test_linux]
 builds:
-  build/all_linux:
-    command: "build.sh $TEST_LOOPER_IMPORTS/child"
-    dependencies:
-      child: child/build/
+  foreach: {env: [linux, test_linux]}
+  repeat:
+    build/${env}:
+      command: "build.sh $TEST_LOOPER_IMPORTS/child"
+      dependencies:
+        child: child/build/${env}
 tests:
-  test/all_linux:
-    command: "test.sh $TEST_LOOPER_IMPORTS/build"
-    dependencies:
-      build: build/
+  foreach: {env: [linux, test_linux]}
+  repeat:
+    test/${env}:
+      command: "test.sh $TEST_LOOPER_IMPORTS/build"
+      dependencies:
+        build: build/${env}
 """
 
 circular_yaml_file = """
@@ -94,17 +96,10 @@ def apply_and_merge(vars, extras=None):
 
 class TestDefinitionScriptTests(unittest.TestCase):
     def test_basic(self):
-        tests, environments = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", basic_yaml_file)
+        tests, environments, repos = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", basic_yaml_file)
 
         for name in ['build/linux', 'build/test_linux', 'test/linux', 'test/test_linux']:
             self.assertTrue(name in tests, name)
-
-    def test_disallow_circular(self):
-        try:
-            TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", circular_yaml_file)
-            self.assertTrue(False)
-        except Exception as e:
-            self.assertTrue("circular" in str(e), e)
 
     def test_expansion(self):
         res = TestDefinitionScript.expand_macros(

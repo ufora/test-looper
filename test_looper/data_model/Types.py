@@ -16,6 +16,7 @@ def setup_types(database):
     database.BackgroundTask.RefreshRepos = {}
     database.BackgroundTask.BootMachineCheck = {}
     database.BackgroundTask.RefreshBranches = {"repo": database.Repo}
+    database.BackgroundTask.UpdateBranchPins = {"branch": database.Branch}
     database.BackgroundTask.UpdateBranchTopCommit = {"branch": database.Branch}
     database.BackgroundTask.UpdateCommitData = {"commit": database.Commit}
     database.BackgroundTask.UpdateTestPriority = {"test": database.Test}
@@ -54,8 +55,11 @@ def setup_types(database):
         commit=database.Commit,
         parents=algebraic.List(database.Commit),
         subject=str,
+        timestamp=int,
+        commitMessage=str,
         testDefinitions=algebraic.Dict(str, TestDefinition.TestDefinition),
         environments=algebraic.Dict(str, TestDefinition.TestEnvironment),
+        repos=algebraic.Dict(str, TestDefinition.RepoReference),
         testDefinitionsError=str
         )
     database.CommitRelationship.define(
@@ -132,6 +136,13 @@ def setup_types(database):
         isUnderTest=bool
         )
 
+    database.BranchPin.define(
+        branch=database.Branch,
+        repo_def=str,
+        pinned_to_repo=str,
+        pinned_to_branch=str
+        )
+
     database.MachineCategory.define(
         hardware=Config.HardwareConfig,
         os=MachineManagement.OsConfig,
@@ -192,6 +203,8 @@ def setup_types(database):
     database.addIndex(database.Branch, 'repo')
     database.addIndex(database.Branch, 'head')
     database.addIndex(database.Branch, 'reponame_and_branchname', lambda o: (o.repo.name, o.branchname))
+    database.addIndex(database.BranchPin, 'branch')
+    database.addIndex(database.BranchPin, 'pinned_to', lambda o: (o.pinned_to_repo, o.pinned_to_branch))
     database.addIndex(database.Commit, 'repo_and_hash', lambda o: (o.repo, o.hash))
     database.addIndex(database.CommitRelationship, 'parent')
     database.addIndex(database.CommitRelationship, 'child')

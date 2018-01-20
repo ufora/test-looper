@@ -386,7 +386,17 @@ class WorkerStateTests(unittest.TestCase):
             )
         
 
-        
-        
+    def test_commit_messages(self):
+        repo, repoName, commitHash, worker = self.get_worker("simple_project")
+        repo2, _, commit2 = self.get_repo("simple_project_2")
+        commit2Name, commit2Hash = commit2[0]
 
+        callbacks1 = WorkerState.DummyWorkerCallbacks()        
+        callbacks2 = WorkerState.DummyWorkerCallbacks()
 
+        self.assertTrue(
+            worker.runTest("test0", commit2Name, commit2Hash, "test_commit_message/linux", callbacks1, isDeploy=False)[0]
+            )
+        self.assertTrue(
+            worker.runTest("test2", commit2Name, commit2Hash, "test_commit_message_in_dependencies/linux", callbacks2, isDeploy=False)[0]
+            )

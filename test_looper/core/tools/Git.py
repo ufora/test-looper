@@ -6,6 +6,8 @@ import os
 import sys
 import threading
 import time
+import tempfile
+import shutil
 import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.core.OutOfProcessDownloader as OutOfProcessDownloader
 
@@ -17,7 +19,10 @@ class SubprocessCheckCall(object):
 
     def __call__(self):
         with DirectoryScope.DirectoryScope(self.path):
-            return pickle.dumps(subprocess.check_call(*self.args, **self.kwds))
+            try:
+                return pickle.dumps(subprocess.check_call(*self.args, **self.kwds))
+            except subprocess.CalledProcessError as e:
+                return pickle.dumps(e.returncode)
 
 class SubprocessCheckOutput(object):
     def __init__(self, path, args, kwds):
@@ -48,11 +53,12 @@ class Git(object):
             f.write(text)
 
     def listRemotes(self):
-        return [x.strip() for x in self.subprocessCheckOutput(["git","remote"]).split("\n")]
+        return [x.strip() for x in self.subprocessCheckOutput(["git","remote"]).split("\n") if x.strip() != '']
 
     def pullLatest(self):
         remotes = self.listRemotes()
         if "origin" in remotes:
+            print "pulling latests"
             return self.subprocessCheckCall(['git' ,'fetch', 'origin', '-p']) == 0
         else:
             return True
@@ -66,6 +72,8 @@ class Git(object):
         return self.subprocessCheckCall(['git', 'reset','--hard', revision]) == 0
 
     def resetToCommitInDirectory(self, revision, directory):
+        assert isinstance(revision, str), revision
+
         directory = os.path.abspath(directory)
 
         logging.info("Resetting to revision %s in %s", revision, directory)
@@ -84,9 +92,64 @@ class Git(object):
                 ):
             raise Exception("Failed to checkout revision %s" % revision)
 
-    def commit(self, msg, timestamp_override=None, author="test_looper <test_looper@test_looper.com>"):
+    def ensureDirectoryExists(self, path):
+        if os.path.exists(path):
+            return
+        try:
+            os.makedirs(path)
+        except os.error as e:
+            if e.errno != errno.EEXIST:
+                raise
+
+    def createCommitAndPushToBranch(target_branch, commitHash, fileContents, commit_message, timestamp_override=None, author="test_looper <test_looper@test_looper.com>"):
+        with self.git_repo_lock:
+            new_hash = self.createCommit(commitHash, fileContents, commit_message, timestamp_override, author)
+
+            return self.pushCommit(new_hash, target_branch)
+
+    def createCommit(self, commitHash, fileContents, commit_message, timestamp_override=None, author="test_looper <test_looper@test_looper.com>"):
+        """Create a new commit.
+
+        fileContents - a dictionary from path to string or None. None means delete.
+        """
+        with self.git_repo_lock:
+            tmpdir = tempfile.mkdtemp()
+            try:
+                self.resetToCommitInDirectory(commitHash, tmpdir)
+                for file, contents in fileContents.iteritems():
+                    path = os.path.join(tmpdir, file)
+                        
+                    if contents is None:
+                        if os.path.exists(path):
+                            if os.path.isdir(path):
+                                shutil.rmtree(path)
+                            else:
+                                os.remove(path)
+                    else:
+                        self.ensureDirectoryExists(os.path.split(path)[0])
+                        with open(path, "w") as f:
+                            f.write(contents)
+                return self.commit(commit_message, timestamp_override, author, tmpdir)
+            finally:
+                shutil.rmtree(tmpdir)
+
+    def pushCommit(self, commitHash, branch, force=False, createBranch=False):
+        """push a sha-hash to a branch and return success"""
+        assert commitHash and isinstance(commitHash, str)
+        assert commitHash.isalnum()
+        assert " " not in branch
+
+        if createBranch:
+            branch = "refs/heads/" + branch
+
+        return self.subprocessCheckCall(["git", "push", "origin", "%s:%s" % (commitHash, branch)] + (["-f"] if force else [])) == 0
+
+    def commit(self, msg, timestamp_override=None, author="test_looper <test_looper@test_looper.com>", dir_override=None):
         """Commit the current state of the repo and return the commit id"""
-        assert self.subprocessCheckCall(["git", "add", "."]) == 0
+        if dir_override is None:
+            dir_override = self.path_to_repo
+
+        assert self.subprocessCheckCallAltDir(dir_override, ["git", "add", "."]) == 0
 
         env = dict(os.environ)
 
@@ -96,15 +159,18 @@ class Git(object):
         else:
             timestamp_override_options = []
 
-        cmds = ["git", "commit", "-m", msg] + timestamp_override_options + ["--author", author]
+        cmds = ["git", "commit", "--allow-empty", "-m", msg] + timestamp_override_options + ["--author", author]
 
-        assert self.subprocessCheckCall(cmds, env=env) == 0
+        assert self.subprocessCheckCallAltDir(dir_override, cmds, env=env) == 0
 
-        return self.subprocessCheckOutput(["git", "log", "-n", "1", '--format=format:%H'])
+        return self.subprocessCheckOutputAltDir(dir_override, ["git", "log", "-n", "1", '--format=format:%H'])
 
     def isInitialized(self):
         logging.debug('Checking existence of %s', os.path.join(self.path_to_repo, ".git"))
         return os.path.exists(os.path.join(self.path_to_repo, ".git"))
+
+    def ensureDetached(self):
+        self.subprocessCheckCall(["git", "checkout", "--detach", "HEAD"])
 
     def init(self):
         if not os.path.exists(self.path_to_repo):
@@ -125,11 +191,6 @@ class Git(object):
             if self.subprocessCheckCall(['git', 'clone', sourceRepo, '.']) != 0:
                 logging.error("Failed to clone source repo %s")
 
-    def pruneRemotes(self):
-        if self.subprocessCheckCall(['git','remote','prune','origin']) != 0:
-            logging.error("Failed to 'git remote prune origin'. " +
-                              "Deleted remote branches may continue to be tested.")
-            
     def listBranches(self):
         with self.git_repo_lock:
             output = self.subprocessCheckOutput(['git','branch','--list']).strip().split('\n')
@@ -148,18 +209,24 @@ class Git(object):
 
             return [r for r in lines if r != "HEAD"]
 
+    def standardCommitMessageFor(self, commitHash):
+        with self.git_repo_lock:
+            return self.subprocessCheckOutput(
+                    ["git", "log", "-n", "1", commitHash]
+                    )
+
     def hashParentsAndCommitTitleFor(self, commitHash):
         with self.git_repo_lock:
             data = None
             try:
                 data = self.subprocessCheckOutput(
-                    ["git", "--no-pager", "log", "-n", "1", "--topo-order", commitHash, '--format=format:%H %P--%s']
+                    ["git", "--no-pager", "log", "-n", "1", "--topo-order", commitHash, '--format=format:%H %P--%ct--%B']
                     ).strip()
 
-                commits, message = data.split('--', 1)
+                commits, timestamp, message = data.split('--', 2)
                 commits = [c.strip() for c in commits.split(" ") if c.strip()]
 
-                return commits[0], commits[1:], message
+                return commits[0], commits[1:], timestamp, message.strip()
             except:
                 logging.error("Failed to get git info on %s. data=%s", commitHash, data)
                 raise
@@ -212,12 +279,6 @@ class Git(object):
                 logging.error("Failed to fetch from origin!")
 
 
-    def pullOrigin(self):
-        with self.git_repo_lock:
-            if self.subprocessCheckCall(['git', 'pull']) != 0:
-                logging.error("Failed to pull from origin!")
-
-
     @staticmethod
     def isValidBranchName_(name):
         return name and '/HEAD' not in name and "(" not in name and "*" not in name
@@ -237,6 +298,13 @@ class Git(object):
         return pickle.loads(
             self.outOfProcessDownloaderPool.executeAndReturnResultAsString(
                 SubprocessCheckOutput(self.path_to_repo, args, kwds)
+                )
+            )
+
+    def subprocessCheckOutputAltDir(self, dir, *args, **kwds):
+        return pickle.loads(
+            self.outOfProcessDownloaderPool.executeAndReturnResultAsString(
+                SubprocessCheckOutput(dir, args, kwds)
                 )
             )
 
@@ -266,13 +334,7 @@ class LockedGit(Git):
     def cloneFrom(self, sourceRepo):
         raise Exception("Can't modify a Locked git repo")
 
-    def pruneRemotes(self):
-        raise Exception("Can't modify a Locked git repo")
-
     def fetchOrigin(self):
-        pass
-
-    def pullOrigin(self):
         pass
 
     def getFileContents(self, commit, path):

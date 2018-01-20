@@ -29,6 +29,8 @@ class MockSourceControl:
         self.commit_test_defs = {}
         self.commit_parents = {}
         self.branch_to_commitId = {}
+        self.created_commits = 0
+        self.prepushHooks = {}
 
     def listRepos(self):
         return sorted(self.repos)
@@ -47,6 +49,9 @@ class MockSourceControl:
 
         self.commit_test_defs[commitId] = testDefs
         self.commit_parents[commitId] = tuple(parents)
+
+    def getBranch(self, repoAndBranch):
+        return self.branch_to_commitId[repoAndBranch]
 
     def setBranch(self, repoAndBranch, commit):
         if commit is None:
@@ -82,6 +87,54 @@ class MockGitRepo:
     def commitExists(self, branchOrHash):
         return self.repo.commitExists(branchOrHash)
 
+    def standardCommitMessageFor(self, hash):
+        assert self.repo.commitExists(hash)
+
+        return "Commit %s by whomever.\n\nThis is a message." % hash
+
+    def getTestDefinitionsPath(self, hash):
+        return "testDefinitions.yml"
+
+    def getFileContents(self, commit, path):
+        if path != "testDefinitions.yml":
+            return None
+
+        commitId = self.repo.repoName + "/" + commit
+        return self.repo.source_control.commit_test_defs.get(commitId)
+
+
+    def createCommitAndPushToBranch(self, target_branch, commitHash, fileContents, commit_message, timestamp_override=None, author="test_looper <test_looper@test_looper.com>"):
+        bn = self.repo.repoName + "/" + target_branch
+
+        if bn not in self.repo.source_control.branch_to_commitId:
+            return False
+
+        if self.repo.source_control.branch_to_commitId[bn] != self.repo.repoName + "/" + commitHash:
+            return False
+
+        assert len(fileContents) == 1 and "testDefinitions.yml" in fileContents
+
+        self.repo.source_control.created_commits += 1
+        commitId = self.repo.repoName + "/" + "created_" + str(self.repo.source_control.created_commits)
+
+
+        self.repo.source_control.commit_parents[commitId] = [self.repo.repoName + "/" + commitHash]
+        self.repo.source_control.commit_test_defs[commitId] = fileContents['testDefinitions.yml']
+
+        if bn in self.repo.source_control.prepushHooks:
+            #run the test hook
+            self.repo.source_control.prepushHooks[bn]()
+            del self.repo.source_control.prepushHooks[bn]
+
+            #check again that this is a fast-forward
+            if self.repo.source_control.branch_to_commitId[bn] != self.repo.repoName + "/" + commitHash:
+                return False
+
+        self.repo.source_control.branch_to_commitId[bn] = commitId
+
+        return True
+
+
 class MockRepo:
     def __init__(self, source_control, repoName):
         self.source_control = source_control
@@ -92,7 +145,7 @@ class MockRepo:
         if commitId not in self.source_control.commit_parents:
             raise Exception("Can't find %s in %s" % (commitId, self.source_control.commit_parents.keys()))
 
-        return commitId.split("/")[1], [p.split("/")[1] for p in self.source_control.commit_parents[commitId]], "title"
+        return commitId.split("/")[1], [p.split("/")[1] for p in self.source_control.commit_parents[commitId]], 1516486261, "title"
 
     def commitExists(self, branchOrHash):
         branchOrHash = self.repoName + "/" + branchOrHash
@@ -204,18 +257,20 @@ environments:
       dockerfile: "test_looper/Dockerfile.txt"
     variables:
       ENV_VAR: ENV_VAL
-  all_linux:
-    group: [linux, test_linux]
 builds:
-  build/all_linux:
-    command: "build.sh $TEST_LOOPER_IMPORTS/child"
-    dependencies:
-      child: child/build/
+  foreach: {env: [linux, test_linux, windows]}
+  repeat:
+      build/${env}:
+        command: "build.sh $TEST_LOOPER_IMPORTS/child"
+        dependencies:
+          child: child/build/${env}
 tests:
-  test/all_linux:
-    command: "test.sh $TEST_LOOPER_IMPORTS/build"
-    dependencies:
-      build: build/
+  foreach: {env: [linux, test_linux, windows]}
+  repeat:
+      test/${env}:
+        command: "test.sh $TEST_LOOPER_IMPORTS/build"
+        dependencies:
+          build: build/${env}
 """
 
 basic_yml_file_repo3 = """
@@ -248,6 +303,14 @@ builds:
     command: "build.sh"
   build/windows_bad:
     command: "build.sh"
+"""
+
+basic_yml_file_repo5 = """
+looper_version: 2
+repos:
+  child: 
+    reference: repo2/c0
+    branch: master
 """
 
 class TestManagerTestHarness:
@@ -293,6 +356,16 @@ class TestManagerTestHarness:
                     self.manager.performCleanupTasks(self.timestamp)
                 else:
                     return
+
+    def getCommit(self, commitId):
+        reponame = "/".join(commitId.split("/")[:-1])
+        commitHash = commitId.split("/")[-1]
+
+        repo = self.manager.database.Repo.lookupAny(name=reponame)
+        if not repo:
+            return
+
+        return self.manager.database.Commit.lookupAny(repo_and_hash=(repo,commitHash))
 
     def toggleBranchUnderTest(self, reponame, branchname):
         with self.manager.database.transaction():
@@ -422,6 +495,66 @@ class TestManagerTests(unittest.TestCase):
             ]), phases)
 
         harness.assertOneshotMachinesDoOneTest()
+
+    def test_manager_branch_pinning(self):
+        harness = self.get_harness(max_workers=1)
+
+        harness.add_content()
+        
+        harness.manager.source_control.addCommit("repo5/c0", [], basic_yml_file_repo5)
+        harness.manager.source_control.setBranch("repo5/master", "repo5/c0")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        def branchRefs(branch, ref):
+            commitId = harness.manager.source_control.getBranch(branch)
+
+            with harness.database.view():
+                commit = harness.getCommit(commitId)
+                self.assertEqual(commit.data.repos["child"].reference, ref)
+
+        branchRefs("repo5/master", "repo2/c1")
+
+        #push another commit to repo2
+        harness.manager.source_control.addCommit("repo2/c2", ["repo2/c1"], basic_yml_file_repo2)
+        harness.manager.source_control.setBranch("repo2/master", "repo2/c2")
+        
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        branchRefs("repo5/master", "repo2/c2")
+
+        #push a commit to both repo2
+        harness.manager.source_control.addCommit("repo2/c3", ["repo2/c2"], basic_yml_file_repo2)
+        harness.manager.source_control.setBranch("repo2/master", "repo2/c3")
+
+        #and also repo5
+        harness.manager.source_control.addCommit("repo5/c1", ["repo5/c0"], basic_yml_file_repo5)
+        harness.manager.source_control.setBranch("repo5/master", "repo5/c1")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        branchRefs("repo5/master", "repo2/c3")
+
+        #now simulate pushing to c3 failing because we updated a commit
+
+        #update the underlying repo
+        harness.manager.source_control.addCommit("repo2/c4", ["repo2/c3"], basic_yml_file_repo2)
+        harness.manager.source_control.setBranch("repo2/master", "repo2/c4")
+
+        def beforePush():
+            harness.manager.source_control.addCommit("repo5/c2", ["repo5/c1"], basic_yml_file_repo5)
+            harness.manager.source_control.setBranch("repo5/master", "repo5/c2")
+            
+        harness.manager.source_control.prepushHooks["repo5/master"] = beforePush
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        curCommit = harness.manager.source_control.getBranch("repo5/master")
+        self.assertEqual(harness.manager.source_control.commit_parents[curCommit][0], "repo5/c2")
+
 
     def test_manager_with_one_machine(self):
         harness = self.get_harness(max_workers=1)

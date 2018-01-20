@@ -5,6 +5,8 @@ import time
 import traceback
 import simplejson
 import threading
+import textwrap
+import re
 from test_looper.core.hash import sha_hash
 import test_looper.core.Bitstring as Bitstring
 import test_looper.core.object_database as object_database
@@ -810,28 +812,76 @@ class TestManager(object):
 
                 for branchname in branchnames:
                     try:
-                        self.database.DataTask.New(
-                            task=self.database.BackgroundTask.UpdateBranchTopCommit(
-                                self.database.Branch.lookupOne(reponame_and_branchname=(db_repo.name, branchname))
-                                ),
-                            status=pendingHigh
+                        self._scheduleUpdateBranchTopCommit(
+                            self.database.Branch.lookupOne(reponame_and_branchname=(db_repo.name, branchname))
                             )
                     except:
                         logging.error("Error scheduling branch commit lookup:\n\n%s", traceback.format_exc())
 
+        elif task.matches.UpdateBranchPins:
+            with self.transaction_and_lock():
+                branch = task.branch
+
+                self._updateBranchTopCommit(branch)
+
+                if not (branch.head and branch.head.data):
+                    return
+
+                #check the current heads
+                pins_to_update = {}
+
+                for pin in self.database.BranchPin.lookupAll(branch=branch):
+                    repo_def = pin.repo_def
+
+                    curCommitRef = branch.head.data.repos[repo_def].reference
+
+                    target = curCommitRef.split("/")
+
+                    #this is what we're currently referencing
+                    repoName, commitHash = ("/".join(target[:-1]), target[-1])
+                    assert repoName == pin.pinned_to_repo
+
+                    repo = self.database.Repo.lookupAny(name=repoName)
+                    if repo:
+                        cur_commit = self.database.Commit.lookupAny(repo_and_hash=(repo,commitHash))
+                        
+                        pin_branch = self.database.Branch.lookupAny(reponame_and_branchname=(pin.pinned_to_repo, pin.pinned_to_branch))
+
+                        if cur_commit and pin_branch and pin_branch.head != cur_commit:
+                            pins_to_update[repo_def] = (commitHash, pin_branch.branchname, pin_branch.head)
+
+                if not pins_to_update:
+                    return
+
+                #now get a list of commits for each pin
+                for repo_def, (curCommitHash, branch_pin_name, new_commit) in pins_to_update.iteritems():
+                    success = self._updatePinInCommit(branch, repo_def, branch_pin_name, curCommitHash, new_commit)
+                    if not success:
+                        #we need to retry, but only if the commit has changed underneath us
+                        logging.error("Failed to update pin of %s in %s/%s/HEAD=%s to %s", 
+                            repo_def, 
+                            branch.repo.name,
+                            branch.branchname,
+                            curCommitHash,
+                            new_commit.hash
+                            )
+                        self._scheduleUpdateBranchTopCommit(branch)
+                        return
+                    else:
+                        logging.info("Successfully updated pin of %s in %s/%s/HEAD = %s to %s", 
+                            repo_def,
+                            branch.repo.name, 
+                            branch.branchname, 
+                            curCommitHash,
+                            new_commit.hash
+                            )
+
+                self._updateBranchTopCommit(branch)
+                self._recalculateBranchPins(branch)
+
         elif task.matches.UpdateBranchTopCommit:
             with self.transaction_and_lock():
-                repo = self.source_control.getRepo(task.branch.repo.name)
-                commit = repo.branchTopCommit(task.branch.branchname)
-
-                logging.info('Top commit of %s branch %s is %s', repo, task.branch.branchname, commit)
-
-                if commit:
-                    if task.branch.head:
-                        self._triggerCommitPriorityUpdate(task.branch.head)
-                    task.branch.head = self._lookupCommitByHash(task.branch.repo, commit)
-                    if task.branch.head:
-                        self._triggerCommitPriorityUpdate(task.branch.head)
+                self._updateBranchTopCommit(task.branch)
 
         elif task.matches.UpdateCommitData:
             with self.transaction_and_lock():
@@ -845,7 +895,10 @@ class TestManager(object):
 
                     hashParentsAndTitle = repo.commitsLookingBack(commit.hash, 1)[0]
 
-                    subject=hashParentsAndTitle[2]
+                    timestamp = int(hashParentsAndTitle[2])
+                    subject=hashParentsAndTitle[3].split("\n")[0]
+                    body=hashParentsAndTitle[3]
+
                     parents=[
                         self._lookupCommitByHash(task.commit.repo, p) 
                             for p in hashParentsAndTitle[1]
@@ -854,8 +907,11 @@ class TestManager(object):
                     commit.data = self.database.CommitData.New(
                         commit=commit,
                         subject=subject,
+                        timestamp=timestamp,
+                        commitMessage=body,
                         parents=parents
                         )
+
                     for p in parents:
                         self.database.CommitRelationship.New(child=commit,parent=p)
 
@@ -867,10 +923,11 @@ class TestManager(object):
                         if defText is None:
                             raise Exception("No test definition file found.")
 
-                        all_tests, all_environments = TestDefinitionScript.extract_tests_from_str(commit.repo.name, commit.hash, extension, defText)
+                        all_tests, all_environments, all_repo_defs = TestDefinitionScript.extract_tests_from_str(commit.repo.name, commit.hash, extension, defText)
 
                         commit.data.testDefinitions = all_tests
                         commit.data.environments = all_environments
+                        commit.data.repos = all_repo_defs
                         
                         for e in all_tests.values():
                             fullname=commit.repo.name + "/" + commit.hash + "/" + e.name
@@ -889,6 +946,9 @@ class TestManager(object):
 
                         commit.data.testDefinitionsError=str(e)
 
+                    for branch in self.database.Branch.lookupAll(head=commit):
+                        self._recalculateBranchPins(branch)
+
         elif task.matches.UpdateTestPriority:
             with self.transaction_and_lock():
                 self._updateTestPriority(task.test, curTimestamp)
@@ -900,6 +960,107 @@ class TestManager(object):
                 self._updateCommitPriority(task.commit)
         else:
             raise Exception("Unknown task: %s" % task)
+
+    def _updatePinInCommit(self, branch, repoRefName, branch_pin_name, curCommitHash, newCommit):
+        top_commit = branch.head
+        repo = self.source_control.getRepo(branch.repo.name)
+        commitHash = top_commit.hash
+        newCommitHash = newCommit.hash
+
+        path = repo.source_repo.getTestDefinitionsPath(commitHash)
+        if not path:
+            logging.error("Can't update pin of %s/%s/%s because we can't find testDefinitions.yml", 
+                branch.repo.name, 
+                branch.branchname, 
+                newCommit.hash
+                )
+            return False
+
+        contents = repo.source_repo.getFileContents(commitHash, path)
+
+        pat_text = r"({r})(\s*:\s*reference\s*:\s*)({tr}/{h})".format(r=repoRefName,h=curCommitHash, tr=newCommit.repo.name)
+
+        pattern = re.compile(pat_text, flags=re.MULTILINE)
+
+        new_contents = re.sub(pattern, (r"\1\2" + newCommit.repo.name + "/" + newCommitHash), contents)
+
+        if contents == new_contents:
+            logging.error("Failed to update %s's reference to %s=%s in %s", 
+                repoRefName, 
+                branch_pin_name, 
+                curCommitHash, 
+                branch.head.hash
+                )
+            return False
+
+        target_repo = self.source_control.getRepo(newCommit.repo.name)
+        standard_git_commit_message = target_repo.source_repo.standardCommitMessageFor(newCommitHash)
+
+        return repo.source_repo.createCommitAndPushToBranch(
+            branch.branchname,
+            branch.head.hash,
+            {path:new_contents},
+            "Update pin of %s to branch %s from %s to %s.\n\nCommit Message:\n\n%s" % (
+                repoRefName,
+                branch_pin_name,
+                curCommitHash,
+                newCommitHash,
+                "\n".join(["    " + x for x in standard_git_commit_message.split("\n")])
+                )
+            )
+
+
+        
+
+    def _updateBranchTopCommit(self, branch):
+        repo = self.source_control.getRepo(branch.repo.name)
+        commit = repo.branchTopCommit(branch.branchname)
+
+        logging.info('Top commit of %s branch %s is %s', repo, branch.branchname, commit)
+
+        if commit and (not branch.head or commit != branch.head.hash):
+            if branch.head:
+                self._triggerCommitPriorityUpdate(branch.head)
+
+            branch.head = self._lookupCommitByHash(branch.repo, commit)
+
+            if branch.head:
+                self._recalculateBranchPins(branch)
+                self._triggerCommitPriorityUpdate(branch.head)
+
+                for pin in self.database.BranchPin.lookupAll(pinned_to=(branch.repo.name,branch.branchname)):
+                    self._scheduleBranchPinNeedsUpdating(pin.branch)
+
+    def _scheduleUpdateBranchTopCommit(self, branch):
+        self.database.DataTask.New(
+            task=self.database.BackgroundTask.UpdateBranchTopCommit(branch),
+            status=pendingHigh
+            )
+
+    def _recalculateBranchPins(self, branch):
+        existingPins = self.database.BranchPin.lookupAll(branch=branch)
+        for p in existingPins:
+            p.delete()
+
+        if branch.head and branch.head.data:
+            for repo_def, target in branch.head.data.repos.iteritems():
+                reponame = "/".join(target.reference.split("/")[:-1])
+
+                if target.matches.Pin:
+                    self.database.BranchPin.New(
+                        branch=branch, 
+                        repo_def=repo_def, 
+                        pinned_to_repo=reponame,
+                        pinned_to_branch=target.branch
+                        )
+
+        self._scheduleBranchPinNeedsUpdating(branch)
+
+    def _scheduleBranchPinNeedsUpdating(self, branch):
+        self.database.DataTask.New(
+            task=self.database.BackgroundTask.UpdateBranchPins(branch=branch),
+            status=pendingHigh
+            )
 
     def _bootMachinesIfNecessary(self, curTimestamp):
         #repeatedly check if we can boot any machines. If we can't,
@@ -1335,6 +1496,7 @@ class TestManager(object):
 
             env = TestDefinition.apply_environment_substitutions(env)
         except Exception as e:
+            logging.error(traceback.format_exc())
             test.fullyResolvedEnvironment = self.database.FullyResolvedTestEnvironment.Error(Error=str(e))
             return
 

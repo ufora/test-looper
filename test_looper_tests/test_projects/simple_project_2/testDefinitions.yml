@@ -70,3 +70,11 @@ tests:
   test_with_individual_failures/linux:
     command: |
       echo '{"Test1": true, "Test2": false}' > $TEST_OUTPUT_DIR/testSummary.json
+  test_commit_message/linux:
+    command: |
+      grep -Fq "a message" .git_commit
+  test_commit_message_in_dependencies/linux:
+    dependencies:
+      simplesource: simple
+    command: |
+      grep -Fq "a message" $TEST_INPUTS/simplesource/.git_commit

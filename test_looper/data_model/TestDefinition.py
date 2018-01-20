@@ -26,6 +26,13 @@ TestDependency.Source = {"repo": str, "commitHash": str}
 EnvironmentReference = algebraic.Alternative("EnvironmentReference")
 EnvironmentReference.Reference = {"repo": str, "commitHash": str, "name": str}
 
+RepoReference = algebraic.Alternative("RepoReference")
+RepoReference.Reference = {"reference": str}
+RepoReference.Pin = {
+    "reference": str,
+    "branch": str
+    }
+
 TestEnvironment = algebraic.Alternative("TestEnvironment")
 TestEnvironment.Environment = {
     "environment_name": str,
@@ -164,10 +171,12 @@ def apply_substitutions_to_dependency(dep, vardefs):
     elif dep.matches.ExternalBuild:
         return TestDependency.ExternalBuild(
             name=VariableSubstitution.substitute_variables(dep.name, vardefs),
-            environment=VariableSubstitution.substitute_variables(dep.name, vardefs),
+            environment=VariableSubstitution.substitute_variables(dep.environment, vardefs),
             repo=dep.repo,
             commitHash=dep.commitHash
             )
+    elif dep.matches.Source:
+        return dep
     else:
         assert False, "Unknown dep type: %s" % dep
 

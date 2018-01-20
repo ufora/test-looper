@@ -72,10 +72,12 @@ DefineDeployment.Deployment = {
     "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
     }
 
+RepoReference = TestDefinition.RepoReference
+
 TestDefinitionScript = algebraic.Alternative("TestDefinitionScript")
 TestDefinitionScript.Definition = {
     "looper_version": int,
-    "repos": algebraic.Dict(str,str),
+    "repos": algebraic.Dict(str,RepoReference),
     "environments": algebraic.Dict(str, DefineEnvironment),
     "builds": algebraic.Dict(str, DefineBuild),
     "tests": algebraic.Dict(str, DefineTest),
@@ -106,9 +108,11 @@ def map_image(reponame, commitHash, image_def):
 def extract_tests(curRepoName, curCommitHash, testScript):
     repos = {}
 
-    for repoVarName, repoDef in testScript.repos.iteritems():
+    for repoVarName, repoPin in testScript.repos.iteritems():
         if repoVarName in reservedNames:
             raise Exception("%s is a reserved name and can't be used as a reponame." % repoVarName)
+
+        repoDef = repoPin.reference
 
         assert len(repoDef.split("/")) >= 2, "Improperly formed repo definition: %s" % repoDef
 
@@ -226,8 +230,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
     environments = {}
 
     for envName, envDef in testScript.environments.iteritems():
-        if not envDef.matches.Group:
-            environments[envName] = parseEnvironment(envName)
+        environments[envName] = parseEnvironment(envName)
 
     def convert_build_dep(dep,curEnv):
         deps = dep.split("/")
@@ -327,7 +330,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
 
         allTests[name] = convert_def(name, definition)
 
-    return allTests, environments
+    return allTests, environments, testScript.repos
 
 def flatten(l):
     if not isinstance(l, list):
