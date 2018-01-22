@@ -492,6 +492,7 @@ class TestManager(object):
             
             testRun.test.activeRuns = testRun.test.activeRuns - 1
             testRun.test.totalRuns = testRun.test.totalRuns + 1
+            testRun.test.lastTestEndTimestamp = curTimestamp
 
             names = sorted(testSuccesses.keys())
             testRun.testNames = self._testNameSet(names)
@@ -669,7 +670,12 @@ class TestManager(object):
         with self.transaction_and_lock():
             self._scheduleBootCheck()
             self._shutdownMachinesIfNecessary(curTimestamp)
+            self._checkRetryTests(curTimestamp)
             
+    def _checkRetryTests(self, curTimestamp):
+        for test in self.database.Test.lookupAll(waiting_to_retry=True):
+            self._triggerTestPriorityUpdate(test)
+
     def _scheduleBootCheck(self):
         if not self.database.DataTask.lookupAny(pending_boot_machine_check=True):
             self.database.DataTask.New(
@@ -1249,8 +1255,17 @@ class TestManager(object):
             #sets test.targetMachineBoot
             if not test.testDefinition.matches.Deployment and test.testDefinition.disabled:
                 test.priority = self.database.TestPriority.NoMoreTests()
-            elif self._updateTestTargetMachineCountAndReturnIsDone(test):
-                test.priority = self.database.TestPriority.NoMoreTests()
+            elif self._updateTestTargetMachineCountAndReturnIsDone(test, curTimestamp):
+                if self._testWantsRetries(test):
+                    if test.activeRuns:
+                        #if we have an active test, then it is itself a retry and we don't
+                        #need more
+                        test.priority = self.database.TestPriority.NoMoreTests()
+                    else:
+                        #but if we have no runs, then we're in a wait-state
+                        test.priority = self.database.TestPriority.WaitingToRetry()
+                else:
+                    test.priority = self.database.TestPriority.NoMoreTests()
             elif test.testDefinition.matches.Build:
                 test.priority = self.database.TestPriority.FirstBuild(priority=test.commitData.commit.priority)
             elif (test.totalRuns + test.activeRuns) == 0:
@@ -1420,7 +1435,7 @@ class TestManager(object):
 
             return (viable[0], os)
 
-    def _updateTestTargetMachineCountAndReturnIsDone(self, test):
+    def _updateTestTargetMachineCountAndReturnIsDone(self, test, curTimestamp):
         if test.commitData.commit.priority == 0:
             test.targetMachineBoot = 0
             return True
@@ -1428,7 +1443,13 @@ class TestManager(object):
         if test.testDefinition.matches.Deployment:
             needed = 0
         elif test.testDefinition.matches.Build:
-            needed = 1
+            if self._testWantsRetries(test):
+                if self._readyToRetryTest(test, curTimestamp):
+                    needed = test.totalRuns + 1
+                else:
+                    needed = test.totalRuns
+            else:
+                needed = 1
         else:
             needed = max(test.runsDesired, 1)
 
@@ -1443,12 +1464,35 @@ class TestManager(object):
         for dep in deps:
             if dep.dependsOn.totalRuns == 0:
                 return True
+            if self._testWantsRetries(dep.dependsOn):
+                return True
         return False
 
     def _testHasFailedDeps(self, test):
         for dep in self.database.TestDependency.lookupAll(test=test):
-            if dep.dependsOn.successes == 0:
+            if dep.dependsOn.totalRuns > 0 and dep.dependsOn.successes == 0 and not self._testWantsRetries(dep.dependsOn):
                 return True
+        return False
+
+    def _readyToRetryTest(self, test, curTimestamp):
+        if test.totalRuns == 0:
+            return True
+
+        return curTimestamp - test.lastTestEndTimestamp > test.testDefinition.retry_wait_seconds
+
+    def _testWantsRetries(self, test):
+        if not test.testDefinition.matches.Build:
+            return False
+
+        if test.testDefinition.max_retries == 0:
+            return False
+
+        if test.successes:
+            return False
+
+        if test.totalRuns < test.testDefinition.max_retries:
+            return True
+
         return False
 
     def _createTest(self, commitData, fullname, testDefinition):

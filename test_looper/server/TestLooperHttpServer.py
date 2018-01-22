@@ -461,7 +461,8 @@ class TestLooperHttpServer(object):
             if testRun.test.testDefinition.matches.Build:
                 commit = testRun.test.commitData.commit
 
-                build_key = testRun.testDefinition.name.replace("/","_") + ".tar.gz"
+                build_key = testRun.test.testDefinition.name.replace("/","_") + ".tar.gz"
+                
                 self.artifactStorage.clear_build(commit.repo.name, commit.hash, build_key)
 
         raise cherrypy.HTTPRedirect(redirect)
@@ -726,10 +727,12 @@ class TestLooperHttpServer(object):
                         return "HaveEnough"
                     if priority.matches.DependencyFailed:
                         return "DependencyFailed"
-                    if priority.matches.WantsMoreTests:
+                    if (priority.matches.WantsMoreTests or priority.matches.FirstTest or priority.matches.FirstBuild):
                         return "WaitingForHardware"
+                    if priority.matches.WaitingToRetry:
+                        return "WaitingToRetry"
 
-                    return "<Unknown>"
+                    return "Unknown"
 
                 row.append(stringifyPriority(t.priority))
 

@@ -47,6 +47,8 @@ DefineBuild.Build = {
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
     "max_cores": int, #maximum number of cores we can take advantage of, or zero
     "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
+    "max_retries": int, #maximum number of times to retry the build
+    "retry_wait_seconds": int, #minimum number of seconds to wait before retrying a build
     }
 
 DefineTest.Test = {
@@ -285,7 +287,9 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 disabled=d.disabled,
                 min_cores=d.min_cores,
                 max_cores=d.max_cores,
-                min_ram_gb=d.min_ram_gb
+                min_ram_gb=d.min_ram_gb,
+                max_retries=d.max_retries,
+                retry_wait_seconds=d.retry_wait_seconds
                 )
         if d.matches.Test:
             return TestDefinition.TestDefinition.Test(

@@ -28,8 +28,18 @@ builds:
     command: "cp $TEST_INPUTS/build_import/* $TEST_BUILD_OUTPUT_DIR"
     dependencies:
       build_import: simple/build/linux
-  winbuild/windows:
-    command: "echo 'hi'"
+  build_flakey/linux:
+    command: |
+      echo "success!" > $TEST_BUILD_OUTPUT_DIR/flakey_output.txt
+      python -c "import random; assert random.random() < .1"
+    max_retries: 5
+    retry_wait_seconds: 30
+  build_flakey_many/linux:
+    command: |
+      echo "success!" > $TEST_BUILD_OUTPUT_DIR/flakey_output.txt
+      python -c "import random; assert random.random() < .1"
+    max_retries: 100
+    retry_wait_seconds: 30
 tests:
   test2/linux:
     command: "cat $TEST_INPUTS/simplesource/starts_a_long_docker.py"
@@ -78,3 +88,13 @@ tests:
       simplesource: simple
     command: |
       grep -Fq "a message" $TEST_INPUTS/simplesource/.git_commit
+  test_depends_on_flakey/linux:
+    dependencies:
+      flake: build_flakey/linux
+    command: |
+      grep -Fq "success" $TEST_INPUTS/flake/flakey_output.txt
+  test_depends_on_flakey_many/linux:
+    dependencies:
+      flake: build_flakey_many/linux
+    command: |
+      grep -Fq "success" $TEST_INPUTS/flake/flakey_output.txt

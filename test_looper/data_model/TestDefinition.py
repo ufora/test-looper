@@ -64,6 +64,8 @@ TestDefinition.Build = {
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
     "max_cores": int, #maximum number of cores we can take advantage of, or zero
     "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
+    "max_retries": int, #maximum number of times to retry the build
+    "retry_wait_seconds": int, #minimum number of seconds to wait before retrying a build
     }
 TestDefinition.Test = {
     "testCommand": str,
@@ -251,7 +253,9 @@ def apply_test_substitutions(test, env, input_var_defs):
     if test.matches.Build:
         return make(
             TestDefinition.Build,
-            buildCommand=VariableSubstitution.substitute_variables(test.buildCommand, vardefs)
+            buildCommand=VariableSubstitution.substitute_variables(test.buildCommand, vardefs),
+            max_retries=test.max_retries,
+            retry_wait_seconds=test.retry_wait_seconds
             )
     elif test.matches.Test:
         return make(

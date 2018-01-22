@@ -58,17 +58,18 @@ class Mixin:
                 "f4": {
                     "a": "a contents",
                     "b": "b contents"
-                }
+                    },
+                "0_f4.tar.gz": "a"
             }})
 
         self.assertEqual(self.artifactStorage.testResultKeysFor("reponame", "commitHash", "testid"), [])
-        self.artifactStorage.uploadTestArtifacts("reponame", "commitHash", "testid", os.path.join(self.scratchdir, "worker"), "output_")
+        self.artifactStorage.uploadTestArtifacts("reponame", "commitHash", "testid", os.path.join(self.scratchdir, "worker"), ["f4.tar.gz"])
         self.assertEqual(
             set(self.artifactStorage.testResultKeysFor("reponame", "commitHash", "testid")), 
-            set(["output_" + x for x in ["f1", "f2", "f3.log.gz", "f4.tar.gz"]])
+            set(["f1", "f2", "f3.log.gz", "1_f4.tar.gz", "0_f4.tar.gz"])
             )
 
-        tarball_contents = self.contentsOfTestArtifact("reponame", "commitHash", "testid", "f4.tar.gz")
+        tarball_contents = self.contentsOfTestArtifact("reponame", "commitHash", "testid", "1_f4.tar.gz")
 
         self.assertEqual(tarball_contents.content_type, "application/octet-stream")
 

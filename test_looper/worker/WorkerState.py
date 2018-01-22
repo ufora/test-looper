@@ -767,6 +767,7 @@ class WorkerState(object):
             path = os.path.join(self.directories.scratch_dir, "test_looper_log.txt")
             with open(path, "w") as f:
                 f.write("".join(log_messages))
+
             self.artifactStorage.uploadSingleTestArtifact(repoName, commitHash, testId, "test_looper_log.txt", path)
 
         except:
@@ -992,7 +993,7 @@ class WorkerState(object):
                 commitHash,
                 testId,
                 self.directories.test_output_dir,
-                "output_"
+                set(["test_looper_log.txt", "test_result.json"])
                 )
 
             testSummaryJsonPath = os.path.join(self.directories.test_output_dir, "testSummary.json")
@@ -1050,7 +1051,7 @@ class WorkerState(object):
         
         if not os.path.exists(path):
             logging.info("Downloading build for %s/%s test %s to %s", repoName, commitHash, testName, path)
-            self.artifactStorage.download_build(repoName, commithash, self.artifactKeyForBuild(testName), path)
+            self.artifactStorage.download_build(repoName, commitHash, self.artifactKeyForBuild(testName), path)
 
         return path
 

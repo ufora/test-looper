@@ -25,6 +25,7 @@ def setup_types(database):
 
     database.TestPriority = algebraic.Alternative("TestPriority")
     database.TestPriority.UnresolvedDependencies = {}
+    database.TestPriority.WaitingToRetry = {}
     database.TestPriority.DependencyFailed = {}
     database.TestPriority.WaitingOnBuilds = {}
     database.TestPriority.InvalidTestDefinition = {}
@@ -76,6 +77,7 @@ def setup_types(database):
         successes=int,
         totalRuns=int,
         activeRuns=int,
+        lastTestEndTimestamp=float,
         totalTestCount=float,
         totalFailedTestCount=float,
         priority=database.TestPriority,
@@ -217,6 +219,7 @@ def setup_types(database):
             lambda o: o.machineCategory if (
                     not o.priority.matches.NoMoreTests 
                 and not o.priority.matches.UnresolvedDependencies
+                and not o.priority.matches.WaitingToRetry
                 and not o.priority.matches.DependencyFailed
                 and not o.priority.matches.WaitingOnBuilds
                 and not o.priority.matches.HardwareComboUnbootable
@@ -228,10 +231,15 @@ def setup_types(database):
     database.addIndex(database.TestRun, 'isRunning', lambda t: True if not t.canceled and t.endTimestamp <= 0.0 else None)
     database.addIndex(database.TestRun, 'runningOnMachine', lambda t: t.machine if not t.canceled and t.endTimestamp <= 0.0 else None)
 
+    database.addIndex(database.Test, 'waiting_to_retry',
+            lambda o: True if o.priority.matches.WaitingToRetry else None
+            )
+
     database.addIndex(database.Test, 'priority', 
             lambda o: o.priority if (
                     not o.priority.matches.NoMoreTests 
                 and not o.priority.matches.UnresolvedDependencies
+                and not o.priority.matches.WaitingToRetry
                 and not o.priority.matches.DependencyFailed
                 and not o.priority.matches.WaitingOnBuilds
                 and not o.priority.matches.HardwareComboUnbootable

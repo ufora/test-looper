@@ -11,7 +11,8 @@ import test_looper.core.SimpleServer as SimpleServer
 import test_looper.core.socket_util as socket_util
 import test_looper.core.algebraic as algebraic
 import test_looper.core.algebraic_to_json as algebraic_to_json
-SWEEP_FREQUENCY = 30
+
+CLEANUP_TASK_FREQUENCY = 30
 
 TerminalInputMsg = algebraic.Alternative("TerminalInputMsg")
 TerminalInputMsg.KeyboardInput = {"bytes": str}
@@ -200,7 +201,7 @@ class TestLooperServer(SimpleServer.SimpleServer):
             while not self.shouldStop():
                 task = self.testManager.performBackgroundWork(time.time())
 
-                if lastSweep is None or time.time() - lastSweep > SWEEP_FREQUENCY:
+                if lastSweep is None or time.time() - lastSweep > CLEANUP_TASK_FREQUENCY:
                     lastSweep = time.time()
                     try:
                         self.testManager.performCleanupTasks(time.time())

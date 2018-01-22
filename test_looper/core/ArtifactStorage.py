@@ -35,7 +35,14 @@ class ArtifactStorage(object):
             return ("text/plain", key, False)
         return ("application/octet-stream", key, False)
 
-    def uploadTestArtifacts(self, reponame, commitHash, testId, testOutputDir, prefix):
+    def uploadTestArtifacts(self, reponame, commitHash, testId, testOutputDir, reserved_names):
+        """Upload all the files in 'testOutputDir'.
+
+        reserved_names - set of reserved filenames used to ensure we don't 
+            conflict with special outputs reserved by the looper
+        """
+        all_paths = set(os.listdir(testOutputDir))
+
         def uploadFile(path, semaphore):
             try:
                 full_path = os.path.join(testOutputDir, path)
@@ -54,7 +61,13 @@ class ArtifactStorage(object):
                     full_path = full_path + ".gz"
                     path = path + ".gz"
 
-                self.uploadSingleTestArtifact(reponame, commitHash, testId, prefix + path, full_path)
+                if path in reserved_names:
+                    prefix = "0_"
+                    while prefix + path in all_paths:
+                        prefix = str(int(prefix[:-1])+1) + "_"
+                    path = prefix + path
+
+                self.uploadSingleTestArtifact(reponame, commitHash, testId, path, full_path)
             except:
                 logging.error("Failed to upload %s:\n%s", path, traceback.format_exc())
             finally:
