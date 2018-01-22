@@ -133,10 +133,10 @@ class WorkerStateTests(unittest.TestCase):
             worker.runTest("testId3", repoName, commitHash, "bad/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
             )
 
-        keys = worker.artifactStorage.testResultKeysFor("testId3")
+        keys = worker.artifactStorage.testResultKeysFor(repoName, commitHash, "testId3")
         self.assertTrue(len(keys) == 1)
 
-        data = worker.artifactStorage.testContents("testId3", keys[0])
+        data = worker.artifactStorage.testContents(repoName, commitHash, "testId3", keys[0])
 
         self.assertTrue(len(data) > 0)
 
@@ -188,7 +188,7 @@ class WorkerStateTests(unittest.TestCase):
 
         self.assertTrue(
             worker.runTest("testId2", repoName, commitHash, "docker/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
-            worker.artifactStorage.get_failure_log("testId2")
+            worker.artifactStorage.get_failure_log(repoName, commitHash, "testId2")
             )
         
         self.assertEqual(container_count, len(docker_client.containers.list()))
@@ -202,7 +202,7 @@ class WorkerStateTests(unittest.TestCase):
 
         self.assertTrue(
             worker.runTest("testId2", repoName, commitHash, "docker/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
-            worker.artifactStorage.get_failure_log("testId2")
+            worker.artifactStorage.get_failure_log(repoName, commitHash, "testId2")
             )
 
     def test_cross_project_dependencies(self):
@@ -214,29 +214,28 @@ class WorkerStateTests(unittest.TestCase):
 
         self.assertTrue(
             worker.runTest("testId2", commit2Name, commit2Hash, "build2/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
-            worker.artifactStorage.get_failure_log("testId2")
+            worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId2")
             )
         self.assertTrue(
             worker.runTest("testId3", commit2Name, commit2Hash, "test2/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
-            worker.artifactStorage.get_failure_log("testId3")
+            worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId3")
             )
         
         self.assertTrue(
             worker.runTest("testId6", commit2Name, commit2Hash, "test2/linux_dependent", WorkerState.DummyWorkerCallbacks(), False)[0],
-            worker.artifactStorage.get_failure_log("testId6")
+            worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId6")
             )
-
 
         self.assertTrue(
             worker.runTest("testId7", commit2Name, commit2Hash, "test3/linux_dependent", WorkerState.DummyWorkerCallbacks(), False)[0],
-            worker.artifactStorage.get_failure_log("testId7")
+            worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId7")
             )
         self.assertFalse(
             worker.runTest("testId4", commit2Name, commit2Hash, "test2_fails/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
             )
         self.assertTrue(
             worker.runTest("testId5", commit2Name, commit2Hash, "test2_dep_from_env/linux2", WorkerState.DummyWorkerCallbacks(), False)[0],
-            worker.artifactStorage.get_failure_log("testId5")
+            worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId5")
             )
 
     def test_variable_expansions(self):
@@ -253,7 +252,7 @@ class WorkerStateTests(unittest.TestCase):
                 "".join(callbacks.logMessages)
                 )
             if not name.startswith("build/"):
-                return [x.strip() for x in worker.artifactStorage.testContents(testName, "results.txt").split("\n") if x.strip()]
+                return [x.strip() for x in worker.artifactStorage.testContents(repoName, commitHash, testName, "output_results.txt").split("\n") if x.strip()]
 
         runTest("build/k0")
         runTest("build/k1")
@@ -350,8 +349,7 @@ class WorkerStateTests(unittest.TestCase):
         self.assertTrue(test2_extracted and not test2_downloaded and not test2_uploaded)
 
         self.assertTrue(
-            worker.artifactStorage.build_exists(repoName + "_" + commitHash + "_source.tar.gz"),
-            commit2Name + "_" + commit2Hash + "_source.tar.gz"
+            worker.artifactStorage.build_exists(commit2Name, commit2Hash, "source.tar.gz")
             )
 
         #after purging, we should have to download the build

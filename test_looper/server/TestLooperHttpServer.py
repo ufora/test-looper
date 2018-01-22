@@ -359,17 +359,19 @@ class TestLooperHttpServer(object):
 
             grid = [["ARTIFACTS"]]
 
-            if testRun.test.testDefinition.matches.Build:
-                build_key = testRun.test.fullname.replace("/","_") + ".tar.gz"
+            commit = testRun.test.commitData.commit
 
-                if self.artifactStorage.build_exists(build_key):
+            if testRun.test.testDefinition.matches.Build:
+                build_key = testRun.test.testDefinition.name.replace("/","_") + ".tar.gz"
+
+                if self.artifactStorage.build_exists(commit.repo.name, commit.hash, build_key):
                     grid.append([
-                        HtmlGeneration.link(build_key, self.buildDownloadUrl(build_key))
+                        HtmlGeneration.link(build_key, self.buildDownloadUrl(commit.repo.name, commit.hash, build_key))
                         ])
                 else:
                     logging.info("No build found at %s", build_key)
 
-            for artifactName in self.testResultKeys(testId):
+            for artifactName in self.artifactStorage.testResultKeysFor(commit.repo.name, commit.hash, testId):
                 grid.append([
                     HtmlGeneration.link(
                         artifactName,
@@ -406,7 +408,16 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def test_contents(self, testId, key):
-        return self.processFileContents(self.artifactStorage.testContentsHtml(testId, key))
+        with self.testManager.database.view():
+            testRun = self.testManager.getTestRunById(testId)
+
+            assert testRun
+
+            commit = testRun.test.commitData.commit
+
+            return self.processFileContents(
+                self.artifactStorage.testContentsHtml(commit.repo.name, commit.hash, testId, key)
+                )
 
     def processFileContents(self, contents):
         if contents.matches.Redirect:
@@ -448,8 +459,10 @@ class TestLooperHttpServer(object):
             testRun = self.testManager.getTestRunById(testId)
 
             if testRun.test.testDefinition.matches.Build:
-                build_key = testRun.test.fullname.replace("/","_") + ".tar.gz"
-                self.artifactStorage.clear_build(build_key)
+                commit = testRun.test.commitData.commit
+
+                build_key = testRun.testDefinition.name.replace("/","_") + ".tar.gz"
+                self.artifactStorage.clear_build(commit.repo.name, commit.hash, build_key)
 
         raise cherrypy.HTTPRedirect(redirect)
 
@@ -472,17 +485,14 @@ class TestLooperHttpServer(object):
         return self.address + "/terminalForTest?testId=%s" % testId
    
     def testResultDownloadUrl(self, testId, key):
-        return self.address + "/test_contents?testId=%s&key=%s" % (testId, key)
-
-    def testResultKeys(self, testId):
-        return self.artifactStorage.testResultKeysFor(testId)
+        return self.address + "/test_contents?" + urllib.urlencode({"testId": testId, "key": key})
 
     @cherrypy.expose
-    def build_contents(self, key):
-        return self.processFileContents(self.artifactStorage.buildContentsHtml(key))
+    def build_contents(self, repoName, commitHash, key):
+        return self.processFileContents(self.artifactStorage.buildContentsHtml(repoName, commitHash, key))
 
-    def buildDownloadUrl(self, key):
-        return self.address + "/build_contents?key=%s" % key
+    def buildDownloadUrl(self, repoName, commitHash, key):
+        return self.address + "/build_contents?" + urllib.urlencode({"key": key, "repoName": repoName, "commitHash": commitHash})
 
     def allTestsLink(self, text, commit, testName, failuresOnly=False):
         extras = {}
@@ -714,7 +724,12 @@ class TestLooperHttpServer(object):
                         return "InvalidTestDefinition"
                     if priority.matches.NoMoreTests:
                         return "HaveEnough"
-                    return "WaitingForHardware"
+                    if priority.matches.DependencyFailed:
+                        return "DependencyFailed"
+                    if priority.matches.WantsMoreTests:
+                        return "WaitingForHardware"
+
+                    return "<Unknown>"
 
                 row.append(stringifyPriority(t.priority))
 

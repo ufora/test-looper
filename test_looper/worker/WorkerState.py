@@ -703,6 +703,8 @@ class WorkerState(object):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
         self.cleanup()
 
+        t0 = time.time()
+
         log_messages = []
         def log_function(msg=""):
             if isDeploy:
@@ -718,39 +720,61 @@ class WorkerState(object):
             if not self.resetToCommit(repoName, commitHash):
                 workerCallback.heartbeat("Failed to checout code!\n")
 
-        try:
-            with self.callHeartbeatInBackground(log_function, "Extracting test definitions."):
-                testDefinition = self.testDefinitionFor(repoName, commitHash, testName)
+        def executeTest():
+            try:
+                with self.callHeartbeatInBackground(log_function, "Extracting test definitions."):
+                    testDefinition = self.testDefinitionFor(repoName, commitHash, testName)
 
-            print "got ", testDefinition
+                print "got ", testDefinition
 
-            if not testDefinition:
-                log_function("No test named %s\n" % testName)
+                if not testDefinition:
+                    log_function("No test named %s\n" % testName)
+                    return False, {}
+
+                if testDefinition.matches.Build and self.artifactStorage.build_exists(repoName, commitHash, self.artifactKeyForBuild(testName)):
+                    log_function("Build already exists\n")
+                    return True, {}
+                
+                return self._run_task(testId, repoName, commitHash, testDefinition, log_function, workerCallback, isDeploy)
+            except:
+                print "*******************"
+                print traceback.format_exc()
+                print "*******************"
+                error_message = "Test failed because of exception: %s" % traceback.format_exc()
+                logging.error(error_message)
+                log_function(error_message)
                 return False, {}
 
-            if testDefinition.matches.Build and self.artifactStorage.build_exists(self.artifactKeyForTest(repoName, commitHash, testName)):
-                log_function("Build already exists\n")
-                return True, {}
-            
-            return self._run_task(testId, repoName, commitHash, testDefinition, log_function, workerCallback, isDeploy)
-        except:
-            print "*******************"
-            print traceback.format_exc()
-            print "*******************"
-            error_message = "Test failed because of exception: %s" % traceback.format_exc()
-            logging.error(error_message)
-            log_function(error_message)
-            return False, {}
-        finally:
+
+        success, individualTestSuccesses = executeTest()
+
+        try:
             log_function(time.asctime() + " TestLooper> Uploading logfile.\n")
 
-            try:
-                path = os.path.join(self.directories.scratch_dir, "test_looper_log.txt")
-                with open(path, "w") as f:
-                    f.write("".join(log_messages))
-                self.artifactStorage.uploadSingleTestArtifact(testId, "test_looper_log.txt", path)
-            except:
-                log_function("ERROR: Failed to upload the testlooper logfile to artifactStorage:\n\n%s" % traceback.format_exc())
+            path = os.path.join(self.directories.scratch_dir, "test_result.json")
+            with open(path, "w") as f:
+                f.write(
+                    json.dumps(
+                        {"success": success,
+                         "individualTests": individualTestSuccesses,
+                         "start_timestamp": t0,
+                         "end_timestamp": time.time()
+                        })
+                    )
+                    
+            self.artifactStorage.uploadSingleTestArtifact(repoName, commitHash, testId, "test_result.json", path)
+
+            path = os.path.join(self.directories.scratch_dir, "test_looper_log.txt")
+            with open(path, "w") as f:
+                f.write("".join(log_messages))
+            self.artifactStorage.uploadSingleTestArtifact(repoName, commitHash, testId, "test_looper_log.txt", path)
+
+        except:
+            log_function("ERROR: Failed to upload the testlooper logfile to artifactStorage:\n\n%s" % traceback.format_exc())
+
+        return success, individualTestSuccesses
+
+
 
     def extract_package(self, package_file, target_dir):
         with tarfile.open(package_file) as tar:
@@ -767,7 +791,7 @@ class WorkerState(object):
             if dep.matches.ExternalBuild:
                 repoName, commitHash = dep.repo, dep.commitHash
 
-            if not self.artifactStorage.build_exists(self.artifactKeyForTest(repoName, commitHash, dep.name + "/" + dep.environment)):
+            if not self.artifactStorage.build_exists(repoName, commitHash, self.artifactKeyForBuild(dep.name + "/" + dep.environment)):
                 return "can't run tests because dependent external build %s doesn't exist" % (repoName + "/" + commitHash + "/" + dep.name + "/" + dep.environment)
 
             path = self._download_build(repoName, commitHash, dep.name + "/" + dep.environment)
@@ -777,10 +801,11 @@ class WorkerState(object):
             return None
 
         if dep.matches.Source:
-            sourceArtifactName = self.artifactKeyForTest(dep.repo, dep.commitHash, "source")
+            sourceArtifactName = self.artifactKeyForBuild("source")
+
             tarball_name = os.path.join(self.directories.build_cache_dir, sourceArtifactName)
 
-            if not self.artifactStorage.build_exists(sourceArtifactName):
+            if not self.artifactStorage.build_exists(repoName, commitHash, sourceArtifactName):
                 log_function(time.asctime() + " TestLooper> Building source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
 
                 self.resetToCommitInDir(dep.repo, dep.commitHash, target_dir)
@@ -792,8 +817,8 @@ class WorkerState(object):
                 logging.info("Resulting tarball at %s is %.2f MB", tarball_name, os.stat(tarball_name).st_size / 1024.0**2)
 
                 try:
-                    logging.info("Uploading %s to %s", tarball_name, sourceArtifactName)
-                    self.artifactStorage.upload_build(sourceArtifactName, tarball_name)
+                    logging.info("Uploading %s to %s/%s/%s", tarball_name, repoName, commitHash, sourceArtifactName)
+                    self.artifactStorage.upload_build(repoName, commitHash, sourceArtifactName, tarball_name)
                 except:
                     logging.error("Failed to upload package '%s':\n%s",
                           tarball_name,
@@ -803,7 +828,7 @@ class WorkerState(object):
                 if not os.path.exists(tarball_name):
                     log_function(time.asctime() + " TestLooper> Downloading source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
                 
-                    self.artifactStorage.download_build(sourceArtifactName, tarball_name)
+                    self.artifactStorage.download_build(repoName, commitHash, sourceArtifactName, tarball_name)
 
                 log_function(time.asctime() + " TestLooper> Extracting source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
 
@@ -963,8 +988,11 @@ class WorkerState(object):
 
         with self.callHeartbeatInBackground(log_function, "Uploading test artifacts."):
             self.artifactStorage.uploadTestArtifacts(
+                repoName,
+                commitHash,
                 testId,
-                self.directories.test_output_dir
+                self.directories.test_output_dir,
+                "output_"
                 )
 
             testSummaryJsonPath = os.path.join(self.directories.test_output_dir, "testSummary.json")
@@ -982,14 +1010,14 @@ class WorkerState(object):
 
         return is_success, individualTestSuccesses
 
-    def artifactKeyForTest(self, repoName, commitHash, testName):
-        return (repoName + "/" + commitHash + "/" + testName).replace("/", "_") + ".tar.gz"
+    def artifactKeyForBuild(self, testName):
+        return testName.replace("/", "_") + ".tar.gz"
 
     def _upload_build(self, repoName, commitHash, testName):
         #upload all the data in our directory
         tarball_name = os.path.join(
             self.directories.build_cache_dir, 
-            self.artifactKeyForTest(repoName, commitHash, testName)
+            self.artifactKeyForBuild(testName)
             )
 
         if not os.path.exists(tarball_name):
@@ -1004,9 +1032,9 @@ class WorkerState(object):
             logging.warn("A build for %s/%s/%s already exists at %s", repoName, commitHash, testName, tarball_name)
 
         try:
-            logging.info("Uploading %s to %s", tarball_name, self.artifactKeyForTest(repoName, commitHash, testName))
+            logging.info("Uploading %s to %s", tarball_name, self.artifactKeyForBuild(testName))
 
-            self.artifactStorage.upload_build(self.artifactKeyForTest(repoName, commitHash, testName), tarball_name)
+            self.artifactStorage.upload_build(repoName, commitHash, self.artifactKeyForBuild(testName), tarball_name)
             return True
         except:
             logging.error("Failed to upload package '%s' to %s/%s\n%s",
@@ -1018,11 +1046,11 @@ class WorkerState(object):
             return False
 
     def _download_build(self, repoName, commitHash, testName):
-        path = os.path.join(self.directories.build_cache_dir, self.artifactKeyForTest(repoName, commitHash, testName))
+        path = os.path.join(self.directories.build_cache_dir, self.artifactKeyForBuild(testName))
         
         if not os.path.exists(path):
             logging.info("Downloading build for %s/%s test %s to %s", repoName, commitHash, testName, path)
-            self.artifactStorage.download_build(self.artifactKeyForTest(repoName, commitHash, testName), path)
+            self.artifactStorage.download_build(repoName, commithash, self.artifactKeyForBuild(testName), path)
 
         return path
 

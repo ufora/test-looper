@@ -1238,10 +1238,13 @@ class TestManager(object):
                 self.database.UnresolvedRepoDependency.lookupAll(test=test) or 
                 self.database.UnresolvedSourceDependency.lookupAll(test=test)):
             test.priority = self.database.TestPriority.UnresolvedDependencies()
+            test.targetMachineBoot = 0
         elif self._testHasUnfinishedDeps(test):
             test.priority = self.database.TestPriority.WaitingOnBuilds()
+            test.targetMachineBoot = 0
         elif self._testHasFailedDeps(test):
             test.priority = self.database.TestPriority.DependencyFailed()
+            test.targetMachineBoot = 0
         else:
             #sets test.targetMachineBoot
             if not test.testDefinition.matches.Deployment and test.testDefinition.disabled:
