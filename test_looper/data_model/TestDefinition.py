@@ -19,8 +19,8 @@ Image.Dockerfile = {"repo": str, "commitHash": str, "dockerfile": str}
 Image.AMI = {"base_ami": str, "setup_script_contents": str}
 
 TestDependency = algebraic.Alternative("TestDependency")
-TestDependency.InternalBuild = {"name": str, "environment": str}
-TestDependency.ExternalBuild = {"repo": str, "commitHash": str, "name": str, "environment": str}
+TestDependency.InternalBuild = {"name": str}
+TestDependency.ExternalBuild = {"repo": str, "commitHash": str, "name": str}
 TestDependency.Source = {"repo": str, "commitHash": str}
 
 EnvironmentReference = algebraic.Alternative("EnvironmentReference")
@@ -56,6 +56,7 @@ TestDefinition = algebraic.Alternative("TestDefinition")
 TestDefinition.Build = {
     "buildCommand": str,
     "name": str,
+    "environment_name": str,
     "environment": TestEnvironment,
     "dependencies": algebraic.Dict(str, TestDependency),
     "variables": algebraic.Dict(str,str),
@@ -71,6 +72,7 @@ TestDefinition.Test = {
     "testCommand": str,
     "cleanupCommand": str,
     "name": str,
+    "environment_name": str,
     "environment": TestEnvironment,
     "dependencies": algebraic.Dict(str, TestDependency),
     "variables": algebraic.Dict(str,str),
@@ -83,6 +85,7 @@ TestDefinition.Test = {
 TestDefinition.Deployment = {
     "deployCommand": str,
     "name": str,
+    "environment_name": str,
     "environment": TestEnvironment,
     "dependencies": algebraic.Dict(str, TestDependency),
     "variables": algebraic.Dict(str,str),
@@ -100,23 +103,6 @@ def merge_dicts(d1, d2):
     for k,v in d2.iteritems():
         res[k] = v
     return res
-
-def add_setup_contents_to_image(image, extra_setup):
-    if not extra_setup:
-        return image
-
-    if image.matches.AMI:
-        return Image.AMI(
-            base_ami=image.base_ami, 
-            setup_script_contents=image.setup_script_contents + "\n" + extra_setup
-            )
-    elif image.matches.DockerfileInline:
-        return Image.DockerfileInline(
-            dockerfile_contents=image.dockerfile_contents + "\n" + extra_setup
-            )
-    else:
-        assert image.matches.AMI, "Can only add setup-script contents to an AMI image, not %s, and we were given %s" % (image, repr(extra_setup))
-
 
 def merge(seqs):
     res = []
@@ -156,18 +142,18 @@ def method_resolution_order(env, dependencies):
 
     return merge(linearization)
 
-def assertNotCircular(underlying_environments):
-    def children(dep):
-        if underlying_environments[dep].matches.Import:
-            return underlying_environments[dep].imports
-        else:
-            return []
+def env_dependencies(env):
+    if env.matches.Import:
+        return env.imports
+    else:
+        return []
 
+def assertNotCircular(underlying_environments):
     not_circular = set()
     def check(node, above=()):
         if node in not_circular:
             return
-        for child in children(node):
+        for child in env_dependencies(underlying_environments[node]):
             if child in above:
                 raise Exception("Circular dependencies: %s" % (above + (child,)))
             check(child, above + (node,))
@@ -175,6 +161,24 @@ def assertNotCircular(underlying_environments):
 
     for d in underlying_environments:
         check(d)
+
+def merge_image_and_extra_setup(image, extra_setup):
+    if not extra_setup:
+        return image
+
+    if image.matches.AMI:
+        return Image.AMI(
+            base_ami=image.base_ami, 
+            setup_script_contents=image.setup_script_contents + "\n" + extra_setup
+            )
+    elif image.matches.DockerfileInline:
+        return Image.DockerfileInline(
+            dockerfile_contents=image.dockerfile_contents + "\n" + extra_setup
+            )
+    else:
+        assert image.matches.AMI, "Can only add setup-script contents to an AMI image, not %s, and we were given %s" % (image, repr(extra_setup))
+
+
 
 def merge_environments(import_environment, underlying_environments):
     """Given an 'Import' environment and a dictionary from 
@@ -193,23 +197,35 @@ def merge_environments(import_environment, underlying_environments):
 
     order_by_name = [o.environment_name for o in order]
 
-    assert order[-1].matches.Environment, "Environment resolution %s needs to end in a non-import" % order_by_name
+    assert len([e for e in order if e.matches.Environment]) == 1, "Can't depend on two different non-import environments: %s" % order_by_name
 
-    for e in order[:-1]:
-        assert e.matches.Import, "Can't depend on two different non-import environments: %s" % order_by_name
+    actual_environment = [e for e in order if e.matches.Environment][0]
 
-    e = order[-1]
-    for env in reversed(order[:-1]):
-        e = TestEnvironment.Environment(
-            environment_name=env.environment_name,
-            inheritance=(e.environment_name,) + e.inheritance,
-            platform=e.platform,
-            image=add_setup_contents_to_image(e.image, env.setup_script_contents),
-            variables=merge_dicts(e.variables, env.variables),
-            dependencies=merge_dicts(e.dependencies, env.dependencies)
-            )
+    environment_name = order[0].environment_name
+    inheritance = [e.environment_name for e in order[1:]]
+    platform = actual_environment.platform
+    image = actual_environment.image
 
-    return e
+    extra_setups = [e.setup_script_contents for e in order if e.matches.Import and e.setup_script_contents]
+
+    if extra_setups:
+        image = merge_image_and_extra_setup(actual_environment.image, "\n".join(reversed(extra_setups)))
+    
+    variables = order[-1].variables
+    dependencies = order[-1].dependencies
+
+    for e in reversed(order[:-1]):
+        variables = merge_dicts(variables, e.variables)
+        dependencies = merge_dicts(dependencies, e.dependencies)
+
+    return TestEnvironment.Environment(
+        environment_name=environment_name,
+        inheritance=inheritance,
+        platform=platform,
+        image=image,
+        variables=variables,
+        dependencies=dependencies
+        )
 
 def substitute_variables_in_image(image, vars):
     if image.matches.AMI:
@@ -224,13 +240,11 @@ def substitute_variables_in_image(image, vars):
 def apply_substitutions_to_dependency(dep, vardefs):
     if dep.matches.InternalBuild:
         return TestDependency.InternalBuild(
-            name=VariableSubstitution.substitute_variables(dep.name, vardefs),
-            environment=VariableSubstitution.substitute_variables(dep.environment, vardefs)
+            name=VariableSubstitution.substitute_variables(dep.name, vardefs)
             )
     elif dep.matches.ExternalBuild:
         return TestDependency.ExternalBuild(
             name=VariableSubstitution.substitute_variables(dep.name, vardefs),
-            environment=VariableSubstitution.substitute_variables(dep.environment, vardefs),
             repo=dep.repo,
             commitHash=dep.commitHash
             )
@@ -297,6 +311,7 @@ def apply_test_substitutions(test, env, input_var_defs):
         return type(
             name=test.name,
             environment=env,
+            environment_name=test.environment_name,
             variables=vardefs,
             dependencies=dependencies,
             timeout=test.timeout,

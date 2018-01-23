@@ -798,10 +798,10 @@ class WorkerState(object):
             if dep.matches.ExternalBuild:
                 repoName, commitHash = dep.repo, dep.commitHash
 
-            if not self.artifactStorage.build_exists(repoName, commitHash, self.artifactKeyForBuild(dep.name + "/" + dep.environment)):
-                return "can't run tests because dependent external build %s doesn't exist" % (repoName + "/" + commitHash + "/" + dep.name + "/" + dep.environment)
+            if not self.artifactStorage.build_exists(repoName, commitHash, self.artifactKeyForBuild(dep.name)):
+                return "can't run tests because dependent external build %s doesn't exist" % (repoName + "/" + commitHash + "/" + dep.name)
 
-            path = self._download_build(repoName, commitHash, dep.name + "/" + dep.environment)
+            path = self._download_build(repoName, commitHash, dep.name, log_function)
             
             self.ensureDirectoryExists(target_dir)
             self.extract_package(path, target_dir)
@@ -821,10 +821,13 @@ class WorkerState(object):
                     with DirectoryScope.DirectoryScope(target_dir):
                         tf.add(".")
 
-                logging.info("Resulting tarball at %s is %.2f MB", tarball_name, os.stat(tarball_name).st_size / 1024.0**2)
+                log_function(time.asctime() + " TestLooper> Resulting tarball at %s is %.2f MB.\n" %(tarball_name, os.stat(tarball_name).st_size / 1024.0**2))
 
                 try:
-                    logging.info("Uploading %s to %s/%s/%s", tarball_name, dep.repo, dep.commitHash, sourceArtifactName)
+                    log_function(
+                        time.asctime() + " TestLooper> Uploading %s to %s/%s/%s\n" % 
+                            (tarball_name, dep.repo, dep.commitHash, sourceArtifactName)
+                        )
                     self.artifactStorage.upload_build(dep.repo, dep.commitHash, sourceArtifactName, tarball_name)
                 except:
                     logging.error("Failed to upload package '%s':\n%s",
@@ -1061,11 +1064,11 @@ class WorkerState(object):
             (repoName + "/" + commitHash + "." + self.artifactKeyForBuild(testName)).replace("/", "_")
             )
 
-    def _download_build(self, repoName, commitHash, testName):
+    def _download_build(self, repoName, commitHash, testName, log_function):
         path = self._buildCachePathFor(repoName, commitHash, testName)
         
         if not os.path.exists(path):
-            logging.info("Downloading build for %s/%s test %s to %s", repoName, commitHash, testName, path)
+            log_function("Downloading build for %s/%s test %s to %s.\n" % (repoName, commitHash, testName, path))
             self.artifactStorage.download_build(repoName, commitHash, self.artifactKeyForBuild(testName), path)
 
         return path

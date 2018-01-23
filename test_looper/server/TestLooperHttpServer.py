@@ -685,7 +685,7 @@ class TestLooperHttpServer(object):
 
             tests = self.testManager.database.Test.lookupAll(commitData=commit.data)
             
-            tests = sorted(tests, key=lambda test: (test.fullname.split("/")[-1], test.fullname))
+            tests = sorted(tests, key=lambda test: test.fullname)
             
 
             grid = [["TEST", "", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "FAILED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", ""]]
@@ -693,10 +693,8 @@ class TestLooperHttpServer(object):
             for t in tests:
                 row = []
 
-                partialName = "/".join(t.testDefinition.name.split("/")[:-1])
-
                 row.append(
-                    self.allTestsLink(partialName, commit, t.testDefinition.name)
+                    self.allTestsLink(t.testDefinition.name, commit, t.testDefinition.name)
                     )
                 row.append("") #self.clearTestLink(t.fullname))
                 row.append(
@@ -708,7 +706,7 @@ class TestLooperHttpServer(object):
                        )
                     )
 
-                row.append(self.environmentLink(t, t.fullname.split("/")[-1]))
+                row.append(self.environmentLink(t, t.testDefinition.environment_name))
 
                 row.append(str(t.activeRuns))
                 row.append(str(t.totalRuns))
@@ -1343,8 +1341,7 @@ class TestLooperHttpServer(object):
 
         #this is how we will aggregate our tests
         collapsed_names = sorted(
-            set([self.collapseName(name) for name in test_names]),
-            key=lambda name: (name.split("/")[-1], name)
+            set([self.collapseName(name) for name in test_names])
             )
 
         collapsed_name_environments = []
@@ -1357,7 +1354,7 @@ class TestLooperHttpServer(object):
 
         grid = [[""] * 2 + collapsed_name_environments + [""] * 4,
                 ["COMMIT", "", "(running)"] + 
-                ["/".join(n.split("/")[:-1]) for n in collapsed_names] + 
+                collapsed_names + 
                 ["SOURCE", "", "UPSTREAM", "DOWNSTREAM"]
             ]
 

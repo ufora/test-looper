@@ -1671,10 +1671,10 @@ class TestManager(object):
         #now first check whether this test has any unresolved dependencies
         for depname, dep in all_dependencies.iteritems():
             if dep.matches.ExternalBuild:
-                fullname_dep = "/".join([dep.repo, dep.commitHash, dep.name, dep.environment])
+                fullname_dep = "/".join([dep.repo, dep.commitHash, dep.name])
                 self._createTestDep(test, fullname_dep)
             elif dep.matches.InternalBuild:
-                fullname_dep = "/".join([commitData.commit.repo.name, commitData.commit.hash, dep.name, dep.environment])
+                fullname_dep = "/".join([commitData.commit.repo.name, commitData.commit.hash, dep.name])
                 self._createTestDep(test, fullname_dep)
             elif dep.matches.Source:
                 self._createSourceDep(test, dep.repo, dep.commitHash)

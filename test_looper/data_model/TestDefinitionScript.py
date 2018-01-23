@@ -40,6 +40,7 @@ DefineDeployment = algebraic.Alternative("DefineDeployment")
 
 DefineBuild.Build = {
     'command': str,
+    'environment': str,
     'dependencies': algebraic.Dict(str,str),
     'variables': algebraic.Dict(str,str),
     "timeout": int, #max time, in seconds, for the test
@@ -53,6 +54,7 @@ DefineBuild.Build = {
 
 DefineTest.Test = {
     'command': str,
+    'environment': str,
     'cleanup': str, #command to run to copy test outputs to relevant directories...
     'dependencies': algebraic.Dict(str,str),
     'variables': algebraic.Dict(str,str),
@@ -65,6 +67,7 @@ DefineTest.Test = {
 
 DefineDeployment.Deployment = {
     'command': str,
+    'environment': str,
     'dependencies': algebraic.Dict(str,str),
     'variables': algebraic.Dict(str,str),
     'portExpose': algebraic.Dict(str,int),
@@ -155,8 +158,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
         return TestDefinition.TestDependency.ExternalBuild(
             repo=repos[deps[0]][0],
             commitHash=repos[deps[0]][1],
-            name="/".join(deps[1:-1]),
-            environment=env
+            name="/".join(deps[1:])
             )
 
     def parseEnvironment(envName, parents=()):
@@ -254,25 +256,21 @@ def extract_tests(curRepoName, curCommitHash, testScript):
             if len(deps) < 3:
                 raise Exception("Malformed repo dependency: should be of form 'repoReference/buildName/environment'")
             
-            env = deps[-1]
-            
             return TestDefinition.TestDependency.ExternalBuild(
                 repo=repos[deps[0]][0],
                 commitHash=repos[deps[0]][1],
-                name="/".join(deps[1:-1]),
-                environment=env
+                name="/".join(deps[1:])
                 )
         
         if deps[0] == "HEAD":
             deps = deps[1:]
 
         return TestDefinition.TestDependency.InternalBuild(
-            name="/".join(deps[:-1]),
-            environment=deps[-1]
+            name="/".join(deps)
             )
 
     def convert_def(name, d):
-        curEnv = name.split("/")[-1]
+        curEnv = d.environment or name.split("/")[-1]
 
         assert "$" not in curEnv, "Malformed name %s" % name
 
@@ -282,6 +280,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 name=name,
                 variables=d.variables,
                 dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},
+                environment_name=curEnv,
                 environment=environments[curEnv],
                 timeout=d.timeout,
                 disabled=d.disabled,
@@ -299,6 +298,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 variables=d.variables,
                 dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},
                 disabled=d.disabled,
+                environment_name=curEnv,
                 environment=environments[curEnv],
                 timeout=d.timeout,
                 min_cores=d.min_cores,
@@ -312,6 +312,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 variables=d.variables,
                 dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},
                 portExpose=d.portExpose,
+                environment_name=curEnv,
                 environment=environments[curEnv],
                 timeout=d.timeout,
                 min_cores=d.min_cores,

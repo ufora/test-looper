@@ -40,13 +40,13 @@ environments:
       OVERRIDE: MIXIN_2
       BUILD_KIND: k2
   env_1:
-    base: [env, mixin1]
+    base: [mixin1, env]
   env_2:
-    base: [env, mixin2]
+    base: [mixin2, env]
   env_12:
-    base: [env_1, mixin2]
+    base: [mixin2, env_1]
   env_21:
-    base: [env_2, mixin1]
+    base: [mixin1, env_2]
 
 #three kinds of builds
 builds:
