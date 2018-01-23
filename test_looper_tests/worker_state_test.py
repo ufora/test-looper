@@ -134,7 +134,7 @@ class WorkerStateTests(unittest.TestCase):
             )
 
         keys = worker.artifactStorage.testResultKeysFor(repoName, commitHash, "testId3")
-        self.assertTrue(len(keys) == 1)
+        self.assertTrue(len(keys) == 2, keys)
 
         data = worker.artifactStorage.testContents(repoName, commitHash, "testId3", keys[0])
 
@@ -252,7 +252,7 @@ class WorkerStateTests(unittest.TestCase):
                 "".join(callbacks.logMessages)
                 )
             if not name.startswith("build/"):
-                return [x.strip() for x in worker.artifactStorage.testContents(repoName, commitHash, testName, "output_results.txt").split("\n") if x.strip()]
+                return [x.strip() for x in worker.artifactStorage.testContents(repoName, commitHash, testName, "results.txt").split("\n") if x.strip()]
 
         runTest("build/k0")
         runTest("build/k1")
@@ -349,7 +349,7 @@ class WorkerStateTests(unittest.TestCase):
         self.assertTrue(test2_extracted and not test2_downloaded and not test2_uploaded)
 
         self.assertTrue(
-            worker.artifactStorage.build_exists(commit2Name, commit2Hash, "source.tar.gz")
+            worker.artifactStorage.build_exists(repoName, commitHash, "source.tar.gz")
             )
 
         #after purging, we should have to download the build

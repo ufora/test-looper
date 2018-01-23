@@ -462,7 +462,7 @@ class TestLooperHttpServer(object):
                 commit = testRun.test.commitData.commit
 
                 build_key = testRun.test.testDefinition.name.replace("/","_") + ".tar.gz"
-                
+
                 self.artifactStorage.clear_build(commit.repo.name, commit.hash, build_key)
 
         raise cherrypy.HTTPRedirect(redirect)
@@ -776,11 +776,21 @@ class TestLooperHttpServer(object):
             markdown_header = """## Repo [%s](%s)\n""" % (repoName, self.branchesUrl(repoName))
             markdown_header += """## Commit `%s`: `%s`\n""" % (commit.hash[:10], commit.data.subject)
 
+            markdown_header += """## Priority: toggle_switch """
+            if commit.userPriority == 0:
+                markdown_header += "Not Prioritized"
+            else:
+                markdown_header += "Prioritized"
+            markdown_header = (
+                markdown.markdown(markdown_header)
+                    .replace("toggle_switch", self.toggleCommitUnderTestLink(commit).render())
+                )
+
             branchgrid = [["Branches Containing This Commit"]]
             for branch, path in self.testManager.commitFindAllBranches(commit).iteritems():
                 branchgrid.append([self.branchLink(branch).render() + path])
 
-            header = self.commonHeader(currentRepo=repoName) + markdown.markdown(markdown_header) + HtmlGeneration.grid(branchgrid)
+            header = self.commonHeader(currentRepo=repoName) + markdown_header + HtmlGeneration.grid(branchgrid)
 
             if commit.data.testDefinitionsError:
                 raw_text, extension = self.testManager.getRawTestFileForCommit(commit)
@@ -1016,6 +1026,31 @@ class TestLooperHttpServer(object):
             hover_text=hover_text
             )
 
+    def toggleCommitUnderTestLink(self, commit):
+        icon = "glyphicon-pause" if commit.userPriority > 0 else "glyphicon-play"
+        hover_text = "%s testing this commit" % ("Pause" if commit.userPriority else "Start")
+        button_style = "btn-xs " + ("btn-success active" if commit.userPriority else "btn-default")
+        
+        return HtmlGeneration.Link(
+            "/toggleCommitUnderTest?" + 
+                urllib.urlencode({'reponame': commit.repo.name, 'hash':commit.hash, 'redirect': self.redirect()}),
+            '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
+            is_button=True,
+            button_style=self.disable_if_cant_write(button_style),
+            hover_text=hover_text
+            )
+
+    @cherrypy.expose
+    def toggleCommitUnderTest(self, reponame, hash, redirect):
+        self.authorize(read_only=False)
+
+        with self.testManager.transaction_and_lock():
+            repo = self.testManager.database.Repo.lookupOne(name=reponame)
+            commit = self.testManager.database.Commit.lookupAny(repo_and_hash=(repo, hash))
+
+            self.testManager._setCommitUserPriority(commit, 1 if not commit.userPriority else 0)
+
+        raise cherrypy.HTTPRedirect(redirect)
 
     @cherrypy.expose
     def toggleBranchUnderTest(self, repo, branchname, redirect):
@@ -1321,7 +1356,7 @@ class TestLooperHttpServer(object):
                 collapsed_name_environments[-1]["colspan"] += 1
 
         grid = [[""] * 2 + collapsed_name_environments + [""] * 4,
-                ["COMMIT", "(running)"] + 
+                ["COMMIT", "", "(running)"] + 
                 ["/".join(n.split("/")[:-1]) for n in collapsed_names] + 
                 ["SOURCE", "", "UPSTREAM", "DOWNSTREAM"]
             ]
@@ -1497,17 +1532,21 @@ class TestLooperHttpServer(object):
 
         running = self.testManager.totalRunningCountForCommit(commit)
 
+        if all_tests:
+            row.append(self.toggleCommitUnderTestLink(commit))
+        else:
+            row.append("")
+
         if running:
             row.append(str(running))
-        elif not all_tests:
-            row.append("")
         else:
-            row.append("tests not enabled" if not commit.priority else "")
-
+            row.append("")
+        
         tests_by_name = {name: [] for name in collapsed_names}
         if commit.data:
             for t in all_tests:
-                tests_by_name[self.collapseName(t.testDefinition.name)].append(t)
+                if not t.testDefinition.matches.Deployment:
+                    tests_by_name[self.collapseName(t.testDefinition.name)].append(t)
         
         for name in collapsed_names:
             row.append(self.aggregateTestInfo(tests_by_name[name]))

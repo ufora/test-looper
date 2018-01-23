@@ -16,11 +16,12 @@ import test_looper.data_model.Types as Types
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.data_model.TestDefinition as TestDefinition
 
+pendingVeryHigh = Types.BackgroundTaskStatus.PendingVeryHigh()
 pendingHigh = Types.BackgroundTaskStatus.PendingHigh()
 pendingLow = Types.BackgroundTaskStatus.PendingLow()
 running = Types.BackgroundTaskStatus.Running()
 
-MAX_TEST_PRIORITY = 100
+MAX_TEST_PRIORITY = 2
 TEST_TIMEOUT_SECONDS = 60
 IDLE_TIME_BEFORE_SHUTDOWN = 180
 MAX_LOG_MESSAGES_PER_TEST = 100000
@@ -388,11 +389,26 @@ class TestManager(object):
     def totalRunningCountForTest(self, test):
         return test.activeRuns
 
+    def prioritizeAllCommitsUnderBranch(self, branch, priority, depth):
+        commits = {}
+        def check(c):
+            if not c or c in commits or len(commits) >= depth:
+                return
+
+            commits[c] = True
+
+            self._setCommitUserPriority(c, priority)
+
+            for r in self.database.CommitRelationship.lookupAll(child=c):
+                check(r.parent)
+
+        check(branch.head)
+        
     def toggleBranchUnderTest(self, branch):
         branch.isUnderTest = not branch.isUnderTest
-        self._triggerCommitPriorityUpdate(branch.head)
-
-
+        if branch.head and branch.head.userPriority == 0 and branch.isUnderTest:
+            self._setCommitUserPriority(branch.head, 1)
+        
     def getTestRunById(self, testIdentity):
         testIdentity = str(testIdentity)
 
@@ -436,7 +452,7 @@ class TestManager(object):
         with self.transaction_and_lock():
             self.database.DataTask.New(
                 task=self.database.BackgroundTask.RefreshRepos(), 
-                status=pendingHigh
+                status=pendingVeryHigh
                 )
 
     def markBranchListDirty(self, reponame, curTimestamp):
@@ -445,7 +461,7 @@ class TestManager(object):
             assert repo, "Can't find repo named %s" % reponame
             self.database.DataTask.New(
                 task=self.database.BackgroundTask.RefreshBranches(repo=repo),
-                status=pendingHigh
+                status=pendingVeryHigh
                 )
 
     def _testNameSet(self, testNames):
@@ -465,6 +481,7 @@ class TestManager(object):
             assert testRun.exists()
 
             if testRun.endTimestamp == 0.0:
+                logging.info("Canceling testRun %s because user is canceling the test.", testRun._identity)
                 self._cancelTestRun(testRun, time.time())
                 return
 
@@ -546,7 +563,7 @@ class TestManager(object):
                 return False
 
             if not testRun.machine.isAlive:
-                logging.error("Test %s heartbeat, but machine %s is dead!", testId, testRun.machine.machineId)
+                logging.error("Test %s heartbeat, but machine %s is dead! Canceling test.", testId, testRun.machine.machineId)
 
                 self._cancelTestRun(testRun, timestamp)
                 return False
@@ -665,6 +682,7 @@ class TestManager(object):
         with self.transaction_and_lock():
             for t in self.database.TestRun.lookupAll(isRunning=True):
                 if t.lastHeartbeat < curTimestamp - TEST_TIMEOUT_SECONDS and curTimestamp - self.initialTimestamp > TEST_TIMEOUT_SECONDS:
+                    logging.info("Canceling testRun %s because it has not had a heartbeat for a long time.", t._identity)
                     self._cancelTestRun(t, curTimestamp)
 
         with self.transaction_and_lock():
@@ -680,7 +698,7 @@ class TestManager(object):
         if not self.database.DataTask.lookupAny(pending_boot_machine_check=True):
             self.database.DataTask.New(
                 task=self.database.BackgroundTask.BootMachineCheck(),
-                status=pendingHigh
+                status=pendingVeryHigh
                 )
 
     def _cancelTestRun(self, testRun, curTimestamp):
@@ -701,7 +719,9 @@ class TestManager(object):
 
     def performBackgroundWork(self, curTimestamp):
         with self.transaction_and_lock():
-            task = self.database.DataTask.lookupAny(status=pendingHigh)
+            task = self.database.DataTask.lookupAny(status=pendingVeryHigh)
+            if task is None:
+                task = self.database.DataTask.lookupAny(status=pendingHigh)
             if task is None:
                 task = self.database.DataTask.lookupAny(status=pendingLow)
 
@@ -737,6 +757,7 @@ class TestManager(object):
         assert mc.booted >= 0
 
         for testRun in list(self.database.TestRun.lookupAll(runningOnMachine=machine)):
+            logging.info("Canceling testRun %s because the machine it's on is terminated.", testRun._identity)
             self._cancelTestRun(testRun, timestamp)
 
         for deployment in list(self.database.Deployment.lookupAll(runningOnMachine=machine)):
@@ -786,7 +807,7 @@ class TestManager(object):
                 for r in self.database.Repo.lookupAll(isActive=True):
                     self.database.DataTask.New(
                         task=self.database.BackgroundTask.RefreshBranches(r),
-                        status=pendingHigh
+                        status=pendingVeryHigh
                         )
 
         elif task.matches.RefreshBranches:
@@ -811,6 +832,7 @@ class TestManager(object):
                 final_branches = tuple([x for x in db_branches if x.branchname in branchnames_set])
                 for branch in db_branches:
                     if branch.branchname not in branchnames_set:
+                        self._branchDeleted(branch)
                         branch.delete()
 
                 for newname in branchnames_set - set([x.branchname for x in db_branches]):
@@ -909,7 +931,7 @@ class TestManager(object):
                         self._lookupCommitByHash(task.commit.repo, p) 
                             for p in hashParentsAndTitle[1]
                         ]
-                    
+
                     commit.data = self.database.CommitData.New(
                         commit=commit,
                         subject=subject,
@@ -920,7 +942,19 @@ class TestManager(object):
 
                     for p in parents:
                         self.database.CommitRelationship.New(child=commit,parent=p)
+                    
+                    #when we get new commits, make sure we have the right priority
+                    #on them. This is a one-time operation when the commit is first created
+                    #to apply the branch priority to the commit
+                    priority = max([r.child.userPriority
+                        for r in self.database.CommitRelationship.lookupAll(parent=commit)] + [0])
 
+                    for branch in self.database.Branch.lookupAll(head=commit):
+                        if branch.isUnderTest:
+                            priority = max(priority, 1)
+
+                    commit.userPriority = max(commit.userPriority, priority)
+                    
                     self._triggerCommitPriorityUpdate(commit)
 
                     try:
@@ -967,22 +1001,51 @@ class TestManager(object):
         else:
             raise Exception("Unknown task: %s" % task)
 
+    def getFastForwardChain(self, commit, commitHash, max_commits=100):
+        """Returns a list of tuples [(commit, priorHash)] terminating in 'commitHash' if its a fastforward, otherwise None"""
+        chain = []
+
+        while not chain or chain[-1][1] != commitHash:
+            if not commit.data or len(commit.data.parents) != 1:
+                return None
+
+            chain.append((commit, commit.data.parents[0].hash))
+            commit = commit.data.parents[0]
+
+            if len(chain) > max_commits:
+                return None
+
+        return chain
+
     def _updatePinInCommit(self, branch, repoRefName, branch_pin_name, curCommitHash, newCommit):
-        top_commit = branch.head
+        #check if newCommit is a fast-forward of our current commit, in which case we'll push all of the 
+        #intermediate commits as pins as well
+        commitsLookingBack = self.getFastForwardChain(newCommit, curCommitHash)
+    
+        if commitsLookingBack:
+            finalHash = branch.head.hash
+            for commit, priorCommitHash in reversed(commitsLookingBack):
+                finalHash = self._updatePinInCommitAndReturnHash(branch, finalHash, repoRefName, branch_pin_name, priorCommitHash, commit)
+        else:
+            finalHash = self._updatePinInCommitAndReturnHash(branch, branch.head.hash, repoRefName, branch_pin_name, curCommitHash, newCommit)
+        
+        return self.source_control.getRepo(branch.repo.name).source_repo.pushCommit(finalHash, branch.branchname)
+    
+    def _updatePinInCommitAndReturnHash(self, branch, branchCommitHash, repoRefName, branch_pin_name, curCommitHash, newCommit):
         repo = self.source_control.getRepo(branch.repo.name)
-        commitHash = top_commit.hash
+        
         newCommitHash = newCommit.hash
 
-        path = repo.source_repo.getTestDefinitionsPath(commitHash)
+        path = repo.source_repo.getTestDefinitionsPath(branchCommitHash)
         if not path:
             logging.error("Can't update pin of %s/%s/%s because we can't find testDefinitions.yml", 
                 branch.repo.name, 
                 branch.branchname, 
-                newCommit.hash
+                newCommitHash
                 )
             return False
 
-        contents = repo.source_repo.getFileContents(commitHash, path)
+        contents = repo.source_repo.getFileContents(branchCommitHash, path)
 
         pat_text = r"({r})(\s*:\s*reference\s*:\s*)({tr}/{h})".format(r=repoRefName,h=curCommitHash, tr=newCommit.repo.name)
 
@@ -995,16 +1058,15 @@ class TestManager(object):
                 repoRefName, 
                 branch_pin_name, 
                 curCommitHash, 
-                branch.head.hash
+                branchCommitHash
                 )
             return False
 
         target_repo = self.source_control.getRepo(newCommit.repo.name)
         standard_git_commit_message = target_repo.source_repo.standardCommitMessageFor(newCommitHash)
 
-        return repo.source_repo.createCommitAndPushToBranch(
-            branch.branchname,
-            branch.head.hash,
+        return repo.source_repo.createCommit(
+            branchCommitHash,
             {path:new_contents},
             "Update pin of %s to branch %s from %s to %s.\n\nCommit Message:\n\n%s" % (
                 repoRefName,
@@ -1015,8 +1077,11 @@ class TestManager(object):
                 )
             )
 
-
-        
+    def _branchDeleted(self, branch):
+        old_branch_head = branch.head
+        if old_branch_head:
+            branch.head = self.database.Commit.Null
+            self._triggerCommitPriorityUpdate(old_branch_head)
 
     def _updateBranchTopCommit(self, branch):
         repo = self.source_control.getRepo(branch.repo.name)
@@ -1025,22 +1090,73 @@ class TestManager(object):
         logging.info('Top commit of %s branch %s is %s', repo, branch.branchname, commit)
 
         if commit and (not branch.head or commit != branch.head.hash):
-            if branch.head:
-                self._triggerCommitPriorityUpdate(branch.head)
+            old_branch_head = branch.head
 
             branch.head = self._lookupCommitByHash(branch.repo, commit)
 
+            if old_branch_head:
+                self._triggerCommitPriorityUpdate(old_branch_head)
+            
             if branch.head:
-                self._recalculateBranchPins(branch)
                 self._triggerCommitPriorityUpdate(branch.head)
-
+                self._recalculateBranchPins(branch)
+                
                 for pin in self.database.BranchPin.lookupAll(pinned_to=(branch.repo.name,branch.branchname)):
                     self._scheduleBranchPinNeedsUpdating(pin.branch)
+
+    def _computeCommitPriority(self, commit):
+        if commit.anyBranch:
+            return commit.userPriority
+        else:
+            return 0
+
+    def _updateCommitPriority(self, commit):
+        branch = self._calcCommitAnybranch(commit)
+        changed = False
+        if branch != commit.anyBranch:
+            commit.anyBranch = branch
+            changed = True
+
+        priority = self._computeCommitPriority(commit)
+        
+        if priority != commit.calculatedPriority:
+            commit.calculatedPriority = priority
+            changed = True
+
+        if commit.data and changed:
+            for p in commit.data.parents:
+                self._triggerCommitPriorityUpdate(p)
+
+            #trigger priority updates of all builds in other commits
+            for test in self.database.Test.lookupAll(commitData=commit.data):
+                for dep in self.database.TestDependency.lookupAll(test=test):
+                    if commit != dep.dependsOn.commitData.commit:
+                        self._triggerTestPriorityUpdate(dep.dependsOn)
+            
+            for test in self.database.Test.lookupAll(commitData=commit.data):
+                self._triggerTestPriorityUpdateIfNecessary(test)
+
+    def _calcCommitAnybranch(self, commit):
+        #calculate any branch that this commit can reach
+        branches = set()
+
+        for branch in self.database.Branch.lookupAll(head=commit):
+            branches.add(branch)
+
+        #look at all our parents and see where they come from
+        for r in self.database.CommitRelationship.lookupAll(parent=commit):
+            if r.child.anyBranch:
+                branches.add(r.child.anyBranch)
+
+        if not branches:
+            return self.database.Branch.Null
+
+        return sorted(branches, key=lambda b: b.branchname)[0]
 
     def _scheduleUpdateBranchTopCommit(self, branch):
         self.database.DataTask.New(
             task=self.database.BackgroundTask.UpdateBranchTopCommit(branch),
-            status=pendingHigh
+            status=pendingVeryHigh
             )
 
     def _recalculateBranchPins(self, branch):
@@ -1065,7 +1181,7 @@ class TestManager(object):
     def _scheduleBranchPinNeedsUpdating(self, branch):
         self.database.DataTask.New(
             task=self.database.BackgroundTask.UpdateBranchPins(branch=branch),
-            status=pendingHigh
+            status=pendingLow
             )
 
     def _bootMachinesIfNecessary(self, curTimestamp):
@@ -1181,52 +1297,31 @@ class TestManager(object):
 
         self._machineTerminated(machine.machineId, curTimestamp)
 
-    def _updateCommitPriority(self, commit):
-        priority = self._computeCommitPriority(commit)
-        
-        logging.debug("Commit %s/%s has new priority %s%s%s", 
-            commit.repo.name, 
-            commit.hash, 
-            priority,
-            "==" if priority == commit.priority else "!=",
-            commit.priority
-            )
+    def _setCommitUserPriority(self, commit, priority):
+        if priority != commit.userPriority:
+            logging.info("Commit %s/%s has new priority %s (old=%s)", 
+                commit.repo.name, 
+                commit.hash, 
+                priority,
+                commit.userPriority
+                )
 
-        if priority != commit.priority:
-            commit.priority = priority
-
-            if commit.data:
-                for p in commit.data.parents:
-                    self._triggerCommitPriorityUpdate(p)
-
-                for test in self.database.Test.lookupAll(commitData=commit.data):
-                    for dep in self.database.TestDependency.lookupAll(test=test):
-                        if commit != dep.dependsOn.commitData.commit:
-                            self._triggerCommitPriorityUpdate(dep.dependsOn.commitData.commit)
-                
-                for test in self.database.Test.lookupAll(commitData=commit.data):
-                    self._triggerTestPriorityUpdateIfNecessary(test)
-
-    def _computeCommitPriority(self, commit):
-        priority = 0
-
-        for b in self.database.Branch.lookupAll(head=commit):
-            if b.isUnderTest:
-                logging.info("Commit %s/%s enabled because branch %s under test.", commit.repo.name, commit.hash, b.branchname)
-                priority = MAX_TEST_PRIORITY
-
-        for relationship in self.database.CommitRelationship.lookupAll(parent=commit):
-            priority = max(priority, relationship.child.priority - 1)
-
-        return priority
+            commit.userPriority = priority
+            self._triggerCommitPriorityUpdate(commit)
 
     def _updateTestPriority(self, test, curTimestamp):
         self._checkAllTestDependencies(test)
         
+        test.calculatedPriority = test.commitData.commit.calculatedPriority
+        #now check all tests that depend on us
+        for dep in self.database.TestDependency.lookupAll(dependsOn=test):
+            test.calculatedPriority = max(dep.test.commitData.commit.calculatedPriority, test.calculatedPriority)
+
         #cancel any runs already going if this gets deprioritized
-        if test.commitData.commit.priority == 0:
+        if test.calculatedPriority == 0:
             for run in self.database.TestRun.lookupAll(test=test):
                 if run.endTimestamp == 0.0 and not run.canceled:
+                    logging.info("Canceling testRun %s because its commit priority went to zero.", testRun._identity)
                     self._cancelTestRun(run, curTimestamp)
 
         oldPriority = test.priority
@@ -1267,11 +1362,11 @@ class TestManager(object):
                 else:
                     test.priority = self.database.TestPriority.NoMoreTests()
             elif test.testDefinition.matches.Build:
-                test.priority = self.database.TestPriority.FirstBuild(priority=test.commitData.commit.priority)
+                test.priority = self.database.TestPriority.FirstBuild(priority=test.calculatedPriority)
             elif (test.totalRuns + test.activeRuns) == 0:
-                test.priority = self.database.TestPriority.FirstTest(priority=test.commitData.commit.priority)
+                test.priority = self.database.TestPriority.FirstTest(priority=test.calculatedPriority)
             else:
-                test.priority = self.database.TestPriority.WantsMoreTests(priority=test.commitData.commit.priority)
+                test.priority = self.database.TestPriority.WantsMoreTests(priority=test.calculatedPriority)
 
         if category:
             net_change = test.targetMachineBoot - oldTargetMachineBoot
@@ -1436,7 +1531,7 @@ class TestManager(object):
             return (viable[0], os)
 
     def _updateTestTargetMachineCountAndReturnIsDone(self, test, curTimestamp):
-        if test.commitData.commit.priority == 0:
+        if test.calculatedPriority == 0:
             test.targetMachineBoot = 0
             return True
 
@@ -1517,31 +1612,44 @@ class TestManager(object):
         env = test.testDefinition.environment
 
         try:
-            while env is not None and env.matches.Import:
-                imported_envs = []
+            if env.matches.Import:
+                dependencies = {}
 
-                for dep in env.imports:
+                def import_dep(dep):
+                    """Grab a dependency and all its children and stash them in 'dependencies'"""
+                    if dep in dependencies:
+                        return
+
                     commit = self._lookupCommitByHash(dep.repo, dep.commitHash)
                     self._createSourceDep(test, dep.repo, dep.commitHash)
 
                     if commit and commit.data:
-                        #this dependency exists already
                         underlying_env = commit.data.environments.get(dep.name, None)
-                        
-                        if underlying_env is not None:
-                            imported_envs.append(underlying_env)
-                        else:
-                            env = None
                     else:
-                        env = None
+                        underlying_env = None
 
-                if env is not None:
-                    env = TestDefinition.merge_environments(env, imported_envs)
+                    if underlying_env is not None:
+                        dependencies[dep] = underlying_env
+
+                        if underlying_env.matches.Import:
+                            for dep in underlying_env.imports:
+                                import_dep(dep)
+                    else:
+                        dependencies[dep] = None
+
+                for dep in env.imports:
+                    import_dep(dep)
+
+                if None in dependencies.values():
+                    env = None
+                else:
+                    env = TestDefinition.merge_environments(env, dependencies)
 
             if env is None or env.matches.Import:
                 return
 
             env = TestDefinition.apply_environment_substitutions(env)
+
         except Exception as e:
             logging.error(traceback.format_exc())
             test.fullyResolvedEnvironment = self.database.FullyResolvedTestEnvironment.Error(Error=str(e))

@@ -6,6 +6,7 @@ import test_looper.core.Config as Config
 import test_looper.core.machine_management.MachineManagement as MachineManagement
 
 BackgroundTaskStatus = algebraic.Alternative("BackgroundTaskStatus")
+BackgroundTaskStatus.PendingVeryHigh = {}
 BackgroundTaskStatus.PendingHigh = {}
 BackgroundTaskStatus.PendingLow = {}
 BackgroundTaskStatus.Running = {}
@@ -49,7 +50,9 @@ def setup_types(database):
         hash=str,
         repo=database.Repo,
         data=database.CommitData,
-        priority=int
+        userPriority=int,
+        calculatedPriority=int,
+        anyBranch=database.Branch
         )
 
     database.CommitData.define(
@@ -80,6 +83,7 @@ def setup_types(database):
         lastTestEndTimestamp=float,
         totalTestCount=float,
         totalFailedTestCount=float,
+        calculatedPriority=int,
         priority=database.TestPriority,
         targetMachineBoot=int, #the number of machines we want to boot to achieve this
         runsDesired=int, #the number of runs the _user_ indicated they wanted

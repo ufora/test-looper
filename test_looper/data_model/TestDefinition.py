@@ -117,42 +117,99 @@ def add_setup_contents_to_image(image, extra_setup):
     else:
         assert image.matches.AMI, "Can only add setup-script contents to an AMI image, not %s, and we were given %s" % (image, repr(extra_setup))
 
+
+def merge(seqs):
+    res = []
+    i=0
+    while True:
+        nonemptyseqs = [seq for seq in seqs if seq]
+        if not nonemptyseqs: 
+            return res
+
+        i+=1
+        for seq in nonemptyseqs: # find merge candidates among seq heads
+            cand = seq[0]
+            nothead=[s for s in nonemptyseqs if cand in s[1:]]
+            if nothead: 
+                cand=None #reject candidate
+            else: 
+                break
+        if not cand: 
+            raise "Inconsistent hierarchy"
+
+        res.append(cand)
+
+        for seq in nonemptyseqs: # remove cand
+            if seq[0] == cand: 
+                del seq[0]
+
+def method_resolution_order(env, dependencies):
+    linearization = [[env]]
+
+    if env.matches.Import:
+        for d in env.imports:
+            linearization.append(
+                method_resolution_order(dependencies[d], dependencies)
+                )
+        for d in env.imports:
+            linearization.append([dependencies[d]])
+
+    return merge(linearization)
+
+def assertNotCircular(underlying_environments):
+    def children(dep):
+        if underlying_environments[dep].matches.Import:
+            return underlying_environments[dep].imports
+        else:
+            return []
+
+    not_circular = set()
+    def check(node, above=()):
+        if node in not_circular:
+            return
+        for child in children(node):
+            if child in above:
+                raise Exception("Circular dependencies: %s" % (above + (child,)))
+            check(child, above + (node,))
+        not_circular.add(node)
+
+    for d in underlying_environments:
+        check(d)
+
 def merge_environments(import_environment, underlying_environments):
-    """Given an 'Import' environment and its underlying environment, apply the state of the import to the underlying.
-    
-    This operation is associative: given a chain of imports terminating in a base environment,
-    we should be able to apply these changes in any order.
+    """Given an 'Import' environment and a dictionary from 
+        TestDefinition.EnvironmentReference.Reference -> Environment
+    apply the state of the import to the underlying.
+
+    Environments are applied as if they were python classes. All imports
+    must descend from 
     """
     assert import_environment.matches.Import
 
-    assert len(import_environment.imports) == len(underlying_environments)
+    #check for circularity
+    assertNotCircular(underlying_environments)
 
-    for ix, dep in reversed(list(enumerate(import_environment.imports))):
-        underlying_environment = underlying_environments[ix]
-        underlying_full_name = dep.repo + "/" + dep.commitHash + "/" + dep.name
+    order = method_resolution_order(import_environment, underlying_environments)
 
-        if underlying_environment.matches.Environment:
-            import_environment = TestEnvironment.Environment(
-                    environment_name=import_environment.environment_name,
-                    inheritance=import_environment.inheritance + (underlying_full_name,) + tuple(underlying_environment.inheritance),
-                    platform=underlying_environment.platform,
-                    image=add_setup_contents_to_image(underlying_environment.image, import_environment.setup_script_contents),
-                    variables=merge_dicts(underlying_environment.variables, import_environment.variables),
-                    dependencies=merge_dicts(underlying_environment.dependencies, import_environment.dependencies)
-                    )
-        else:
-            import_environment = TestEnvironment.Import(
-                environment_name=import_environment.environment_name,
-                inheritance=import_environment.inheritance + (underlying_full_name,) + tuple(underlying_environment.inheritance),
-                imports=import_environment.imports[:-1] + underlying_environment.imports,
-                setup_script_contents=
-                    underlying_environment.setup_script_contents + "\n" + import_environment.setup_script_contents
-                        if import_environment.setup_script_contents else "",
-                variables=merge_dicts(underlying_environment.variables, import_environment.variables),
-                dependencies=merge_dicts(underlying_environment.dependencies, import_environment.dependencies)
-                )
+    order_by_name = [o.environment_name for o in order]
 
-    return import_environment
+    assert order[-1].matches.Environment, "Environment resolution %s needs to end in a non-import" % order_by_name
+
+    for e in order[:-1]:
+        assert e.matches.Import, "Can't depend on two different non-import environments: %s" % order_by_name
+
+    e = order[-1]
+    for env in reversed(order[:-1]):
+        e = TestEnvironment.Environment(
+            environment_name=env.environment_name,
+            inheritance=(e.environment_name,) + e.inheritance,
+            platform=e.platform,
+            image=add_setup_contents_to_image(e.image, env.setup_script_contents),
+            variables=merge_dicts(e.variables, env.variables),
+            dependencies=merge_dicts(e.dependencies, env.dependencies)
+            )
+
+    return e
 
 def substitute_variables_in_image(image, vars):
     if image.matches.AMI:
@@ -242,7 +299,6 @@ def apply_test_substitutions(test, env, input_var_defs):
             environment=env,
             variables=vardefs,
             dependencies=dependencies,
-            disabled=test.disabled,
             timeout=test.timeout,
             min_cores=test.min_cores,
             max_cores=test.max_cores,
@@ -255,13 +311,15 @@ def apply_test_substitutions(test, env, input_var_defs):
             TestDefinition.Build,
             buildCommand=VariableSubstitution.substitute_variables(test.buildCommand, vardefs),
             max_retries=test.max_retries,
-            retry_wait_seconds=test.retry_wait_seconds
+            retry_wait_seconds=test.retry_wait_seconds,
+            disabled=test.disabled
             )
     elif test.matches.Test:
         return make(
             TestDefinition.Test,
             testCommand=VariableSubstitution.substitute_variables(test.testCommand, vardefs),
-            cleanupCommand=VariableSubstitution.substitute_variables(test.cleanupCommand, vardefs)
+            cleanupCommand=VariableSubstitution.substitute_variables(test.cleanupCommand, vardefs),
+            disabled=test.disabled
             )
     elif test.matches.Deployment:
         return make(

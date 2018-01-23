@@ -12,6 +12,7 @@
 #   See the License for the specific language governing permissions and
 #   limitations under the License.
 
+import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.data_model.VariableSubstitution as VariableSubstitution
 import unittest
@@ -91,6 +92,28 @@ tests:
         cmd in ${platform}
 """
 
+environment_yaml_file = """
+environments:
+looper_version: 2
+environments:
+  env_root:
+    platform: windows
+    image:
+      base_ami: ami-123
+  env_dep:
+    base: env_root
+    setup_script_contents: |
+      TestFileContents
+  child1:
+    base: env_dep
+    setup_script_contents: |
+      ChildContents
+  child2:
+    base: env_dep
+  diamond:
+    base: [child1, child2]
+"""
+
 def apply_and_merge(vars, extras=None):
     return VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(vars, extras or {})
 
@@ -100,6 +123,21 @@ class TestDefinitionScriptTests(unittest.TestCase):
 
         for name in ['build/linux', 'build/test_linux', 'test/linux', 'test/test_linux']:
             self.assertTrue(name in tests, name)
+
+    def test_environment_inheritance(self):
+        tests, environments, repos = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", environment_yaml_file)
+
+        Ref = TestDefinition.EnvironmentReference.Reference
+
+        deps = {Ref(repo="repo", commitHash="hash", name=n): environments[n] for n in environments}
+
+        env = environments["diamond"]
+        
+        env = TestDefinition.merge_environments(env, deps)
+        
+        self.assertEqual(env.environment_name, "repo/hash/diamond")
+        self.assertEqual(env.inheritance, tuple(["repo/hash/" + x for x in ["child1", "child2", "env_dep", "env_root"]]))
+        self.assertEqual(env.image.setup_script_contents, "\nTestFileContents\n\nChildContents\n")
 
     def test_expansion(self):
         res = TestDefinitionScript.expand_macros(

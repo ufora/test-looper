@@ -203,7 +203,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                         )
 
             import_env = TestDefinition.TestEnvironment.Import(
-                environment_name=envName,
+                environment_name=curRepoName + "/" + curCommitHash + "/" + envName,
                 inheritance=(),
                 imports=tuple(imports),
                 setup_script_contents=envDef.setup_script_contents,
@@ -217,7 +217,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                     
         elif envDef.matches.Environment:
             environments[envName] = TestDefinition.TestEnvironment.Environment(
-                environment_name=envName,
+                environment_name=curRepoName + "/" + curCommitHash + "/" + envName,
                 inheritance=(),
                 platform=envDef.platform,
                 image=map_image(curRepoName, curCommitHash, envDef.image),

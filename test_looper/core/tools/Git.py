@@ -101,12 +101,6 @@ class Git(object):
             if e.errno != errno.EEXIST:
                 raise
 
-    def createCommitAndPushToBranch(target_branch, commitHash, fileContents, commit_message, timestamp_override=None, author="test_looper <test_looper@test_looper.com>"):
-        with self.git_repo_lock:
-            new_hash = self.createCommit(commitHash, fileContents, commit_message, timestamp_override, author)
-
-            return self.pushCommit(new_hash, target_branch)
-
     def createCommit(self, commitHash, fileContents, commit_message, timestamp_override=None, author="test_looper <test_looper@test_looper.com>"):
         """Create a new commit.
 

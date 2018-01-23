@@ -113,9 +113,12 @@ def main():
                                                )
 
     serverThread = threading.Thread(target=server.runListenLoop)
+    stopped = threading.Event()
+    exited = threading.Event()
 
     def handleStopSignal(signum, _):
         logging.info("Signal received: %s. Stopping service.", signum)
+        stopped.set()
         if serverThread and serverThread.isAlive() and server is not None:
             server.stop()
             if isinstance(jsonStore, RedisJsonStore):
@@ -128,14 +131,23 @@ def main():
                     logging.info("REDIS done saving database to disk")
 
         logging.info("Stopping service complete.")
-        os._exit(0)
+        exited.set()
 
     signal.signal(signal.SIGTERM, handleStopSignal) # handle kill
     signal.signal(signal.SIGINT, handleStopSignal)  # handle ctrl-c
 
     serverThread.start()
-    while serverThread.is_alive():
-        time.sleep(0.5)
+
+    while not stopped.is_set():
+        stopped.wait(1.0)
+
+    logging.info("Stopped flag triggered...")
+
+    exited.wait(10.0)
+    if not exited.is_set():
+        logging.info("Exiting process even though threads are still running...")
+
+    os._exit(0)
 
 if __name__ == "__main__":
     main()

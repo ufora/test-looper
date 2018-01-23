@@ -631,25 +631,31 @@ class WorkerState(object):
 
         return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True)
 
-    def resolveEnvironment(self, environment, seen = ()):
-        assert environment not in seen, "Circular environment definitions found"
-
+    def resolveEnvironment(self, environment):
         if environment.matches.Environment:
             return environment
 
-        seen = seen + (environment,)
+        dependencies = {}
 
-        base_environments = []
+        def import_dep(dep):
+            """Grab a dependency and all its children and stash them in 'dependencies'"""
+            if dep in dependencies:
+                return
+
+            underlying_env = self.environmentDefinitionFor(dep.repo, dep.commitHash, dep.name)
+
+            assert underlying_env is not None
+
+            dependencies[dep] = underlying_env
+
+            if underlying_env.matches.Import:
+                for dep in underlying_env.imports:
+                    import_dep(dep)
 
         for dep in environment.imports:
-            base_environments.append(
-                self.resolveEnvironment(
-                    self.environmentDefinitionFor(dep.repo, dep.commitHash, dep.name),
-                    seen
-                    )
-                )
+            import_dep(dep)
 
-        return TestDefinition.merge_environments(environment, base_environments)
+        return TestDefinition.merge_environments(environment, dependencies)
 
     def getDockerImage(self, testEnvironment):
         assert testEnvironment.matches.Environment
@@ -804,9 +810,9 @@ class WorkerState(object):
         if dep.matches.Source:
             sourceArtifactName = self.artifactKeyForBuild("source")
 
-            tarball_name = os.path.join(self.directories.build_cache_dir, sourceArtifactName)
+            tarball_name = self._buildCachePathFor(dep.repo, dep.commitHash, "source")
 
-            if not self.artifactStorage.build_exists(repoName, commitHash, sourceArtifactName):
+            if not self.artifactStorage.build_exists(dep.repo, dep.commitHash, sourceArtifactName):
                 log_function(time.asctime() + " TestLooper> Building source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
 
                 self.resetToCommitInDir(dep.repo, dep.commitHash, target_dir)
@@ -818,8 +824,8 @@ class WorkerState(object):
                 logging.info("Resulting tarball at %s is %.2f MB", tarball_name, os.stat(tarball_name).st_size / 1024.0**2)
 
                 try:
-                    logging.info("Uploading %s to %s/%s/%s", tarball_name, repoName, commitHash, sourceArtifactName)
-                    self.artifactStorage.upload_build(repoName, commitHash, sourceArtifactName, tarball_name)
+                    logging.info("Uploading %s to %s/%s/%s", tarball_name, dep.repo, dep.commitHash, sourceArtifactName)
+                    self.artifactStorage.upload_build(dep.repo, dep.commitHash, sourceArtifactName, tarball_name)
                 except:
                     logging.error("Failed to upload package '%s':\n%s",
                           tarball_name,
@@ -829,7 +835,7 @@ class WorkerState(object):
                 if not os.path.exists(tarball_name):
                     log_function(time.asctime() + " TestLooper> Downloading source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
                 
-                    self.artifactStorage.download_build(repoName, commitHash, sourceArtifactName, tarball_name)
+                    self.artifactStorage.download_build(dep.repo, dep.commitHash, sourceArtifactName, tarball_name)
 
                 log_function(time.asctime() + " TestLooper> Extracting source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
 
@@ -876,6 +882,9 @@ class WorkerState(object):
                             heartbeatWithLock(time.asctime() + " TestLooper> Done pulling %s.\n" % dep)
                             return
                         except Exception as e:
+                            if tries < 2:
+                                heartbeatWithLock(time.asctime() + " TestLooper> Failed to pull %s because %s, but retrying.\n" % (dep, str(e)))
+
                             results[expose_as] = traceback.format_exc()
 
                 waiting_threads = [threading.Thread(target=callFun, args=(expose_as,dep))
@@ -1046,8 +1055,14 @@ class WorkerState(object):
                           )
             return False
 
+    def _buildCachePathFor(self, repoName, commitHash, testName):
+        return os.path.join(
+            self.directories.build_cache_dir,
+            (repoName + "/" + commitHash + "." + self.artifactKeyForBuild(testName)).replace("/", "_")
+            )
+
     def _download_build(self, repoName, commitHash, testName):
-        path = os.path.join(self.directories.build_cache_dir, self.artifactKeyForBuild(testName))
+        path = self._buildCachePathFor(repoName, commitHash, testName)
         
         if not os.path.exists(path):
             logging.info("Downloading build for %s/%s test %s to %s", repoName, commitHash, testName, path)
