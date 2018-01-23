@@ -72,25 +72,27 @@ class Git(object):
         return self.subprocessCheckCall(['git', 'reset','--hard', revision]) == 0
 
     def resetToCommitInDirectory(self, revision, directory):
-        assert isinstance(revision, str), revision
+        with self.git_repo_lock:
 
-        directory = os.path.abspath(directory)
+            assert isinstance(revision, str), revision
 
-        logging.info("Resetting to revision %s in %s", revision, directory)
+            directory = os.path.abspath(directory)
 
-        if not self.pullLatest():
-            raise Exception("Couldn't pull latest from origin")
+            logging.info("Resetting to revision %s in %s", revision, directory)
 
-        if self.subprocessCheckCall(
-                ['git', 'worktree', 'add', '--detach', directory]
-                ):
-            raise Exception("Failed to create working tree at %s" % directory)
+            if not self.pullLatest():
+                raise Exception("Couldn't pull latest from origin")
 
-        if self.subprocessCheckCallAltDir(
-                directory,
-                ["git", "reset", "--hard", revision]
-                ):
-            raise Exception("Failed to checkout revision %s" % revision)
+            if self.subprocessCheckCall(
+                    ['git', 'worktree', 'add', '--detach', directory, revision]
+                    ):
+                raise Exception("Failed to create working tree at %s" % directory)
+
+            if self.subprocessCheckCallAltDir(
+                    directory,
+                    ["git", "reset", "--hard", revision]
+                    ):
+                raise Exception("Failed to checkout revision %s" % revision)
 
     def ensureDirectoryExists(self, path):
         if os.path.exists(path):
