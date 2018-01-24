@@ -1399,7 +1399,7 @@ class TestLooperHttpServer(object):
         grid = [[""] * 3 + collapsed_name_environments + [""] * 4,
                 ["COMMIT", "", "(running)"] + 
                 collapsed_names + 
-                ["SOURCE", "", "UPSTREAM", "DOWNSTREAM"]
+                ["SOURCE", "", "PINS"]
             ]
 
 
@@ -1630,16 +1630,16 @@ class TestLooperHttpServer(object):
             else self.clearCommitIdLink(commit)
             )
 
-        upstream = self.testManager.upstreamCommits(commit)
-        downstream = self.testManager.downstreamCommits(commit)
-        row.append(",&nbsp;".join([self.commitLink(c, textIsSubject=False).render() for c in upstream[:5]]))
-        if len(upstream) > 5:
-            row[-1] += ",&nbsp;..."
+        if False:
+            #not quite implemented yet
+            pins = []
+            for repoRef in commit.commitData.repos.values():
+                if repoRef.matches.Pin and repoRef.display:
+                    pins.append(repoRef)
 
-        row.append(",".join([self.commitLink(c, textIsSubject=False).render() for c in downstream[:5]]))
-        if len(downstream) > 5:
-            row[-1] += ",&nbsp;..."
-
+            row.append("&nbsp;".join(pins))
+        else:
+            row.append("")
 
         return row
 

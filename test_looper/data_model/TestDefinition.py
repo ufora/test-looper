@@ -30,7 +30,8 @@ RepoReference = algebraic.Alternative("RepoReference")
 RepoReference.Reference = {"reference": str}
 RepoReference.Pin = {
     "reference": str,
-    "branch": str
+    "branch": str,
+    "display": bool #if true, then we display this for all commits.
     }
 
 TestEnvironment = algebraic.Alternative("TestEnvironment")
