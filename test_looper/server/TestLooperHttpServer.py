@@ -527,7 +527,7 @@ class TestLooperHttpServer(object):
         return HtmlGeneration.link(
             text,
             self.address + "/commit" + ("?" if extras else "") + urllib.urlencode(extras),
-            hover_text=subject
+            hover_text="" if not commit.data else commit.data.commitMessage
             )
 
     def branchLink(self, branch, testGroupsToExpand=None):
@@ -688,7 +688,7 @@ class TestLooperHttpServer(object):
             tests = sorted(tests, key=lambda test: test.fullname)
             
 
-            grid = [["TEST", "", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "FAILED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", ""]]
+            grid = [["TEST", "", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "FAILED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", "", "TEST_DEPS"]]
 
             for t in tests:
                 row = []
@@ -748,7 +748,7 @@ class TestLooperHttpServer(object):
                         row.append(str(t.totalFailedTestCount / float(t.totalRuns)))
 
                     if finished_tests:
-                        row.append(secondsUpToString(sum([t.endTimestamp - t.startedTimestamp for t in finished_tests]) / len(finished_tests)))
+                        row.append(secondsUpToString(sum([testRun.endTimestamp - testRun.startedTimestamp for testRun in finished_tests]) / len(finished_tests)))
                     else:
                         row.append("")
                 else:
@@ -756,7 +756,7 @@ class TestLooperHttpServer(object):
                     row.append("")
                     
                     if all_noncanceled_tests:
-                        row.append(secondsUpToString(sum([time.time() - t.startedTimestamp for t in all_noncanceled_tests]) / len(all_noncanceled_tests)) + " so far")
+                        row.append(secondsUpToString(sum([time.time() - testRun.startedTimestamp for testRun in all_noncanceled_tests]) / len(all_noncanceled_tests)) + " so far")
                     else:
                         row.append("")
 
@@ -767,14 +767,15 @@ class TestLooperHttpServer(object):
                     runButtons.append(self.testLogsButton(testRun._identity).render())
 
                 row.append(" ".join(runButtons))
+                row.append(self.testDependencySummary(t))
 
                 grid.append(row)
 
 
             markdown_header = """## Repo [%s](%s)\n""" % (repoName, self.branchesUrl(repoName))
-            markdown_header += """## Commit `%s`: `%s`\n""" % (commit.hash[:10], commit.data.subject)
-
+            markdown_header += """## Commit `%s`:\n%s\n""" % (commit.hash[:10], "\n".join(["    " + x for x in commit.data.commitMessage.split("\n")]))
             markdown_header += """## Priority: toggle_switch """
+
             if commit.userPriority == 0:
                 markdown_header += "Not Prioritized"
             else:
@@ -813,6 +814,33 @@ class TestLooperHttpServer(object):
                     )
             else:
                 return header + HtmlGeneration.grid(grid)
+
+    def testDependencySummary(self, t):
+        """Return a single cell displaying all the builds this test depends on"""
+        failed = 0
+        succeeded = 0
+        running = 0
+        
+        for depsOn in self.testManager.allTestsDependedOnByTest(t):
+            if depsOn.successes:
+                succeeded += 1
+            elif depsOn.activeRuns:
+                running += 0
+            elif depsOn.totalRuns and not depsOn.priority.matches.WaitingToRetry:
+                failed += 1
+
+        if not (failed+succeeded+running):
+            return ""
+
+        res = []
+        if failed:
+            res.append("%d failed" % failed)
+        if succeeded:
+            res.append("%d succeeded" % succeeded)
+        if running:
+            res.append("%d running" % running)
+
+        return ", ".join(res)
 
     @cherrypy.expose
     def allTestRuns(self, repoName, commitHash, failuresOnly=False, testName=None):
@@ -857,7 +885,28 @@ class TestLooperHttpServer(object):
 
             header = self.commonHeader(currentRepo=repoName) + markdown.markdown(header)
 
+            if testName and len(testTypes) == 1:
+                header += markdown.markdown("### Test Dependencies:\n") + HtmlGeneration.grid(self.allTestDependencyGrid(testTypes[0]))
+
             return header + HtmlGeneration.grid(grid)
+
+    def allTestDependencyGrid(self, test):
+        grid = [["REPO", "COMMIT"]]
+
+        for subtest in self.testManager.allTestsDependedOnByTest(test):
+            grid.append([
+                self.commitLink(subtest.commitData.commit, textIsSubject=False),
+                    self.allTestsLink(subtest.testDefinition.name, subtest.commitData.commit, subtest.testDefinition.name)
+                ])
+
+        for dep in self.testManager.database.UnresolvedTestDependency.lookupAll(test=test):
+            grid.append(["Unresolved Test", dep.dependsOnName])
+        for dep in self.testManager.database.UnresolvedSourceDependency.lookupAll(test=test):
+            grid.append(["Unresolved Commit", dep.repo.name + "/" + dep.commitHash])
+        for dep in self.testManager.database.UnresolvedSourceDependency.lookupAll(test=test):
+            grid.append(["Unresolved Repo", dep.repo.name + "/" + dep.commitHash])
+
+        return grid
 
     def bootTestOrEnvUrl(self, fullname):
         return self.address + "/bootDeployment?" + urllib.urlencode({"fullname":fullname})
@@ -1299,17 +1348,6 @@ class TestLooperHttpServer(object):
 
         raise cherrypy.HTTPRedirect(self.branchUrl(branch))
 
-    @staticmethod
-    def errRateVal(testCount, successCount):
-        if testCount == 0:
-            return 0
-
-        successCount = float(successCount)
-
-        toReturn = 1.0 - successCount / testCount
-        return toReturn
-
-
     @cherrypy.expose
     def branch(self, reponame, branchname, max_commit_count=100):
         self.authorize(read_only=True)
@@ -1352,7 +1390,7 @@ class TestLooperHttpServer(object):
             else:
                 collapsed_name_environments[-1]["colspan"] += 1
 
-        grid = [[""] * 2 + collapsed_name_environments + [""] * 4,
+        grid = [[""] * 3 + collapsed_name_environments + [""] * 4,
                 ["COMMIT", "", "(running)"] + 
                 collapsed_names + 
                 ["SOURCE", "", "UPSTREAM", "DOWNSTREAM"]
@@ -1492,9 +1530,11 @@ class TestLooperHttpServer(object):
             ).replace('http://', 'https://')
 
     def aggregateTestInfo(self, testList):
+        """Given a bunch of tests, aggregate run information to a single html display."""
         if not testList:
             return ""
 
+        #first check if we have active slaves working
         active = 0
         for t in testList:
             active += t.activeRuns
@@ -1510,14 +1550,40 @@ class TestLooperHttpServer(object):
             else:
                 return HtmlGeneration.lightGrey("%d/%d suites unfinished" % (no_runs, len(testList)))
 
-        total = 0.0
-        failures = 0.0
+        anyBuilds = bool([t for t in testList if t.testDefinition.matches.Build])
+        anyTests = bool([t for t in testList if t.testDefinition.matches.Test])
 
-        for test in testList:
-            total += test.totalTestCount / float(test.totalRuns)
-            failures += test.totalFailedTestCount / float(test.totalRuns)
+        if anyBuilds and not anyTests:
+            succeeded = 0
+            failed = 0
+            pending = 0
 
-        return "%d / %d failing" % (failures, total)
+            for test in testList:
+                if test.totalRuns:
+                    if test.successes:
+                        succeeded += 1
+                    elif test.priority.matches.WaitingToRetry:
+                        pending += 1
+                    else:
+                        failed += 1
+                else:
+                    pending += 1
+
+            if succeeded and not (failed + pending):
+                return "%d finished" % succeeded
+            if failed and not (succeeded + pending):
+                return "%d failed" % failed
+
+            return "%d OK, %d BAD, %d WAIT" % (succeeded, failed, pending)
+        else:
+            total = 0.0
+            failures = 0.0
+
+            for test in testList:
+                total += test.totalTestCount / float(test.totalRuns)
+                failures += test.totalFailedTestCount / float(test.totalRuns)
+
+            return "%d / %d failing" % (failures, total)
 
     def getBranchCommitRow(self,
                            branch,
@@ -1570,41 +1636,6 @@ class TestLooperHttpServer(object):
 
 
         return row
-
-    @staticmethod
-    def errRateAndTestCount(errRate, testCount):
-        if errRate == 0.0:
-            if testCount:
-                return "%4s@%3s%s" % (testCount, 0, "%")
-            else:
-                return "0%"
-
-        if errRate < 0.01:
-            errRate *= 10000
-            errText = '.%2s' % int(errRate)
-        elif errRate < 0.1:
-            errRate *= 100
-            errText = '%s.%s' % (int(errRate), int(errRate * 10) % 10)
-        else:
-            errRate *= 100
-            errText = '%3s' % int(errRate)
-
-        return "%4s@%3s" % (testCount, errText) + "%"
-
-
-    @staticmethod
-    def errRate(frac):
-        tr = "%.1f" % (frac * 100) + "%"
-        tr = tr.rjust(6)
-
-        if frac < .1:
-            tr = HtmlGeneration.lightGrey(tr)
-
-        if frac > .9:
-            tr = HtmlGeneration.red(tr)
-
-        return tr
-
 
     @cherrypy.expose
     def eventLogs(self):

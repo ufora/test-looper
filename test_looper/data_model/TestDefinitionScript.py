@@ -140,26 +140,36 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                     ". First part of dependencies can't have a substitution. " + 
                     "Use 'HEAD' as a prefix if you need to refer to a build in the current commit.")
 
-        if deps[0] not in repos:
-            raise Exception("Environment dependencies must reference a named repo. Can't find %s for %s" % (deps[0], dep))
+        if deps and deps[0] == "HEAD":
+            if len(deps) == 1:
+                #this is a source dependency
+                return TestDefinition.TestDependency.Source(repo=curRepoName, commitHash=curCommitHash)
 
-        if len(deps) == 1:
-            #this is a source dependency
-            return TestDefinition.TestDependency.Source(
-                repo=repos[deps[0]][0],
-                commitHash=repos[deps[0]][1]
+            if len(deps) < 3:
+                raise Exception("Malformed repo dependency: should be of form 'repoReference/buildName/environment'")
+            
+            return TestDefinition.TestDependency.InternalBuild(
+                name="/".join(deps[1:])
                 )
+        else:
+            if deps[0] not in repos:
+                raise Exception("Environment dependencies must reference a named repo. Can't find %s for %s" % (deps[0], dep))
 
-        if len(deps) < 3:
-            raise Exception("Malformed repo dependency: should be of form 'repoReference/buildName/environment'")
-        
-        env = deps[-1]
+            if len(deps) == 1:
+                #this is a source dependency
+                return TestDefinition.TestDependency.Source(
+                    repo=repos[deps[0]][0],
+                    commitHash=repos[deps[0]][1]
+                    )
 
-        return TestDefinition.TestDependency.ExternalBuild(
-            repo=repos[deps[0]][0],
-            commitHash=repos[deps[0]][1],
-            name="/".join(deps[1:])
-            )
+            if len(deps) < 3:
+                raise Exception("Malformed repo dependency: should be of form 'repoReference/buildName/environment'")
+            
+            return TestDefinition.TestDependency.ExternalBuild(
+                repo=repos[deps[0]][0],
+                commitHash=repos[deps[0]][1],
+                name="/".join(deps[1:])
+                )
 
     def parseEnvironment(envName, parents=()):
         if parents and parents[-1] in parents[:-1]:
@@ -243,31 +253,35 @@ def extract_tests(curRepoName, curCommitHash, testScript):
             raise Exception("Invalid dependency: " + dep + 
                     ". First part of dependencies can't have a substitution. " + 
                     "Use 'HEAD' as a prefix if you need to refer to a build in the current commit.")
-
-        if deps[0] in repos:
-            if len(deps) == 1:
-                #this is a source dependency
-                return TestDefinition.TestDependency.Source(
-                    repo=repos[deps[0]][0],
-                    commitHash=repos[deps[0]][1]
+        if deps and deps[0] == "HEAD":
+            if len(deps) > 1:
+                return TestDefinition.TestDependency.InternalBuild(
+                    name="/".join(deps[1:])
                     )
+            else:
+                return TestDefinition.TestDefinition.Source(repo=curRepoName, commitHash=curCommitHash)
+        else:
+            if deps[0] in repos:
+                if len(deps) == 1:
+                    #this is a source dependency
+                    return TestDefinition.TestDependency.Source(
+                        repo=repos[deps[0]][0],
+                        commitHash=repos[deps[0]][1]
+                        )
 
-            #this is a remote dependency: repoRef/buildName/environment
-            if len(deps) < 3:
-                raise Exception("Malformed repo dependency: should be of form 'repoReference/buildName/environment'")
+                #this is a remote dependency: repoRef/buildName/environment
+                if len(deps) < 3:
+                    raise Exception("Malformed repo dependency: should be of form 'repoReference/buildName/environment'")
+                
+                return TestDefinition.TestDependency.ExternalBuild(
+                    repo=repos[deps[0]][0],
+                    commitHash=repos[deps[0]][1],
+                    name="/".join(deps[1:])
+                    )
             
-            return TestDefinition.TestDependency.ExternalBuild(
-                repo=repos[deps[0]][0],
-                commitHash=repos[deps[0]][1],
-                name="/".join(deps[1:])
+            return TestDefinition.TestDependency.InternalBuild(
+                name="/".join(deps)
                 )
-        
-        if deps[0] == "HEAD":
-            deps = deps[1:]
-
-        return TestDefinition.TestDependency.InternalBuild(
-            name="/".join(deps)
-            )
 
     def convert_def(name, d):
         curEnv = d.environment or name.split("/")[-1]

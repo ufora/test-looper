@@ -192,6 +192,24 @@ class TestManager(object):
 
         self.deploymentStreams = {}
 
+    def allTestsDependedOnByTest(self, test):
+        res = []
+
+        for dep in test.testDefinition.dependencies.values():
+            if dep.matches.InternalBuild:
+                for subtest in self.database.Test.lookupAll(
+                        fullname=test.commitData.commit.repo.name + "/" + test.commitData.commit.hash + "/" + dep.name
+                        ):
+                    res.append(subtest)
+            elif dep.matches.ExternalBuild:
+                for subtest in self.database.Test.lookupAll(
+                        fullname=dep.repo + "/" + dep.commitHash + "/" + dep.name
+                        ):
+                    res.append(subtest)
+
+        return res
+
+
     def commitFindAllBranches(self, commit):
         childCommits = {}
 
@@ -1576,6 +1594,9 @@ class TestManager(object):
         return curTimestamp - test.lastTestEndTimestamp > test.testDefinition.retry_wait_seconds
 
     def _testWantsRetries(self, test):
+        if test.calculatedPriority == 0:
+            return False
+        
         if not test.testDefinition.matches.Build:
             return False
 
