@@ -1,6 +1,6 @@
 looper_version: 2
 repos:
-  simple: simple_project/8ee69e550635478aa07935bad890f2158bbd4302
+  simple: simple_project/__replace_this_hash__
 environments:
   linux:
     base: simple/linux

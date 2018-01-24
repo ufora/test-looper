@@ -10,7 +10,7 @@ class InMemoryJsonStore(object):
     """
     def __init__(self, db=0):
         self.values = {}
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
 
     def get(self, key):
         with self.lock:
@@ -26,6 +26,11 @@ class InMemoryJsonStore(object):
                     del self.values[key]
             else:
                 self.values[key] = json.dumps(value)
+
+    def setSeveral(self, kvs):
+        with self.lock:
+            for k,v in kvs.iteritems():
+                self.set(k,v)
 
     def exists(self, key):
         with self.lock:

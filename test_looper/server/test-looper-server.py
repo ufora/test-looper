@@ -118,20 +118,7 @@ def main():
 
     def handleStopSignal(signum, _):
         logging.info("Signal received: %s. Stopping service.", signum)
-        stopped.set()
-        if serverThread and serverThread.isAlive() and server is not None:
-            server.stop()
-            if isinstance(jsonStore, RedisJsonStore):
-                logging.info("REDIS saving database to disk")
-                try:
-                    jsonStore.redis.save()
-                except:
-                    logging.error("FAILED to save REDIS: %s", traceback.format_exc())
-                finally:
-                    logging.info("REDIS done saving database to disk")
-
-        logging.info("Stopping service complete.")
-        exited.set()
+        os._exit(0)
 
     signal.signal(signal.SIGTERM, handleStopSignal) # handle kill
     signal.signal(signal.SIGINT, handleStopSignal)  # handle ctrl-c
@@ -140,14 +127,6 @@ def main():
 
     while not stopped.is_set():
         stopped.wait(1.0)
-
-    logging.info("Stopped flag triggered...")
-
-    exited.wait(10.0)
-    if not exited.is_set():
-        logging.info("Exiting process even though threads are still running...")
-
-    os._exit(0)
 
 if __name__ == "__main__":
     main()

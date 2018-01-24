@@ -2,6 +2,7 @@ import test_looper.core.algebraic as algebraic
 import test_looper.core.object_database as object_database
 import test_looper.core.InMemoryJsonStore as InMemoryJsonStore
 import unittest
+import random
 import time
 
 expr = algebraic.Alternative("Expr")
@@ -99,7 +100,7 @@ class ObjectDatabaseTests(unittest.TestCase):
             root = db.Root.New()
             root.obj = db.Object.New(k=expr.Constant(value=0))
 
-        for ordering in [0,1]:
+        for ordering in [0, 1]:
             t1 = db.transaction()
             t2 = db.transaction()
 
@@ -113,6 +114,120 @@ class ObjectDatabaseTests(unittest.TestCase):
                 with t2:
                     root.obj.k = expr.Constant(value=root.obj.k.value + 1)
     
+    def test_object_versions_robust(self):
+        mem_store = InMemoryJsonStore.InMemoryJsonStore()
+
+        db = object_database.Database(mem_store)
+        initialize_types(db)
+
+        counters = []
+        counter_vals_by_tn = {}
+        views_by_tn = {}
+
+        random.seed(123)
+
+        #expect nothing initially
+        views_by_tn[db._cur_transaction_num] = db.view()
+        counter_vals_by_tn[db._cur_transaction_num] = {}
+
+        #seed the initial state
+        with db.transaction():
+            for i in xrange(20):
+                counter = db.Counter.New(_identity="C_%s" % i)
+                counter.k = int(random.random() * 100)
+                counters.append(counter)
+
+            counter_vals_by_tn[db._cur_transaction_num + 1] = {c: c.k for c in counters}
+
+        total_writes = 0
+
+        for passIx in xrange(1000):
+            #print passIx, db._version_numbers
+
+            #keyname = "Counter-val:C_19:k"
+            #print "C19: ", db._tail_values.get(keyname), [(tid, db._key_and_version_to_object.get((keyname, tid)))
+            #    for tid in sorted(db._key_version_numbers.get(keyname,()))], mem_store.get(keyname)
+            
+            with db.transaction():
+                for subix in xrange(int(random.random() * 5 + 1)):
+                    counter = counters[int(random.random() * len(counters))]
+
+                    if counter.exists():
+                        if random.random() < .001:
+                            counter.delete()
+                        else:
+                            counter.k = int(random.random() * 100)
+                        total_writes += 1
+
+                counter_vals_by_tn[db._cur_transaction_num + 1] = {c: c.k for c in counters if c.exists()}
+
+            views_by_tn[db._cur_transaction_num] = db.view()
+
+            while views_by_tn and random.random() < .5 or len(views_by_tn) > 10:
+                #pick a random view and check that it's consistent
+                all_tids = list(views_by_tn)
+                tid = all_tids[int(random.random() * len(all_tids))]
+
+                with views_by_tn[tid]:
+                    #print "checking consistency of ", tid
+                    for c in counters:
+                        if not c.exists():
+                            assert c not in counter_vals_by_tn[tid]
+                        else:
+                            self.assertEqual(c.k, counter_vals_by_tn[tid][c])
+
+                del views_by_tn[tid]
+
+            if random.random() < .05 and views_by_tn:
+                with db.view():
+                    max_counter_vals = {}
+                    for c in counters:
+                        if c.exists():
+                            max_counter_vals[c] = c.k
+
+                #reset the database
+                db = object_database.Database(mem_store)
+                initialize_types(db)
+
+                new_counters = [db.Counter(c._identity) for x in counters]
+
+                views_by_tn = {0: db.view()}
+                counter_vals_by_tn = {0: 
+                    {new_counters[ix]: max_counter_vals[counters[ix]] for ix in 
+                        xrange(len(counters)) if counters[ix] in max_counter_vals}
+                    }
+
+                counters = new_counters
+
+        self.assertTrue(len(mem_store.values) < 50)
+        self.assertTrue(total_writes > 500)
+
+    def test_flush_db_works(self):
+        mem_store = InMemoryJsonStore.InMemoryJsonStore()
+
+        db = object_database.Database(mem_store)
+        initialize_types(db)
+
+        with db.transaction():
+            c = db.Counter.New()
+            c.k = 1
+
+        self.assertTrue(mem_store.values)
+
+        view = db.view()
+
+        with db.transaction():
+            c.delete()
+
+        #database doesn't have this
+        self.assertFalse(mem_store.values)
+
+        #but the view does!
+        with view:
+            self.assertTrue(c.exists())
+
+        self.assertFalse(mem_store.values)
+
     def test_read_write_conflict(self):
         mem_store = InMemoryJsonStore.InMemoryJsonStore()
 

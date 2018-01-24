@@ -33,6 +33,7 @@ class WorkerStateTests(unittest.TestCase):
         common.configureLogging(verbose=True)
         logging.info("WorkerStateTests set up")
         self.testdir = tempfile.mkdtemp()
+        self.simple_repo_hash = None
 
     def get_fds(self):
         return os.listdir("/proc/%s/fd" % os.getpid())
@@ -49,9 +50,22 @@ class WorkerStateTests(unittest.TestCase):
             source_repo.path_to_repo
             )
 
+        #hashes in simple_repo_1 are not necessarily stable across git revisions
+        #so we need to actually paste them in
+        if repo_name == "simple_project_2" and self.simple_repo_hash is not None:
+            with open(os.path.join(source_repo.path_to_repo, "testDefinitions.yml"),"r") as f:
+                content = f.read()
+                assert "__replace_this_hash__" in content
+                content = content.replace("__replace_this_hash__", self.simple_repo_hash)
+            with open(os.path.join(source_repo.path_to_repo, "testDefinitions.yml"),"w") as f:
+                f.write(content)
+
         commits = [source_repo.commit("a message", timestamp)]
 
-        logging.info("First commit for %s is %s", repo_name, commits[0])
+        if repo_name == "simple_project" and self.simple_repo_hash is None:
+            self.simple_repo_hash = commits[0]
+
+            logging.info("First commit for %s is %s", repo_name, commits[0])
 
         if extra_commit_paths:
             for commit_ix, bundle in enumerate(extra_commit_paths):

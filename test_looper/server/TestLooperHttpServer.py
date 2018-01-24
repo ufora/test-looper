@@ -820,19 +820,25 @@ class TestLooperHttpServer(object):
         failed = 0
         succeeded = 0
         running = 0
+        sleeping = 0
         
         for depsOn in self.testManager.allTestsDependedOnByTest(t):
             if depsOn.successes:
                 succeeded += 1
             elif depsOn.activeRuns:
-                running += 0
-            elif depsOn.totalRuns and not depsOn.priority.matches.WaitingToRetry:
-                failed += 1
+                running += 1
+            elif depsOn.totalRuns:
+                if depsOn.priority.matches.WaitingToRetry:
+                    sleeping += 1
+                else:
+                    failed += 1
 
-        if not (failed+succeeded+running):
+        if not (failed+succeeded+running+sleeping):
             return ""
 
         res = []
+        if sleeping:
+            res.append("%d sleeping" % sleeping)
         if failed:
             res.append("%d failed" % failed)
         if succeeded:

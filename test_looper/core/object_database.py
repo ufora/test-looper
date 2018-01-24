@@ -186,8 +186,6 @@ class DatabaseView(object):
         self._db = db
         self._transaction_num = transaction_id
         self._writes = {}
-        self._reads = set()
-        self._readlog_disabled=False
         self._t0 = None
         self._stack = None
 
@@ -200,7 +198,12 @@ class DatabaseView(object):
         if not self._writeable:
             raise Exception("Views are static. Please open a transaction.")
 
-        identity = sha_hash(str(uuid.uuid4())).hexdigest
+        if "_identity" in kwds:
+            identity = kwds["_identity"]
+            kwds = dict(kwds)
+            del kwds["_identity"]
+        else:
+            identity = sha_hash(str(uuid.uuid4())).hexdigest
 
         o = cls(identity)
 
@@ -234,8 +237,7 @@ class DatabaseView(object):
 
         if cls.__name__ in self._db._indices:
             for index_name, index_fun in self._db._indices[cls.__name__].iteritems():
-                with self._noreads():
-                    val = index_fun(o)
+                val = index_fun(o)
 
                 if val is not None:
                     ik = index_key(cls.__name__, index_name, val)
@@ -253,22 +255,8 @@ class DatabaseView(object):
 
         return o        
 
-    def _noreads(self):
-        class Scope:
-            def __enter__(scope):
-                assert not self._readlog_disabled
-                self._readlog_disabled = True
-
-            def __exit__(scope, *args):
-                self._readlog_disabled = False
-
-        return Scope()
-
     def _get(self, obj_typename, identity, field_name, type):
         key = data_key(obj_typename, identity, field_name)
-
-        if not self._readlog_disabled:
-            self._reads.add(key)
 
         if key in self._writes:
             return self._writes[key]
@@ -313,8 +301,7 @@ class DatabaseView(object):
 
         if obj_typename in self._db._indices:
             for index_name, index_fun in self._db._indices[obj_typename].iteritems():
-                with self._noreads():
-                    existing_index_vals[index_name] = index_fun(obj)
+                existing_index_vals[index_name] = index_fun(obj)
 
         return existing_index_vals
 
@@ -351,9 +338,7 @@ class DatabaseView(object):
             identities = self._writes[keyname]
         else:
             identities = self._db._get_versioned_object_data(keyname, self._transaction_num)
-            if not self._readlog_disabled:
-                self._reads.add(keyname)
-
+            
         if not identities:
             return ()
         
@@ -367,7 +352,7 @@ class DatabaseView(object):
             writes = {key: _encoder.to_json(v) for key, v in self._writes.iteritems()}
             tid = self._transaction_num
             
-            self._db._set_versioned_object_data(writes, tid, self._reads)
+            self._db._set_versioned_object_data(writes, tid)
 
     def nocommit(self):
         class Scope:
@@ -394,6 +379,8 @@ class DatabaseView(object):
         if type is None and self._writes:
             self.commit()
 
+        self._db._releaseView(self)
+
     def indexLookupAny(self, type, **kwargs):
         res = self.indexLookup(type, **kwargs)
         if not res:
@@ -418,10 +405,37 @@ class Database:
     def __init__(self, kvstore):
         self._kvstore = kvstore
         self._lock = threading.Lock()
-        self._cur_transaction_num = kvstore.get("transaction_id") or 1
+
+        #transaction of what's in the KV store
+        self._cur_transaction_num = 0
+
+        #minimum transaction we can support. This is the implicit transaction
+        #for all the 'tail values'
+        self._min_transaction_num = 0
+
         self._types = {}
         #typename -> indexname -> fun(object->value)
         self._indices = {}
+
+        #for each version number in _version_numbers, how many views referring to it
+        self._version_number_counts = {}
+        self._min_reffed_version_number = None
+
+        #list of outstanding version numbers in increasing order where we have writes
+        #_min_transaction_num is the minimum of these and the current transaction
+        self._version_numbers = []
+
+        #for each version number, a set of keys that were set
+        self._version_number_objects = {}
+
+        #for each key, a sorted list of version numbers outstanding and the relevant objects
+        self._key_version_numbers = {}
+
+        #for each (key, version), the object
+        self._key_and_version_to_object = {}
+
+        #for each key with versions, the value replaced by the oldest key
+        self._tail_values = {}
 
     def __str__(self):
         return "Database(%s)" % id(self)
@@ -467,64 +481,157 @@ class Database:
 
     def view(self, transaction_id=None):
         with self._lock:
-            assert transaction_id <= self._cur_transaction_num
-
             if transaction_id is None:
                 transaction_id = self._cur_transaction_num
 
-            return DatabaseView(self, transaction_id)
+            assert transaction_id <= self._cur_transaction_num
+            assert transaction_id >= self._min_transaction_num, transaction_id
+
+            view = DatabaseView(self, transaction_id)
+
+            self._incversion(transaction_id)
+
+            return view
+
+    def _incversion(self, transaction_id):
+        if transaction_id not in self._version_number_counts:
+            self._version_number_counts[transaction_id] = 1
+            if self._min_reffed_version_number is None:
+                self._min_reffed_version_number = transaction_id
+            else:
+                self._min_reffed_version_number = min(transaction_id, self._min_reffed_version_number)
+        else:
+            self._version_number_counts[transaction_id] += 1
+
+    def _decversion(self, transaction_id):
+        assert transaction_id in self._version_number_counts
+
+        self._version_number_counts[transaction_id] -= 1
+
+        assert self._version_number_counts[transaction_id] >= 0
+
+        if self._version_number_counts[transaction_id] == 0:
+            del self._version_number_counts[transaction_id]
+
+            if transaction_id == self._min_reffed_version_number:
+                if not self._version_number_counts:
+                    self._min_reffed_version_number = None
+                else:
+                    self._min_reffed_version_number = min(self._version_number_counts)
+
 
     def transaction(self):
+        """Only one transaction may be committed on the current transaction number."""
         with self._lock:
-            #no objects should have an ID greater than this number
-            return DatabaseTransaction(self, self._cur_transaction_num)
+            view = DatabaseTransaction(self, self._cur_transaction_num)
+
+            transaction_id = self._cur_transaction_num
+
+            self._incversion(transaction_id)
+
+            return view
+
+    def _releaseView(self, view):
+        transaction_id = view._transaction_num
+
+        with self._lock:
+            self._decversion(transaction_id)
+
+            self._cleanup()
+
+    def _cleanup(self):
+        """Get rid of old objects we don't need to keep around and increase the min_transaction_id"""
+        while True:
+            if not self._version_numbers:
+                #nothing to cleanup because we have no transactions
+                return
+
+            #this is the lowest write we have in the in-mem database
+            lowest = self._version_numbers[0]
+
+            if self._min_reffed_version_number < lowest:
+                #some transactions still refer to values before this version
+                return
+
+            self._version_numbers.pop(0)
+
+            keys_touched = self._version_number_objects[lowest]
+            del self._version_number_objects[lowest]
+
+            if not self._version_numbers:
+                #views have caught up with the current transaction
+                self._min_transaction_num = self._cur_transaction_num
+                self._key_version_numbers = {}
+                self._key_and_version_numbers = {}
+                self._tail_values = {}
+            else:
+                self._min_transaction_num = lowest
+
+                for key in keys_touched:
+                    assert self._key_version_numbers[key][0] == lowest
+                    if len(self._key_version_numbers[key]) == 1:
+                        #this key is now current in the database
+                        del self._key_version_numbers[key]
+                        del self._key_and_version_to_object[key, lowest]
+                        del self._tail_values[key]
+                    else:
+                        self._key_version_numbers[key].pop(0)
+                        self._tail_values[key] = self._key_and_version_to_object[key, lowest]
+                        del self._key_and_version_to_object[key, lowest]
 
     def _get_versioned_object_data(self, key, transaction_id):
         with self._lock:
-            rev = self._best_revision_for_under_lock(key, transaction_id)
+            assert transaction_id >= self._min_transaction_num
 
-            if rev is None:
-                return None
+            if key not in self._key_version_numbers:
+                return self._kvstore.get(key)
 
-            return self._kvstore.get(key + ":" + str(rev))[0]
+            #get the largest version number less than or equal to transaction_id
+            version = self._best_version_for(transaction_id, self._key_version_numbers[key])
 
-    def _best_revision_for_under_lock(self, key, transaction_id):
-        cur_revision = self._kvstore.get(key + ":rev")
-        if cur_revision is None:
-            return None
-
-        while True:
-            if cur_revision <= transaction_id:
-                return cur_revision
+            if version is not None:
+                return self._key_and_version_to_object[key, version]
             else:
-                cur_revision = self._kvstore.get(key + ":" + str(cur_revision))[1]
-                if cur_revision is None:
-                    return None
+                return self._tail_values[key]
 
-    def _set_versioned_object_data(self, key_value, transaction_id, reads):
+
+    def _best_version_for(self, transactionId, transactions):
+        i = len(transactions) - 1
+
+        while i >= 0:
+            if transactions[i] <= transactionId:
+                return transactions[i]
+            i -= 1
+
+        return None
+
+    def _set_versioned_object_data(self, key_value, transaction_id):
         with self._lock:
+            if transaction_id != self._cur_transaction_num:
+                raise RevisionConflictException()
+
             self._cur_transaction_num += 1
-            self._kvstore.set("transaction_id", self._cur_transaction_num)
 
-            for k in reads:
-                cur = self._kvstore.get(k + ":rev")
-                if cur is not None and cur > transaction_id:
-                    raise RevisionConflictException()
+            #we were viewing objects at the old transaction layer. now we write a new one.
+            transaction_id += 1
+            
+            for key in key_value:
+                #if this object is not versioned already, we need to keep the old value around
+                if key not in self._key_version_numbers:
+                    self._tail_values[key] = self._kvstore.get(key)
 
-            for k in key_value:
-                cur = self._kvstore.get(k + ":rev")
-                if cur is not None and cur > transaction_id:
-                    raise RevisionConflictException()
+            self._kvstore.setSeveral(key_value)
 
-            #this is the current transaction to use
-            transaction_id = self._cur_transaction_num
+            #record what objects we touched
+            self._version_number_objects[transaction_id] = list(key_value.keys())
+            self._version_numbers.append(transaction_id)
 
-            for k,v in key_value.iteritems():
-                prior = self._kvstore.get(k + ":rev")
-                self._kvstore.set(k + ":" + str(transaction_id), (v, prior))
-                self._kvstore.set(k + ":rev", transaction_id)
+            for key, value in key_value.iteritems():
+                if key not in self._key_version_numbers:
+                    self._key_version_numbers[key] = []
+                self._key_version_numbers[key].append(transaction_id)
 
-            self._kvstore.set("transaction_" + str(transaction_id), tuple(sorted(list(key_value))))
+                self._key_and_version_to_object[key,transaction_id] = value
 
     def _get(self, obj_typename, identity, field_name, type):
         raise Exception("Please open a transaction or a view")
