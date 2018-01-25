@@ -1396,6 +1396,10 @@ class TestManager(object):
                 category.desired = category.desired + net_change
                 self._scheduleBootCheck()
 
+        if test.priority != oldPriority:
+            for dep in self.database.TestDependency.lookupAll(test=test):
+                self._triggerTestPriorityUpdate(dep.dependsOn)
+
     def _checkMachineCategoryCounts(self):
         desired = {}
         booted = {}

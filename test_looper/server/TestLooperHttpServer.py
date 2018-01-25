@@ -821,6 +821,8 @@ class TestLooperHttpServer(object):
         succeeded = 0
         running = 0
         sleeping = 0
+        waiting_for_hardware = 0
+        stuck = 0
         
         for depsOn in self.testManager.allTestsDependedOnByTest(t):
             if depsOn.successes:
@@ -832,11 +834,19 @@ class TestLooperHttpServer(object):
                     sleeping += 1
                 else:
                     failed += 1
+            elif depsOn.priority.matches.FirstBuild:
+                waiting_for_hardware += 1
+            else:
+                stuck += 1
 
-        if not (failed+succeeded+running+sleeping):
+        if not (failed+succeeded+running+sleeping+stuck+waiting_for_hardware):
             return ""
 
         res = []
+        if waiting_for_hardware:
+            res.append("%d booting" % waiting_for_hardware)
+        if stuck:
+            res.append("%d stuck" % stuck)
         if sleeping:
             res.append("%d sleeping" % sleeping)
         if failed:
