@@ -283,7 +283,7 @@ class AwsMachineManagement(MachineManagement):
                 self.api.terminateInstanceById(machineId)
                 self._machineRemoved(machineId)
             else:
-                raise Exception("Machine %s isn't in our list of running instances")
+                raise Exception("Machine %s isn't in our list of running instances" % machineId)
 
     def boot_worker(self, hardware_config, os_config):
         with self._lock:

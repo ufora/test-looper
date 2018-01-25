@@ -1399,37 +1399,53 @@ class TestManager(object):
 
         for machine in self.database.Machine.lookupAll(isAlive=True):
             cat = self._machineCategoryForPair(machine.hardware, machine.os)
-            if cat not in desired:
-                desired[cat] = 0
-            if cat not in booted:
-                booted[cat] = 0
-            booted[cat] += 1
+            if cat:
+                if cat not in desired:
+                    desired[cat] = 0
+                if cat not in booted:
+                    booted[cat] = 0
+                booted[cat] += 1
 
         for cat in self.database.MachineCategory.lookupAll(want_less=True):
+            assert cat
             if cat not in desired:
                 desired[cat] = 0
 
         for cat in self.database.MachineCategory.lookupAll(want_more=True):
+            assert cat
             if cat not in desired:
                 desired[cat] = 0
 
         def checkTestCategory(test):
             real_cat = self._machineCategoryForTest(test)
+            if not real_cat:
+                logging.warn("Test %s has no machine category!", test.fullname)
+                self._checkAllTestDependencies(test)
+                real_cat = self._machineCategoryForTest(test)
+                if not real_cat:
+                    logging.warn("Test %s STILL has no machine category!", test.fullname)
+
 
             if real_cat != test.machineCategory:
                 logging.warn("test %s had incorrect desired machine category %s != %s", 
                     test.fullname, 
-                    str(test.machineCategory.hardware) + "/" + str(test.machineCategory.os),
-                    str(real_cat.hardware) + "/" + str(real_cat.os)
+                    "<none>" if not test.machineCategory else
+                        str(test.machineCategory.hardware) + "/" + str(test.machineCategory.os),
+                    "<none>" if not real_cat else
+                        str(real_cat.hardware) + "/" + str(real_cat.os)
                     )
+
+                if real_cat is None:
+                    real_cat = self.database.MachineCategory.Null
 
                 test.machineCategory = real_cat            
 
         for testRun in self.database.TestRun.lookupAll(isRunning=True):
             cat = testRun.test.machineCategory
-            if cat not in desired:
-                desired[cat] = 0
-            desired[cat] += 1
+            if cat:
+                if cat not in desired:
+                    desired[cat] = 0
+                desired[cat] += 1
 
         for priorityType in [
                 self.database.TestPriority.FirstBuild,
@@ -1441,18 +1457,20 @@ class TestManager(object):
                     checkTestCategory(test)
 
                     cat = test.machineCategory
-                    if cat not in desired:
-                        desired[cat] = 0
-                    desired[cat] += 1
+                    if cat:
+                        if cat not in desired:
+                            desired[cat] = 0
+                        desired[cat] += 1
 
         for deployment in self.database.Deployment.lookupAll(isAlive=True):
             checkTestCategory(deployment.test)
 
             cat = deployment.test.machineCategory
-            if cat not in desired:
-                desired[cat] = 0
+            if cat:
+                if cat not in desired:
+                    desired[cat] = 0
 
-            desired[cat] += 1
+                desired[cat] += 1
 
         for cat, desiredCount in desired.iteritems():
             if cat not in booted:
@@ -1496,6 +1514,7 @@ class TestManager(object):
 
     def _machineCategoryPairForTest(self, test):
         if not test.fullyResolvedEnvironment.matches.Resolved:
+            logging.warn("Test %s has a bad environment: %s", test.fullname, test.fullyResolvedEnvironment)
             return None
 
         env = test.fullyResolvedEnvironment.Environment
@@ -1506,6 +1525,7 @@ class TestManager(object):
             elif env.image.matches.AMI:
                 os = MachineManagement.OsConfig.LinuxVM(env.image.base_ami)
             else:
+                logging.warn("Test %s has an invalid image %s for linux", test.fullname, env.image)
                 return None
 
         if env.platform.matches.windows:
@@ -1514,6 +1534,7 @@ class TestManager(object):
             elif env.image.matches.AMI:
                 os = MachineManagement.OsConfig.WindowsVM(env.image.base_ami)
             else:
+                logging.warn("Test %s has an invalid image %s for windows", test.fullname, env.image)
                 return None
 
         min_cores = test.testDefinition.min_cores
@@ -1527,6 +1548,7 @@ class TestManager(object):
                 viable.append(hardware)
 
         if not viable:
+            logging.warn("Test %s has no viable hardware configurations", test.fullname)
             return None
 
         if max_cores:

@@ -113,8 +113,6 @@ def main():
                                                )
 
     serverThread = threading.Thread(target=server.runListenLoop)
-    stopped = threading.Event()
-    exited = threading.Event()
 
     def handleStopSignal(signum, _):
         logging.info("Signal received: %s. Stopping service.", signum)
@@ -125,8 +123,8 @@ def main():
 
     serverThread.start()
 
-    while not stopped.is_set():
-        stopped.wait(1.0)
+    while True:
+        time.sleep(1.0)
 
 if __name__ == "__main__":
     main()
