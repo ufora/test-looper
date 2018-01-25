@@ -108,6 +108,8 @@ class MockGitRepo:
 
         self.repo.source_control.created_commits += 1
 
+        assert self.repo.source_control.created_commits < 20, "Created too many new commits for the test to be reasonable"
+
         newCommitHash = "created_" + str(self.repo.source_control.created_commits)
         newCommitId = self.repo.repoName + "/" + newCommitHash
 
@@ -344,6 +346,21 @@ looper_version: 2
 repos:
   child: 
     reference: repo2/c0
+"""
+
+basic_yml_file_repo6 = """
+looper_version: 2
+repos:
+  child: 
+    reference: repo6/c0
+    branch: __branch__
+"""
+
+basic_yml_file_repo6_nopin = """
+looper_version: 2
+repos:
+  child: 
+    reference: repo6/c0
 """
 
 class TestManagerTestHarness:
@@ -680,6 +697,37 @@ class TestManagerTests(unittest.TestCase):
             top_commit = top_commit.data.parents[0]
             self.assertEqual(top_commit.data.repos["child"].reference, "repo2/c5")
 
+        
+
+    def test_manager_branch_circular_pinning(self):
+        harness = self.get_harness(max_workers=1)
+
+        harness.add_content()
+        
+        harness.manager.source_control.addCommit("repo6/c0", [], basic_yml_file_repo6.replace("__branch__", "master1"))
+        harness.manager.source_control.addCommit("repo6/c1", [], basic_yml_file_repo6.replace("__branch__", "master2"))
+        harness.manager.source_control.addCommit("repo6/c2", [], basic_yml_file_repo6.replace("__branch__", "master3"))
+        harness.manager.source_control.addCommit("repo6/c3", [], basic_yml_file_repo6.replace("__branch__", "master4"))
+        harness.manager.source_control.addCommit("repo6/c4", [], basic_yml_file_repo6.replace("__branch__", "master0"))
+
+        harness.manager.source_control.setBranch("repo6/master0", "repo6/c0")
+        harness.manager.source_control.setBranch("repo6/master1", "repo6/c1")
+        harness.manager.source_control.setBranch("repo6/master2", "repo6/c2")
+        harness.manager.source_control.setBranch("repo6/master3", "repo6/c3")
+        harness.manager.source_control.setBranch("repo6/master4", "repo6/c4")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        self.assertTrue(harness.manager.source_control.created_commits == 0)
+
+        harness.manager.source_control.addCommit("repo6/c0_alt", [], basic_yml_file_repo6_nopin)
+        harness.manager.source_control.setBranch("repo6/master3", "repo6/c0_alt")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        self.assertEqual(harness.manager.source_control.created_commits, 4)
         
 
 

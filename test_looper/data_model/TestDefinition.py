@@ -4,6 +4,7 @@ TestDefinition
 Objects modeling our tests.
 """
 import test_looper.core.algebraic as algebraic
+import test_looper.core.GraphUtil as GraphUtil
 import test_looper.core.algebraic_to_json as algebraic_to_json
 import logging
 import re
@@ -143,26 +144,6 @@ def method_resolution_order(env, dependencies):
 
     return merge(linearization)
 
-def env_dependencies(env):
-    if env.matches.Import:
-        return env.imports
-    else:
-        return []
-
-def assertNotCircular(underlying_environments):
-    not_circular = set()
-    def check(node, above=()):
-        if node in not_circular:
-            return
-        for child in env_dependencies(underlying_environments[node]):
-            if child in above:
-                raise Exception("Circular dependencies: %s" % (above + (child,)))
-            check(child, above + (node,))
-        not_circular.add(node)
-
-    for d in underlying_environments:
-        check(d)
-
 def merge_image_and_extra_setup(image, extra_setup):
     if not extra_setup:
         return image
@@ -192,7 +173,10 @@ def merge_environments(import_environment, underlying_environments):
     assert import_environment.matches.Import
 
     #check for circularity
-    assertNotCircular(underlying_environments)
+    GraphUtil.assertGraphHasNoCycles(
+        import_environment, 
+        lambda e: [underlying_environments[d] for d in e.imports] if e.matches.Import else ()
+        )
 
     order = method_resolution_order(import_environment, underlying_environments)
 

@@ -6,6 +6,7 @@ import traceback
 import simplejson
 import threading
 import textwrap
+import test_looper.core.GraphUtil as GraphUtil
 import re
 from test_looper.core.hash import sha_hash
 import test_looper.core.Bitstring as Bitstring
@@ -813,6 +814,37 @@ class TestManager(object):
 
         return defText, extension
 
+    def _pinTargetBranch(self, pin):
+        repo_def = pin.repo_def
+
+        curCommitRef = pin.branch.head.data.repos[repo_def].reference
+
+        target = curCommitRef.split("/")
+
+        #this is what we're currently referencing
+        repoName, commitHash = ("/".join(target[:-1]), target[-1])
+        assert repoName == pin.pinned_to_repo
+
+        repo = self.database.Repo.lookupAny(name=repoName)
+        if repo:
+            cur_commit = self.database.Commit.lookupAny(repo_and_hash=(repo,commitHash))
+            
+            return self.database.Branch.lookupAny(reponame_and_branchname=(pin.pinned_to_repo, pin.pinned_to_branch))
+
+    def _pinIsCyclic(self, branchPin):
+        def children(pin):
+            """Find all the pins that would be updated if this pin changed."""
+            branch = self._pinTargetBranch(pin)
+            if branch is None:
+                return []
+
+            return self.database.BranchPin.lookupAll(branch=branch)
+
+        return GraphUtil.graphFindCycle(
+            branchPin,
+            children
+            )
+
     def _processTask(self, task, curTimestamp):
         if task.matches.RefreshRepos:
             all_repos = set(self.source_control.listRepos())
@@ -884,24 +916,34 @@ class TestManager(object):
                 pins_to_update = {}
 
                 for pin in self.database.BranchPin.lookupAll(branch=branch):
-                    repo_def = pin.repo_def
+                    cycle = self._pinIsCyclic(pin)
+                    
+                    if cycle:
+                        logging.error(
+                            "Pin %s/%s is cyclic. Not updating. Cycle is:\n\n%s",
+                            pin.branch.branchname,
+                            pin.repo_def,
+                            "\n".join([x.branch.branchname + "/" + x.repo_def + "->" + x.pinned_to_repo + "/" + x.pinned_to_branch for x in cycle])
+                            )
+                    else:
+                        repo_def = pin.repo_def
 
-                    curCommitRef = branch.head.data.repos[repo_def].reference
+                        curCommitRef = branch.head.data.repos[repo_def].reference
 
-                    target = curCommitRef.split("/")
+                        target = curCommitRef.split("/")
 
-                    #this is what we're currently referencing
-                    repoName, commitHash = ("/".join(target[:-1]), target[-1])
-                    assert repoName == pin.pinned_to_repo
+                        #this is what we're currently referencing
+                        repoName, commitHash = ("/".join(target[:-1]), target[-1])
+                        assert repoName == pin.pinned_to_repo
 
-                    repo = self.database.Repo.lookupAny(name=repoName)
-                    if repo:
-                        cur_commit = self.database.Commit.lookupAny(repo_and_hash=(repo,commitHash))
-                        
-                        pin_branch = self.database.Branch.lookupAny(reponame_and_branchname=(pin.pinned_to_repo, pin.pinned_to_branch))
+                        repo = self.database.Repo.lookupAny(name=repoName)
+                        if repo:
+                            cur_commit = self.database.Commit.lookupAny(repo_and_hash=(repo,commitHash))
+                            
+                            pin_branch = self.database.Branch.lookupAny(reponame_and_branchname=(pin.pinned_to_repo, pin.pinned_to_branch))
 
-                        if cur_commit and pin_branch and pin_branch.head != cur_commit:
-                            pins_to_update[repo_def] = (commitHash, pin_branch.branchname, pin_branch.head)
+                            if cur_commit and pin_branch and pin_branch.head != cur_commit:
+                                pins_to_update[repo_def] = (commitHash, pin_branch.branchname, pin_branch.head)
 
                 if not pins_to_update:
                     return
@@ -1186,6 +1228,7 @@ class TestManager(object):
 
     def _recalculateBranchPins(self, branch):
         existingPins = self.database.BranchPin.lookupAll(branch=branch)
+
         for p in existingPins:
             p.delete()
 
@@ -1200,6 +1243,7 @@ class TestManager(object):
                         pinned_to_repo=reponame,
                         pinned_to_branch=target.branch
                         )
+
 
         self._scheduleBranchPinNeedsUpdating(branch)
 
