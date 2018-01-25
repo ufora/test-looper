@@ -1668,6 +1668,13 @@ class TestManager(object):
 
                     if commit and commit.data:
                         underlying_env = commit.data.environments.get(dep.name, None)
+                        if not underlying_env:
+                            raise Exception("Can't find environment %s amongst %s within commit %s/%s" % (
+                                dep.name,
+                                list(commit.data.environments),
+                                commit.repo.name, 
+                                commit.hash
+                                ))
                     else:
                         underlying_env = None
 
@@ -1684,6 +1691,10 @@ class TestManager(object):
                     import_dep(dep)
 
                 if None in dependencies.values():
+                    logging.warn("Test %s can't find dependencies %s", 
+                        test.fullname, 
+                        [k for k,v in dependencies.iteritems() if v is None]
+                        )
                     env = None
                 else:
                     env = TestDefinition.merge_environments(env, dependencies)
@@ -1810,15 +1821,15 @@ class TestManager(object):
         if not commit:
             commit = self.database.Commit.New(repo=repo, hash=commitHash)
 
-            self.database.DataTask.New(
-                task=self.database.BackgroundTask.UpdateCommitData(commit=commit),
-                status=pendingHigh
-                )
-
             for dep in self.database.UnresolvedSourceDependency.lookupAll(repo_and_hash=(repo, commitHash)):
                 test = dep.test
                 dep.delete()
                 self._triggerTestPriorityUpdateIfNecessary(test)
 
+        if not commit.data:
+            self.database.DataTask.New(
+                task=self.database.BackgroundTask.UpdateCommitData(commit=commit),
+                status=pendingHigh
+                )
 
         return commit
