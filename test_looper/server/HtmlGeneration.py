@@ -6,6 +6,7 @@ Simple utilities for generating HTML for the TestLooperHttpServer.
 
 import logging
 import re
+import cgi
 
 headers = """
 <!DOCTYPE html>
@@ -199,7 +200,7 @@ class Link(HtmlElement):
     def render(self):
         button_class = ('class="btn %s" role="button"' % self.button_style) if self.is_button else ''
         return """<a href="%s" title="%s" %s %s>%s</a>""" % (
-            self.url, self.hover_text, button_class, 'target="_blank"' if self.new_tab else "", render(self.text)
+            self.url, cgi.escape(self.hover_text, quote=True), button_class, 'target="_blank"' if self.new_tab else "", render(self.text)
             )
 
     def withTextReplaced(self, newText):

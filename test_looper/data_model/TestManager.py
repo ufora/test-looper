@@ -245,7 +245,7 @@ class TestManager(object):
         branches = {}
 
         def check(c, path_back):
-            if c not in childCommits or len(path_back) < len(child_commits[c]):
+            if c not in childCommits or len(path_back) < len(childCommits[c]):
                 childCommits[c] = path_back
 
                 for branch in self.database.Branch.lookupAll(head=c):
