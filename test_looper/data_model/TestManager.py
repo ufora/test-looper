@@ -1350,6 +1350,9 @@ class TestManager(object):
         if test.fullyResolvedEnvironment.matches.Error:
             test.priority = self.database.TestPriority.InvalidTestDefinition()
             test.targetMachineBoot = 0
+        if test.fullyResolvedEnvironment.matches.Unresolved:
+            test.priority = self.database.TestPriority.UnresolvedDependencies()
+            test.targetMachineBoot = 0
         elif category and category.hardwareComboUnbootable:
             test.priority = self.database.TestPriority.HardwareComboUnbootable()
             test.targetMachineBoot = 0
