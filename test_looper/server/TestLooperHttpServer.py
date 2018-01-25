@@ -897,7 +897,7 @@ class TestLooperHttpServer(object):
             return header + HtmlGeneration.grid(grid)
 
     def allTestDependencyGrid(self, test):
-        grid = [["REPO", "COMMIT"]]
+        grid = [["COMMIT", "TEST"]]
 
         for subtest in self.testManager.allTestsDependedOnByTest(test):
             grid.append([

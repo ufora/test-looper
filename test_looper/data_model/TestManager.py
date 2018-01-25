@@ -569,7 +569,7 @@ class TestManager(object):
         if not self.heartbeatHandler.testHeartbeat(testId, timestamp, logMessage):
             return True
 
-        logging.info('test %s heartbeating', testId)
+        logging.debug('test %s heartbeating', testId)
 
         with self.transaction_and_lock():
             testRun = self.database.TestRun(str(testId))
