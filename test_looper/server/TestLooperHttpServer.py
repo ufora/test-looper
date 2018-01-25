@@ -92,6 +92,9 @@ class InteractiveEnvironmentHandler:
 
     def onTestOutput(self, message):
         try:
+            if message is None:
+                return
+            
             self.websocket.send(message, False)
         except:
             logging.error("Error in websocket handler: \n%s", traceback.format_exc())

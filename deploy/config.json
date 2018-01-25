@@ -1,0 +1,60 @@
+{
+    "server": {
+        "path_to_local_repos": "$TEST_LOOPER_INSTALL/server/repos",
+        "database": {"port": 1115},
+        "path_to_keys": "$HOME/.ssh/id_rsa",
+        "path_to_certs": {
+            "cert": "$HOME/certs/cert.crt",
+            "key": "$HOME/certs/cert.key",
+            "chain": "$HOME/certs/gd_bundle-g2-g1.crt"
+            }
+        },
+    "server_ports": {
+        "server_address": "testlooper.COMPANYNAME.com",
+        "server_https_port": 443,
+        "server_worker_port": 8080,
+        "server_worker_port_use_ssl": true
+        },
+    "artifacts": {
+        "bucket": "testlooper-COMPANYNAME",
+        "region": "us-east-1",
+        "build_artifact_key_prefix": "testlooper_build_artifacts",
+        "test_artifact_key_prefix": "testlooper_test_artifacts"
+        },
+    "machine_management": {
+        "worker_name": "test-looper-worker-dev",
+        "region": "us-east-1",
+        "vpc_id": "vcp-XXXX",
+        "security_group": "sg-XXXX",
+        "subnet":"subnet-XXXX",
+        "keypair": "key-pair-name",
+        "bootstrap_bucket": "testlooper-COMPANYNAME",
+        "bootstrap_key_prefix": "testlooper_bootstraps",
+        "worker_iam_role_name": "TestLooperIamRole",
+        "path_to_keys": "$HOME/.ssh/id_rsa",
+        "instance_types": [
+            [{"cores": 2, "ram_gb": 4}, "t2.medium"],
+            [{"cores": 4, "ram_gb": 16}, "m5.xlarge"],
+            [{"cores": 32, "ram_gb": 244}, "r3.8xlarge"]
+            ],
+        "linux_ami": "ami-55ef662f",
+        "windows_ami": "ami-08910872",
+        "host_ips": {
+            "gitlab.COMPANYNAME.com": "...",
+            "testlooper.COMPANYNAME.com": "..."
+            },
+        "max_workers": 8
+        },
+    "source_control": {
+        "private_token": "$GITLAB_PRIVATE_TOKEN",
+        "auth_disabled": true,
+        "oauth_key": "$GITLAB_OAUTH_KEY",
+        "oauth_secret": "$GITLAB_OAUTH_SECRET",
+        "webhook_secret": "$GITLAB_WEBHOOK_SECRET",
+        "group": "...",
+        "gitlab_url": "https://gitlab.COMPANYNAME.com",
+        "gitlab_login_url": "https://gitlab.COMPANYNAME.com",
+        "gitlab_api_url": "https://gitlab.COMPANYNAME.com/api/v3",
+        "gitlab_clone_url": "git@gitlab.COMPANYNAME.com"
+        }
+}

@@ -241,7 +241,7 @@ class TestLooperClient(object):
 
     def terminalOutput(self, output):
         if self._curDeploymentId is not None:
-            self._curOutputs.append(msg)
+            self._curOutputs.append(output)
             self._send(TestLooperServer.ClientToServerMsg.DeploymentTerminalOutput(deploymentId=self._curDeploymentId, data=output))
 
     def subscribeToTerminalInput(self, callback):

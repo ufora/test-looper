@@ -348,6 +348,13 @@ class TestManager(object):
         logging.info("Canceling deployment %s. Desired count for category %s/%s/%s is now %s vs booted %s", 
                 deploymentId, cat._identity[:6], cat.hardware, cat.os, cat.desired, cat.booted)
 
+        os = deployment.machine.os
+        
+        if (os.matches.WindowsVM or os.matches.LinuxVM):
+            #we need to shut down this machine since it has a setup script
+            if not DISABLE_MACHINE_TERMINATION:
+                self._terminateMachine(deployment.machine, timestamp)
+
         self._scheduleBootCheck()
         self._shutdownMachinesIfNecessary(timestamp)
 
@@ -643,7 +650,7 @@ class TestManager(object):
 
 
     def handleDeploymentConnectionReinitialized(self, deploymentId, timestamp, allLogs):
-        self.streamForDeployment(deploymentId).allMessagesFromDeploymentFromStart(deploymentId, timestamp, allLogs)
+        self.streamForDeployment(deploymentId).allMessagesFromDeploymentFromStart(allLogs)
 
         return self.handleMessageFromDeployment(deploymentId, timestamp, "")
 
