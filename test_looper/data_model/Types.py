@@ -132,7 +132,9 @@ def setup_types(database):
 
     database.Repo.define(
         name=str,
-        isActive=bool
+        isActive=bool,
+        commits=int,
+        commitsWithTests=int
         )
 
     database.Branch.define(
@@ -146,7 +148,8 @@ def setup_types(database):
         branch=database.Branch,
         repo_def=str,
         pinned_to_repo=str,
-        pinned_to_branch=str
+        pinned_to_branch=str,
+        auto=bool
         )
 
     database.MachineCategory.define(

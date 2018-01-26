@@ -223,7 +223,16 @@ class TestLooperServer(SimpleServer.SimpleServer):
     def initialize(self):
         logging.info("Initializing TestManager.")
         self.testManager.markRepoListDirty(time.time())
-        self.testManager.pruneDeadWorkers(time.time())
+        try:
+            self.testManager.pruneDeadWorkers(time.time())
+        except:
+            logging.error("Server had an exception during initialization:\n%s", traceback.format_exc())
+
+        try:
+            self.testManager.checkAllTestPriorities(time.time())
+        except:
+            logging.error("Server had an exception during initialization:\n%s", traceback.format_exc())
+        
         logging.info("DONE Initializing TestManager.")
         
 
@@ -231,13 +240,14 @@ class TestLooperServer(SimpleServer.SimpleServer):
         logging.info("Starting TestLooperServer listen loop")
 
         self.httpServer.start()
-        self.workerThread.start()
 
         logging.info("HTTP server started")
 
         try:
             self.initialize()
             logging.info("TestLooper initialized")
+
+            self.workerThread.start()
 
             super(TestLooperServer, self).runListenLoop()
         finally:

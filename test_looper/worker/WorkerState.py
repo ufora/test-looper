@@ -411,6 +411,8 @@ class WorkerState(object):
         env_to_pass = dict(os.environ)
         env_to_pass.update(env)
 
+        t0 = time.time()
+
         command_path = os.path.join(self.directories.command_dir,"command.ps1")
         with open(command_path,"w") as cmd_file:
             print >> cmd_file, "cd '" + self.directories.repo_copy_dir + "'"

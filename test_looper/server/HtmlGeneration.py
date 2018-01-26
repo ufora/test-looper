@@ -320,6 +320,9 @@ def blueBacking(text):
 def lightGreyBacking(text):
     return SpanTag(text, {'style': "background-color:#dddddd"})
 
+def lightGreyWithHover(text, title):
+    return SpanTag(text, {'class': "text-muted", 'title': cgi.escape(title, quote=True)})
+
 def selectBox(name, items, default=None):
     '''
     items - a list of (value, caption) tuples representing the items in the select box.

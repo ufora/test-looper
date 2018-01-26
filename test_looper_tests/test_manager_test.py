@@ -339,6 +339,7 @@ repos:
   child: 
     reference: repo2/c0
     branch: master
+    auto: true
 """
 
 basic_yml_file_repo5_nopin = """
@@ -354,6 +355,7 @@ repos:
   child: 
     reference: repo6/c0
     branch: __branch__
+    auto: true
 """
 
 basic_yml_file_repo6_nopin = """

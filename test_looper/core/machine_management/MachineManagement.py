@@ -60,9 +60,10 @@ class MachineManagement(object):
 
             return True
 
-    def _machineBooted(self, machineId, hardwareConfig, osConfig, machine):
+    def _machineBooted(self, machineId, hardwareConfig, osConfig, machine, nocheck=False):
         with self._lock:
-            assert self.canBoot(hardwareConfig, osConfig)
+            if not nocheck:
+                assert self.canBoot(hardwareConfig, osConfig)
 
             self.hardwareConfigs[machineId] = hardwareConfig
             self.osConfigs[machineId] = osConfig
@@ -272,7 +273,7 @@ class AwsMachineManagement(MachineManagement):
                 if m in activeMachines:
                     logging.info("Machine %s is already up and running: %s/%s", m, machineIds[m][0], machineIds[m][1])
 
-                    self._machineBooted(m, machineIds[m][0], machineIds[m][1], True)
+                    self._machineBooted(m, machineIds[m][0], machineIds[m][1], True, nocheck=True)
 
             return machinesThatAppearDead
         

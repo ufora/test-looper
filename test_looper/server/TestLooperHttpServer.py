@@ -514,16 +514,14 @@ class TestLooperHttpServer(object):
             self.address + "/allTestRuns" + ("?" if extras else "") + urllib.urlencode(extras)
             )
 
-    def commitLink(self, commit, textIsSubject=True, textOverride=None):
-        subject = "<not loaded yet>" if not commit.data else commit.data.subject
-
-        if textIsSubject:
+    def commitLink(self, commit, textOverride = None, textIsSubject=True, hoverOverride=None):
+        if textOverride is not None:
+            text = textOverride
+        elif textIsSubject:
+            subject = "<not loaded yet>" if not commit.data else commit.data.subject
             text = subject if len(subject) < 71 else subject[:70] + '...'
         else:
             text = commit.repo.name + "/" + commit.hash[:8]
-        
-        if textOverride is not None:
-            text = textOverride
 
         extras = {}
 
@@ -533,7 +531,7 @@ class TestLooperHttpServer(object):
         return HtmlGeneration.link(
             text,
             self.address + "/commit" + ("?" if extras else "") + urllib.urlencode(extras),
-            hover_text="" if not commit.data else commit.data.commitMessage
+            hover_text=hoverOverride or ("" if not commit.data else commit.data.commitMessage)
             )
 
     def branchLink(self, branch, testGroupsToExpand=None):
@@ -635,12 +633,22 @@ class TestLooperHttpServer(object):
         with self.testManager.database.view():
             machines = self.testManager.database.Machine.lookupAll(isAlive=True)
 
-            grid = [["MachineID", "Hardware", "OS", "BOOTED AT", "UP FOR", "STATUS", "LASTMSG", "RUNNING", "", "", "", ""]]
+            grid = [["MachineID", "Hardware", "OS", "BOOTED AT", "UP FOR", "STATUS", "LASTMSG", "COMMIT", "TEST", "LOGS", "CANCEL", ""]]
             for m in sorted(machines, key=lambda m: -m.bootTime):
                 row = []
                 row.append(m.machineId)
-                row.append(str(m.hardware))
-                row.append(str(m.os))
+                row.append("%s cores, %s GB" % (m.hardware.cores, m.hardware.ram_gb))
+                if m.os.matches.WindowsVM:
+                    row.append("Win(%s)" % m.os.ami)
+                elif m.os.matches.LinuxVM:
+                    row.append("Linux(%s)" % m.os.ami)
+                elif m.os.matches.LinuxWithDocker:
+                    row.append("LinuxDocker()")
+                elif m.os.matches.WindowsWithDocker:
+                    row.append("WindowsDocker()")
+                else:
+                    row.append("Unknown")
+
                 row.append(time.asctime(time.gmtime(m.bootTime)))
                 row.append(secondsUpToString(time.time() - m.bootTime))
                 
@@ -653,21 +661,25 @@ class TestLooperHttpServer(object):
 
                 tests = self.testManager.database.TestRun.lookupAll(runningOnMachine=m)
                 deployments = self.testManager.database.Deployment.lookupAll(runningOnMachine=m)
-                    
+
                 if len(tests) + len(deployments) > 1:
                     row.append("ERROR: multiple test runs/deployments")
                 elif tests:
+                    commit = tests[0].test.commitData.commit
+                    row.append(self.commitLink(commit, textOverride=commit.repo.name + "/" + self.testManager.bestCommitName(commit)))
+
                     row.append(self.testRunLink(tests[0], "TEST "))
                     row.append(self.testLogsButton(tests[0]._identity))
                     row.append(self.cancelTestRunButton(tests[0]._identity))
-                    row.append(self.commitLink(tests[0].test.commitData.commit))
                     
                 elif deployments:
+                    commit = tests[0].test.commitData.commit
+                    row.append(self.commitLink(commit, textOverride=commit.repo.name + "/" + self.testManager.bestCommitName(commit)))
+
                     d = deployments[0]
                     row.append("DEPLOYMENT")
                     row.append(self.connectDeploymentLink(d))
                     row.append(self.shutdownDeploymentLink(d))
-                    row.append(self.commitLink(d.test.commitData.commit))
                 
                 grid.append(row)
                 
@@ -725,10 +737,6 @@ class TestLooperHttpServer(object):
                         return "HardwareComboUnbootable"
                     if priority.matches.InvalidTestDefinition:
                         return "InvalidTestDefinition"
-                    
-                    if calculatedPriority == 0:
-                        return ""
-
                     if priority.matches.WaitingOnBuilds:
                         return "WaitingOnBuilds"
                     if priority.matches.NoMoreTests:
@@ -819,7 +827,7 @@ class TestLooperHttpServer(object):
 
         markdown_header += """## Priority: toggle_switch """
 
-        if commit.calculatedPriority == 0:
+        if commit.userPriority == 0:
             markdown_header += "Not Prioritized"
         else:
             markdown_header += "Prioritized"
@@ -1117,9 +1125,11 @@ class TestLooperHttpServer(object):
             )
 
     def toggleCommitUnderTestLink(self, commit):
-        icon = "glyphicon-pause" if commit.calculatedPriority > 0 else "glyphicon-play"
-        hover_text = "%s testing this commit" % ("Pause" if commit.calculatedPriority else "Start")
-        button_style = "btn-xs " + ("btn-success active" if commit.calculatedPriority else "btn-default")
+        actual_priority = commit.userPriority > 0
+
+        icon = "glyphicon-pause" if actual_priority else "glyphicon-play"
+        hover_text = "%s testing this commit" % ("Pause" if actual_priority else "Start")
+        button_style = "btn-xs " + ("btn-success active" if actual_priority else "btn-default")
         
         return HtmlGeneration.Link(
             "/toggleCommitUnderTest?" + 
@@ -1138,7 +1148,7 @@ class TestLooperHttpServer(object):
             repo = self.testManager.database.Repo.lookupOne(name=reponame)
             commit = self.testManager.database.Commit.lookupAny(repo_and_hash=(repo, hash))
 
-            self.testManager._setCommitUserPriority(commit, 1 if not commit.calculatedPriority else 0)
+            self.testManager._setCommitUserPriority(commit, 1 if not commit.userPriority else 0)
 
         raise cherrypy.HTTPRedirect(redirect)
 
@@ -1174,30 +1184,63 @@ class TestLooperHttpServer(object):
 
             branches = self.testManager.database.Branch.lookupAll(repo=repo)
             
-            refresh_button = HtmlGeneration.Link(
-                "/refresh?" + urllib.urlencode({"redirect": self.redirect()}),
-                '<span class="glyphicon glyphicon-refresh " aria-hidden="true" />',
-                is_button=True,
-                button_style='btn-default btn-xs',
-                hover_text='Refresh branches'
-                )
+            def hasTests(b):
+                if not b.head or not b.head.data:
+                    return False
+                if b.head.data.testDefinitions or b.head.data.testDefinitionsError != "No test definition file found.":
+                    return True
+                return False
 
-            grid = [["TEST", "BRANCH NAME", refresh_button, "TOP COMMIT"]]
+            branches = sorted(branches, key=lambda b: (not hasTests(b), b.branchname))
 
-            for branch in sorted(branches, key=lambda b:b.branchname):
+            grid = [["TEST", "BRANCH NAME", "TOP COMMIT", "PINS", "", ""]]
+
+            lastBranch = None
+            for branch in branches:
+                if lastBranch is not None and not hasTests(branch) and hasTests(lastBranch):
+                    grid.append(["&nbsp;"])
+                lastBranch = branch
+
                 row = []
+                grid.append(row)
+
                 row.append(self.toggleBranchUnderTestLink(branch))
                 row.append(self.branchLink(branch))
-                row.append("")
 
-                if branch.head:
+                if branch.head and branch.head.data:
                     row.append(self.commitLink(branch.head))
+                else:
+                    row.append(HtmlGeneration.lightGrey("loading"))
+
+                if branch.head.data:
+                    pinLines = self.pinGridWithUpdateButtons(branch)
+
+                    if not pinLines:
+                        row.extend(["","",""])
+                    else:
+                        #put the first pin inline here
+                        row.extend(pinLines[0])
+
+                        for line in pinLines[1:]:
+                            #and the remaining pins on a line each
+                            grid.append(["","",""] + line)
                 else:
                     row.append("")
 
-                grid.append(row)
-
             return grid
+
+    def pinGridWithUpdateButtons(self, branch):
+        lines = []
+
+        for refname, repoRef in sorted(branch.head.data.repos.iteritems()):
+            if repoRef.matches.Pin:
+                lines.append(
+                    [self.renderPinUpdateLink(branch, refname, repoRef),
+                    refname, 
+                    self.renderPinReference(refname, repoRef)
+                    ])
+
+        return lines
 
     @cherrypy.expose
     def deployments(self):
@@ -1291,18 +1334,28 @@ class TestLooperHttpServer(object):
     def reposGrid(self):
         with self.testManager.database.view():
             repos = self.testManager.database.Repo.lookupAll(isActive=True)
-            repoNames = [r.name for r in repos]
+            
+            repos = sorted(
+                repos, 
+                key=lambda repo:
+                    (repo.commitsWithTests == 0, repo.name)
+                )
 
-            grid = [["REPO NAME", "BRANCH COUNT"]]
+            grid = [["REPO NAME", "BRANCH COUNT", "COMMITS", "COMMITS WITH TESTS"]]
 
-            for r in sorted(repoNames):
-                branches = self.testManager.database.Branch.lookupAll(
-                    repo=self.testManager.database.Repo.lookupOne(name=r)
-                    )
+            last_repo = None
+            for repo in repos:
+                if last_repo and last_repo.commitsWithTests and not repo.commitsWithTests:
+                    grid.append([""])
+                last_repo = repo
+
+                branches = self.testManager.database.Branch.lookupAll(repo=repo)
 
                 grid.append([
-                    HtmlGeneration.link(r, "/branches?" + urllib.urlencode({'repoName':r})),
-                    str(len(branches))
+                    HtmlGeneration.link(repo.name, "/branches?" + urllib.urlencode({'repoName':repo.name})),
+                    str(len(branches)),
+                    str(repo.commits),
+                    str(repo.commitsWithTests)
                     ])
 
             return grid
@@ -1313,7 +1366,19 @@ class TestLooperHttpServer(object):
 
         grid = HtmlGeneration.grid(self.branchesGrid(repoName))
         
-        return self.commonHeader(currentRepo=repoName) + grid
+        refresh_branches = markdown.markdown(
+            "### Refresh Branches button"
+            ).replace("button", 
+                HtmlGeneration.Link(
+                    "/refresh?" + urllib.urlencode({"redirect": self.redirect()}),
+                    '<span class="glyphicon glyphicon-refresh " aria-hidden="true" />',
+                    is_button=True,
+                    button_style='btn-default btn-xs',
+                    hover_text='Refresh branches'
+                    ).render()
+                )
+
+        return self.commonHeader(currentRepo=repoName) + refresh_branches + grid
 
 
     def toggleBranchTargetedTestListLink(self, branch, testType, testGroupsToExpand):
@@ -1668,18 +1733,94 @@ class TestLooperHttpServer(object):
             else self.clearCommitIdLink(commit)
             )
 
-        if False:
-            #not quite implemented yet
-            pins = []
-            for repoRef in commit.commitData.repos.values():
-                if repoRef.matches.Pin and repoRef.display:
-                    pins.append(repoRef)
+        pins = []
+        if commit.data:
+            for repoName, repoRef in sorted(commit.data.repos.iteritems()):
+                if repoRef.matches.Pin:
+                    result = self.renderPinReference(repoName, repoRef)
+                    if not isinstance(result, str):
+                        result = result.render()
+                    pins.append(result)
 
-            row.append("&nbsp;".join(pins))
-        else:
-            row.append("")
+        row.append(",&nbsp;".join(pins))
 
         return row
+
+    def renderPinUpdateLink(self, branch, reference_name, repoRef):
+        if repoRef.auto:
+            return HtmlGeneration.lightGrey("marked auto")
+        else:
+            commit = branch.head
+
+            targetRepoName = "/".join(repoRef.reference.split("/")[:-1])
+
+            target_branch = self.testManager.database.Branch.lookupAny(reponame_and_branchname=(targetRepoName,repoRef.branch))
+            
+            if not target_branch:
+                return HtmlGeneration.lightGrey("unknown branch %s" % repoRef.branch)
+
+            if target_branch.head.hash == repoRef.reference.split("/")[-1]:
+                return HtmlGeneration.lightGrey("up to date")
+
+            message = "push commit updating pin of %s from %s to %s" % (reference_name, target_branch.head.hash, repoRef.reference.split("/")[-1])
+
+            params = {
+                "redirect": self.redirect(), 
+                "repoName": commit.repo.name,  
+                "branchName": branch.branchname,
+                "ref": reference_name
+                }
+
+            return ('<a href="/updateBranchPin?' + urllib.urlencode(params) + '" title="' + message + '">'
+                '<span class="glyphicon glyphicon-refresh " aria-hidden="true" />'
+                '</a>')
+
+    @cherrypy.expose
+    def updateBranchPin(self, repoName, branchName, ref, redirect):
+        with self.testManager.transaction_and_lock():
+            branch = self.testManager.database.Branch.lookupAny(reponame_and_branchname=(repoName, branchName))
+
+            if not branch:
+                return self.errorPage("Unknown branch %s/%s" % (repoName, branchName))
+            
+            self.testManager._updateBranchPin(branch, ref, produceIntermediateCommits=False)
+
+            self.testManager._updateBranchTopCommit(branch)
+
+            if branch.head and not branch.head.data:
+                self.testManager._updateCommitData(branch.head)
+
+            raise cherrypy.HTTPRedirect(redirect)
+
+    def renderPinReference(self, reference_name, repoRef, includeName=False):
+        if includeName:
+            preamble = reference_name + "-&gt;"
+        else:
+            preamble = ""
+
+        repoName = "/".join(repoRef.reference.split("/")[:-1])
+        commitHash = repoRef.reference.split("/")[-1]
+
+        repo = self.testManager.database.Repo.lookupAny(name=repoName)
+        if not repo:
+            return preamble + HtmlGeneration.lightGreyWithHover(repoRef.reference, "Can't find repo %s" % repoName)
+
+        commit = self.testManager.database.Commit.lookupAny(repo_and_hash=(repo, commitHash))
+        if not commit:
+            return preamble + HtmlGeneration.lightGreyWithHover(repoRef.reference[:--30], "Can't find commit %s" % commitHash[:10])
+
+        branches = {k.branchname: v for k,v in self.testManager.commitFindAllBranches(commit).iteritems()}
+
+        if repoRef.branch not in branches:
+            return preamble + self.commitLink(
+                commit, 
+                textIsSubject=False,
+                hoverOverride="Reference to %s has diverged with branch %s" % (repoRef.reference, repoRef.branch)
+                ).render()
+
+        return preamble + self.commitLink(commit, textOverride=repoName + "/" + repoRef.branch + branches[repoRef.branch]).render()
+
+
 
     @cherrypy.expose
     def eventLogs(self):

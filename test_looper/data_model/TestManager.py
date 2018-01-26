@@ -1,5 +1,6 @@
 import collections
 import logging
+import re
 import random
 import time
 import traceback
@@ -176,6 +177,7 @@ class HeartbeatHandler(object):
                 return False
 
 
+version_pattern = re.compile(".*([0-9-._]+).*")
 
 class TestManager(object):
     def __init__(self, source_control, machine_management, kv_store, initialTimestamp=None):
@@ -210,6 +212,46 @@ class TestManager(object):
 
         return res
 
+    def bestCommitName(self, commit):
+        branches = self.commitFindAllBranches(commit)
+
+        branches = {b.branchname:v for b,v in branches.items()}
+
+        if not branches:
+            return str(commit.hash)[:10]
+
+        def masteryness(branchname):
+            fields = []
+
+            if branchname == "master":
+                fields.append(0)
+            elif branchname == "svn-master":
+                fields.append(1)
+            elif 'master' in branchname:
+                fields.append(2)
+            elif 'trunk' in branchname:
+                fields.append(3)
+
+            #look for a version number
+            match = version_pattern.match(branchname)
+            if not match:
+                #sort last
+                fields.append("XXX")
+            else:
+                version = match.groups()[0]
+                for char in ".-_":
+                    version = version.replace(char," ")
+                fields.append(version.split(" "))
+
+            #shortest
+            fields.append(len(branchname + branches[branchname]))
+
+            return tuple(fields)
+            
+        #pick the least feature-branchy name we can
+        best_branch = sorted(branches, key=lambda b: masteryness(b))[0]
+
+        return best_branch + branches[best_branch]
 
     def commitFindAllBranches(self, commit):
         childCommits = {}
@@ -600,8 +642,14 @@ class TestManager(object):
 
                 return True
 
+    def checkAllTestPriorities(self, curTimestamp):
+        with self.transaction_and_lock():
+            self._checkAllTestPriorities(curTimestamp)
+
     def _checkAllTestPriorities(self, curTimestamp):
         logging.info("Checking all test priorities to ensure they are correct")
+
+        total = 0
 
         for priorityType in [
                 self.database.TestPriority.FirstBuild,
@@ -610,11 +658,12 @@ class TestManager(object):
                 ]:
             for priority in reversed(range(1,MAX_TEST_PRIORITY+1)):
                 for test in self.database.Test.lookupAll(priority=priorityType(priority)):
+                    total += 1
                     self._updateTestPriority(test, curTimestamp)
 
-        logging.info("Done checking all test priorities to ensure they are correct")
+        logging.info("Done checking all test priorities to ensure they are correct. Checked %s", total)
                     
-    def _lookupHighestPriorityTest(self, machine, curTimestamp, checkPriorities=True):
+    def _lookupHighestPriorityTest(self, machine, curTimestamp):
         t0 = time.time()
 
         count = 0
@@ -628,14 +677,6 @@ class TestManager(object):
                 priority=priorityType(priorityLevel)
 
                 for test in self.database.Test.lookupAll(priority=priority):
-                    if checkPriorities:
-                        self._updateTestPriority(test, curTimestamp)
-                        
-                        if test.priority != priority:
-                            logging.warn("Test priority for %s was not consistent, %s -> %s", test._identity, priority, test.priority)
-                            self._checkAllTestPriorities(curTimestamp)
-                            return self._lookupHighestPriorityTest(machine, curTimestamp, checkPriorities=False)
-
                     if self._machineCategoryPairForTest(test) == (machine.hardware, machine.os):
                         return test
 
@@ -962,7 +1003,7 @@ class TestManager(object):
                             
                             pin_branch = self.database.Branch.lookupAny(reponame_and_branchname=(pin.pinned_to_repo, pin.pinned_to_branch))
 
-                            if cur_commit and pin_branch and pin_branch.head != cur_commit:
+                            if cur_commit and pin_branch and pin_branch.head != cur_commit and pin.auto:
                                 pins_to_update[repo_def] = (commitHash, pin_branch.branchname, pin_branch.head)
 
                 if not pins_to_update:
@@ -1000,81 +1041,7 @@ class TestManager(object):
 
         elif task.matches.UpdateCommitData:
             with self.transaction_and_lock():
-                repo = self.source_control.getRepo(task.commit.repo.name)
-                
-                commit = task.commit
-
-                if commit.data is self.database.CommitData.Null:
-                    if not repo.source_repo.commitExists(commit.hash):
-                        return
-
-                    hashParentsAndTitle = repo.commitsLookingBack(commit.hash, 1)[0]
-
-                    timestamp = int(hashParentsAndTitle[2])
-                    subject=hashParentsAndTitle[3].split("\n")[0]
-                    body=hashParentsAndTitle[3]
-
-                    parents=[
-                        self._lookupCommitByHash(task.commit.repo, p) 
-                            for p in hashParentsAndTitle[1]
-                        ]
-
-                    commit.data = self.database.CommitData.New(
-                        commit=commit,
-                        subject=subject,
-                        timestamp=timestamp,
-                        commitMessage=body,
-                        parents=parents
-                        )
-
-                    for p in parents:
-                        self.database.CommitRelationship.New(child=commit,parent=p)
-                    
-                    #when we get new commits, make sure we have the right priority
-                    #on them. This is a one-time operation when the commit is first created
-                    #to apply the branch priority to the commit
-                    priority = max([r.child.userPriority
-                        for r in self.database.CommitRelationship.lookupAll(parent=commit)] + [0])
-
-                    for branch in self.database.Branch.lookupAll(head=commit):
-                        if branch.isUnderTest:
-                            priority = max(priority, 1)
-
-                    commit.userPriority = max(commit.userPriority, priority)
-                    
-                    self._triggerCommitPriorityUpdate(commit)
-
-                    try:
-                        defText, extension = repo.getTestScriptDefinitionsForCommit(task.commit.hash)
-                        
-                        if defText is None:
-                            raise Exception("No test definition file found.")
-
-                        all_tests, all_environments, all_repo_defs = TestDefinitionScript.extract_tests_from_str(commit.repo.name, commit.hash, extension, defText)
-
-                        commit.data.testDefinitions = all_tests
-                        commit.data.environments = all_environments
-                        commit.data.repos = all_repo_defs
-                        
-                        for e in all_tests.values():
-                            fullname=commit.repo.name + "/" + commit.hash + "/" + e.name
-
-                            self._createTest(
-                                commitData=commit.data,
-                                fullname=fullname,
-                                testDefinition=e
-                                )
-
-                    except Exception as e:
-                        if not str(e):
-                            logging.error("%s", traceback.format_exc())
-
-                        logging.warn("Got an error parsing tests for %s/%s:\n%s", commit.repo.name, commit.hash, traceback.format_exc())
-
-                        commit.data.testDefinitionsError=str(e)
-
-                    for branch in self.database.Branch.lookupAll(head=commit):
-                        self._recalculateBranchPins(branch)
+                self._updateCommitData(task.commit)
 
         elif task.matches.UpdateTestPriority:
             with self.transaction_and_lock():
@@ -1087,6 +1054,84 @@ class TestManager(object):
                 self._updateCommitPriority(task.commit)
         else:
             raise Exception("Unknown task: %s" % task)
+
+    def _updateCommitData(self, commit):
+        repo = self.source_control.getRepo(commit.repo.name)
+
+        if commit.data is self.database.CommitData.Null:
+            if not repo.source_repo.commitExists(commit.hash):
+                return
+
+            hashParentsAndTitle = repo.commitsLookingBack(commit.hash, 1)[0]
+
+            timestamp = int(hashParentsAndTitle[2])
+            subject=hashParentsAndTitle[3].split("\n")[0]
+            body=hashParentsAndTitle[3]
+
+            parents=[
+                self._lookupCommitByHash(commit.repo, p) 
+                    for p in hashParentsAndTitle[1]
+                ]
+
+            commit.data = self.database.CommitData.New(
+                commit=commit,
+                subject=subject,
+                timestamp=timestamp,
+                commitMessage=body,
+                parents=parents
+                )
+
+            for p in parents:
+                self.database.CommitRelationship.New(child=commit,parent=p)
+            
+            #when we get new commits, make sure we have the right priority
+            #on them. This is a one-time operation when the commit is first created
+            #to apply the branch priority to the commit
+            priority = max([r.child.userPriority
+                for r in self.database.CommitRelationship.lookupAll(parent=commit)] + [0])
+
+            for branch in self.database.Branch.lookupAll(head=commit):
+                if branch.isUnderTest:
+                    priority = max(priority, 1)
+
+            commit.userPriority = max(commit.userPriority, priority)
+            
+            self._triggerCommitPriorityUpdate(commit)
+
+            try:
+                defText, extension = repo.getTestScriptDefinitionsForCommit(commit.hash)
+                
+                if defText is None:
+                    raise Exception("No test definition file found.")
+
+                all_tests, all_environments, all_repo_defs = TestDefinitionScript.extract_tests_from_str(commit.repo.name, commit.hash, extension, defText)
+
+                commit.data.testDefinitions = all_tests
+                commit.data.environments = all_environments
+                commit.data.repos = all_repo_defs
+                
+                for e in all_tests.values():
+                    fullname=commit.repo.name + "/" + commit.hash + "/" + e.name
+
+                    self._createTest(
+                        commitData=commit.data,
+                        fullname=fullname,
+                        testDefinition=e
+                        )
+
+                commit.repo.commitsWithTests = commit.repo.commitsWithTests + 1
+
+            except Exception as e:
+                if not str(e):
+                    logging.error("%s", traceback.format_exc())
+
+                logging.warn("Got an error parsing tests for %s/%s:\n%s", commit.repo.name, commit.hash, traceback.format_exc())
+
+                commit.data.testDefinitionsError=str(e)
+
+            for branch in self.database.Branch.lookupAll(head=commit):
+                self._recalculateBranchPins(branch)
+
 
     def getFastForwardChain(self, commit, commitHash, max_commits=100):
         """Returns a list of tuples [(commit, priorHash)] terminating in 'commitHash' if its a fastforward, otherwise None"""
@@ -1104,12 +1149,39 @@ class TestManager(object):
 
         return chain
 
-    def _updatePinInCommit(self, branch, repoRefName, branch_pin_name, curCommitHash, newCommit):
+    def _updateBranchPin(self, branch, ref_name, produceIntermediateCommits):
+        for pin in self.database.BranchPin.lookupAll(branch=branch):
+            if pin.repo_def == ref_name:
+                curCommitRef = branch.head.data.repos[ref_name].reference
+
+                target = curCommitRef.split("/")
+
+                #this is what we're currently referencing
+                repoName, commitHash = ("/".join(target[:-1]), target[-1])
+
+                assert repoName == pin.pinned_to_repo
+
+                repo = self.database.Repo.lookupAny(name=repoName)
+                if not repo:
+                    raise Exception("Can't find repo " + repoName)
+
+                cur_commit = self.database.Commit.lookupAny(repo_and_hash=(repo,commitHash))
+                    
+                pin_branch = self.database.Branch.lookupAny(reponame_and_branchname=(pin.pinned_to_repo, pin.pinned_to_branch))
+
+                success = self._updatePinInCommit(branch, ref_name, pin_branch.branchname, commitHash, pin_branch.head, produceIntermediateCommits)
+
+                if not success:
+                    raise Exception("Can't update pin")
+
+                return
+
+    def _updatePinInCommit(self, branch, repoRefName, branch_pin_name, curCommitHash, newCommit, produceIntermediateCommits=True):
         #check if newCommit is a fast-forward of our current commit, in which case we'll push all of the 
         #intermediate commits as pins as well
         commitsLookingBack = self.getFastForwardChain(newCommit, curCommitHash)
     
-        if commitsLookingBack:
+        if commitsLookingBack and produceIntermediateCommits:
             finalHash = branch.head.hash
             for commit, priorCommitHash in reversed(commitsLookingBack):
                 finalHash = self._updatePinInCommitAndReturnHash(branch, finalHash, repoRefName, branch_pin_name, priorCommitHash, commit)
@@ -1191,6 +1263,9 @@ class TestManager(object):
                 for pin in self.database.BranchPin.lookupAll(pinned_to=(branch.repo.name,branch.branchname)):
                     self._scheduleBranchPinNeedsUpdating(pin.branch)
 
+        if not branch.head.data:
+            self._updateCommitData(branch.head)
+
     def _computeCommitPriority(self, commit):
         if commit.anyBranch:
             return commit.userPriority
@@ -1261,9 +1336,9 @@ class TestManager(object):
                         branch=branch, 
                         repo_def=repo_def, 
                         pinned_to_repo=reponame,
-                        pinned_to_branch=target.branch
+                        pinned_to_branch=target.branch,
+                        auto=target.auto
                         )
-
 
         self._scheduleBranchPinNeedsUpdating(branch)
 
@@ -1399,8 +1474,6 @@ class TestManager(object):
             self._triggerCommitPriorityUpdate(commit)
 
     def _updateTestPriority(self, test, curTimestamp):
-        logging.info("Updating test priority for test %s", test._identity)
-
         self._checkAllTestDependencies(test)
         
         test.calculatedPriority = test.commitData.commit.calculatedPriority
@@ -1903,6 +1976,7 @@ class TestManager(object):
 
         if not commit:
             commit = self.database.Commit.New(repo=repo, hash=commitHash)
+            repo.commits = repo.commits + 1
 
             for dep in self.database.UnresolvedSourceDependency.lookupAll(repo_and_hash=(repo, commitHash)):
                 test = dep.test
