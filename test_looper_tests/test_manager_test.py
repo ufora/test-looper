@@ -900,3 +900,33 @@ class TestManagerTests(unittest.TestCase):
                 self.assertEqual(hardware.cores, 4)
         
         harness.assertOneshotMachinesDoOneTest()
+
+    def test_manager_cancel_orphans(self):
+        harness = self.get_harness()
+
+        harness.manager.source_control.addCommit("repo1/c0", [], basic_yml_file_repo1)
+        harness.manager.source_control.addCommit("repo1/c1", [], basic_yml_file_repo0)
+        harness.manager.source_control.setBranch("repo1/master", "repo1/c0")
+        
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+        
+        harness.enableBranchTesting("repo1", "master")
+        
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+        
+        harness.startAllNewTests()
+
+        with harness.database.view():
+            self.assertEqual(len(harness.database.TestRun.lookupAll(isRunning=True)), 1)
+
+        harness.manager.source_control.setBranch("repo1/master", "repo1/c1")
+        
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+        
+        with harness.database.view():
+            self.assertEqual(len(harness.database.TestRun.lookupAll(isRunning=True)), 0)
+
+        

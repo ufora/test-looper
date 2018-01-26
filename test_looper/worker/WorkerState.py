@@ -463,6 +463,11 @@ class WorkerState(object):
                     pass
 
                 log_function("")
+
+                if time.time() - t0 > timeout:
+                    log_function("\n\n" + time.asctime() + " TestLooper> Process timed out (%s seconds).\n" % timeout)
+                    running_subprocess.terminate()
+                    return False
         finally:
             try:
                 if ret_code is not None:

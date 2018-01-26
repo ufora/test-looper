@@ -514,7 +514,7 @@ class TestLooperHttpServer(object):
             self.address + "/allTestRuns" + ("?" if extras else "") + urllib.urlencode(extras)
             )
 
-    def commitLink(self, commit, textIsSubject=True):
+    def commitLink(self, commit, textIsSubject=True, textOverride=None):
         subject = "<not loaded yet>" if not commit.data else commit.data.subject
 
         if textIsSubject:
@@ -522,6 +522,9 @@ class TestLooperHttpServer(object):
         else:
             text = commit.repo.name + "/" + commit.hash[:8]
         
+        if textOverride is not None:
+            text = textOverride
+
         extras = {}
 
         extras["repoName"] = commit.repo.name
@@ -715,15 +718,19 @@ class TestLooperHttpServer(object):
                 row.append(str(t.totalRuns))
                 row.append(str(t.totalRuns - t.successes))
 
-                def stringifyPriority(priority):
+                def stringifyPriority(calculatedPriority, priority):
                     if priority.matches.UnresolvedDependencies:
                         return "UnresolvedDependencies"
-                    if priority.matches.WaitingOnBuilds:
-                        return "WaitingOnBuilds"
                     if priority.matches.HardwareComboUnbootable:
                         return "HardwareComboUnbootable"
                     if priority.matches.InvalidTestDefinition:
                         return "InvalidTestDefinition"
+                    
+                    if calculatedPriority == 0:
+                        return ""
+
+                    if priority.matches.WaitingOnBuilds:
+                        return "WaitingOnBuilds"
                     if priority.matches.NoMoreTests:
                         return "HaveEnough"
                     if priority.matches.DependencyFailed:
@@ -735,7 +742,7 @@ class TestLooperHttpServer(object):
 
                     return "Unknown"
 
-                row.append(stringifyPriority(t.priority))
+                row.append(stringifyPriority(t.calculatedPriority, t.priority))
 
                 all_tests = list(self.testManager.database.TestRun.lookupAll(test=t))
                 all_noncanceled_tests = [testRun for testRun in all_tests if not testRun.canceled]
@@ -774,25 +781,7 @@ class TestLooperHttpServer(object):
 
                 grid.append(row)
 
-
-            markdown_header = """## Repo [%s](%s)\n""" % (repoName, self.branchesUrl(repoName))
-            markdown_header += """## Commit `%s`:\n%s\n""" % (commit.hash[:10], "\n".join(["    " + x for x in commit.data.commitMessage.split("\n")]))
-            markdown_header += """## Priority: toggle_switch """
-
-            if commit.userPriority == 0:
-                markdown_header += "Not Prioritized"
-            else:
-                markdown_header += "Prioritized"
-            markdown_header = (
-                markdown.markdown(markdown_header)
-                    .replace("toggle_switch", self.toggleCommitUnderTestLink(commit).render())
-                )
-
-            branchgrid = [["Branches Containing This Commit"]]
-            for branch, path in self.testManager.commitFindAllBranches(commit).iteritems():
-                branchgrid.append([self.branchLink(branch).render() + path])
-
-            header = self.commonHeader(currentRepo=repoName) + markdown_header + HtmlGeneration.grid(branchgrid)
+            header = self.commonHeader(currentRepo=repoName) + self.commitPageHeader(commit)
 
             if commit.data.testDefinitionsError:
                 raw_text, extension = self.testManager.getRawTestFileForCommit(commit)
@@ -817,6 +806,38 @@ class TestLooperHttpServer(object):
                     )
             else:
                 return header + HtmlGeneration.grid(grid)
+
+    def commitPageHeader(self, commit):
+        repoName = commit.repo.name
+
+        markdown_header = """## Repo [%s](%s)\n""" % (repoName, self.branchesUrl(repoName))
+        markdown_header += """## Commit [`%s`](%s):\n%s\n""" % (
+            commit.hash[:10], 
+            self.commitLink(commit).url,
+            "\n".join(["    " + x for x in commit.data.commitMessage.split("\n")])
+            )
+
+        markdown_header += """## Priority: toggle_switch """
+
+        if commit.calculatedPriority == 0:
+            markdown_header += "Not Prioritized"
+        else:
+            markdown_header += "Prioritized"
+        markdown_header = (
+            markdown.markdown(markdown_header)
+                .replace("toggle_switch", self.toggleCommitUnderTestLink(commit).render())
+            )
+
+        if not commit.anyBranch:
+            branchgrid = [["COMMIT ORPHANED!"]]
+        else:
+            branchgrid = [["Branches Containing This Commit"]]
+
+            for branch, path in self.testManager.commitFindAllBranches(commit).iteritems():
+                branchgrid.append([self.branchLink(branch).render() + path])
+
+        return markdown_header + HtmlGeneration.grid(branchgrid)
+
 
     def testDependencySummary(self, t):
         """Return a single cell displaying all the builds this test depends on"""
@@ -893,16 +914,19 @@ class TestLooperHttpServer(object):
 
             grid = self.gridForTestList_(tests, commit=commit, failuresOnly=failuresOnly)
 
-            header = """## Commit `%s`: `%s`\n""" % (commit.hash[:10], commit.data.subject)
+            header = self.commitPageHeader(commit)
             
             if failuresOnly:
-                header += "showing failures only. %s<br/><br/>" % \
-                    self.allTestsLink("Show all test results", commit, testName).render()
+                header += markdown.markdown("showing failures only. %s<br/><br/>" % \
+                    self.allTestsLink("Show all test results", commit, testName).render())
             else:
-                header += "showing both successes and failures. %s<br/><br/>" % \
-                    self.allTestsLink("Show only failures", commit, testName, failuresOnly=True).render()
+                header += markdown.markdown("showing both successes and failures. %s<br/><br/>" % \
+                    self.allTestsLink("Show only failures", commit, testName, failuresOnly=True).render())
 
-            header = self.commonHeader(currentRepo=repoName) + markdown.markdown(header)
+            header += markdown.markdown("showing all test runs. [Show full commit summary](%s)<br/><br/>" % \
+                    self.commitLink(commit).url)
+
+            header = self.commonHeader(currentRepo=repoName) + header
 
             if testName and len(testTypes) == 1:
                 header += markdown.markdown("### Test Dependencies:\n") + HtmlGeneration.grid(self.allTestDependencyGrid(testTypes[0]))
@@ -1093,9 +1117,9 @@ class TestLooperHttpServer(object):
             )
 
     def toggleCommitUnderTestLink(self, commit):
-        icon = "glyphicon-pause" if commit.userPriority > 0 else "glyphicon-play"
-        hover_text = "%s testing this commit" % ("Pause" if commit.userPriority else "Start")
-        button_style = "btn-xs " + ("btn-success active" if commit.userPriority else "btn-default")
+        icon = "glyphicon-pause" if commit.calculatedPriority > 0 else "glyphicon-play"
+        hover_text = "%s testing this commit" % ("Pause" if commit.calculatedPriority else "Start")
+        button_style = "btn-xs " + ("btn-success active" if commit.calculatedPriority else "btn-default")
         
         return HtmlGeneration.Link(
             "/toggleCommitUnderTest?" + 
@@ -1114,7 +1138,7 @@ class TestLooperHttpServer(object):
             repo = self.testManager.database.Repo.lookupOne(name=reponame)
             commit = self.testManager.database.Commit.lookupAny(repo_and_hash=(repo, hash))
 
-            self.testManager._setCommitUserPriority(commit, 1 if not commit.userPriority else 0)
+            self.testManager._setCommitUserPriority(commit, 1 if not commit.calculatedPriority else 0)
 
         raise cherrypy.HTTPRedirect(redirect)
 
@@ -1389,21 +1413,20 @@ class TestLooperHttpServer(object):
         return "/".join([p.split(":")[0] for p in name.split("/")])
 
     def testPageForCommits(self, reponame, commits, headerText, branch):
-        test_names = set()
+        test_env_and_name_pairs = set()
 
         for c in commits:
             for test in self.testManager.database.Test.lookupAll(commitData=c.data):
                 if not test.testDefinition.matches.Deployment:
-                    test_names.add(test.testDefinition.name)
+                    test_env_and_name_pairs.add((test.testDefinition.environment_name, test.testDefinition.name))
 
         #this is how we will aggregate our tests
-        collapsed_names = sorted(
-            set([self.collapseName(name) for name in test_names])
+        envs_and_collapsed_names = sorted(
+            set([(env, self.collapseName(name)) for env, name in test_env_and_name_pairs])
             )
 
         collapsed_name_environments = []
-        for name in collapsed_names:
-            env = name.split("/")[-1]
+        for env, name in envs_and_collapsed_names:
             if not collapsed_name_environments or collapsed_name_environments[-1]["content"] != env:
                 collapsed_name_environments.append({"content": env, "colspan": 1})
             else:
@@ -1411,7 +1434,7 @@ class TestLooperHttpServer(object):
 
         grid = [[""] * 3 + collapsed_name_environments + [""] * 4,
                 ["COMMIT", "", "(running)"] + 
-                collapsed_names + 
+                [name for env,name in envs_and_collapsed_names] + 
                 ["SOURCE", "", "PINS"]
             ]
 
@@ -1512,7 +1535,7 @@ class TestLooperHttpServer(object):
 
 
         for c in reversed(commits):
-            gridrow = self.getBranchCommitRow(branch, c, collapsed_names)
+            gridrow = self.getBranchCommitRow(branch, c, envs_and_collapsed_names)
 
             grid.append(gridrow)
 
@@ -1607,7 +1630,7 @@ class TestLooperHttpServer(object):
     def getBranchCommitRow(self,
                            branch,
                            commit,
-                           collapsed_names):
+                           envs_and_collapsed_names):
         row = [self.commitLink(commit)]
 
         all_tests = self.testManager.database.Test.lookupAll(commitData=commit.data)
@@ -1624,14 +1647,16 @@ class TestLooperHttpServer(object):
         else:
             row.append("")
         
-        tests_by_name = {name: [] for name in collapsed_names}
+        tests_by_name = {(env,name): [] for env, name in envs_and_collapsed_names}
         if commit.data:
             for t in all_tests:
                 if not t.testDefinition.matches.Deployment:
-                    tests_by_name[self.collapseName(t.testDefinition.name)].append(t)
+                    env_name_pair = (t.testDefinition.environment_name, 
+                            self.collapseName(t.testDefinition.name))
+                    tests_by_name[env_name_pair].append(t)
         
-        for name in collapsed_names:
-            row.append(self.aggregateTestInfo(tests_by_name[name]))
+        for env, name in envs_and_collapsed_names:
+            row.append(self.aggregateTestInfo(tests_by_name[env, name]))
 
         row.append(self.sourceLinkForCommit(commit))
         

@@ -138,6 +138,12 @@ class DatabaseObject(object):
         _cur_view.view._delete(self, type(self).__name__, self._identity, self.__types__.keys())
 
     @classmethod
+    def methods_from(cls, other):
+        for method_name, method in other.__dict__.iteritems():
+            if not method_name.startswith("__"):
+                setattr(cls, method_name, method)
+
+    @classmethod
     def define(cls, **types):
         assert not cls.Null, "already defined"
         assert isinstance(types, dict)
@@ -146,6 +152,8 @@ class DatabaseObject(object):
 
         cls.__types__ = types
         cls.Null = cls(_creating_the_null_object)
+
+        return cls
 
     @classmethod
     def to_json(cls, obj):

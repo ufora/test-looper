@@ -600,7 +600,21 @@ class TestManager(object):
 
                 return True
 
-    def _lookupHighestPriorityTest(self, machine):
+    def _checkAllTestPriorities(self, curTimestamp):
+        logging.info("Checking all test priorities to ensure they are correct")
+
+        for priorityType in [
+                self.database.TestPriority.FirstBuild,
+                self.database.TestPriority.FirstTest,
+                self.database.TestPriority.WantsMoreTests
+                ]:
+            for priority in reversed(range(1,MAX_TEST_PRIORITY+1)):
+                for test in self.database.Test.lookupAll(priority=priorityType(priority)):
+                    self._updateTestPriority(test, curTimestamp)
+
+        logging.info("Done checking all test priorities to ensure they are correct")
+                    
+    def _lookupHighestPriorityTest(self, machine, curTimestamp, checkPriorities=True):
         t0 = time.time()
 
         count = 0
@@ -610,11 +624,17 @@ class TestManager(object):
                 self.database.TestPriority.FirstTest,
                 self.database.TestPriority.WantsMoreTests
                 ]:
-            for priority in reversed(range(1,MAX_TEST_PRIORITY+1)):
-                for test in self.database.Test.lookupAll(priority=priorityType(priority)):
-                    count += 1
-                    if time.time() - t0 > .1:
-                        logging.info("Checking priority %s", priorityType(priority))
+            for priorityLevel in reversed(range(1,MAX_TEST_PRIORITY+1)):
+                priority=priorityType(priorityLevel)
+
+                for test in self.database.Test.lookupAll(priority=priority):
+                    if checkPriorities:
+                        self._updateTestPriority(test, curTimestamp)
+                        
+                        if test.priority != priority:
+                            logging.warn("Test priority for %s was not consistent, %s -> %s", test._identity, priority, test.priority)
+                            self._checkAllTestPriorities(curTimestamp)
+                            return self._lookupHighestPriorityTest(machine, curTimestamp, checkPriorities=False)
 
                     if self._machineCategoryPairForTest(test) == (machine.hardware, machine.os):
                         return test
@@ -681,7 +701,7 @@ class TestManager(object):
 
         with self.transaction_and_lock():
             t0 = time.time()
-            test = self._lookupHighestPriorityTest(machine)
+            test = self._lookupHighestPriorityTest(machine, timestamp)
             if time.time() - t0 > .25:
                 logging.warn("Took %s to get priority", time.time() - t0)
 
@@ -1201,7 +1221,7 @@ class TestManager(object):
                         self._triggerTestPriorityUpdate(dep.dependsOn)
             
             for test in self.database.Test.lookupAll(commitData=commit.data):
-                self._triggerTestPriorityUpdateIfNecessary(test)
+                self._triggerTestPriorityUpdate(test)
 
     def _calcCommitAnybranch(self, commit):
         #calculate any branch that this commit can reach
@@ -1379,9 +1399,12 @@ class TestManager(object):
             self._triggerCommitPriorityUpdate(commit)
 
     def _updateTestPriority(self, test, curTimestamp):
+        logging.info("Updating test priority for test %s", test._identity)
+
         self._checkAllTestDependencies(test)
         
         test.calculatedPriority = test.commitData.commit.calculatedPriority
+
         #now check all tests that depend on us
         for dep in self.database.TestDependency.lookupAll(dependsOn=test):
             test.calculatedPriority = max(dep.test.commitData.commit.calculatedPriority, test.calculatedPriority)
@@ -1390,7 +1413,7 @@ class TestManager(object):
         if test.calculatedPriority == 0:
             for run in self.database.TestRun.lookupAll(test=test):
                 if run.endTimestamp == 0.0 and not run.canceled:
-                    logging.info("Canceling testRun %s because its commit priority went to zero.", testRun._identity)
+                    logging.info("Canceling testRun %s because its commit priority went to zero.", run._identity)
                     self._cancelTestRun(run, curTimestamp)
 
         oldPriority = test.priority
@@ -1448,6 +1471,8 @@ class TestManager(object):
                 self._scheduleBootCheck()
 
         if test.priority != oldPriority:
+            logging.info("test priority for test %s changed to %s", test._identity, test.priority)
+        
             for dep in self.database.TestDependency.lookupAll(test=test):
                 self._triggerTestPriorityUpdate(dep.dependsOn)
 

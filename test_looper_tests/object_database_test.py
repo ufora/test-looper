@@ -21,10 +21,25 @@ def initialize_types(db):
         other=db.Object
         )
 
-    db.Counter.define(k=int)
+    class CounterMethods:
+        def f(self):
+            return self.k + 1
+
+    db.Counter.define(k=int).methods_from(CounterMethods)
 
 
 class ObjectDatabaseTests(unittest.TestCase):
+    def test_methods(self):
+        mem_store = InMemoryJsonStore.InMemoryJsonStore()
+
+        db = object_database.Database(mem_store)
+        initialize_types(db)
+
+        with db.transaction():
+            counter = db.Counter.New()
+            counter.k = 2
+            self.assertEqual(counter.f(), 3)
+
     def test_basic(self):
         mem_store = InMemoryJsonStore.InMemoryJsonStore()
 
