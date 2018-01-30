@@ -41,7 +41,7 @@ class Gitlab(SourceControl.SourceControl):
         return True
 
     def listRepos(self):
-        url = self.gitlab_api_url + '/projects?' + urllib.urlencode({"private_token": self.private_token})
+        url = self.gitlab_api_url + '/projects?' + urllib.urlencode({"private_token": self.private_token,"per_page": "100"})
 
         headers={'accept': 'application/json'}
         
@@ -54,6 +54,7 @@ class Gitlab(SourceControl.SourceControl):
         res = []
         try:
             json = simplejson.loads(response.content)
+            logging.info("Refresh repos returned: %s\n", response.content)
             if 'message' in json:
                 logging.error("Got an error response: %s", response.content)
             else:

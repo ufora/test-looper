@@ -666,7 +666,10 @@ class TestLooperHttpServer(object):
                     row.append("ERROR: multiple test runs/deployments")
                 elif tests:
                     commit = tests[0].test.commitData.commit
-                    row.append(self.commitLink(commit, textOverride=commit.repo.name + "/" + self.testManager.bestCommitName(commit)))
+                    try:
+                        row.append(self.commitLink(commit, textOverride=commit.repo.name + "/" + self.testManager.bestCommitName(commit)))
+                    except:
+                        row.append("")
 
                     row.append(self.testRunLink(tests[0], "TEST "))
                     row.append(self.testLogsButton(tests[0]._identity))
@@ -674,7 +677,10 @@ class TestLooperHttpServer(object):
                     
                 elif deployments:
                     commit = deployments[0].test.commitData.commit
-                    row.append(self.commitLink(commit, textOverride=commit.repo.name + "/" + self.testManager.bestCommitName(commit)))
+                    try:
+                        row.append(self.commitLink(commit, textOverride=commit.repo.name + "/" + self.testManager.bestCommitName(commit)))
+                    except:
+                        row.append("")
 
                     d = deployments[0]
                     row.append("DEPLOYMENT")
