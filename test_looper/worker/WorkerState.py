@@ -664,7 +664,7 @@ class WorkerState(object):
 
         return TestDefinition.merge_environments(environment, dependencies)
 
-    def getDockerImage(self, testEnvironment):
+    def getDockerImage(self, testEnvironment, log_function):
         assert testEnvironment.matches.Environment
         assert testEnvironment.platform.matches.linux
         assert testEnvironment.image.matches.Dockerfile or testEnvironment.image.matches.DockerfileInline
@@ -680,17 +680,7 @@ class WorkerState(object):
             else:
                 return Docker.DockerImage.from_dockerfile_as_string(None, testEnvironment.image.dockerfile_contents, create_missing=True)
         except Exception as e:
-            logging.error("Failed to produce docker image:\n%s", traceback.format_exc())
-            
-            output_dir = self.directories.test_output_dir
-
-            self.ensureDirectoryExists(output_dir)
-            
-            with open(os.path.join(output_dir,"docker_configuration_error.log"),"w") as f:
-                print >> f, "Failed to get a docker image configured by %s:\n\n%s" % (
-                    testEnvironment.image,
-                    traceback.format_exc()
-                    )
+            log_function(time.asctime() + " TestLooper> Failed to build docker image:\n" + str(e))
 
         return None
 
@@ -952,7 +942,7 @@ class WorkerState(object):
             command = environment.image.setup_script_contents + "\n\n" + command
         else:
             with self.callHeartbeatInBackground(log_function, "Extracting docker image for environment %s" % environment):
-                image = self.getDockerImage(environment)
+                image = self.getDockerImage(environment, log_function)
 
         if image is None:
             is_success = False
