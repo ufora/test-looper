@@ -673,7 +673,7 @@ class TestLooperHttpServer(object):
                     row.append(self.cancelTestRunButton(tests[0]._identity))
                     
                 elif deployments:
-                    commit = tests[0].test.commitData.commit
+                    commit = deployments[0].test.commitData.commit
                     row.append(self.commitLink(commit, textOverride=commit.repo.name + "/" + self.testManager.bestCommitName(commit)))
 
                     d = deployments[0]
