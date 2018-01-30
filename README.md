@@ -161,10 +161,15 @@ It's enough to execute the following on the blank ubuntu:16.04 docker image:
     apt-get -y install python python-pip
     apt-get -y install curl
     apt-get -y install redis-server
-    pip install pyyaml cherrypy ws4py pyOpenSSL psutil simplejson requests docker redis boto3
+    apt-get -y install zip
+    pip install pyyaml cherrypy ws4py pyOpenSSL psutil simplejson requests
+    pip install docker redis boto3 markdown
 
 Make sure you expose -v /var/run/docker.sock:/var/run/docker.sock if you want to run
 inside docker. Or you can install these dependencies yourself.
+
+If you don't have docker, you can find instructions for installing it 
+[here](https://docs.docker.com/install/linux/docker-ce/ubuntu/#set-up-the-repository).
 
 TestLooper runs as a daemon. You can run the server yourself in a terminal, or use
 the provided scripts in "deploy". As it currently stands, the default configurations

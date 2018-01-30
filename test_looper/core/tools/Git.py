@@ -35,15 +35,21 @@ class SubprocessCheckOutput(object):
             return pickle.dumps(subprocess.check_output(*self.args, **self.kwds))
 
 
+_outOfProcessDownloaderPoolLock = threading.Lock()
+_outOfProcessDownloaderPool = [None]
+
 class Git(object):
     def __init__(self, path_to_repo):
         assert isinstance(path_to_repo, (str, unicode))
         
         self.path_to_repo = str(path_to_repo)
         
-        self.outOfProcessDownloaderPool = \
-            OutOfProcessDownloader.OutOfProcessDownloaderPool(1, actuallyRunOutOfProcess=sys.platform != "win32")
-        
+        with _outOfProcessDownloaderPoolLock:
+            if _outOfProcessDownloaderPool[0] is None:
+                _outOfProcessDownloaderPool[0] = \
+                    OutOfProcessDownloader.OutOfProcessDownloaderPool(4, actuallyRunOutOfProcess=sys.platform != "win32")
+            self.outOfProcessDownloaderPool = _outOfProcessDownloaderPool[0]
+
         self.git_repo_lock = threading.RLock()
 
         self.testDefinitionLocationCache_ = {}

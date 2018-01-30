@@ -58,7 +58,7 @@ def writeString(sock, s):
 
 
 # Note: even if select has declared a socket "writeable" it can eventually
-# block if sendall is used. So to acchieve true non-blocking behavior we need
+# block if sendall is used. So to achieve true non-blocking behavior we need
 # to manage this ourselves.
 
 
