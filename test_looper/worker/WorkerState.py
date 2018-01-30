@@ -738,8 +738,6 @@ class WorkerState(object):
                 with self.callHeartbeatInBackground(log_function, "Extracting test definitions."):
                     testDefinition = self.testDefinitionFor(repoName, commitHash, testName)
 
-                print "got ", testDefinition
-
                 if not testDefinition:
                     log_function("No test named %s\n" % testName)
                     return False, {}
@@ -931,7 +929,7 @@ class WorkerState(object):
                 self.getEnvironmentAndDependencies(testId, repoName, commitHash, test_definition, log_function)
         except Exception as e:
             logging.error(traceback.format_exc())
-            log_function("\n\nTest failed because: " + str(e) + "\n\n")
+            log_function("\n\nTest failed because of exception:\n" + traceback.format_exc() + "\n")
             return False, {}
 
         if test_definition.matches.Build:
