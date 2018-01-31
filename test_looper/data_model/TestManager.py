@@ -393,6 +393,8 @@ class TestManager(object):
 
         deployment.machine.lastTestCompleted = timestamp
 
+        logging.info("Setting last test completed on %s ", deployment.machine.machineId, timestamp)
+
         os = deployment.machine.os
         
         if (os.matches.WindowsVM or os.matches.LinuxVM):
@@ -1448,7 +1450,10 @@ class TestManager(object):
             if curTimestamp - machine.bootTime < 60 * 55:
                 return False
 
-        return curTimestamp - machine.lastTestCompleted > IDLE_TIME_BEFORE_SHUTDOWN
+        if curTimestamp - machine.lastTestCompleted > IDLE_TIME_BEFORE_SHUTDOWN:
+            logging.info("Machine %s looks idle for %s seconds", machine.machineId, curTimestamp - machine.lastTestCompleted)
+            return True
+        return False
 
     def _shutdown(self, category, curTimestamp, onlyIdle):
         for machine in self.database.Machine.lookupAll(hardware_and_os=(category.hardware, category.os)):
