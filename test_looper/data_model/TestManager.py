@@ -392,7 +392,7 @@ class TestManager(object):
                 deploymentId, cat._identity[:6], cat.hardware, cat.os, cat.desired, cat.booted)
 
         deployment.machine.lastTestCompleted = timestamp
-        
+
         os = deployment.machine.os
         
         if (os.matches.WindowsVM or os.matches.LinuxVM):
@@ -1097,39 +1097,43 @@ class TestManager(object):
                     priority = max(priority, 1)
 
             commit.userPriority = max(commit.userPriority, priority)
-            
-            self._triggerCommitPriorityUpdate(commit)
 
-            try:
-                defText, extension = repo.getTestScriptDefinitionsForCommit(commit.hash)
-                
-                if defText is None:
-                    raise Exception("No test definition file found.")
+            #ignore commits produced before the looper existed. They won't have these files!
+            if commit.data.timestamp > 1500000000:
+                self._triggerCommitPriorityUpdate(commit)
 
-                all_tests, all_environments, all_repo_defs = TestDefinitionScript.extract_tests_from_str(commit.repo.name, commit.hash, extension, defText)
+                try:
+                    defText, extension = repo.getTestScriptDefinitionsForCommit(commit.hash)
+                    
+                    if defText is None:
+                        raise Exception("No test definition file found.")
 
-                commit.data.testDefinitions = all_tests
-                commit.data.environments = all_environments
-                commit.data.repos = all_repo_defs
-                
-                for e in all_tests.values():
-                    fullname=commit.repo.name + "/" + commit.hash + "/" + e.name
+                    all_tests, all_environments, all_repo_defs = TestDefinitionScript.extract_tests_from_str(commit.repo.name, commit.hash, extension, defText)
 
-                    self._createTest(
-                        commitData=commit.data,
-                        fullname=fullname,
-                        testDefinition=e
-                        )
+                    commit.data.testDefinitions = all_tests
+                    commit.data.environments = all_environments
+                    commit.data.repos = all_repo_defs
+                    
+                    for e in all_tests.values():
+                        fullname=commit.repo.name + "/" + commit.hash + "/" + e.name
 
-                commit.repo.commitsWithTests = commit.repo.commitsWithTests + 1
+                        self._createTest(
+                            commitData=commit.data,
+                            fullname=fullname,
+                            testDefinition=e
+                            )
 
-            except Exception as e:
-                if not str(e):
-                    logging.error("%s", traceback.format_exc())
+                    commit.repo.commitsWithTests = commit.repo.commitsWithTests + 1
 
-                logging.warn("Got an error parsing tests for %s/%s:\n%s", commit.repo.name, commit.hash, traceback.format_exc())
+                except Exception as e:
+                    if not str(e):
+                        logging.error("%s", traceback.format_exc())
 
-                commit.data.testDefinitionsError=str(e)
+                    logging.warn("Got an error parsing tests for %s/%s:\n%s", commit.repo.name, commit.hash, traceback.format_exc())
+
+                    commit.data.testDefinitionsError=str(e)
+            else:
+                commit.data.testDefinitionsError = "Commit old enough that we won't check for test definitions."
 
             for branch in self.database.Branch.lookupAll(head=commit):
                 self._recalculateBranchPins(branch)
