@@ -57,8 +57,8 @@ TestLooper must be connected to some form of git server, which defines a set of
 repos. Each repo has a name, and a set of branches, and each branch has a set
 of commits. 
 
-Within each commit, test-looper looks for a 'testDefinitions.yml' file
-which defines a set external repos, environments, builds, tests, and deployments. Each
+Within each commit, test-looper looks for a file whose name ends with '.testlooper.yml'.
+This yml file defines a set external repos, environments, builds, tests, and deployments. Each
 such object is named a unique name within the definition file, giving it a global
 name of "repo/commit_hash/name".
 

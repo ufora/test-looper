@@ -263,7 +263,8 @@ class Git(object):
             [p for p in
                 self.subprocessCheckOutput(["git", "ls-tree", "--name-only", "-r", commit]).split("\n")
                 if p.endswith("/testDefinitions.json") or p == "testDefinitions.json" or 
-                   p.endswith("/testDefinitions.yml") or p == "testDefinitions.yml"]
+                   p.endswith("/testDefinitions.yml") or p == "testDefinitions.yml" or
+                   p.endswith(".testlooper.yml")]
             )
 
         logging.debug("For commit %s, found testDefinitions at %s", commit, paths)
