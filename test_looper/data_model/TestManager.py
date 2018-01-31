@@ -1058,85 +1058,98 @@ class TestManager(object):
             raise Exception("Unknown task: %s" % task)
 
     def _updateCommitData(self, commit):
-        repo = self.source_control.getRepo(commit.repo.name)
+        source_control_repo = self.source_control.getRepo(commit.repo.name)
 
         if commit.data is self.database.CommitData.Null:
-            if not repo.source_repo.commitExists(commit.hash):
+            if not source_control_repo.source_repo.commitExists(commit.hash):
                 return
 
-            hashParentsAndTitle = repo.commitsLookingBack(commit.hash, 1)[0]
+            for hashParentsAndTitle in source_control_repo.commitsLookingBack(commit.hash, 10):
+                self._updateCommitDataForHash(
+                    repo=commit.repo,
+                    hash=hashParentsAndTitle[0],
+                    timestamp=int(hashParentsAndTitle[2]),
+                    subject=hashParentsAndTitle[3].split("\n")[0],
+                    body=hashParentsAndTitle[3],
+                    parentHashes=hashParentsAndTitle[1]
+                    )
 
-            timestamp = int(hashParentsAndTitle[2])
-            subject=hashParentsAndTitle[3].split("\n")[0]
-            body=hashParentsAndTitle[3]
 
-            parents=[
-                self._lookupCommitByHash(commit.repo, p) 
-                    for p in hashParentsAndTitle[1]
-                ]
+    def _updateCommitDataForHash(self, repo, hash, timestamp, subject, body, parentHashes):
+        source_control_repo = self.source_control.getRepo(repo.name)
 
-            commit.data = self.database.CommitData.New(
-                commit=commit,
-                subject=subject,
-                timestamp=timestamp,
-                commitMessage=body,
-                parents=parents
-                )
+        commit = self._lookupCommitByHash(repo, hash)
 
-            for p in parents:
-                self.database.CommitRelationship.New(child=commit,parent=p)
-            
-            #when we get new commits, make sure we have the right priority
-            #on them. This is a one-time operation when the commit is first created
-            #to apply the branch priority to the commit
-            priority = max([r.child.userPriority
-                for r in self.database.CommitRelationship.lookupAll(parent=commit)] + [0])
+        if commit is None or commit.data:
+            return
 
-            for branch in self.database.Branch.lookupAll(head=commit):
-                if branch.isUnderTest:
-                    priority = max(priority, 1)
+        parents=[self._lookupCommitByHash(commit.repo, p) for p in parentHashes]
 
-            commit.userPriority = max(commit.userPriority, priority)
+        commit.data = self.database.CommitData.New(
+            commit=commit,
+            subject=subject,
+            timestamp=timestamp,
+            commitMessage=body,
+            parents=parents
+            )
 
-            #ignore commits produced before the looper existed. They won't have these files!
-            if commit.data.timestamp > 1500000000:
-                self._triggerCommitPriorityUpdate(commit)
+        for p in parents:
+            self.database.CommitRelationship.New(child=commit,parent=p)
+        
+        #when we get new commits, make sure we have the right priority
+        #on them. This is a one-time operation when the commit is first created
+        #to apply the branch priority to the commit
+        priority = max([r.child.userPriority
+            for r in self.database.CommitRelationship.lookupAll(parent=commit)] + [0])
 
-                try:
-                    defText, extension = repo.getTestScriptDefinitionsForCommit(commit.hash)
-                    
-                    if defText is None:
-                        raise Exception("No test definition file found.")
+        for branch in self.database.Branch.lookupAll(head=commit):
+            if branch.isUnderTest:
+                priority = max(priority, 1)
 
-                    all_tests, all_environments, all_repo_defs = TestDefinitionScript.extract_tests_from_str(commit.repo.name, commit.hash, extension, defText)
+        commit.userPriority = max(commit.userPriority, priority)
 
-                    commit.data.testDefinitions = all_tests
-                    commit.data.environments = all_environments
-                    commit.data.repos = all_repo_defs
-                    
-                    for e in all_tests.values():
-                        fullname=commit.repo.name + "/" + commit.hash + "/" + e.name
+        #ignore commits produced before the looper existed. They won't have these files!
+        if commit.data.timestamp > 1500000000:
+            logging.info("Loading data for commit %s with timestamp %s", commit.hash, time.asctime(time.gmtime(commit.data.timestamp)))
+            self._triggerCommitPriorityUpdate(commit)
 
-                        self._createTest(
-                            commitData=commit.data,
-                            fullname=fullname,
-                            testDefinition=e
-                            )
+            try:
+                defText, extension = source_control_repo.getTestScriptDefinitionsForCommit(commit.hash)
+                
+                if defText is None:
+                    raise Exception("No test definition file found.")
 
-                    commit.repo.commitsWithTests = commit.repo.commitsWithTests + 1
+                all_tests, all_environments, all_repo_defs = TestDefinitionScript.extract_tests_from_str(commit.repo.name, commit.hash, extension, defText)
 
-                except Exception as e:
-                    if not str(e):
-                        logging.error("%s", traceback.format_exc())
+                commit.data.testDefinitions = all_tests
+                commit.data.environments = all_environments
+                commit.data.repos = all_repo_defs
+                
+                for e in all_tests.values():
+                    fullname=commit.repo.name + "/" + commit.hash + "/" + e.name
 
-                    logging.warn("Got an error parsing tests for %s/%s:\n%s", commit.repo.name, commit.hash, traceback.format_exc())
+                    self._createTest(
+                        commitData=commit.data,
+                        fullname=fullname,
+                        testDefinition=e
+                        )
 
-                    commit.data.testDefinitionsError=str(e)
-            else:
-                commit.data.testDefinitionsError = "Commit old enough that we won't check for test definitions."
+                commit.repo.commitsWithTests = commit.repo.commitsWithTests + 1
 
-            for branch in self.database.Branch.lookupAll(head=commit):
-                self._recalculateBranchPins(branch)
+            except Exception as e:
+                if not str(e):
+                    logging.error("%s", traceback.format_exc())
+
+                logging.warn("Got an error parsing tests for %s/%s:\n%s", commit.repo.name, commit.hash, traceback.format_exc())
+
+                commit.data.testDefinitionsError=str(e)
+        else:
+            logging.info("Not loading data for commit %s with timestamp %s", commit.hash, time.asctime(time.gmtime(commit.data.timestamp)))
+
+            commit.data.testDefinitionsError = "Commit old enough that we won't check for test definitions."
+
+        for branch in self.database.Branch.lookupAll(head=commit):
+            self._recalculateBranchPins(branch)
 
 
     def getFastForwardChain(self, commit, commitHash, max_commits=100):

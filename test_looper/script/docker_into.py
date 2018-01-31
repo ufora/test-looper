@@ -7,8 +7,7 @@ import subprocess
 import dockerpty
 import docker
 import uuid
-import test_looper.core.tools.Docker as Docker
-import test_looper.core.tools.DockerWatcher as DockerWatcher
+import test_looper.worker.WorkerState as WorkerState
 
 def createArgumentParser():
     parser = argparse.ArgumentParser()

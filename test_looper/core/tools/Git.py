@@ -218,17 +218,29 @@ class Git(object):
                     )
 
     def hashParentsAndCommitTitleFor(self, commitHash):
+        return self.hashParentsAndCommitTitleForMulti(commitHash, depth=1)[0]
+
+    def hashParentsAndCommitTitleForMulti(self, commitHash, depth):
         with self.git_repo_lock:
             data = None
             try:
-                data = self.subprocessCheckOutput(
-                    ["git", "--no-pager", "log", "-n", "1", "--topo-order", commitHash, '--format=format:%H %P--%ct--%B']
-                    ).strip()
+                uuid = '--e1ecbbfadd6e429892fc34602289e93c'
 
-                commits, timestamp, message = data.split('--', 2)
-                commits = [c.strip() for c in commits.split(" ") if c.strip()]
+                result = []
 
-                return commits[0], commits[1:], timestamp, message.strip()
+                commandResult = self.subprocessCheckOutput(
+                    ["git", "--no-pager", "log", "-n", str(depth), "--topo-order", commitHash, '--format=format:%H %P--%ct--%B' + uuid]
+                    )
+
+                for data in commandResult.split(uuid):
+                    data = data.strip()
+                    if data:
+                        commits, timestamp, message = data.split('--', 2)
+                        commits = [c.strip() for c in commits.split(" ") if c.strip()]
+
+                        result.append((commits[0], commits[1:], timestamp, message.strip()))
+
+                return result
             except:
                 logging.error("Failed to get git info on %s. data=%s", commitHash, data)
                 raise

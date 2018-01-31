@@ -37,21 +37,7 @@ class RemoteRepo(object):
         if not self.source_repo.commitExists(branchOrHash):
             return []
 
-        tuples.append(self.source_repo.hashParentsAndCommitTitleFor(branchOrHash))
-
-        parents = list(tuples[-1][1])
-
-        seen = set()
-        seen.add(tuples[0][0])
-
-        while len(tuples) < depth and parents:
-            if parents[0] not in seen:
-                tuples.append(self.source_repo.hashParentsAndCommitTitleFor(parents[0]))
-                seen.add(parents[0])
-                parents.extend(tuples[-1][1])
-            parents.pop(0)
-
-        return tuples
+        return self.source_repo.hashParentsAndCommitTitleForMulti(branchOrHash, depth=depth)
     
     def listBranches(self):
         return self.source_repo.listBranchesForRemote("origin")
