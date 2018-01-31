@@ -94,6 +94,9 @@ class InteractiveEnvironmentHandler:
         try:
             if message is None:
                 return
+                
+            if len(message) > 10000:
+                message = message[-10000:]
             
             self.websocket.send(message, False)
         except:
