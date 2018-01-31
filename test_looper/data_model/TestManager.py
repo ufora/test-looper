@@ -391,6 +391,8 @@ class TestManager(object):
         logging.info("Canceling deployment %s. Desired count for category %s/%s/%s is now %s vs booted %s", 
                 deploymentId, cat._identity[:6], cat.hardware, cat.os, cat.desired, cat.booted)
 
+        deployment.machine.lastTestCompleted = timestamp
+        
         os = deployment.machine.os
         
         if (os.matches.WindowsVM or os.matches.LinuxVM):
