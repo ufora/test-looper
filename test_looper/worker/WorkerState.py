@@ -732,7 +732,7 @@ class WorkerState(object):
                     log_function("No test named %s\n" % testName)
                     return False, {}
 
-                if testDefinition.matches.Build and self.artifactStorage.build_exists(repoName, commitHash, self.artifactKeyForBuild(testName)):
+                if not isDeploy and testDefinition.matches.Build and self.artifactStorage.build_exists(repoName, commitHash, self.artifactKeyForBuild(testName)):
                     log_function("Build already exists\n")
                     return True, {}
                 
@@ -748,6 +748,9 @@ class WorkerState(object):
 
 
         success, individualTestSuccesses = executeTest()
+
+        if isDeploy:
+            return False, {}
 
         try:
             log_function(time.asctime() + " TestLooper> Uploading logfile.\n")
@@ -948,7 +951,7 @@ class WorkerState(object):
             is_success = False
             if isDeploy:
                 log_function("Couldn't find docker image...")
-                return
+                return False, {}
         else:
             logging.info("Machine %s is starting run for %s %s. Command: %s",
                          self.machineId,
@@ -958,7 +961,7 @@ class WorkerState(object):
 
             if isDeploy:
                 self._run_deployment(command, test_definition.variables, workerCallback, image)
-                return
+                return False, {}
             else:
                 log_function(time.asctime() + " TestLooper> Starting Test Run\n")
 

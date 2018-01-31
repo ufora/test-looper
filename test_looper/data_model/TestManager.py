@@ -1355,7 +1355,7 @@ class TestManager(object):
         logging.info("Entering _bootMachinesIfNecessary:")
         for cat in (self.database.MachineCategory.lookupAll(want_more=True) +  
                             self.database.MachineCategory.lookupAll(want_less=True)):
-            logging.info("\t%s/%s: %s vs %s", cat.hardware, cat.os, cat.desired, cat.booted)
+            logging.info("\t%s/%s: %s desired vs %s booted", cat.hardware, cat.os, cat.desired, cat.booted)
 
         def check():
             wantingBoot = self.database.MachineCategory.lookupAll(want_more=True)

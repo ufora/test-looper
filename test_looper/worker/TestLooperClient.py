@@ -259,6 +259,11 @@ class TestLooperClient(object):
                     except:
                         logging.error("Error passing terminal input to callback: %s", traceback.format_exc())
 
+    def deploymentExitedEarly(self):
+        assert self._curDeploymentId is not None
+
+        self._send(TestLooperServer.ClientToServerMsg.DeploymentExited(deploymentId=self._curDeploymentId))
+
     def publishTestResult(self, succeeded, individualTestSuccesses):
         assert self._curTestId is not None
 

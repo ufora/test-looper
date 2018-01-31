@@ -42,6 +42,7 @@ ClientToServerMsg.WaitingHeartbeat = {}
 ClientToServerMsg.TestHeartbeat = {'testId': str}
 ClientToServerMsg.TestLogOutput = {'testId': str, 'log': str}
 ClientToServerMsg.DeploymentHeartbeat = {'deploymentId': str}
+ClientToServerMsg.DeploymentExited = {'deploymentId': str}
 ClientToServerMsg.DeploymentTerminalOutput = {'deploymentId': str, 'data': str}
 ClientToServerMsg.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,bool)}
 
@@ -154,6 +155,11 @@ class Session(object):
 
                     self.send(ServerToClientMsg.CancelTest(testId=msg.testId))
                     self.currentTestId = None
+        elif msg.matches.DeploymentExited:
+            if msg.deploymentId == self.currentDeploymentId:
+                self.testManager.shutdownDeployment(msg.deploymentId, time.time())
+                self.send(ServerToClientMsg.ShutdownDeployment(msg.deploymentId))
+                self.currentDeploymentId = None
         elif msg.matches.DeploymentHeartbeat or msg.matches.DeploymentTerminalOutput:
             log = msg.data if msg.matches.DeploymentTerminalOutput else None
             if msg.deploymentId == self.currentDeploymentId:

@@ -112,6 +112,9 @@ class TestLooperWorker(object):
 
         result = self.workerState.runTest(testId, repoName, commitHash, testName, self.testLooperClient, isDeploy)
         
-        if not self.stopEvent.is_set() and not isDeploy:
-            result, individualTestSuccesses = result
-            self.testLooperClient.publishTestResult(result, individualTestSuccesses)
+        if not self.stopEvent.is_set():
+            if isDeploy:
+                self.testLooperClient.deploymentExitedEarly()
+            else:
+                result, individualTestSuccesses = result
+                self.testLooperClient.publishTestResult(result, individualTestSuccesses)

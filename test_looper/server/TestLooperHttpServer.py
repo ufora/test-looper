@@ -32,6 +32,8 @@ import traceback
 
 time.tzset()
 
+MAX_BYTES_TO_SEND = 100000
+
 def secondsUpToString(up_for):
     if up_for < 60:
         return ("%d seconds" % up_for)
@@ -62,6 +64,9 @@ class LogHandler:
         testManager.heartbeatHandler.addListener(testId, self.logMsg)
 
     def logMsg(self, message):
+        if len(message) > MAX_BYTES_TO_SEND:
+            message = message[-MAX_BYTES_TO_SEND:]
+
         try:
             message = message.replace("\n","\n\r")
 
@@ -90,6 +95,9 @@ class InteractiveEnvironmentHandler:
             if message is None:
                 return
                 
+            if len(message) > MAX_BYTES_TO_SEND:
+                message = message[-MAX_BYTES_TO_SEND:]
+
             self.websocket.send(message, False)
         except:
             logging.error("Error in websocket handler: \n%s", traceback.format_exc())
