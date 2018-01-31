@@ -1367,7 +1367,14 @@ class TestManager(object):
                         return c
 
             while wantingBoot and not canBoot() and wantingShutdown:
-                self._shutdown(wantingShutdown[0], curTimestamp, onlyIdle=False)
+                shutAnyDown = False
+
+                for possibleCategory in wantingShutdown:
+                    if not shutAnyDown and self._shutdown(possibleCategory, curTimestamp, onlyIdle=False):
+                        shutAnyDown = True
+
+                if not shutAnyDown:
+                    break
 
             c = canBoot()
 
