@@ -16,8 +16,6 @@ import pytz
 import simplejson
 import struct
 import os
-import OpenSSL
-import OpenSSL.SSL
 import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.source_control as Github
@@ -64,9 +62,6 @@ class LogHandler:
         testManager.heartbeatHandler.addListener(testId, self.logMsg)
 
     def logMsg(self, message):
-        if len(message) > 10000:
-            message = message[-10000:]
-
         try:
             message = message.replace("\n","\n\r")
 
@@ -95,9 +90,6 @@ class InteractiveEnvironmentHandler:
             if message is None:
                 return
                 
-            if len(message) > 10000:
-                message = message[-10000:]
-            
             self.websocket.send(message, False)
         except:
             logging.error("Error in websocket handler: \n%s", traceback.format_exc())
@@ -2019,7 +2011,7 @@ class TestLooperHttpServer(object):
 
         if self.certs:
             config['global'].update({
-                'server.ssl_module':'pyopenssl',
+                'server.ssl_module': 'builtin',
                 'server.ssl_certificate':self.certs.cert,
                 'server.ssl_private_key':self.certs.key,
                 'server.ssl_certificate_chain':self.certs.chain
