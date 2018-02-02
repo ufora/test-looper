@@ -35,6 +35,15 @@ RepoReference.Pin = {
     "auto": bool
     }
 
+def RepoReference_reponame(ref):
+    return "/".join(ref.reference.split("/")[:-1])
+def RepoReference_commitHash(ref):
+    return ref.reference.split("/")[-1]
+
+RepoReference.reponame = RepoReference_reponame
+RepoReference.commitHash = RepoReference_commitHash
+
+
 TestEnvironment = algebraic.Alternative("TestEnvironment")
 TestEnvironment.Environment = {
     "environment_name": str,
