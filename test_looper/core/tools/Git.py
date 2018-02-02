@@ -8,6 +8,7 @@ import threading
 import time
 import tempfile
 import shutil
+import re
 import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.core.OutOfProcessDownloader as OutOfProcessDownloader
 
@@ -34,6 +35,9 @@ class SubprocessCheckOutput(object):
         with DirectoryScope.DirectoryScope(self.path):
             return pickle.dumps(subprocess.check_output(*self.args, **self.kwds))
 
+sha_pattern = re.compile("^[a-f0-9]{40}$")
+def isShaHash(committish):
+    return sha_pattern.match(committish)
 
 _outOfProcessDownloaderPoolLock = threading.Lock()
 _outOfProcessDownloaderPool = [None]
@@ -64,7 +68,6 @@ class Git(object):
     def pullLatest(self):
         remotes = self.listRemotes()
         if "origin" in remotes:
-            print "pulling latests"
             return self.subprocessCheckCall(['git' ,'fetch', 'origin', '-p']) == 0
         else:
             return True
@@ -83,6 +86,8 @@ class Git(object):
             assert isinstance(revision, str), revision
 
             directory = os.path.abspath(directory)
+
+            self.ensureDirectoryExists(directory)
 
             logging.info("Resetting to revision %s in %s", revision, directory)
 
@@ -190,8 +195,12 @@ class Git(object):
             os.makedirs(self.path_to_repo)
 
         with self.git_repo_lock:
-            if self.subprocessCheckCall(['git', 'clone', sourceRepo, '.']) != 0:
-                logging.error("Failed to clone source repo %s")
+            res = self.subprocessCheckCall(['git', 'clone', sourceRepo, '.'])
+            if res != 0:
+                logging.error("Failed to clone source repo %s: git returned %s", sourceRepo, res)
+                return False
+
+        return True
 
     def listBranches(self):
         with self.git_repo_lock:
@@ -257,6 +266,21 @@ class Git(object):
             return commitHash in self.subprocessCheckOutput(["git", "rev-parse", "--quiet", "--verify", "%s^{commit}" % commitHash])
         except:
             return False
+
+    @staticmethod
+    def getTestDefinitionsPathFromDir(checkoutPath):
+        all = []
+        with DirectoryScope.DirectoryScope(checkoutPath):
+            for dirpath, directories, files in os.walk("."):
+                if not dirpath.startswith("./.git"):
+                    for f in files:
+                        if f in ("testDefinitions.json" , "testDefinitions.yml") or f.endswith(".testlooper.yml"):
+                            all.append(os.path.join(dirpath, f))
+
+        all = sorted(all)
+        if not all:
+            return None
+        return all[0]
 
     def getTestDefinitionsPath(self, commit):
         """Breadth-first search through the git repo to find testDefinitions.json"""

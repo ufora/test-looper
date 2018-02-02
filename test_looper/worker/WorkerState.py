@@ -38,8 +38,9 @@ import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper
 
 class DummyWorkerCallbacks:
-    def __init__(self):
+    def __init__(self, localTerminal=False):
         self.logMessages = []
+        self.localTerminal = localTerminal
 
     def heartbeat(self, logMessage=None):
         if logMessage is not None:
@@ -73,8 +74,53 @@ class TestLooperDirectories:
         return [self.repo_copy_dir, self.scratch_dir, self.command_dir, self.test_inputs_dir, self.test_data_dir, 
                 self.build_cache_dir, self.ccache_dir, self.test_output_dir, self.build_output_dir, self.repo_cache]
 
+class TestDefinitionResolver:
+    def __init__(self, git_repo_lookup):
+        self.git_repo_lookup = git_repo_lookup
+
+    def resolveEnvironment(self, environment):
+        if environment.matches.Environment:
+            return environment
+
+        dependencies = {}
+
+        def import_dep(dep):
+            """Grab a dependency and all its children and stash them in 'dependencies'"""
+            if dep in dependencies:
+                return
+
+            underlying_env = self.environmentDefinitionFor(dep.repo, dep.commitHash, dep.name)
+
+            assert underlying_env is not None
+
+            dependencies[dep] = underlying_env
+
+            if underlying_env.matches.Import:
+                for dep in underlying_env.imports:
+                    import_dep(dep)
+
+        for dep in environment.imports:
+            import_dep(dep)
+
+        return TestDefinition.merge_environments(environment, dependencies)
+
+    def environmentDefinitionFor(self, repoName, commitHash, envName):
+        return self.testAndEnvironmentDefinitionFor(repoName, commitHash)[1].get(envName)
+
+    def testAndEnvironmentDefinitionFor(self, repoName, commitHash):
+        path = self.git_repo_lookup(repoName).getTestDefinitionsPath(commitHash)
+
+        if path is None:
+            return {}, {}, {}
+
+        testText = self.git_repo_lookup(repoName).getFileContents(commitHash, path)
+
+        return TestDefinitionScript.extract_tests_from_str(repoName, commitHash, os.path.splitext(path)[1], testText)
+
+
+
 class WorkerState(object):
-    def __init__(self, name_prefix, worker_directory, source_control, artifactStorage, machineId, hardwareConfig, verbose=False):
+    def __init__(self, name_prefix, worker_directory, source_control, artifactStorage, machineId, hardwareConfig, verbose=False, resolver=None):
         import test_looper.worker.TestLooperWorker
 
         self.name_prefix = name_prefix
@@ -102,6 +148,8 @@ class WorkerState(object):
         self.artifactStorage = artifactStorage
 
         self.source_control = source_control
+
+        self.resolver = resolver or TestDefinitionResolver(self.getRepoCacheByName)
 
         self.cleanup()
 
@@ -140,11 +188,7 @@ class WorkerState(object):
                     raise receivedException[0]
 
         return Scope()
-
-        
-    def useRepoCacheFrom(self, worker_directory):
-        self.directories.repo_cache = os.path.join(worker_directory, "repos")
-
+    
     def getRepoCacheByName(self, name):
         if name not in self.repos_by_name:
             self.repos_by_name[name] = Git.Git(str(os.path.join(self.directories.repo_cache, name)))
@@ -167,7 +211,10 @@ class WorkerState(object):
             self.directories.command_dir,
             self.directories.repo_copy_dir
             )
-    
+
+    def wants_to_run_cleanup(self):
+        return True
+
     def clearDirectoryAsRoot(self, *args):
         if Docker:
             image = Docker.DockerImage("ubuntu:16.04")
@@ -266,7 +313,9 @@ class WorkerState(object):
                         return
                     try:
                         if not writeFailed[0]:
-                            if msg.matches.KeyboardInput:
+                            if isinstance(msg, str):
+                                running_subprocess.stdin.write(msg)
+                            elif msg.matches.KeyboardInput:
                                 running_subprocess.stdin.write(msg.bytes)
                     except:
                         writeFailed[0] = True 
@@ -297,6 +346,7 @@ class WorkerState(object):
                 print >> f, command
 
             with open(os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w") as f:
+                print >> f, "hostname testlooperworker"
                 print >> f, "bash /test_looper/command/cmd.sh"
                 print >> f, "export PS1='${debian_chroot:+($debian_chroot)}\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ '"
                 print >> f, "bash --noprofile --norc"
@@ -307,74 +357,98 @@ class WorkerState(object):
             env["TERM"] = "xterm-256color"
 
             with DockerWatcher.DockerWatcher(self.name_prefix) as watcher:
-                container = watcher.run(
-                    docker_image,
-                    ["/bin/bash", "/test_looper/command/cmd_invoker.sh"],
-                    volumes=self.volumesToExpose(),
-                    privileged=True,
-                    shm_size="1G",
-                    environment=env,
-                    working_dir="/test_looper/src",
-                    tty=True,
-                    stdin_open=True
-                    )
+                if isinstance(workerCallback, DummyWorkerCallbacks) and workerCallback.localTerminal:
+                    container = watcher.run(
+                        docker_image,
+                        ["/bin/bash", "/test_looper/command/cmd_invoker.sh"],
+                        volumes=self.volumesToExpose(),
+                        privileged=True,
+                        shm_size="1G",
+                        environment=env,
+                        working_dir="/test_looper/src",
+                        tty=True,
+                        stdin_open=True,
+                        start=False
+                        )
+                    import dockerpty
 
-                #these are standard socket objects connected to the container's TTY input/output
-                stdin = docker.from_env().api.attach_socket(container.id, params={'stdin':1,'stream':1,'logs':None})
-                stdout = docker.from_env().api.attach_socket(container.id, params={'stdout':1,'stream':1,'logs':None})
+                    client = docker.from_env()
+                    client.__dict__["start"] = lambda c, *args, **kwds: client.api.start(c.id, *args, **kwds)
+                    client.__dict__["inspect_container"] = lambda c: client.api.inspect_container(c.id)
+                    client.__dict__["attach_socket"] = lambda c,*args,**kwds: client.api.attach_socket(c.id, *args, **kwds)
+                    client.__dict__["resize"] = lambda c,*args,**kwds: client.api.resize(c.id, *args, **kwds)
+                    dockerpty.start(client, container)
+                else:
+                    container = watcher.run(
+                        docker_image,
+                        ["/bin/bash", "/test_looper/command/cmd_invoker.sh"],
+                        volumes=self.volumesToExpose(),
+                        privileged=True,
+                        shm_size="1G",
+                        environment=env,
+                        working_dir="/test_looper/src",
+                        tty=True,
+                        stdin_open=True
+                        )
 
-                readthreadStop = threading.Event()
-                def readloop():
-                    while not readthreadStop.is_set():
-                        data = stdout.recv(4096)
-                        if not data:
-                            logging.info("Socket stdout connection to %s terminated", container.id)
+                    #these are standard socket objects connected to the container's TTY input/output
+                    stdin = docker.from_env().api.attach_socket(container.id, params={'stdin':1,'stream':1,'logs':None})
+                    stdout = docker.from_env().api.attach_socket(container.id, params={'stdout':1,'stream':1,'logs':None})
+
+                    readthreadStop = threading.Event()
+                    def readloop():
+                        while not readthreadStop.is_set():
+                            data = stdout.recv(4096)
+                            if not data:
+                                logging.info("Socket stdout connection to %s terminated", container.id)
+                                return
+                            workerCallback.terminalOutput(data)
+
+                    readthread = threading.Thread(target=readloop)
+                    readthread.start()
+
+                    stdin.sendall("\n")
+
+                    writeFailed = [False]
+                    def write(msg):
+                        if not msg:
                             return
-                        workerCallback.terminalOutput(data)
-
-                readthread = threading.Thread(target=readloop)
-                readthread.start()
-
-                stdin.sendall("\n")
-
-                writeFailed = [False]
-                def write(msg):
-                    if not msg:
-                        return
-                    try:
-                        if not writeFailed[0]:
-                            if msg.matches.KeyboardInput:
-                                stdin.sendall(msg.bytes)
-                            elif msg.matches.Resize:
-                                logging.info("Terminal resizing to %s cols and %s rows", msg.cols, msg.rows)
-                                container.resize(msg.rows, msg.cols)
-                    except:
-                        writeFailed[0] = True 
-                        logging.error("Failed to write to stdin: %s", traceback.format_exc())
-
-                workerCallback.subscribeToTerminalInput(write)
-                
-                try:
-                    t0 = time.time()
-                    ret_code = None
-                    extra_message = None
-                    while ret_code is None:
                         try:
-                            ret_code = container.wait(timeout=HEARTBEAT_INTERVAL)
-                        except requests.exceptions.ReadTimeout:
-                            pass
-                        except requests.exceptions.ConnectionError:
-                            pass
+                            if not writeFailed[0]:
+                                if isinstance(msg, str):
+                                    stdin.sendall(msg)
+                                elif msg.matches.KeyboardInput:
+                                    stdin.sendall(msg.bytes)
+                                elif msg.matches.Resize:
+                                    logging.info("Terminal resizing to %s cols and %s rows", msg.cols, msg.rows)
+                                    container.resize(msg.rows, msg.cols)
+                        except:
+                            writeFailed[0] = True 
+                            logging.error("Failed to write to stdin: %s", traceback.format_exc())
 
-                        workerCallback.heartbeat()
-                finally:
-                    try:
-                        container.remove(force=True)
-                    except:
-                        pass
-                    readthreadStop.set()
-                    readthread.join()
+                    workerCallback.subscribeToTerminalInput(write)
                     
+                    try:
+                        t0 = time.time()
+                        ret_code = None
+                        extra_message = None
+                        while ret_code is None:
+                            try:
+                                ret_code = container.wait(timeout=HEARTBEAT_INTERVAL)
+                            except requests.exceptions.ReadTimeout:
+                                pass
+                            except requests.exceptions.ConnectionError:
+                                pass
+
+                            workerCallback.heartbeat()
+                    finally:
+                        try:
+                            container.remove(force=True)
+                        except:
+                            pass
+                        readthreadStop.set()
+                        readthread.join()
+                        
     def dumpPreambleLog(self, build_log, env, docker_image, command):
         print >> build_log, "********************************************"
 
@@ -512,6 +586,7 @@ class WorkerState(object):
                 print >> f, command
 
             with open(os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w") as f:
+                print >> f, "hostname testlooperworker"
                 print >> f, "bash /test_looper/command/cmd.sh >> /test_looper/command/log.txt 2>&1"
 
             assert docker_image is not None
@@ -639,30 +714,7 @@ class WorkerState(object):
         return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True)
 
     def resolveEnvironment(self, environment):
-        if environment.matches.Environment:
-            return environment
-
-        dependencies = {}
-
-        def import_dep(dep):
-            """Grab a dependency and all its children and stash them in 'dependencies'"""
-            if dep in dependencies:
-                return
-
-            underlying_env = self.environmentDefinitionFor(dep.repo, dep.commitHash, dep.name)
-
-            assert underlying_env is not None
-
-            dependencies[dep] = underlying_env
-
-            if underlying_env.matches.Import:
-                for dep in underlying_env.imports:
-                    import_dep(dep)
-
-        for dep in environment.imports:
-            import_dep(dep)
-
-        return TestDefinition.merge_environments(environment, dependencies)
+        return self.resolver.resolveEnvironment(environment)
 
     def getDockerImage(self, testEnvironment, log_function):
         assert testEnvironment.matches.Environment
@@ -685,19 +737,10 @@ class WorkerState(object):
         return None
 
     def testAndEnvironmentDefinitionFor(self, repoName, commitHash):
-        path = self.getRepoCacheByName(repoName).getTestDefinitionsPath(commitHash)
-
-        assert path is not None
-
-        testText = self.getRepoCacheByName(repoName).getFileContents(commitHash, path)
-
-        return TestDefinitionScript.extract_tests_from_str(repoName, commitHash, os.path.splitext(path)[1], testText)
+        return self.resolver.testAndEnvironmentDefinitionFor(repoName, commitHash)
 
     def repoDefinitionsFor(self, repoName, commitHash):
         return self.testAndEnvironmentDefinitionFor(repoName, commitHash)[2]
-
-    def environmentDefinitionFor(self, repoName, commitHash, envName):
-        return self.testAndEnvironmentDefinitionFor(repoName, commitHash)[1].get(envName)
 
     def testDefinitionFor(self, repoName, commitHash, testName):
         return self.testAndEnvironmentDefinitionFor(repoName, commitHash)[0].get(testName)
@@ -721,7 +764,7 @@ class WorkerState(object):
 
         with self.callHeartbeatInBackground(log_function, "Resetting the repo to %s/%s" % (repoName, commitHash)):
             if not self.resetToCommit(repoName, commitHash):
-                workerCallback.heartbeat("Failed to checout code!\n")
+                workerCallback.heartbeat("Failed to checkout code!\n")
 
         def executeTest():
             try:
@@ -927,7 +970,7 @@ class WorkerState(object):
 
         if test_definition.matches.Build:
             command = test_definition.buildCommand
-            cleanup_command = ""
+            cleanup_command = test_definition.cleanupCommand
         elif test_definition.matches.Test:
             command = test_definition.testCommand
             cleanup_command = test_definition.cleanupCommand
@@ -975,7 +1018,7 @@ class WorkerState(object):
                     )
 
                 #run the cleanup_command if necessary
-                if cleanup_command.strip() and not self._run_test_command(
+                if self.wants_to_run_cleanup() and cleanup_command.strip() and not self._run_test_command(
                         cleanup_command,
                         test_definition.timeout or 60 * 60, #1 hour if unspecified
                         test_definition.variables,
@@ -988,7 +1031,7 @@ class WorkerState(object):
         if is_success and test_definition.matches.Build:
             with self.callHeartbeatInBackground(log_function, "Uploading build artifacts."):
                 if not self._upload_build(repoName, commitHash, test_definition.name):
-                    logging.error('Failed to upload build for %s/%s', repoName, commitHash, test_definition.name)
+                    logging.error('Failed to upload build for %s/%s/%s', repoName, commitHash, test_definition.name)
                     is_success = False
 
         log_function("")
@@ -1078,7 +1121,8 @@ class WorkerState(object):
             'REVISION': commitHash,
             'TEST_CORES_AVAILABLE': str(self.hardwareConfig.cores),
             'TEST_RAM_GB_AVAILABLE': str(self.hardwareConfig.ram_gb),
-            'PYTHONUNBUFFERED': "TRUE"
+            'PYTHONUNBUFFERED': "TRUE",
+            'HOSTNAME': "testlooperworker"
             })
 
         if environment.image.matches.AMI:

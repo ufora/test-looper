@@ -41,6 +41,7 @@ DefineDeployment = algebraic.Alternative("DefineDeployment")
 DefineBuild.Build = {
     'command': str,
     'environment': str,
+    'cleanup': str, #command to run to copy test outputs to relevant directories...
     'dependencies': algebraic.Dict(str,str),
     'variables': algebraic.Dict(str,str),
     "timeout": int, #max time, in seconds, for the test
@@ -291,6 +292,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
         if d.matches.Build:
             return TestDefinition.TestDefinition.Build(
                 buildCommand=d.command,
+                cleanupCommand=d.cleanup,
                 name=name,
                 variables=d.variables,
                 dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},

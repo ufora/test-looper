@@ -444,9 +444,10 @@ class DockerWatcher:
         for t in self.serverthreads:
             t.shutdown()
 
-    def run(self, image, args, **kwargs):
+    def run(self, image, args, start=True, **kwargs):
         with self._lock:
             kwargs = dict(kwargs)
+
             if 'volumes' in kwargs:
                 volumes = kwargs['volumes']
                 del kwargs['volumes']
@@ -475,7 +476,8 @@ class DockerWatcher:
 
             self.target_network.connect(container, aliases=[unmangled_name] if unmangled_name else [])
 
-            container.start()
+            if start:
+                container.start()
 
             self._containers_booted.append(container.id)
 

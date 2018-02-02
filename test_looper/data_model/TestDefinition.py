@@ -57,6 +57,7 @@ TestEnvironment.Import = {
 TestDefinition = algebraic.Alternative("TestDefinition")
 TestDefinition.Build = {
     "buildCommand": str,
+    "cleanupCommand": str,
     "name": str,
     "environment_name": str,
     "environment": TestEnvironment,
@@ -310,6 +311,7 @@ def apply_test_substitutions(test, env, input_var_defs):
         return make(
             TestDefinition.Build,
             buildCommand=VariableSubstitution.substitute_variables(test.buildCommand, vardefs),
+            cleanupCommand=VariableSubstitution.substitute_variables(test.cleanupCommand, vardefs),
             max_retries=test.max_retries,
             retry_wait_seconds=test.retry_wait_seconds,
             disabled=test.disabled
