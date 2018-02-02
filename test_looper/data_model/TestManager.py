@@ -1931,7 +1931,6 @@ class TestManager(object):
 
         commit = self.database.Commit.lookupAny(repo_and_hash=(repo, commitHash))
         if not commit:
-            assert commitHash
             if self.database.UnresolvedSourceDependency.lookupAny(test_and_repo_and_hash=(test, repo, commitHash)) is None:
                 self.database.UnresolvedSourceDependency.New(test=test, repo=repo, commitHash=commitHash)
             return True
