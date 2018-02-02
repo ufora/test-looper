@@ -129,6 +129,9 @@ def extract_tests(curRepoName, curCommitHash, testScript):
         repoName = "/".join(parts[:-1])
         commitHash = parts[-1]
 
+        if commitHash == "":
+            raise Exception("Can't have an empty commitHash")
+
         repos[repoVarName] = (repoName, commitHash)
 
     environments = {}

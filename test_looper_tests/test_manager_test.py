@@ -8,6 +8,7 @@ import simplejson
 
 import test_looper_tests.common as common
 import test_looper.data_model.TestManager as TestManager
+import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.core.Config as Config
 import test_looper.core.machine_management.MachineManagement as MachineManagement
 import test_looper.core.InMemoryJsonStore as InMemoryJsonStore
@@ -354,6 +355,15 @@ looper_version: 2
 repos:
   child: 
     reference: repo6/c0
+    branch: __branch__
+    auto: true
+"""
+
+basic_yml_file_repo6_headpin = """
+looper_version: 2
+repos:
+  child: 
+    reference: repo6/HEAD
     branch: __branch__
     auto: true
 """
@@ -730,7 +740,26 @@ class TestManagerTests(unittest.TestCase):
         harness.consumeBackgroundTasks()
 
         self.assertEqual(harness.manager.source_control.created_commits, 4)
-        
+
+    def test_manager_update_head_commits(self):
+        harness = self.get_harness(max_workers=1)
+
+        harness.add_content()
+
+        harness.manager.source_control.addCommit("repo6/c0", [], basic_yml_file_repo6_nopin)
+        harness.manager.source_control.setBranch("repo6/master", "repo6/c0")
+
+        harness.manager.source_control.addCommit("repo6/c1", [], basic_yml_file_repo6_headpin.replace("__branch__", 'master'))
+        harness.manager.source_control.setBranch("repo6/branch2", "repo6/c1")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        with harness.database.view():
+            commitHash = harness.manager.source_control.getBranch("repo6/branch2")
+            top_commit = harness.getCommit(commitHash)
+            self.assertEqual(top_commit.data.repos["child"].reference, "repo6/c0")
+
 
 
 

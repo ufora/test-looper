@@ -295,7 +295,9 @@ class TestLooperCtl:
             self.clearDirectoryAsRoot(os.path.join(self.root_path, "builds"))
 
     def checkout(self, args):
-        repo = self.getGitRepo(args.repo)
+        reponame = self.bestRepo(args.repo)
+
+        repo = self.getGitRepo(reponame)
         
         committish = args.committish
 
@@ -329,7 +331,7 @@ class TestLooperCtl:
             if is_new:
                 resolve(reponame, hash)
 
-        import_repo_ref(args.repo + "/" + committish)
+        import_repo_ref(reponame + "/" + committish)
 
         for reponame in sorted(repo_usages):
             self._checkoutRepoNames(reponame, repo_usages[reponame])
@@ -385,7 +387,9 @@ class TestLooperCtl:
         raise UserWarning("Nothing specified.")
 
     def infoForTest(self, repo, test):
+        repo = self.bestRepo(repo)
         commit = self.commitForRepo(repo)
+        test = self.bestTest(repo, commit, test)
 
         tests, environments, repos = self.resolver.testAndEnvironmentDefinitionFor(repo, commit)
 
@@ -406,6 +410,8 @@ class TestLooperCtl:
                 print "\tsource:", dep.repo + "/" + dep.commitHash
 
     def infoForRepo(self, repo):
+        repo = self.bestRepo(repo)
+
         commit = self.commitForRepo(repo)
 
         tests, environments, repos = self.resolver.testAndEnvironmentDefinitionFor(repo, commit)
@@ -425,7 +431,7 @@ class TestLooperCtl:
     def bestRepo(self, reponame):
         if reponame in self.cur_checkouts:
             return reponame
-        return self._pickOne(reponame, self.cur_checkouts, "repo")
+        return self._pickOne(reponame, self.cur_checkouts, "repo") or reponame
 
     def _pickOne(self, lookfor, possibilities, kindOfThing):
         possible = [item for item in possibilities if lookfor in item]
@@ -433,12 +439,15 @@ class TestLooperCtl:
             return possible[0]
         if len(possible) > 1:
             raise UserWarning("%s could refer to %s of %s" % (lookfor, "any" if len(possible) > 2 else "either", possible))
-        raise UserWarning("Can't find a %s named %s" % (kindOfThing, lookfor))
+        return None
 
     def bestTest(self, reponame, commit, test):
         tests = self.resolver.testAndEnvironmentDefinitionFor(reponame, commit)[0]
 
-        return self._pickOne(test, tests, "test")
+        res = self._pickOne(test, tests, "test")
+        if not res:
+            raise UserWarning("Couldn't find a test named %s" % test)
+        return res
 
     def build(self, args):
         repo = self.bestRepo(args.repo)

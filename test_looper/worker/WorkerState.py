@@ -780,6 +780,9 @@ class WorkerState(object):
                     return True, {}
                 
                 return self._run_task(testId, repoName, commitHash, testDefinition, log_function, workerCallback, isDeploy)
+            except KeyboardInterrupt:
+                log_function("\nInterrupted by Ctrl-C\n")
+                return False, {}
             except:
                 print "*******************"
                 print traceback.format_exc()

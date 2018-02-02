@@ -1003,11 +1003,14 @@ class TestManager(object):
 
                         repo = self.database.Repo.lookupAny(name=repoName)
                         if repo:
-                            cur_commit = self.database.Commit.lookupAny(repo_and_hash=(repo,commitHash))
+                            if commitHash != "HEAD":
+                                cur_commit = self.database.Commit.lookupAny(repo_and_hash=(repo,commitHash))
+                            else:
+                                cur_commit = None
                             
                             pin_branch = self.database.Branch.lookupAny(reponame_and_branchname=(pin.pinned_to_repo, pin.pinned_to_branch))
 
-                            if cur_commit and pin_branch and pin_branch.head != cur_commit and pin.auto:
+                            if pin_branch and (commitHash == "HEAD" or cur_commit and pin_branch.head != cur_commit) and pin.auto:
                                 pins_to_update[repo_def] = (commitHash, pin_branch.branchname, pin_branch.head)
 
                 if not pins_to_update:
@@ -1186,8 +1189,6 @@ class TestManager(object):
                 if not repo:
                     raise Exception("Can't find repo " + repoName)
 
-                cur_commit = self.database.Commit.lookupAny(repo_and_hash=(repo,commitHash))
-                    
                 pin_branch = self.database.Branch.lookupAny(reponame_and_branchname=(pin.pinned_to_repo, pin.pinned_to_branch))
 
                 success = self._updatePinInCommit(branch, ref_name, pin_branch.branchname, commitHash, pin_branch.head, produceIntermediateCommits)
@@ -1227,7 +1228,7 @@ class TestManager(object):
 
         contents = repo.source_repo.getFileContents(branchCommitHash, path)
 
-        pat_text = r"({r})(\s*:\s*reference\s*:\s*)({tr}/{h})".format(r=repoRefName,h=curCommitHash, tr=newCommit.repo.name)
+        pat_text = r"({r})(\s*:\s*reference\s*:\s*)({tr}/{h})\b".format(r=repoRefName,h=curCommitHash, tr=newCommit.repo.name)
 
         pattern = re.compile(pat_text, flags=re.MULTILINE)
 
