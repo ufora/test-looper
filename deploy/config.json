@@ -10,7 +10,7 @@
             }
         },
     "server_ports": {
-        "server_address": "testlooper.COMPANYNAME.com",
+        "server_address": "$HOSTNAME",
         "server_https_port": 443,
         "server_worker_port": 8080,
         "server_worker_port_use_ssl": true

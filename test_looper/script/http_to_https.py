@@ -1,11 +1,12 @@
 #!/usr/bin/python
 
 import cherrypy
+import sys
 
 class Root(object):
     @cherrypy.expose
     def index(self):
-        return "Test looper is down for maintenance"
+        raise cherrypy.HTTPRedirect("https://" + sys.argv[1] + ":443/")
 
 if __name__ == '__main__':
     config = {
