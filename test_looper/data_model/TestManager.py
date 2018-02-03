@@ -27,7 +27,7 @@ MAX_TEST_PRIORITY = 2
 TEST_TIMEOUT_SECONDS = 60
 IDLE_TIME_BEFORE_SHUTDOWN = 180
 MAX_LOG_MESSAGES_PER_TEST = 100000
-
+MACHINE_TIMEOUT_SECONDS = 600
 DISABLE_MACHINE_TERMINATION = False
 
 class MessageBuffer:
@@ -776,6 +776,14 @@ class TestManager(object):
                     logging.info("Canceling testRun %s because it has not had a heartbeat for a long time.", t._identity)
                     self._cancelTestRun(t, curTimestamp)
 
+            for m in self.database.Machine.lookupAll(isAlive=True):
+                if m.lastHeartbeat < curTimestamp - MACHINE_TIMEOUT_SECONDS and \
+                        curTimestamp - self.initialTimestamp > MACHINE_TIMEOUT_SECONDS:
+                    logging.info("Shutting down machine %s because it has not heartbeat in a long time",
+                        m.machineId
+                        )
+                    self._terminateMachine(m, curTimestamp)
+
         with self.transaction_and_lock():
             self._scheduleBootCheck()
             self._shutdownMachinesIfNecessary(curTimestamp)
@@ -1481,7 +1489,6 @@ class TestManager(object):
 
     def _terminateMachine(self, machine, curTimestamp):
         logging.info("Actively terminating machine %s", machine.machineId)
-
         try:
             self.machine_management.terminate_worker(machine.machineId)
         except:

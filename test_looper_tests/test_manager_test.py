@@ -905,6 +905,10 @@ class TestManagerTests(unittest.TestCase):
         harness.disableBranchTesting("repo1", "master")
 
         harness.timestamp += 500
+
+        for machine in harness.manager.machine_management.runningMachines:
+            harness.manager.machineHeartbeat(machine, harness.timestamp)
+        
         harness.consumeBackgroundTasks()
 
         #the two windows boxes should still be up
@@ -959,5 +963,31 @@ class TestManagerTests(unittest.TestCase):
         
         with harness.database.view():
             self.assertEqual(len(harness.database.TestRun.lookupAll(isRunning=True)), 0)
+        
+    def test_manager_drop_machines_without_heartbeat(self):
+        harness = self.get_harness()
+
+        harness.add_content()
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+        harness.enableBranchTesting("repo1", "master")
+        
+        harness.consumeBackgroundTasks()
+
+        self.assertEqual(len(harness.manager.machine_management.runningMachines), 4)
+        machines = set(harness.manager.machine_management.runningMachines)
+            
+        harness.timestamp += 200
+        harness.consumeBackgroundTasks()
+
+        self.assertTrue(machines == set(harness.manager.machine_management.runningMachines))
+
+        harness.timestamp += 1000
+        harness.consumeBackgroundTasks()
+
+        self.assertTrue(machines != set(harness.manager.machine_management.runningMachines))
 
         
+
+
