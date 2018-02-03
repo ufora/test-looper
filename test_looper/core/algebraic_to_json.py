@@ -17,7 +17,7 @@ import logging
 import json
 import yaml
 
-class Encoder:
+class Encoder(object):
     """An algebraic <---> json encoder.
 
     The encoding is:
@@ -30,6 +30,11 @@ class Encoder:
         * Lists are encoded as arrays
         * Nullables are encoded as None or the object.
     """    
+    def __init__(self):
+        object.__init__(self)
+
+        self.overrides = {}
+
     def to_json(self, value):
         if isinstance(value, unicode):
             value = str(value)
@@ -69,6 +74,9 @@ class Encoder:
             assert False, "Can't convert %s" % (value,)
 
     def from_json(self, value, algebraic_type):
+        if algebraic_type in self.overrides:
+            return self.overrides[algebraic_type](self, value)
+        
         try:
             if isinstance(value, unicode):
                 value = str(value)

@@ -14,6 +14,8 @@ import logging
 
 Platform = TestDefinition.Platform
 
+VariableDict = algebraic.Dict(str, str)
+
 Image = algebraic.Alternative("Image")
 Image.DockerfileInline = {"dockerfile_contents": str}
 Image.Dockerfile = {"dockerfile": str}
@@ -23,14 +25,14 @@ DefineEnvironment = algebraic.Alternative("DefineEnvironment")
 DefineEnvironment.Import = {
     'base': algebraic.List(str),
     'setup_script_contents': str,
-    "variables": algebraic.Dict(str, str),
+    "variables": VariableDict,
     "dependencies": algebraic.Dict(str, str)
     }
 
 DefineEnvironment.Environment = {
     "platform": Platform,
     "image": Image,
-    "variables": algebraic.Dict(str, str),
+    "variables": VariableDict,
     "dependencies": algebraic.Dict(str, str)
     }
 
@@ -43,7 +45,7 @@ DefineBuild.Build = {
     'environment': str,
     'cleanup': str, #command to run to copy test outputs to relevant directories...
     'dependencies': algebraic.Dict(str,str),
-    'variables': algebraic.Dict(str,str),
+    'variables': VariableDict,
     "timeout": int, #max time, in seconds, for the test
     "disabled": bool, #disabled by default?
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
@@ -58,7 +60,7 @@ DefineTest.Test = {
     'environment': str,
     'cleanup': str, #command to run to copy test outputs to relevant directories...
     'dependencies': algebraic.Dict(str,str),
-    'variables': algebraic.Dict(str,str),
+    'variables': VariableDict,
     "disabled": bool, #disabled by default?
     "timeout": int, #max time, in seconds, for the test
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
@@ -70,7 +72,7 @@ DefineDeployment.Deployment = {
     'command': str,
     'environment': str,
     'dependencies': algebraic.Dict(str,str),
-    'variables': algebraic.Dict(str,str),
+    'variables': VariableDict,
     'portExpose': algebraic.Dict(str,int),
     "timeout": int, #max time, in seconds, for the test
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
@@ -517,6 +519,17 @@ def extract_postprocessed_test_definitions(extension, text):
 
     return expand_macros(test_defs_json, {})
 
+def parseVariableDict(encoder, value):
+    def convert(k):
+        if isinstance(k,str):
+            return k
+        if isinstance(k, bool):
+            return "true" if k else "false"
+        if isinstance(k, (float,int)):
+            return str(k)
+        assert False, "Unsupported variable value: %s" % k
+    return {convert(k): convert(v) for k,v in value.iteritems()}
+
 def extract_tests_from_str(repoName, commitHash, extension, text):
     test_defs_json = extract_postprocessed_test_definitions(extension, text)
     
@@ -530,5 +543,6 @@ def extract_tests_from_str(repoName, commitHash, extension, text):
         raise Exception("Can't handle looper version %s" % version)
 
     e = algebraic_to_json.Encoder()
+    e.overrides[VariableDict] = parseVariableDict
 
     return extract_tests(repoName, commitHash, e.from_json(test_defs_json, TestDefinitionScript))

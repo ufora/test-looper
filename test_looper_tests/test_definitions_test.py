@@ -33,6 +33,8 @@ environments:
       dockerfile: "test_looper/Dockerfile.txt"
     variables:
       ENV_VAR: ENV_VAL
+      AN_INT_VAR: 10
+      A_BOOL_VAR: true
 builds:
   foreach: {env: [linux, test_linux]}
   repeat:
@@ -123,6 +125,10 @@ class TestDefinitionScriptTests(unittest.TestCase):
 
         for name in ['build/linux', 'build/test_linux', 'test/linux', 'test/test_linux']:
             self.assertTrue(name in tests, name)
+
+        self.assertEqual(set(environments["test_linux"].variables), set(["ENV_VAR", "AN_INT_VAR", "A_BOOL_VAR"]))
+        self.assertEqual(environments["test_linux"].variables["AN_INT_VAR"], "10")
+        self.assertEqual(environments["test_linux"].variables["A_BOOL_VAR"], "true")
 
     def test_environment_inheritance(self):
         tests, environments, repos = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", environment_yaml_file)
