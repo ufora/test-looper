@@ -33,6 +33,14 @@ class MockSourceControl:
         self.created_commits = 0
         self.prepushHooks = {}
 
+    def clearContents(self):
+        self.repos = set()
+        self.commit_test_defs = {}
+        self.commit_parents = {}
+        self.branch_to_commitId = {}
+        self.created_commits = 0
+        self.prepushHooks = {}
+
     def listRepos(self):
         return sorted(self.repos)
 
@@ -987,6 +995,34 @@ class TestManagerTests(unittest.TestCase):
         harness.consumeBackgroundTasks()
 
         self.assertTrue(machines != set(harness.manager.machine_management.runningMachines))
+        
+    def test_manager_remembers_old_repos(self):
+        harness = self.get_harness()
+
+        harness.add_content()
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        with harness.database.view():
+            self.assertTrue(harness.database.Repo.lookupAll(isActive=True))
+            repo1 = harness.database.Repo.lookupOne(name='repo1')
+
+        harness.enableBranchTesting("repo1", "master")
+
+        phases = harness.doTestsInPhases()
+
+        harness.manager.source_control.clearContents()
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        #verify we still have test runs
+        with harness.database.view():
+            self.assertFalse(harness.database.Repo.lookupAll(isActive=True))
+            self.assertEqual(repo1._identity, harness.database.Repo.lookupOne(name='repo1')._identity)
+
+            c0 = harness.database.Commit.lookupOne(repo_and_hash=(repo1,"c0"))
+            self.assertTrue(harness.database.Test.lookupAll(commitData=c0.data))
 
         
 

@@ -927,12 +927,16 @@ class TestManager(object):
 
                 for r in repos:
                     if r.name not in all_repos:
-                        r.delete()
+                        r.isActive = False
 
                 existing = set([x.name for x in repos])
 
                 for new_repo_name in all_repos - existing:
-                    r = self._createRepo(new_repo_name)
+                    r = self.database.Repo.lookupAny(name=new_repo_name)
+                    if r:
+                        r.isActive = True
+                    else:
+                        r = self._createRepo(new_repo_name)
 
                 for r in self.database.Repo.lookupAll(isActive=True):
                     self.database.DataTask.New(
