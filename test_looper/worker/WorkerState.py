@@ -552,6 +552,8 @@ class WorkerState(object):
                 logging.info("Failed to terminate subprocess: %s", traceback.format_exc())
 
             readthreadStop.set()
+        
+        log_function("\n\n" + time.asctime() + " TestLooper> Process exited with code %s\n" % ret_code)
 
         return ret_code == 0
 
