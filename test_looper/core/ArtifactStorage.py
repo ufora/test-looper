@@ -214,7 +214,7 @@ class AwsArtifactStorage(ArtifactStorage):
 
     def clear_build(self, repoName, commitHash, key_name):
         """Clear a build"""
-        self._bucket.Object(self.build_artifact_key_prefix + "/" + repoName + "/" + commitHash, key_name).delete()
+        self._bucket.Object(self.build_artifact_key_prefix + "/" + repoName + "/" + commitHash + "/" + key_name).delete()
 
     def build_exists(self, repoName, commitHash, key_name):
         try:
