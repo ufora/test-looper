@@ -211,7 +211,28 @@ class Git(object):
             output = [l.strip() for l in output if l]
 
             return [l for l in output if l and self.isValidBranchName_(l)]
-            
+    
+    def branchnameForCommitSloppy(self, hash, remoteName="origin", maxSearchDepth=1000):
+        """Try to return a name for the commit relative to a branch.
+
+        Note that this doesn't handle merge commits correctly
+        """
+        branches = []
+        for b in self.listBranchesForRemote(remoteName):
+            hashes = [x[0] for x in self.hashParentsAndCommitTitleForMulti("origin/" + b, maxSearchDepth)]
+
+            if hash in hashes:
+                ix = hashes.index(hash)
+                branches.append((ix,b))
+
+        if branches:
+            branches = sorted(branches)
+            ix, branch = branches[0]
+            if ix == 0:
+                return branch
+            else:
+                return branch + "~%s" % ix
+
     def listBranchesForRemote(self, remote):
         with self.git_repo_lock:
             lines = self.subprocessCheckOutput(['git', 'branch', '-r']).strip().split('\n')

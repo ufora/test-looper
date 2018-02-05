@@ -180,7 +180,7 @@ class WorkerStateOverride(WorkerState.WorkerState):
         return True
 
     def resetToCommit(self, repoName, commitHash):
-        self.extra_mappings[self.looperCtl.repo_and_commit_checkout_root_path(repoName, commitHash)] = \
+        self.extra_mappings[self.looperCtl.checkout_root_path(repoName, commitHash)] = \
             "/test_looper/src"
 
         return True
@@ -200,7 +200,7 @@ class WorkerStateOverride(WorkerState.WorkerState):
 
         if dep.matches.Source:
             self.extra_mappings[
-                self.looperCtl.repo_and_commit_checkout_root_path(dep.repo, dep.commitHash)
+                self.looperCtl.checkout_root_path(dep.repo, dep.commitHash)
                 ] = os.path.join("/test_looper/test_inputs", expose_as)
 
             return None
@@ -215,16 +215,17 @@ class TestDefinitionResolverOverride(WorkerState.TestDefinitionResolver):
 
     def testAndEnvironmentDefinitionFor(self, repoName, commitHash):
         if commitHash in self.looperCtl.cur_checkouts.get(repoName, []):
-            root_path = self.looperCtl.repo_and_commit_checkout_root_path(repoName, commitHash)
+            root_path = self.looperCtl.checkout_root_path(repoName, commitHash)
 
-            path = Git.Git.getTestDefinitionsPathFromDir(root_path)
+            if os.path.exists(root_path):
+                path = Git.Git.getTestDefinitionsPathFromDir(root_path)
 
-            if not path:
-                return {}, {}, {}
+                if not path:
+                    return {}, {}, {}
 
-            text = open(os.path.join(root_path, path), "r").read()
+                text = open(os.path.join(root_path, path), "r").read()
 
-            return TestDefinitionScript.extract_tests_from_str(repoName, commitHash, os.path.splitext(path)[1], text)
+                return TestDefinitionScript.extract_tests_from_str(repoName, commitHash, os.path.splitext(path)[1], text)
 
         return WorkerState.TestDefinitionResolver.testAndEnvironmentDefinitionFor(self, repoName, commitHash)
 
@@ -235,24 +236,42 @@ class TestLooperCtl:
         self.repos = {}
         self.resolver = TestDefinitionResolverOverride(self)
 
+        #map from repo->hash->name of the current checkout
         self.cur_checkouts = config.get("cur_checkouts", {})
+        self.initializeAllRepoNames()
+
+    def initializeAllRepoNames(self):
+        self.allRepoNames = set()
+
+        def walk(items):
+            dirpath = os.path.join(self.root_path, ".tl", "repos", *items)
+
+            for i in os.listdir(dirpath):
+                fullpath = os.path.join(dirpath, i)
+                if i != ".git" and os.path.isdir(fullpath):
+                    if os.path.exists(os.path.join(fullpath, ".git")):
+                        self.allRepoNames.add("/".join(items + (i,)))
+                    else:
+                        walk(items + (i,))
+
+        walk(())
 
     def sanitize(self, name):
         return name.replace("/","_").replace(":","_")
 
     def build_path(self, reponame, commit, testname):
-        return os.path.abspath(os.path.join(self.root_path, "builds", self.sanitize(reponame + "_" + commit + "_" + testname)))
+        buildname = self.cur_checkouts[reponame][commit]
 
-    def repo_checkout_root_path(self, reponame):
-        return os.path.abspath(os.path.join(self.root_path, "src", self.sanitize(reponame)))
+        return os.path.abspath(os.path.join(self.root_path, "builds", self.sanitizeReponame(reponame), self.sanitize(buildname), self.sanitize(testname)))
 
-    def repo_and_commit_checkout_root_path(self, reponame, hash):
-        base = os.path.abspath(os.path.join(self.root_path, "src", self.sanitize(reponame)))
-        
-        if len(self.cur_checkouts[reponame]) == 1:
-            return base
+    def sanitizeReponame(self, reponame):
+        return self.sanitize(reponame)
 
-        return os.path.join(base, hash)
+    def checkout_root_path(self, reponame, hashOrCommitName):
+        if Git.isShaHash(hashOrCommitName):
+            hashOrCommitName = self.cur_checkouts[reponame][hashOrCommitName]
+
+        return os.path.abspath(os.path.join(*((self.root_path, "src") + tuple(reponame.split("/")) + (self.sanitize(hashOrCommitName),))))
     
     def writeStateToConfig(self):
         config = {
@@ -267,10 +286,14 @@ class TestLooperCtl:
             return self.repos[reponame]
         
         self.repos[reponame] = Git.Git(os.path.join(*([self.root_path, ".tl", "repos"] + reponame.split("/"))))
+        self.allRepoNames.add(reponame)
 
         if not self.repos[reponame].isInitialized():
+            if not os.path.exists(self.repos[reponame].path_to_repo):
+                os.makedirs(self.repos[reponame].path_to_repo)
+
             clone_root = self.git_clone_root + ":" + reponame + ".git"
-            print "Cloning " + clone_root
+            print "Cloning " + clone_root + " into " + self.repos[reponame].path_to_repo
 
             if not self.repos[reponame].cloneFrom(clone_root):
                 del self.repos[reponame]
@@ -320,15 +343,20 @@ class TestLooperCtl:
             hash = reference.split("/")[-1]
 
             if reponame not in repo_usages:
-                repo_usages[reponame] = [hash]
+                repo_usages[reponame] = {}
                 is_new = True
             else:
                 is_new = hash not in repo_usages[reponame]
 
-                if is_new:
-                    repo_usages[reponame].append(hash)
-
             if is_new:
+                repo_usages[reponame][hash] = self.getGitRepo(reponame).branchnameForCommitSloppy(hash)
+                
+                if repo_usages[reponame][hash] is None:
+                    self.getGitRepo(reponame).fetchOrigin()
+                    repo_usages[reponame][hash] = self.getGitRepo(reponame).branchnameForCommitSloppy(hash)
+
+                assert repo_usages[reponame][hash] is not None, "can't find a good name for %s in %s" % (hash, reponame)
+
                 resolve(reponame, hash)
 
         import_repo_ref(reponame + "/" + committish)
@@ -337,43 +365,29 @@ class TestLooperCtl:
             self._checkoutRepoNames(reponame, repo_usages[reponame])
 
     def _checkoutRepoNames(self, reponame, hashes):
-        path = self.repo_checkout_root_path(reponame)
+        assert len(set(hashes.values())) == len(hashes), "Conflicting checkout names: " + str(hashes)
 
         if reponame not in self.cur_checkouts:
-            self.cur_checkouts[reponame] = []
+            self.cur_checkouts[reponame] = {}
 
         if self.cur_checkouts[reponame] == hashes:
             return
         
-        if len(hashes) == 1 and len(self.cur_checkouts[reponame]) == 1:
-            print "Checking out ", reponame + "/" + hashes[0][:10], " in ", path
+        existing_name_checkouts = {v:k for k,v in self.cur_checkouts[reponame].items()}
 
-            self.cur_checkouts[reponame] = []
-            Git.Git(path).resetToCommit(hashes[0])
-            self.cur_checkouts[reponame] = hashes
-        else:
-            if os.path.exists(path):
-                shutil.rmtree(path)
+        for hash, checkout_name in hashes.iteritems():
+            if hash != existing_name_checkouts.get(checkout_name, None):
+                path = self.checkout_root_path(reponame, checkout_name)
+                print "Checkout out commit ", hash, " to ", path
+                self.getGitRepo(reponame).resetToCommitInDirectory(hash, path)
 
-            self.cur_checkouts[reponame] = []
+        self.cur_checkouts[reponame] = hashes
 
-            if len(hashes) != 1:
-                for h in hashes:
-                    self.getGitRepo(reponame).resetToCommitInDirectory(h, os.path.join(path, h))
-            else:
-                print "Checking out ", reponame + "/" + hashes[0][:10], " in ", path
-                self.getGitRepo(reponame).resetToCommitInDirectory(hashes[0], path)
-
-            self.cur_checkouts[reponame] = hashes
-
-    def commitForRepo(self, reponame):
+    def commitsForRepo(self, reponame):
         if reponame not in self.cur_checkouts:
             raise UserWarning("Can't find " + reponame + " amongst checked out repos %s" % sorted(self.cur_checkouts))
 
-        if len(self.cur_checkouts[reponame]) != 1:
-            raise UserWarning("Repo " + reponame + " has multiple revisions checked out.")
-
-        return self.cur_checkouts[reponame][0]
+        return self.cur_checkouts[reponame]
 
     def info(self, args):
         if args.repo:
@@ -388,8 +402,7 @@ class TestLooperCtl:
 
     def infoForTest(self, repo, test):
         repo = self.bestRepo(repo)
-        commit = self.commitForRepo(repo)
-        test = self.bestTest(repo, commit, test)
+        commit, test = self.bestTest(repo, test)
 
         tests, environments, repos = self.resolver.testAndEnvironmentDefinitionFor(repo, commit)
 
@@ -412,11 +425,22 @@ class TestLooperCtl:
     def infoForRepo(self, repo):
         repo = self.bestRepo(repo)
 
-        commit = self.commitForRepo(repo)
+        print "repo: ", repo
+
+        git_repo = self.getGitRepo(repo)
+        git_repo.fetchOrigin()
+
+        for branchname in git_repo.listBranchesForRemote("origin"):
+            print "\t", branchname, " -> ", git_repo.hashParentsAndCommitTitleFor("origin/" + branchname)[0]
+
+        try:
+            commit = self.commitForRepo(repo)
+        except:
+            return
 
         tests, environments, repos = self.resolver.testAndEnvironmentDefinitionFor(repo, commit)
 
-        print "repo: ", repo, "checked out to", commit
+        print "checked out to: ", commit
 
         print "\tbuilds: "
         for test, testDef in tests.iteritems():
@@ -441,20 +465,27 @@ class TestLooperCtl:
             raise UserWarning("%s could refer to %s of %s" % (lookfor, "any" if len(possible) > 2 else "either", possible))
         return None
 
-    def bestTest(self, reponame, commit, test):
-        tests = self.resolver.testAndEnvironmentDefinitionFor(reponame, commit)[0]
+    def bestTest(self, reponame, test):
+        possible = []
 
-        res = self._pickOne(test, tests, "test")
-        if not res:
+        for commit in self.cur_checkouts[reponame]:
+            tests = self.resolver.testAndEnvironmentDefinitionFor(reponame, commit)[0]
+            res = self._pickOne(test, tests, "test")
+            if res:
+                possible.append((commit, res))
+
+        if not possible:
             raise UserWarning("Couldn't find a test named %s" % test)
-        return res
+
+        if len(possible) > 1:
+            raise UserWarning("Found multiple tests")
+
+        return possible[0]
 
     def build(self, args):
         repo = self.bestRepo(args.repo)
 
-        commit = self.commitForRepo(repo)
-
-        test = self.bestTest(repo, commit, args.test)
+        commit, test = self.bestTest(repo, args.test)
 
         self.buildTest(repo, commit, test, args.cores, args.nologcapture, args.nodeps, args.interactive, set())
 
@@ -470,7 +501,8 @@ class TestLooperCtl:
         path = self.build_path(reponame, commit, testname)
 
         if path in seen_already:
-            return
+            return True
+
         seen_already.add(path)
 
         all_tests = self.resolver.testAndEnvironmentDefinitionFor(reponame, commit)[0]
