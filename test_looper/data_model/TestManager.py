@@ -777,7 +777,9 @@ class TestManager(object):
                     self._cancelTestRun(t, curTimestamp)
 
             for m in self.database.Machine.lookupAll(isAlive=True):
-                if m.lastHeartbeat < curTimestamp - MACHINE_TIMEOUT_SECONDS and \
+                heartbeat = max(m.lastHeartbeat, m.bootTime)
+
+                if heartbeat < curTimestamp - MACHINE_TIMEOUT_SECONDS and \
                         curTimestamp - self.initialTimestamp > MACHINE_TIMEOUT_SECONDS:
                     logging.info("Shutting down machine %s because it has not heartbeat in a long time",
                         m.machineId
