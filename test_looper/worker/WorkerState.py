@@ -563,7 +563,7 @@ class WorkerState(object):
         try:
             log_filename = os.path.join(self.directories.command_dir, "log.txt")
 
-            with open(log_filename, 'a') as build_log:
+            with open(log_filename, 'w') as build_log:
                 tail_proc = SubprocessRunner.SubprocessRunner(["tail","-f",log_filename,"-n","+0"], log_function, log_function, enablePartialLineOutput=True)
                 tail_proc.start()
 
@@ -1074,10 +1074,7 @@ class WorkerState(object):
 
     def _upload_build(self, repoName, commitHash, testName):
         #upload all the data in our directory
-        tarball_name = os.path.join(
-            self.directories.build_cache_dir, 
-            self.artifactKeyForBuild(testName)
-            )
+        tarball_name = self._buildCachePathFor(repoName, commitHash, testName)
 
         if not os.path.exists(tarball_name):
             logging.info("Tarballing %s into %s", self.directories.build_output_dir, tarball_name)
