@@ -54,6 +54,8 @@ class DummyWorkerCallbacks:
 
 HEARTBEAT_INTERVAL=3
 
+PASSTHROUGH_KEYS = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
+
 class NAKED_MACHINE:
     pass
 
@@ -91,7 +93,7 @@ class TestDefinitionResolver:
 
             underlying_env = self.environmentDefinitionFor(dep.repo, dep.commitHash, dep.name)
 
-            assert underlying_env is not None
+            assert underlying_env is not None, "Can't find environment for %s/%s/%s" % (dep.repo, dep.commitHash, dep.name)
 
             dependencies[dep] = underlying_env
 
@@ -356,6 +358,11 @@ class WorkerState(object):
             env = dict(env)
             env["TERM"] = "xterm-256color"
 
+            for key in PASSTHROUGH_KEYS:
+                if os.getenv(key):
+                    env[key] = os.getenv(key)
+
+            
             with DockerWatcher.DockerWatcher(self.name_prefix) as watcher:
                 if isinstance(workerCallback, DummyWorkerCallbacks) and workerCallback.localTerminal:
                     container = watcher.run(
@@ -592,6 +599,11 @@ class WorkerState(object):
                 print >> f, "bash /test_looper/command/cmd.sh >> /test_looper/command/log.txt 2>&1"
 
             assert docker_image is not None
+
+            env = dict(env)
+            for key in PASSTHROUGH_KEYS:
+                if os.getenv(key):
+                    env[key] = os.getenv(key)
 
             with DockerWatcher.DockerWatcher(self.name_prefix) as watcher:
                 container = watcher.run(

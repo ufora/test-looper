@@ -56,6 +56,9 @@ def createArgumentParser():
     clear_parser.add_argument("-b", "--build", help="Get info on a specific test", default=False, action="store_true")
     clear_parser.add_argument("-s", "--src", help="Get info on a specific test", default=False, action="store_true")
 
+    init_parser = subparsers.add_parser("fetch")
+    init_parser.set_defaults(command="fetch")
+
     init_parser = subparsers.add_parser("init")
     init_parser.set_defaults(command="init")
     init_parser.add_argument("path", help="Path to disk storage")
@@ -65,6 +68,8 @@ def createArgumentParser():
     checkout_parser.set_defaults(command="checkout")
     checkout_parser.add_argument("repo", help="Name of the repo")
     checkout_parser.add_argument("committish", help="Name of the commit or branch")
+    checkout_parser.add_argument("--hard", help="Force a hard reset in the source repo", default=False, action="store_true")
+    checkout_parser.add_argument("--prune", help="Get rid of unused repos", default=False, action="store_true")
 
     build_parser = subparsers.add_parser("build")
     build_parser.set_defaults(command="build")
@@ -256,8 +261,30 @@ class TestLooperCtl:
 
         walk(())
 
+
+    def fetch(self, args):
+        print "fetching origin for ", len(self.allRepoNames)
+
+        threads = []
+        for reponame in self.allRepoNames:
+            def makeUpdater(name):
+                def f():
+                    try:
+                        self.getGitRepo(name).fetchOrigin()
+                    except:
+                        logging.error("Failed to update repo %s: %s", name, traceback.format_exc())
+                return f
+            threads.append(threading.Thread(target=makeUpdater(reponame)))
+            threads[-1].daemon=True
+            threads[-1].start()
+
+        for t in threads:
+            t.join()
+
+
+
     def sanitize(self, name):
-        return name.replace("/","_").replace(":","_")
+        return name.replace("/","_").replace(":","_").replace("~", "--")
 
     def build_path(self, reponame, commit, testname):
         buildname = self.cur_checkouts[reponame][commit]
@@ -268,6 +295,9 @@ class TestLooperCtl:
         return self.sanitize(reponame)
 
     def checkout_root_path(self, reponame, hashOrCommitName):
+        if hashOrCommitName is None:
+            return os.path.abspath(os.path.join(*((self.root_path, "src") + tuple(reponame.split("/")))))
+
         if Git.isShaHash(hashOrCommitName):
             hashOrCommitName = self.cur_checkouts[reponame][hashOrCommitName]
 
@@ -298,7 +328,7 @@ class TestLooperCtl:
             if not self.repos[reponame].cloneFrom(clone_root):
                 del self.repos[reponame]
                 raise UserWarning("Failed to clone " + reponame)
-
+        
         return self.repos[reponame]
 
     def clearDirectoryAsRoot(self, *args):
@@ -323,8 +353,6 @@ class TestLooperCtl:
         repo = self.getGitRepo(reponame)
         
         committish = args.committish
-
-        repo.fetchOrigin()
 
         if not Git.isShaHash(committish):
             committish = repo.hashParentsAndCommitTitleFor("origin/" + committish)[0]
@@ -352,7 +380,6 @@ class TestLooperCtl:
                 repo_usages[reponame][hash] = self.getGitRepo(reponame).branchnameForCommitSloppy(hash)
                 
                 if repo_usages[reponame][hash] is None:
-                    self.getGitRepo(reponame).fetchOrigin()
                     repo_usages[reponame][hash] = self.getGitRepo(reponame).branchnameForCommitSloppy(hash)
 
                 assert repo_usages[reponame][hash] is not None, "can't find a good name for %s in %s" % (hash, reponame)
@@ -362,26 +389,51 @@ class TestLooperCtl:
         import_repo_ref(reponame + "/" + committish)
 
         for reponame in sorted(repo_usages):
-            self._checkoutRepoNames(reponame, repo_usages[reponame])
+            self._checkoutRepoNames(reponame, repo_usages[reponame], args.hard, args.prune)
 
-    def _checkoutRepoNames(self, reponame, hashes):
+        if args.prune:
+            for reponame in self.allRepoNames:
+                if reponame not in repo_usages:
+                    print "pruning ", reponame
+                    self.clearDirectoryAsRoot(self.checkout_root_path(reponame, None))
+
+        for reponame in sorted(repo_usages):
+            for commit, commitName in self.cur_checkouts[reponame].iteritems():
+                _,_,repos = self.resolver.testAndEnvironmentDefinitionFor(reponame, commit)
+
+                if repos:
+                    print "repo ", reponame, commitName
+                    for refname, ref in repos.iteritems():
+                        print "\t", refname, " -> ", ref.reponame(), self.cur_checkouts[ref.reponame()][ref.commitHash()]
+
+    def _checkoutRepoNames(self, reponame, hashes, hard=False, prune=False):
         assert len(set(hashes.values())) == len(hashes), "Conflicting checkout names: " + str(hashes)
 
         if reponame not in self.cur_checkouts:
             self.cur_checkouts[reponame] = {}
 
-        if self.cur_checkouts[reponame] == hashes:
-            return
-        
         existing_name_checkouts = {v:k for k,v in self.cur_checkouts[reponame].items()}
 
         for hash, checkout_name in hashes.iteritems():
-            if hash != existing_name_checkouts.get(checkout_name, None):
-                path = self.checkout_root_path(reponame, checkout_name)
-                print "Checkout out commit ", hash, " to ", path
+            path = self.checkout_root_path(reponame, checkout_name)
+
+            if not Git.Git(path).isInitialized():
+                print "Checkout commit ", hash, " to ", path
                 self.getGitRepo(reponame).resetToCommitInDirectory(hash, path)
+            else:
+                if hash != Git.Git(path).currentCheckedOutCommit() or hard:
+                    if hard:
+                        Git.Git(path).resetHard()
+
+                    Git.Git(path).checkoutCommit(hash)
 
         self.cur_checkouts[reponame] = hashes
+
+        if prune:
+            for name in os.listdir(self.checkout_root_path(reponame, None)):
+                if name not in hashes.values():
+                    print "pruning ", reponame, name
+                    self.clearDirectoryAsRoot(self.checkout_root_path(reponame, name))
 
     def commitsForRepo(self, reponame):
         if reponame not in self.cur_checkouts:
@@ -428,8 +480,7 @@ class TestLooperCtl:
         print "repo: ", repo
 
         git_repo = self.getGitRepo(repo)
-        git_repo.fetchOrigin()
-
+        
         for branchname in git_repo.listBranchesForRemote("origin"):
             print "\t", branchname, " -> ", git_repo.hashParentsAndCommitTitleFor("origin/" + branchname)[0]
 
@@ -603,6 +654,8 @@ def main(argv):
                     ctl.info(parsedArgs)
                 elif parsedArgs.command == "build":
                     ctl.build(parsedArgs)
+                elif parsedArgs.command == "fetch":
+                    ctl.fetch(parsedArgs)
                 else:
                     raise UserWarning("Unknown command " + parsedArgs.command)
             finally:

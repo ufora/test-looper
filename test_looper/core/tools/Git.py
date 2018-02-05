@@ -5,6 +5,7 @@ import traceback
 import os
 import sys
 import threading
+import errno
 import time
 import tempfile
 import shutil
@@ -51,7 +52,7 @@ class Git(object):
         with _outOfProcessDownloaderPoolLock:
             if _outOfProcessDownloaderPool[0] is None:
                 _outOfProcessDownloaderPool[0] = \
-                    OutOfProcessDownloader.OutOfProcessDownloaderPool(4, actuallyRunOutOfProcess=sys.platform != "win32")
+                    OutOfProcessDownloader.OutOfProcessDownloaderPool(16, actuallyRunOutOfProcess=sys.platform != "win32")
             self.outOfProcessDownloaderPool = _outOfProcessDownloaderPool[0]
 
         self.git_repo_lock = threading.RLock()
@@ -79,6 +80,14 @@ class Git(object):
             return False
 
         return self.subprocessCheckCall(['git', 'reset','--hard', revision]) == 0
+
+    def checkoutCommit(self, revision):
+        logging.info("Checking out revision %s", revision)
+
+        if not self.commitExists(revision):
+            return False
+
+        return self.subprocessCheckCall(['git', 'checkout', revision]) == 0
 
     def resetToCommitInDirectory(self, revision, directory):
         with self.git_repo_lock:
@@ -275,6 +284,22 @@ class Git(object):
                 logging.error("Failed to get git info on %s. data=%s", commitHash, data)
                 raise
 
+    def resetHard(self):
+        with self.git_repo_lock:
+            self.subprocessCheckOutput(
+                ["git", "reset", "--hard"]
+                )
+
+    def currentCheckedOutCommit(self):
+        with self.git_repo_lock:
+            try:
+                commandResult = self.subprocessCheckOutput(
+                    ["git", "--no-pager", "log", "-n", "1", '--format=format:%H']
+                    )
+                return commandResult.split()
+            except:
+                return None
+
     def getFileContents(self, commit, path):
         with self.git_repo_lock:
             try:
@@ -336,7 +361,7 @@ class Git(object):
     def fetchOrigin(self):
         with self.git_repo_lock:
             if self.subprocessCheckCall(['git', 'fetch', '-p']) != 0:
-                logging.error("Failed to fetch from origin!")
+                logging.error("Failed to fetch from origin: %s" % self.path_to_repo)
 
 
     @staticmethod
