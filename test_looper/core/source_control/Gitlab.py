@@ -40,10 +40,16 @@ class Gitlab(SourceControl.SourceControl):
     def shouldVerify(self):
         return True
 
-    def listRepos(self):
-        url = self.gitlab_api_url + '/projects?' + urllib.urlencode({"private_token": self.private_token,"per_page": "100"})
+    def listReposAtPage(self, page):
+        res = []
 
-        headers={'accept': 'application/json'}
+        url = self.gitlab_api_url + '/projects?' + urllib.urlencode({
+            "private_token": self.private_token,
+            "per_page": "20", 
+            "page": str(page)
+            })
+
+        headers = {'accept': 'application/json'}
         
         response = requests.get(
             url,
@@ -51,10 +57,8 @@ class Gitlab(SourceControl.SourceControl):
             verify=self.shouldVerify()
             )
 
-        res = []
         try:
             json = simplejson.loads(response.content)
-            logging.info("Refresh repos returned: %s\n", response.content)
             if 'message' in json:
                 logging.error("Got an error response: %s", response.content)
             else:
@@ -65,9 +69,21 @@ class Gitlab(SourceControl.SourceControl):
                         logging.error("failed with: %s", r)
                         logging.error(traceback.format_exc())
         except:
-            logging.error("GOT: %s", response.content)
             logging.error(traceback.format_exc())
-            return []
+
+        return res
+    
+    def listRepos(self):
+        res = []
+
+        page = 1
+        while True:
+            repos = self.listReposAtPage(page)
+            if repos:
+                res.extend(repos)
+                page += 1
+            else:
+                break
 
         return [x for x in res if x.startswith(self.owner)]
 

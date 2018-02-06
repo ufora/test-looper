@@ -37,9 +37,9 @@ def createArgumentParser():
                         action='store_true',
                         help="Set logging level to verbose")
 
-    parser.add_argument("--local",
+    parser.add_argument("--repocheck",
                         action='store_true',
-                        help="Run locally without EC2")
+                        help="Print the set of known repos and exit")
 
     parser.add_argument("--auth",
                         choices=['full', 'write', 'none'],
@@ -91,6 +91,13 @@ def main():
     eventLog = TestLooperHttpServerEventLog(jsonStore)
 
     src_ctrl = SourceControlFromConfig.getFromConfig(config.server.path_to_local_repos, config.source_control)
+
+    if parsedArgs.repocheck:
+        print "repos: "
+        for r in sorted(src_ctrl.listRepos()):
+            print "\t", r
+        sys.exit(0)
+
     artifact_storage = ArtifactStorage.storageFromConfig(config.artifacts)
     machine_management = MachineManagement.fromConfig(config, src_ctrl, artifact_storage)
 
