@@ -52,7 +52,7 @@ class Git(object):
         with _outOfProcessDownloaderPoolLock:
             if _outOfProcessDownloaderPool[0] is None:
                 _outOfProcessDownloaderPool[0] = \
-                    OutOfProcessDownloader.OutOfProcessDownloaderPool(16, actuallyRunOutOfProcess=sys.platform != "win32")
+                    OutOfProcessDownloader.OutOfProcessDownloaderPool(8, actuallyRunOutOfProcess=sys.platform != "win32")
             self.outOfProcessDownloaderPool = _outOfProcessDownloaderPool[0]
 
         self.git_repo_lock = threading.RLock()
