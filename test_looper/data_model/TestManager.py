@@ -180,9 +180,10 @@ class HeartbeatHandler(object):
 version_pattern = re.compile(".*([0-9-._]+).*")
 
 class TestManager(object):
-    def __init__(self, source_control, machine_management, kv_store, initialTimestamp=None):
+    def __init__(self, server_port_config, source_control, machine_management, kv_store, initialTimestamp=None):
         self.initialTimestamp = initialTimestamp or time.time()
 
+        self.server_port_config = server_port_config
         self.source_control = source_control
         self.machine_management = machine_management
 
@@ -949,6 +950,19 @@ class TestManager(object):
         elif task.matches.RefreshBranches:
             with self.transaction_and_lock():
                 repo = self.source_control.getRepo(task.repo.name)
+
+                try:
+                    if not self.source_control.isWebhookInstalled(task.repo.name, self.server_port_config):
+                        self.source_control.installWebhook(
+                            task.repo.name, 
+                            self.server_port_config
+                            )
+                except:
+                    logging.error("Tried to install webhook for %s but failed: %s", 
+                        task.repo.name,
+                        traceback.format_exc()
+                        )
+
                 repo.source_repo.fetchOrigin()
 
                 branchnames = repo.listBranches()

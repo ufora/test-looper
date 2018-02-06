@@ -531,6 +531,7 @@ class TestManagerTests(unittest.TestCase):
     def get_harness(self, max_workers=1000):
         return TestManagerTestHarness(
             TestManager.TestManager(
+                None,
                 MockSourceControl(), 
                 MachineManagement.DummyMachineManagement(
                     FakeConfig(

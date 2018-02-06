@@ -13,6 +13,22 @@ from test_looper.core.source_control import SourceControl
 from test_looper.core.tools.Git import Git
 import test_looper.core.source_control.RemoteRepo as RemoteRepo
 
+def loadPages(pageFun):
+    """Call a function 'pageFun' with increasing integers until it stops returning anything."""
+    res = []
+
+    page = 1
+    while True:
+        page_results = pageFun(page)
+        if page_results:
+            res.extend(page_results)
+            page += 1
+        else:
+            break
+
+    return res
+
+
 class Gitlab(SourceControl.SourceControl):
     def __init__(self,
                  path_to_local_repo_cache,
@@ -40,6 +56,73 @@ class Gitlab(SourceControl.SourceControl):
     def shouldVerify(self):
         return True
 
+    def isWebhookInstalled(self, reponame, server_port_config):
+        if server_port_config is None:
+            return False
+
+        def get_hooks(page):
+            url = self.gitlab_api_url + (
+                '/projects/%s/hooks?' % (urllib.quote(reponame,safe='')) + 
+                 urllib.urlencode({
+                    "private_token": self.private_token,
+                    "per_page": "20", 
+                    "page": str(page)
+                    })
+                )
+
+            headers = {'accept': 'application/json'}
+
+            response = simplejson.loads(
+                requests.get(url, headers=headers, verify=self.shouldVerify()).content
+                )
+
+            if 'message' in response:
+                return []
+
+            return response
+
+        hooks = loadPages(get_hooks)
+
+        url = "https://%s%s/" % (
+            server_port_config.server_address,
+            ":" + str(server_port_config.server_https_port) if 
+                server_port_config.server_https_port != 443 else ""
+            )
+
+        for h in hooks:
+            if h["push_events"] and h["url"] in [url + "webhook", url + "githubReceivedAPush"]:
+                return True
+
+        return False
+
+    def installWebhook(self, reponame, server_port_config):
+        url = "https://%s%s/webhook" % (
+            server_port_config.server_address,
+            ":" + str(server_port_config.server_https_port) if 
+                server_port_config.server_https_port != 443 else ""
+            )
+
+        response = requests.post(
+            self.gitlab_api_url + '/projects/%s/hooks' % urllib.quote(reponame,safe=''),
+            headers={
+                'accept': 'application/json',
+                'PRIVATE-TOKEN': self.private_token
+                },
+            data={
+                'url': url,
+                'push_events': True
+                },
+            verify=self.shouldVerify()
+            )
+
+        if response.status_code != 201:
+            logging.error("Response to request to create webhook: %s with contents %s", response, response.content)
+            return False
+        else:
+            logging.info("Sucessfully installed a webhook into %s", reponame)
+            
+        return True
+        
     def listReposAtPage(self, page):
         res = []
 
@@ -72,18 +155,9 @@ class Gitlab(SourceControl.SourceControl):
             logging.error(traceback.format_exc())
 
         return res
-    
-    def listRepos(self):
-        res = []
 
-        page = 1
-        while True:
-            repos = self.listReposAtPage(page)
-            if repos:
-                res.extend(repos)
-                page += 1
-            else:
-                break
+    def listRepos(self):
+        res = loadPages(self.listReposAtPage)
 
         return [x for x in res if x.startswith(self.owner)]
 

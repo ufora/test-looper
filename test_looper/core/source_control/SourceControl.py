@@ -5,6 +5,12 @@ class SourceControl(object):
     def __init__(self):
         pass
 
+    def isWebhookInstalled(self, reponame):
+        return False
+
+    def installWebhook(self, reponame, address):
+        pass
+
     def listRepos(self):
         assert False, "Subclasses Implement"
 

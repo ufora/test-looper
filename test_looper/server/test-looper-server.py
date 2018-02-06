@@ -95,13 +95,13 @@ def main():
     if parsedArgs.repocheck:
         print "repos: "
         for r in sorted(src_ctrl.listRepos()):
-            print "\t", r
+            print "\t", r, src_ctrl.isWebhookInstalled(r, config.server_ports)
         sys.exit(0)
 
     artifact_storage = ArtifactStorage.storageFromConfig(config.artifacts)
     machine_management = MachineManagement.fromConfig(config, src_ctrl, artifact_storage)
 
-    testManager = TestManager.TestManager(src_ctrl, machine_management, jsonStore)
+    testManager = TestManager.TestManager(config.server_ports, src_ctrl, machine_management, jsonStore)
     
     httpServer = TestLooperHttpServer.TestLooperHttpServer(
         config.server_ports,
