@@ -22,7 +22,6 @@ for name in ["boto3", "requests", "urllib"]:
 
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.tools.Git as Git
-import test_looper.core.DirectoryScope as DirectoryScope
 
 if sys.platform != "win32":
     import docker
@@ -884,8 +883,7 @@ class WorkerState(object):
                 self.resetToCommitInDir(dep.repo, dep.commitHash, target_dir)
 
                 with tarfile.open(tarball_name, "w:gz", compresslevel=1) as tf:
-                    with DirectoryScope.DirectoryScope(target_dir):
-                        tf.add(".")
+                    tf.add(target_dir, ".")
 
                 log_function(time.asctime() + " TestLooper> Resulting tarball at %s is %.2f MB.\n" %(tarball_name, os.stat(tarball_name).st_size / 1024.0**2))
 
@@ -1100,8 +1098,7 @@ class WorkerState(object):
             logging.info("Tarballing %s into %s", self.directories.build_output_dir, tarball_name)
 
             with tarfile.open(tarball_name, "w:gz", compresslevel=1) as tf:
-                with DirectoryScope.DirectoryScope(self.directories.build_output_dir):
-                    tf.add(".")
+                tf.add(self.directories.build_output_dir, ".")
 
             logging.info("Resulting tarball at %s is %.2f MB", tarball_name, os.stat(tarball_name).st_size / 1024.0**2)
         else:
