@@ -17,7 +17,7 @@ def isValidRepoName(name):
 
 class RemoteRepo(object):
     def __init__(self, name, path_to_local_repo, source_control):
-        assert isValidRepoName(name)
+        assert isValidRepoName(name), "Invalid reponame: %s" % name
 
         self.name = name
         self.source_repo = Git(path_to_local_repo)
