@@ -870,8 +870,16 @@ class WorkerState(object):
 
             tarball_name = self._buildCachePathFor(dep.repo, dep.commitHash, "source")
 
+            log_function(time.asctime() + " TestLooper> Target tarball for %s/%s source is %s\n" 
+                        % (dep.repo, dep.commitHash, tarball_name))
+
             if not self.artifactStorage.build_exists(dep.repo, dep.commitHash, sourceArtifactName):
-                log_function(time.asctime() + " TestLooper> Building source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
+                log_function(time.asctime() + " TestLooper> Building source cache for %s/%s at %s\n" 
+                        % (dep.repo, dep.commitHash, target_dir))
+
+                if os.path.exists(target_dir):
+                    log_function(time.asctime() + " TestLooper> Warning: source cache directory %s not empty\n" % target_dir)
+                    shutil.rmtree(target_dir)
 
                 self.resetToCommitInDir(dep.repo, dep.commitHash, target_dir)
 
@@ -888,7 +896,7 @@ class WorkerState(object):
                         )
                     self.artifactStorage.upload_build(dep.repo, dep.commitHash, sourceArtifactName, tarball_name)
                 except:
-                    logging.error("Failed to upload package '%s':\n%s",
+                    log_function(time.asctime() + " TestLooper> Failed to upload package '%s':\n%s",
                           tarball_name,
                           traceback.format_exc()
                           )
@@ -948,8 +956,8 @@ class WorkerState(object):
 
                             results[expose_as] = traceback.format_exc()
 
-                waiting_threads = [threading.Thread(target=callFun, args=(expose_as,dep))
-                                for (expose_as, dep) in all_dependencies.iteritems()]
+                waiting_threads = [threading.Thread(target=callFun, args=expose_as_and_dep)
+                                for expose_as_and_dep in all_dependencies.iteritems()]
 
                 running_threads = []
 
