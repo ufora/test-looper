@@ -44,6 +44,9 @@ class MockSourceControl:
     def listRepos(self):
         return sorted(self.repos)
 
+    def addRepo(self, reponame):
+        self.repos.add(reponame)
+
     def addCommit(self, commitId, parents, testDefs):
         assert len(commitId.split("/")) == 2
 
@@ -295,12 +298,16 @@ environments:
     variables:
       ENV_VAR: ENV_VAL
 builds:
-  foreach: {env: [linux, test_linux, windows]}
-  repeat:
-      build/${env}:
-        command: "build.sh $TEST_LOOPER_IMPORTS/child"
-        dependencies:
-          child: child/build/${env}
+  merge:
+    - foreach: {env: [linux, test_linux, windows]}
+      repeat:
+        build/${env}:
+          command: "build.sh $TEST_LOOPER_IMPORTS/child"
+          dependencies:
+            child: child/build/${env}
+    - build_without_deps/linux:
+        command: "build.sh"
+        disabled: true
 tests:
   foreach: {env: [linux, test_linux, windows]}
   repeat:
@@ -322,6 +329,9 @@ builds:
     command: "build.sh $TEST_LOOPER_IMPORTS/child"
     dependencies:
       child: child/build/linux
+  build_without_deps/linux:
+    command: "build.sh"
+    disabled: true
 """
 
 basic_yml_file_repo4 = """
@@ -1024,6 +1034,43 @@ class TestManagerTests(unittest.TestCase):
             c0 = harness.database.Commit.lookupOne(repo_and_hash=(repo1,"c0"))
             self.assertTrue(harness.database.Test.lookupAll(commitData=c0.data))
 
-        
+    def test_manager_missing_environment_refs(self):
+        def add(harness, whichRepo):
+            if whichRepo == 0:
+                harness.manager.source_control.addCommit("repo0/c0", [], basic_yml_file_repo0)
+                harness.manager.source_control.addCommit("repo0/c1", ['repo0/c0'], basic_yml_file_repo0)
+                harness.manager.source_control.setBranch("repo0/master", "repo0/c1")
+            if whichRepo == 1:
+                harness.manager.source_control.addCommit("repo1/c0", [], basic_yml_file_repo1)
+                harness.manager.source_control.setBranch("repo1/master", "repo1/c0")
+            if whichRepo == 2:
+                harness.manager.source_control.addCommit("repo2/c0", [], 
+                    basic_yml_file_repo2.replace("disabled: true", "disabled: false"))
+                harness.manager.source_control.setBranch("repo2/master", "repo2/c0")
+            if whichRepo == 3:
+                harness.manager.source_control.addCommit("repo3/c0", [], 
+                    basic_yml_file_repo3.replace("disabled: true", "disabled: false"))
+                harness.manager.source_control.setBranch("repo3/master", "repo3/c0")
 
+        for ordering in [
+                    (0,1,2,3), 
+                    (3,2,1,0), 
+                    (3,1,2,0)
+                    ]:
+            harness = self.get_harness()
 
+            #make sure it knows about all the repos
+            for reponumber in xrange(4):
+                harness.manager.source_control.addRepo("repo%s" % reponumber)
+                    
+            for r in ordering:
+                add(harness, r)
+                harness.markRepoListDirty()
+                harness.consumeBackgroundTasks()
+
+            with harness.database.view():
+                test = harness.database.Test.lookupOne(fullname=("repo2/c0/build_without_deps/linux"))
+                self.assertFalse(test.priority.matches.UnresolvedDependencies)
+
+                test = harness.database.Test.lookupOne(fullname=("repo3/c0/build_without_deps/linux"))
+                self.assertFalse(test.priority.matches.UnresolvedDependencies)

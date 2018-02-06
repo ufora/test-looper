@@ -1112,6 +1112,13 @@ class TestManager(object):
             parents=parents
             )
 
+        #check for all source dependencies and make sure we update them!
+        for dep in self.database.UnresolvedSourceDependency.lookupAll(repo_and_hash=(repo, hash)):
+            test = dep.test
+            dep.delete()
+            self._triggerTestPriorityUpdateIfNecessary(test)
+
+
         for p in parents:
             self.database.CommitRelationship.New(child=commit,parent=p)
         
@@ -1900,8 +1907,10 @@ class TestManager(object):
                 else:
                     env = TestDefinition.merge_environments(env, dependencies)
 
-            if env is None or env.matches.Import:
+            if env is None:
                 return
+
+            assert env.matches.Environment
 
             env = TestDefinition.apply_environment_substitutions(env)
 
@@ -1944,7 +1953,7 @@ class TestManager(object):
             return True
 
         commit = self.database.Commit.lookupAny(repo_and_hash=(repo, commitHash))
-        if not commit:
+        if not commit or not commit.data:
             if self.database.UnresolvedSourceDependency.lookupAny(test_and_repo_and_hash=(test, repo, commitHash)) is None:
                 self.database.UnresolvedSourceDependency.New(test=test, repo=repo, commitHash=commitHash)
             return True
@@ -2021,11 +2030,6 @@ class TestManager(object):
         if not commit:
             commit = self.database.Commit.New(repo=repo, hash=commitHash)
             repo.commits = repo.commits + 1
-
-            for dep in self.database.UnresolvedSourceDependency.lookupAll(repo_and_hash=(repo, commitHash)):
-                test = dep.test
-                dep.delete()
-                self._triggerTestPriorityUpdateIfNecessary(test)
 
         if not commit.data:
             self.database.DataTask.New(
