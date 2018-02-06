@@ -582,8 +582,6 @@ class WorkerState(object):
                     print >> build_log
                     build_log.flush()
 
-                    build_log.flush()
-
             logging.info("Running command: '%s'. Log: %s. Docker Image: %s", 
                 command, 
                 log_filename,

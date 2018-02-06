@@ -382,7 +382,8 @@ class TestLooperCtl:
                 if repo_usages[reponame][hash] is None:
                     repo_usages[reponame][hash] = self.getGitRepo(reponame).branchnameForCommitSloppy(hash)
 
-                assert repo_usages[reponame][hash] is not None, "can't find a good name for %s in %s" % (hash, reponame)
+                if repo_usages[reponame][hash] is None:
+                    repo_usages[reponame][hash] = hash[:10]
 
                 resolve(reponame, hash)
 
