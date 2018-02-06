@@ -5,10 +5,10 @@ class SourceControl(object):
     def __init__(self):
         pass
 
-    def isWebhookInstalled(self, reponame):
+    def isWebhookInstalled(self, reponame, server_ports):
         return False
 
-    def installWebhook(self, reponame, address):
+    def installWebhook(self, reponame, server_ports):
         pass
 
     def listRepos(self):

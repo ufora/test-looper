@@ -1,0 +1,380 @@
+import test_looper.core.GraphUtil as GraphUtil
+import logging
+import re
+
+class BranchPinning:
+    def __init__(self, database, source_control):
+        self.database = database
+        self.source_control = source_control
+        self.branches_updated = {}
+
+    def pinGetPinnedToBranchAndCommit(self, pin):
+        """Given a BranchPin object, return the (Branch,Commit) pair that it's pinned to."""
+
+        repo_def = pin.repo_def
+
+        curCommitRef = pin.branch.head.data.repos[repo_def].reference
+
+        target = curCommitRef.split("/")
+
+        #this is what we're currently referencing
+        repoName, commitHash = ("/".join(target[:-1]), target[-1])
+        assert repoName == pin.pinned_to_repo
+
+        repo = self.database.Repo.lookupAny(name=repoName)
+
+        if repo:
+            cur_commit = self.database.Commit.lookupAny(repo_and_hash=(repo,commitHash))
+            
+            return self.database.Branch.lookupAny(reponame_and_branchname=(pin.pinned_to_repo, pin.pinned_to_branch)), cur_commit
+
+        return None, None
+
+    def pinGetAllBranchPinsWatching(self, pin):
+        """Find all the pins that would be updated automatically if this BranchPin object changed."""
+        branch = self.pinGetPinnedToBranchAndCommit(pin)[0]
+        if branch is None:
+            return []
+
+        return [x for x in self.database.BranchPin.lookupAll(branch=branch) if x.auto]
+
+    def branchGetPinByRefname(self, branch, refname):
+        for x in self.database.BranchPin.lookupAll(branch=branch):
+            if x.repo_def == refname:
+                return x
+
+    def branchGetAllAutopins(self, branch):
+        """Given a Branch, find all of its BranchPins that are auto."""
+        return [x for x in self.database.BranchPin.lookupAll(branch=branch) if x.auto]
+
+    def branchGetAllPins(self, branch):
+        """Given a Branch, find all of its BranchPins"""
+        return [x for x in self.database.BranchPin.lookupAll(branch=branch)]
+
+    def branchGetAllBranchesAutopinnedToSelf(self, branch):
+        """Get a list of all the branches that update if this Branch updates."""
+        assert branch
+
+        return set([branchPin.branch for 
+                branchPin in self.database.BranchPin.lookupAll(pinned_to=(branch.repo.name, branch.branchname))
+                    if branchPin.auto])
+
+    def branchGetAllPinsAutopinnedToSelf(self, branch):
+        """Get a list of all the branches that update if this Branch updates."""
+        return set([branchPin for 
+                branchPin in self.database.BranchPin.lookupAll(pinned_to=(branch.repo.name, branch.branchname))
+                    if branchPin.auto])
+
+    def branchPinsAreCyclic(self, branch):
+        """Given a Branch object, determine if updating it would produce a cycle of pin updates."""
+        return GraphUtil.graphFindCycle(
+            branch,
+            self.branchGetAllBranchesAutopinnedToSelf
+            )
+
+    def pinGetCurrentAndDesiredCommit(self, pin):
+        """Given a BranchPin object, get the current commit and desired commit."""
+        branch, commit = self.pinGetPinnedToBranchAndCommit(pin)
+        
+        if branch is None:
+            logging.error("Pin %s/%s is pinned to a branch (%s/%s) that doesn't exist.",
+                pin.branch.repo.name, pin.branch.branchname,
+                pin.pinned_to_repo, pin.pinned_to_branch
+                )
+            return None, None
+
+        if branch.head is None:
+            logging.error("Pin %s/%s is pinned to a branch (%s/%s) that has no HEAD.")
+            return None, None
+
+        return commit, branch.head
+
+    def computePinUpdate(self, branch, specific_ref, intermediateCommits, isDownstream):
+        """Compute the set of branches and pins to update. If "isDownstream" is true, 
+        then 'branch' itself doesn't change - the pins around it do
+
+        returns {branch: {pin: newCommit}}
+        """
+        if branch.head is None:
+            return {}
+
+        if isDownstream:
+            #find all dirty autopins.
+            pins = self.branchGetAllPinsAutopinnedToSelf(branch)
+
+            sourceCommits = {p: self.pinGetCurrentAndDesiredCommit(p)[0] for p in pins}
+            desiredCommit = branch.head
+
+            pinsWithSources = [p for p in pins if sourceCommits[p]]
+
+            if intermediateCommits and len(pinsWithSources) == len(pins) and len(set(sourceCommits.values())) == 1:
+                sourceCommit = list(sourceCommits.values())[0]
+                
+                if desiredCommit != sourceCommit:
+                    chain = self.getFastForwardChain(sourceCommit, desiredCommit)
+                    
+                    if chain:
+                        desiredCommit = chain[-2]
+
+            res = {}
+            for p in pins:
+                if p.branch not in res:
+                    res[p.branch] = {}
+                
+                res[p.branch][p] = desiredCommit
+
+            return res
+        else:
+            if specific_ref is None:
+                pins = self.branchGetAllPins(branch)
+                if not pins:
+                    return None
+            else:
+                assert not isDownstream
+                pins = [self.branchGetPinByRefname(branch, specific_ref)]
+                
+                if not pins[0]:
+                    return None
+
+            assert not intermediateCommits
+
+            res = {}
+
+            for pin in pins:
+                curCommit, desiredCommit = self.pinGetCurrentAndDesiredCommit(pin)
+                if desiredCommit:
+                    res[pin] = desiredCommit
+
+            if res:
+                return {branch:res}
+            return None
+
+    def getFastForwardChain(self, oldCommit, newCommit, max_commits=100):
+        """Returns a list of commits in a sequence if newCommit is a direct fastforward of oldCommit
+
+        newCommit will be first, oldcommit last.
+        """
+        assert newCommit != oldCommit
+
+        chain = [newCommit]
+
+        while chain[-1] != oldCommit:
+            commit = chain[-1]
+
+            if not commit.data or len(commit.data.parents) != 1:
+                return None
+
+            chain.append(commit.data.parents[0])
+
+            if len(chain) > max_commits:
+                return None
+
+        return chain
+
+
+    def findDownstreamBranchThatChanged(self, initBranch):
+        """We may find that we're updating 'initBranch' because of a 
+        downstream branch that changed."""
+
+        for pin in self.branchGetAllAutopins(initBranch):
+            underlying_branch, commit = self.pinGetPinnedToBranchAndCommit(pin)
+            if underlying_branch and underlying_branch.head and (commit and underlying_branch.head != commit or not commit):
+                #this is the reason we're updating.
+                return underlying_branch
+
+        return None
+
+    def updateBranchPin(self, branch, specific_ref=None, intermediateCommits=True, lookDownstream=True):
+        if lookDownstream:
+            #We are updating because some underlying branch updated. We need to find it
+            downstream_branch = self.findDownstreamBranchThatChanged(branch)
+            if not downstream_branch:
+                return False
+            branch = downstream_branch
+
+        cycle = self.branchPinsAreCyclic(branch)
+
+        if cycle:
+            logging.error(
+                "Pin of Branch %s/%s is cyclic. Not updating. Cycle is:\n\n%s",
+                branch.repo.name,
+                branch.branchname,
+                "\n".join([x.repo.name + "/" + x.branchname for x in cycle])
+                )
+            return False
+
+        #now compute a "pin update plan" consisting of a set of updates to the 
+        #pins in this one commit, each of which will be broadcast upstream.
+        #pin_updates has the shape {branch: {repo_ref: new_commit}}
+        pin_updates = self.computePinUpdate(branch, specific_ref, intermediateCommits, lookDownstream)
+
+        return self.applyPinUpdates(pin_updates, lookDownstream, branch)
+
+    def applyPinUpdates(self, pin_updates, isDownstream, origBranch):
+        if not pin_updates:
+            return False
+
+        new_hashes = self.executeSinglePinUpdate(pin_updates, isDownstream)
+
+        for level in new_hashes:
+            for b, new_hash in level:
+                if new_hash:
+                    self.branches_updated[b] = new_hash
+
+        #now try to push these commits.
+        logging.info("Pushing %s commits due to update of %s/%s", 
+            len(self.branches_updated), 
+            origBranch.repo.name, 
+            origBranch.branchname
+            )
+
+        for level in new_hashes:
+            for subbranch, new_hash in level:
+                if new_hash:
+                    repo = self.source_control.getRepo(subbranch.repo.name)
+                    if not repo.source_repo.pushCommit(new_hash, subbranch.branchname):
+                        logging.error("Failed to push commit hash %s to %s/%s", 
+                            new_hash, 
+                            subbranch.repo.name, 
+                            subbranch.branchname
+                            )
+                        return False
+                    else:
+                        logging.info("Successfully pushed commit hash %s to %s/%s", 
+                            new_hash, 
+                            subbranch.repo.name, 
+                            subbranch.branchname
+                            )
+
+        return True
+
+    def commitMessageFor(self, pin, commit):
+        return (
+            "New commit in pinned branch " + pin.pinned_to_repo + "/" + pin.pinned_to_branch + ":\n" + 
+                "\n".join(
+                    "    " + x for x in 
+                        self.source_control.getRepo(commit.repo.name).source_repo.standardCommitMessageFor(commit.hash).split("\n")
+                    )
+            )
+
+    def executeSinglePinUpdate(self, initialPinsToUpdate, isDownstream):
+        """Compute a set of commits that update a set of pins on a single branch.
+
+        initialPinsToUpdate: {branch-> {pin: newCommit}}
+
+        Returns [[(branch, new_hash)]] in order from upstream to downstream. Branches
+        in the same sublist may be pushed simultaneously without creating a conflict.
+        """
+        if not initialPinsToUpdate:
+            return []
+
+        branches = set(initialPinsToUpdate)
+
+        #now make a branch update ordering
+        update_levels = GraphUtil.placeNodesInLevels(branches, self.branchGetAllBranchesAutopinnedToSelf)
+
+        branch_new_hashes = {}
+
+        if isDownstream:
+            a_branch = list(branches)[0]
+            a_pin = list(initialPinsToUpdate[a_branch])[0]
+
+            standard_git_commit_message = self.commitMessageFor(a_pin, initialPinsToUpdate[a_branch][a_pin])
+        else:
+            assert len(branches) == 1
+            any_branch = sorted(branches)[0]
+
+            standard_git_commit_message = "\n\n".join([
+                self.commitMessageFor(pin, initialPinsToUpdate[any_branch][pin])
+                    for pin in sorted(initialPinsToUpdate[any_branch], key=lambda pin: pin.repo_def)
+                ])
+
+        for branch in update_levels[0]:
+            assert branch in initialPinsToUpdate, "update level 0 should have only pins in our init set"
+
+            for p in initialPinsToUpdate[branch]:
+                assert p.branch == branch
+
+            branch_new_hashes[branch] = self._updatePinsInCommitAndReturnHash(
+                branch,
+                {p: c.hash for p,c in initialPinsToUpdate[branch].iteritems()},
+                standard_git_commit_message
+                )
+
+        #now update downstream levels
+        for level in update_levels[1:]:
+            for branch_to_update in level:
+                pins = self.branchGetAllAutopins(branch_to_update)
+                pins_to_update = {}
+
+                for pin in pins:
+                    pinned_to_branch = self.pinGetPinnedToBranchAndCommit(pin)[0]
+                    if pinned_to_branch and pinned_to_branch in branch_new_hashes:
+                        pins_to_update[pin] = branch_new_hashes[pinned_to_branch]
+
+                if pins_to_update and None not in pins_to_update.values():
+                    branch_new_hashes[branch_to_update] = self._updatePinsInCommitAndReturnHash(
+                        branch_to_update,
+                        pins_to_update,
+                        standard_git_commit_message
+                        )
+                else:
+                    branch_new_hashes[branch_to_update] = None
+
+        res = []
+        for level in update_levels:
+            res.append([(branch, branch_new_hashes[branch]) for branch in level])
+
+        return res
+
+    def _updatePinsInCommitAndReturnHash(self, branch, pinToNewCommitHash, rootCommitMessage):
+        repo = self.source_control.getRepo(branch.repo.name)
+        path = repo.source_repo.getTestDefinitionsPath(branch.head.hash)
+        branchCommitHash = branch.head.hash
+        
+        if not path:
+            logging.error("Can't update pins of %s/%s because we can't find testDefinitions.yml", 
+                branch.repo.name, 
+                branch.branchname
+                )
+            raise Exception("Couldn't update pin")
+
+        contents = repo.source_repo.getFileContents(branchCommitHash, path)
+
+        for pin, newCommitHash in pinToNewCommitHash.iteritems():
+            assert pin, "Branch %s/%s has no pin named %s" % (branch.repo.name, branch.branchname, pin.repo_def)
+
+            target_repo_name = pin.pinned_to_repo
+
+            curCommitHash = pin.branch.head.data.repos[pin.repo_def].reference.split("/")[-1]
+
+            pat_text = r"\b({r})(\s*:\s*reference\s*:\s*)({tr}/{h})\b".format(r=pin.repo_def,h=curCommitHash, tr=target_repo_name)
+
+            pattern = re.compile(pat_text, flags=re.MULTILINE)
+
+            new_contents = re.sub(pattern, (r"\1\2" + target_repo_name + "/" + newCommitHash), contents)
+
+            if contents == new_contents:
+                logging.error("Failed to update %s/%s (%s)'s reference to %s=%s/%s", 
+                    branch.repo.name,
+                    branch.branchname, 
+                    branchCommitHash,
+                    pin.repo_def, 
+                    target_repo_name,
+                    curCommitHash
+                    )
+                return None
+
+            contents = new_contents
+
+        new_commit_message = "Updating pin%s %s:\n\n" % (
+            's' if len(pinToNewCommitHash) > 1 else '',
+            ", ".join(sorted([x.repo_def for x in  pinToNewCommitHash]))
+            ) + rootCommitMessage
+
+        new_hash = repo.source_repo.createCommit(
+            branchCommitHash,
+            {path:new_contents},
+            new_commit_message
+            )
+        return new_hash

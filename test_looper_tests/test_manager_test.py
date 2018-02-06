@@ -15,7 +15,7 @@ import test_looper.core.InMemoryJsonStore as InMemoryJsonStore
 import test_looper.core.tools.Git as Git
 import test_looper.core.ArtifactStorage as ArtifactStorage
 import test_looper.core.algebraic as algebraic
-import test_looper.core.source_control.ReposOnDisk as ReposOnDisk
+import test_looper.core.source_control.SourceControl as SourceControl
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import docker
 import threading
@@ -24,7 +24,7 @@ own_dir = os.path.split(__file__)[0]
 
 common.configureLogging()
 
-class MockSourceControl:
+class MockSourceControl(SourceControl.SourceControl):
     def __init__(self):
         self.repos = set()
         self.commit_test_defs = {}
@@ -120,7 +120,7 @@ class MockGitRepo:
 
         self.repo.source_control.created_commits += 1
 
-        assert self.repo.source_control.created_commits < 20, "Created too many new commits for the test to be reasonable"
+        assert self.repo.source_control.created_commits < 50, "Created too many new commits for the test to be reasonable"
 
         newCommitHash = "created_" + str(self.repo.source_control.created_commits)
         newCommitId = self.repo.repoName + "/" + newCommitHash
@@ -374,6 +374,19 @@ repos:
   child: 
     reference: repo6/c0
     branch: __branch__
+    auto: true
+"""
+
+basic_yml_file_repo6_twopins = """
+looper_version: 2
+repos:
+  child: 
+    reference: repo6/HEAD1
+    branch: __branch__
+    auto: true
+  child2: 
+    reference: repo6/HEAD2
+    branch: __branch2__
     auto: true
 """
 
@@ -760,10 +773,107 @@ class TestManagerTests(unittest.TestCase):
 
         self.assertEqual(harness.manager.source_control.created_commits, 4)
 
+    def test_manager_pin_resolution_ordering(self):
+        harness = self.get_harness(max_workers=1)
+
+        harness.add_content()
+        
+        harness.manager.source_control.addCommit("repo6/underlying", [], basic_yml_file_repo6_nopin)
+        harness.manager.source_control.setBranch("repo6/root", "repo6/underlying")
+
+        nonauto_pin_contents = (
+            basic_yml_file_repo6_headpin
+            .replace("__branch__", "root")
+            .replace("HEAD", "underlying")
+            .replace("true", "false")
+            )
+
+        commit_ix = [0]
+        def add(branch, deps):
+            if len(deps) == 0:
+                contents = nonauto_pin_contents
+            elif len(deps) == 1:
+                contents = (
+                    basic_yml_file_repo6_headpin
+                    .replace("__branch__", deps[0])
+                    .replace("HEAD", harness.manager.source_control.getBranch("repo6/" + deps[0]).split("/")[1])
+                    )
+            elif len(deps) == 2:
+                contents = (
+                    basic_yml_file_repo6_twopins
+                    .replace("__branch__", deps[0])
+                    .replace("HEAD1", harness.manager.source_control.getBranch("repo6/" + deps[0]).split("/")[1])
+                    .replace("__branch2__", deps[1])
+                    .replace("HEAD2", harness.manager.source_control.getBranch("repo6/" + deps[1]).split("/")[1])
+                    )
+            else:
+                assert False
+
+            commitHash = "repo6/c" + str(commit_ix[0])
+            harness.manager.source_control.addCommit(commitHash, [], contents)
+            harness.manager.source_control.setBranch("repo6/" + branch, commitHash)
+            commit_ix[0] += 1
+
+        #build a diamond pattern with a complex web of dependencies
+        add("b0", [])
+        add("b10", ["b0"])
+        add("b11", ["b0"])
+
+        add("b20", ["b10"])
+        add("b21", ["b10", "b11"])
+        add("b22", ["b11"])
+
+        add("b30", ["b20"])
+        add("b31", ["b20", "b21"])
+        add("b32", ["b21", "b22"])
+        add("b33", ["b22"])
+
+        add("b40", ["b30", "b31"])
+        add("b41", ["b31", "b32"])
+        add("b42", ["b32", "b33"])
+
+        add("b50", ["b40", "b41"])
+        add("b51", ["b41", "b42"])
+
+        add("b60", ["b50", "b51"])
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        harness.manager.source_control.addCommit("repo6/new_base_commit", [], nonauto_pin_contents)
+        harness.manager.source_control.setBranch("repo6/b0", "repo6/new_base_commit")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        self.assertEqual(harness.manager.source_control.created_commits, 15)
+
+        harness.manager.source_control.addCommit("repo6/underlying2", [], basic_yml_file_repo6_nopin)
+        harness.manager.source_control.setBranch("repo6/root", "repo6/underlying2")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        #nothing happens
+        self.assertEqual(harness.manager.source_control.created_commits, 15)
+
+        with harness.database.transaction():
+            branch = harness.database.Branch.lookupOne(reponame_and_branchname=("repo6", "b0"))
+            assert branch
+            harness.manager._updateBranchPin(branch, "child", False)
+
+        #this should update all 16
+        self.assertEqual(harness.manager.source_control.created_commits, 31)
+
+
+
     def test_manager_update_head_commits(self):
         harness = self.get_harness(max_workers=1)
 
         harness.add_content()
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
 
         harness.manager.source_control.addCommit("repo6/c0", [], basic_yml_file_repo6_nopin)
         harness.manager.source_control.setBranch("repo6/master", "repo6/c0")

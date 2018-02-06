@@ -129,25 +129,21 @@ class Git(object):
         fileContents - a dictionary from path to string or None. None means delete.
         """
         with self.git_repo_lock:
-            tmpdir = tempfile.mkdtemp()
-            try:
-                self.resetToCommitInDirectory(commitHash, tmpdir)
-                for file, contents in fileContents.iteritems():
-                    path = os.path.join(tmpdir, file)
-                        
-                    if contents is None:
-                        if os.path.exists(path):
-                            if os.path.isdir(path):
-                                shutil.rmtree(path)
-                            else:
-                                os.remove(path)
-                    else:
-                        self.ensureDirectoryExists(os.path.split(path)[0])
-                        with open(path, "w") as f:
-                            f.write(contents)
-                return self.commit(commit_message, timestamp_override, author, tmpdir)
-            finally:
-                shutil.rmtree(tmpdir)
+            self.resetToCommit(commitHash)
+            for file, contents in fileContents.iteritems():
+                path = os.path.join(self.path_to_repo, file)
+                    
+                if contents is None:
+                    if os.path.exists(path):
+                        if os.path.isdir(path):
+                            shutil.rmtree(path)
+                        else:
+                            os.remove(path)
+                else:
+                    self.ensureDirectoryExists(os.path.split(path)[0])
+                    with open(path, "w") as f:
+                        f.write(contents)
+            return self.commit(commit_message, timestamp_override, author)
 
     def pushCommit(self, commitHash, branch, force=False, createBranch=False):
         """push a sha-hash to a branch and return success"""
