@@ -1233,7 +1233,7 @@ class TestManager(object):
 
                 return
 
-    def _updatePinInCommit(self, branch, repoRefName, branch_pin_name, curCommitHash, newCommit, produceIntermediateCommits=True):
+    def _updatePinInCommit(self, branch, repoRefName, pinned_to_branchname, curCommitHash, newCommit, produceIntermediateCommits=True):
         #check if newCommit is a fast-forward of our current commit, in which case we'll push all of the 
         #intermediate commits as pins as well
         commitsLookingBack = self.getFastForwardChain(newCommit, curCommitHash)
@@ -1241,20 +1241,18 @@ class TestManager(object):
         if commitsLookingBack and produceIntermediateCommits:
             finalHash = branch.head.hash
             for commit, priorCommitHash in reversed(commitsLookingBack):
-                finalHash = self._updatePinInCommitAndReturnHash(branch, finalHash, repoRefName, branch_pin_name, priorCommitHash, commit)
+                finalHash = self._updatePinInCommitAndReturnHash(branch, finalHash, repoRefName, pinned_to_branchname, priorCommitHash, commit)
         else:
-            finalHash = self._updatePinInCommitAndReturnHash(branch, branch.head.hash, repoRefName, branch_pin_name, curCommitHash, newCommit)
+            finalHash = self._updatePinInCommitAndReturnHash(branch, branch.head.hash, repoRefName, pinned_to_branchname, curCommitHash, newCommit)
         
         return self.source_control.getRepo(branch.repo.name).source_repo.pushCommit(finalHash, branch.branchname)
     
-    def _updatePinInCommitAndReturnHash(self, branch, branchCommitHash, repoRefName, branch_pin_name, curCommitHash, newCommit):
+    def _updatePinInCommitAndReturnHash(self, branch, branchCommitHash, repoRefName, pinned_to_branchname, curCommitHash, newCommit):
         repo = self.source_control.getRepo(branch.repo.name)
-        
-        newCommitHash = newCommit.hash
-
         path = repo.source_repo.getTestDefinitionsPath(branchCommitHash)
+        
         if not path:
-            logging.error("Can't update pin of %s/%s/%s because we can't find testDefinitions.yml", 
+            logging.error("Can't update pins of %s/%s because we can't find testDefinitions.yml", 
                 branch.repo.name, 
                 branch.branchname, 
                 newCommitHash
@@ -1262,6 +1260,8 @@ class TestManager(object):
             return False
 
         contents = repo.source_repo.getFileContents(branchCommitHash, path)
+
+        newCommitHash = newCommit.hash
 
         pat_text = r"({r})(\s*:\s*reference\s*:\s*)({tr}/{h})\b".format(r=repoRefName,h=curCommitHash, tr=newCommit.repo.name)
 
@@ -1272,7 +1272,7 @@ class TestManager(object):
         if contents == new_contents:
             logging.error("Failed to update %s's reference to %s=%s in %s", 
                 repoRefName, 
-                branch_pin_name, 
+                pinned_to_branchname, 
                 curCommitHash, 
                 branchCommitHash
                 )
@@ -1286,7 +1286,7 @@ class TestManager(object):
             {path:new_contents},
             "Update pin of %s to branch %s from %s to %s.\n\nCommit Message:\n\n%s" % (
                 repoRefName,
-                branch_pin_name,
+                pinned_to_branchname,
                 curCommitHash,
                 newCommitHash,
                 "\n".join(["    " + x for x in standard_git_commit_message.split("\n")])

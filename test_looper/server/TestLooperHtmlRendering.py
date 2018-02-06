@@ -873,7 +873,7 @@ class Renderer:
                 else:
                     row.append(HtmlGeneration.lightGrey("loading"))
 
-                if branch.head.data:
+                if branch.head and branch.head.data:
                     pinLines = self.pinGridWithUpdateButtons(branch)
 
                     if not pinLines:
