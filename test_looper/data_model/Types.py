@@ -20,6 +20,7 @@ def setup_types(database):
     database.BackgroundTask.UpdateBranchPins = {"branch": database.Branch}
     database.BackgroundTask.UpdateBranchTopCommit = {"branch": database.Branch}
     database.BackgroundTask.UpdateCommitData = {"commit": database.Commit}
+    database.BackgroundTask.CommitTestParse = {"commit": database.Commit}
     database.BackgroundTask.UpdateTestPriority = {"test": database.Test}
     database.BackgroundTask.UpdateCommitPriority = {'commit': database.Commit}
 
@@ -64,8 +65,10 @@ def setup_types(database):
         testDefinitions=algebraic.Dict(str, TestDefinition.TestDefinition),
         environments=algebraic.Dict(str, TestDefinition.TestEnvironment),
         repos=algebraic.Dict(str, TestDefinition.RepoReference),
-        testDefinitionsError=str
+        testDefinitionsError=str,
+        testsParsed=bool
         )
+
     database.CommitRelationship.define(
         child=database.Commit,
         parent=database.Commit
@@ -94,16 +97,15 @@ def setup_types(database):
         dependsOnName=str
         )
 
-    database.UnresolvedSourceDependency.define(
-        test=database.Test,
+    database.UnresolvedCommitSourceDependency.define(
+        commit=database.Commit,
         repo=database.Repo,
         commitHash=str
         )
 
-    database.UnresolvedRepoDependency.define(
-        test=database.Test,
-        reponame=str,
-        commitHash=str
+    database.UnresolvedCommitRepoDependency.define(
+        commit=database.Commit,
+        reponame=str
         )
 
     database.TestDependency.define(
@@ -198,12 +200,12 @@ def setup_types(database):
     database.addIndex(database.UnresolvedTestDependency, 'test')
     database.addIndex(database.UnresolvedTestDependency, 'test_and_depends', lambda o:(o.test, o.dependsOnName))
 
-    database.addIndex(database.UnresolvedRepoDependency, 'test')
-    database.addIndex(database.UnresolvedRepoDependency, 'reponame')
-    database.addIndex(database.UnresolvedRepoDependency, 'test_and_reponame', lambda o:(o.test, o.reponame))
-    database.addIndex(database.UnresolvedSourceDependency, 'test')
-    database.addIndex(database.UnresolvedSourceDependency, 'repo_and_hash', lambda o:(o.repo, o.commitHash))
-    database.addIndex(database.UnresolvedSourceDependency, 'test_and_repo_and_hash', lambda o:(o.test, o.repo, o.commitHash))
+    database.addIndex(database.UnresolvedCommitRepoDependency, 'commit')
+    database.addIndex(database.UnresolvedCommitRepoDependency, 'reponame')
+    database.addIndex(database.UnresolvedCommitRepoDependency, 'commit_and_reponame', lambda o:(o.commit, o.reponame))
+    database.addIndex(database.UnresolvedCommitSourceDependency, 'commit')
+    database.addIndex(database.UnresolvedCommitSourceDependency, 'repo_and_hash', lambda o:(o.repo, o.commitHash))
+    database.addIndex(database.UnresolvedCommitSourceDependency, 'commit_and_repo_and_hash', lambda o:(o.commit, o.repo, o.commitHash))
     database.addIndex(database.TestDependency, 'test')
     database.addIndex(database.TestDependency, 'dependsOn')
     database.addIndex(database.TestDependency, 'test_and_depends', lambda o:(o.test, o.dependsOn))

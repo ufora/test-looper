@@ -24,10 +24,17 @@ TestDependency.InternalBuild = {"name": str}
 TestDependency.ExternalBuild = {"repo": str, "commitHash": str, "name": str}
 TestDependency.Source = {"repo": str, "commitHash": str}
 
+#'repo_name' refers to the original name of the repo in the test definitions
+TestDependency.UnresolvedExternalBuild = {"repo_name": str, "name": str}
+TestDependency.UnresolvedSource = {"repo_name": str}
+
+#'repo_name' refers to the original name of the repo in the test definitions
 EnvironmentReference = algebraic.Alternative("EnvironmentReference")
 EnvironmentReference.Reference = {"repo": str, "commitHash": str, "name": str}
+EnvironmentReference.UnresolvedReference = {"repo_name": str, "name": str}
 
 RepoReference = algebraic.Alternative("RepoReference")
+RepoReference.Import = {"import": str} #dot-escaped sequence of repo refs
 RepoReference.Reference = {"reference": str}
 RepoReference.Pin = {
     "reference": str,

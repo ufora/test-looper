@@ -34,6 +34,7 @@ else:
 
 import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
+import test_looper.data_model.TestDefinitionResolver as TestDefinitionResolver
 import test_looper
 
 class DummyWorkerCallbacks:
@@ -75,51 +76,6 @@ class TestLooperDirectories:
         return [self.repo_copy_dir, self.scratch_dir, self.command_dir, self.test_inputs_dir, self.test_data_dir, 
                 self.build_cache_dir, self.ccache_dir, self.test_output_dir, self.build_output_dir, self.repo_cache]
 
-class TestDefinitionResolver:
-    def __init__(self, git_repo_lookup):
-        self.git_repo_lookup = git_repo_lookup
-
-    def resolveEnvironment(self, environment):
-        if environment.matches.Environment:
-            return environment
-
-        dependencies = {}
-
-        def import_dep(dep):
-            """Grab a dependency and all its children and stash them in 'dependencies'"""
-            if dep in dependencies:
-                return
-
-            underlying_env = self.environmentDefinitionFor(dep.repo, dep.commitHash, dep.name)
-
-            assert underlying_env is not None, "Can't find environment for %s/%s/%s" % (dep.repo, dep.commitHash, dep.name)
-
-            dependencies[dep] = underlying_env
-
-            if underlying_env.matches.Import:
-                for dep in underlying_env.imports:
-                    import_dep(dep)
-
-        for dep in environment.imports:
-            import_dep(dep)
-
-        return TestDefinition.merge_environments(environment, dependencies)
-
-    def environmentDefinitionFor(self, repoName, commitHash, envName):
-        return self.testAndEnvironmentDefinitionFor(repoName, commitHash)[1].get(envName)
-
-    def testAndEnvironmentDefinitionFor(self, repoName, commitHash):
-        path = self.git_repo_lookup(repoName).getTestDefinitionsPath(commitHash)
-
-        if path is None:
-            return {}, {}, {}
-
-        testText = self.git_repo_lookup(repoName).getFileContents(commitHash, path)
-
-        return TestDefinitionScript.extract_tests_from_str(repoName, commitHash, os.path.splitext(path)[1], testText)
-
-
-
 class WorkerState(object):
     def __init__(self, name_prefix, worker_directory, source_control, artifactStorage, machineId, hardwareConfig, verbose=False, resolver=None):
         import test_looper.worker.TestLooperWorker
@@ -150,7 +106,7 @@ class WorkerState(object):
 
         self.source_control = source_control
 
-        self.resolver = resolver or TestDefinitionResolver(self.getRepoCacheByName)
+        self.resolver = resolver or TestDefinitionResolver.TestDefinitionResolver(self.getRepoCacheByName)
 
         self.cleanup()
 
@@ -724,9 +680,6 @@ class WorkerState(object):
 
         return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True)
 
-    def resolveEnvironment(self, environment):
-        return self.resolver.resolveEnvironment(environment)
-
     def getDockerImage(self, testEnvironment, log_function):
         assert testEnvironment.matches.Environment
         assert testEnvironment.platform.matches.linux
@@ -747,14 +700,8 @@ class WorkerState(object):
 
         return None
 
-    def testAndEnvironmentDefinitionFor(self, repoName, commitHash):
-        return self.resolver.testAndEnvironmentDefinitionFor(repoName, commitHash)
-
-    def repoDefinitionsFor(self, repoName, commitHash):
-        return self.testAndEnvironmentDefinitionFor(repoName, commitHash)[2]
-
     def testDefinitionFor(self, repoName, commitHash, testName):
-        return self.testAndEnvironmentDefinitionFor(repoName, commitHash)[0].get(testName)
+        return self.resolver.testEnvironmentAndRepoDefinitionsFor(repoName, commitHash)[0].get(testName)
 
     def runTest(self, testId, repoName, commitHash, testName, workerCallback, isDeploy):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
@@ -912,11 +859,8 @@ class WorkerState(object):
 
     def getEnvironmentAndDependencies(self, testId, repoName, commitHash, test_definition, log_function):
         with self.callHeartbeatInBackground(log_function):
-            environment = self.resolveEnvironment(test_definition.environment)
-            if environment.matches.Import:
-                raise Exception("Environment didn't resolve to a real environment: inheritance is %s", environment.inheritance)
-            environment = TestDefinition.apply_environment_substitutions(environment)
-
+            environment = self.resolver.resolveEnvironment(test_definition.environment)
+            
         env_overrides = self.environment_variables(testId, repoName, commitHash, environment, test_definition)
 
         #update the test definition to resolve dependencies
