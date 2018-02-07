@@ -5,6 +5,7 @@ import test_looper.core.tools.Docker as Docker
 import test_looper.core.tools.DockerWatcher as DockerWatcher
 import docker
 import time
+import uuid
 
 test_dir = os.path.join(os.path.split(os.path.split(test_looper.__file__)[0])[0], "test_looper_tests")
 
@@ -46,6 +47,28 @@ class DockerTests(unittest.TestCase):
         containers2 = docker_client.containers.list(all=True)
 
         self.assertEqual(len(containers), len(containers2))
+
+    def test_docker_killall(self):
+        image = Docker.DockerImage.from_dockerfile_as_string(None, dockerfile, create_missing=True)
+        
+        containers = docker_client.containers.list(all=True)
+
+        name_prefix = "docker_test_" + str(uuid.uuid4())
+
+        with DockerWatcher.DockerWatcher(name_prefix) as watcher:
+            container = watcher.run(
+                image, 
+                ["python", 
+                    "-c", 
+                    "import docker; i=docker.from_env().images.get('ubuntu:16.04');"
+                    "print 'booting ', docker.from_env().containers.run(i,['sleep','60'], detach=True).name"]
+                )
+
+            print "booted container ", container.name
+            
+            container.wait()
+
+            self.assertTrue(Docker.killAllWithNamePrefix(name_prefix) == 1, container.logs())
 
     def test_subdocker_boots_into_own_network(self):
         image = Docker.DockerImage.from_dockerfile_as_string(None, dockerfile, create_missing=True)

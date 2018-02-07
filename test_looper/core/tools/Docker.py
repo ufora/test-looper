@@ -58,6 +58,24 @@ class MissingImageError(Exception):
     def __str__(self):
         return "No docker image with id '%s'" % self.image_id
 
+def killAllWithNamePrefix(name_prefix):
+    all_containers = docker_client.containers.list()
+
+    print "found ", [c.name for c in all_containers]
+
+    toKill = 0
+
+    for c in all_containers:
+        if c.name.startswith(name_prefix):
+            toKill += 1
+            logging.info("Shutting down container %s with name %s", c, c.name)
+            try:
+                c.remove(force=True)
+            except:
+                logging.warn("Failed to kill container %s", c)
+
+    return toKill
+
 
 class DockerImage(object):
     @property

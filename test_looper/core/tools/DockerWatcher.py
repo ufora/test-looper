@@ -349,9 +349,12 @@ class DockerWatcher:
         with self._lock:
             unmangled_name = None
             if self.name_prefix is not None:
-                if "Name" in createJson:
-                    unmangled_name = createJson["Name"]
-                    createJson["Name"] = self.mangleName_(createJson["Name"])
+                if "Name" not in createJson:
+                    createJson["Name"] = "container_" + str(uuid.uuid4())
+
+                unmangled_name = createJson["Name"]
+                createJson["Name"] = self.mangleName_(createJson["Name"])
+
 
             #create the new thread here and map volumes, but force the
             #caller to set the containerID for us
@@ -469,6 +472,8 @@ class DockerWatcher:
             volumes[sockThread.socket_dir] = "/var/run"
 
             container = docker_client.containers.create(image, args, volumes=volumes, **kwargs)
+
+            print "Creating container with name ", kwargs['name'], container.name
 
             self.mappedVolumesByParentID[container.id] = orig_volumes
 

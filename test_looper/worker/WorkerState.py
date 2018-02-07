@@ -16,6 +16,7 @@ import subprocess
 import base64
 import tempfile
 import cStringIO as StringIO
+import uuid
 
 for name in ["boto3", "requests", "urllib"]:
     logging.getLogger(name).setLevel(logging.CRITICAL)
@@ -203,6 +204,8 @@ class WorkerState(object):
         if Docker is not None:
             Docker.DockerImage.removeDanglingDockerImages()
 
+        Docker.killAllWithNamePrefix(self.name_prefix)
+
         self.clearDirectoryAsRoot(
             self.directories.test_data_dir, 
             self.directories.test_output_dir,
@@ -362,7 +365,7 @@ class WorkerState(object):
                     env[key] = os.getenv(key)
 
             
-            with DockerWatcher.DockerWatcher(self.name_prefix) as watcher:
+            with DockerWatcher.DockerWatcher(self.name_prefix + str(uuid.uuid4()) + "_") as watcher:
                 if isinstance(workerCallback, DummyWorkerCallbacks) and workerCallback.localTerminal:
                     container = watcher.run(
                         docker_image,
@@ -602,7 +605,7 @@ class WorkerState(object):
                 if os.getenv(key):
                     env[key] = os.getenv(key)
 
-            with DockerWatcher.DockerWatcher(self.name_prefix) as watcher:
+            with DockerWatcher.DockerWatcher(self.name_prefix + str(uuid.uuid4()) + "_") as watcher:
                 container = watcher.run(
                     docker_image,
                     ["/bin/bash", "/test_looper/command/cmd_invoker.sh"],
