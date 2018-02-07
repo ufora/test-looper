@@ -129,8 +129,7 @@ class TestSummaryRenderer:
     def allEnvironments(self):
         envs = set()
         for t in self.tests:
-            if t.fullyResolvedEnvironment.matches.Resolved:
-                envs.add(t.fullyResolvedEnvironment.Environment)
+            envs.add(t.testDefinition.environment)
         return envs
 
     @cached
@@ -281,11 +280,8 @@ class TestGridRenderer:
         return curColumn
 
     def envNameForTest(self, test):
-        if test.fullyResolvedEnvironment.matches.Resolved:
-            return test.fullyResolvedEnvironment.Environment.environment_name.split("/")[-1]
-        else:
-            return "Unresolved"
-
+        return test.testDefinition.environment.environment_name.split("/")[-1]
+    
     def applyExpansion(self, test, expansion):
         if expansion["type"] == "env":
             name = self.envNameForTest(test)
@@ -1026,14 +1022,8 @@ class Renderer:
             row.append(str(t.totalRuns - t.successes))
 
             def stringifyPriority(calculatedPriority, priority):
-                if priority.matches.UnresolvedDependencies:
-                    if t.fullyResolvedEnvironment.matches.Unresolved:
-                        return "UnresolvedEnvironmentDependencies"
-                    return "UnresolvedDependencies"
                 if priority.matches.HardwareComboUnbootable:
                     return "HardwareComboUnbootable"
-                if priority.matches.InvalidTestDefinition:
-                    return "InvalidTestDefinition"
                 if priority.matches.WaitingOnBuilds:
                     return "WaitingOnBuilds"
                 if priority.matches.NoMoreTests:
@@ -1148,13 +1138,6 @@ class Renderer:
                     self.testLink(subtest.testDefinition.name, subtest.commitData.commit, subtest.testDefinition.name),
                     TestSummaryRenderer(self, [test]).renderSummary()
                 ])
-
-        for dep in self.testManager.database.UnresolvedTestDependency.lookupAll(test=test):
-            grid.append(["Unresolved Test", dep.dependsOnName,""])
-        for dep in self.testManager.database.UnresolvedSourceDependency.lookupAll(test=test):
-            grid.append(["Unresolved Commit", dep.repo.name + "/" + dep.commitHash, ""])
-        for dep in self.testManager.database.UnresolvedRepoDependency.lookupAll(test=test):
-            grid.append(["Unresolved Repo", dep.reponame + "/" + dep.commitHash, ""])
 
         return grid
 

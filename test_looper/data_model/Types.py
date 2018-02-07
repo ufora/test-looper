@@ -20,16 +20,15 @@ def setup_types(database):
     database.BackgroundTask.UpdateBranchPins = {"branch": database.Branch}
     database.BackgroundTask.UpdateBranchTopCommit = {"branch": database.Branch}
     database.BackgroundTask.UpdateCommitData = {"commit": database.Commit}
+    database.BackgroundTask.CommitTestParse = {"commit": database.Commit}
     database.BackgroundTask.UpdateTestPriority = {"test": database.Test}
     database.BackgroundTask.UpdateCommitPriority = {'commit': database.Commit}
 
 
     database.TestPriority = algebraic.Alternative("TestPriority")
-    database.TestPriority.UnresolvedDependencies = {}
     database.TestPriority.WaitingToRetry = {}
     database.TestPriority.DependencyFailed = {}
     database.TestPriority.WaitingOnBuilds = {}
-    database.TestPriority.InvalidTestDefinition = {}
     database.TestPriority.HardwareComboUnbootable = {}
     database.TestPriority.NoMoreTests = {}
     database.TestPriority.FirstBuild = {"priority": int}
@@ -64,8 +63,10 @@ def setup_types(database):
         testDefinitions=algebraic.Dict(str, TestDefinition.TestDefinition),
         environments=algebraic.Dict(str, TestDefinition.TestEnvironment),
         repos=algebraic.Dict(str, TestDefinition.RepoReference),
-        testDefinitionsError=str
+        testDefinitionsError=str,
+        testsParsed=bool
         )
+
     database.CommitRelationship.define(
         child=database.Commit,
         parent=database.Commit
@@ -75,7 +76,6 @@ def setup_types(database):
         commitData=database.CommitData,
         fullname=str,
         testDefinition=TestDefinition.TestDefinition,
-        fullyResolvedEnvironment=database.FullyResolvedTestEnvironment,
         machineCategory=database.MachineCategory,
         successes=int,
         totalRuns=int,
@@ -94,16 +94,15 @@ def setup_types(database):
         dependsOnName=str
         )
 
-    database.UnresolvedSourceDependency.define(
-        test=database.Test,
+    database.UnresolvedCommitSourceDependency.define(
+        commit=database.Commit,
         repo=database.Repo,
         commitHash=str
         )
 
-    database.UnresolvedRepoDependency.define(
-        test=database.Test,
-        reponame=str,
-        commitHash=str
+    database.UnresolvedCommitRepoDependency.define(
+        commit=database.Commit,
+        reponame=str
         )
 
     database.TestDependency.define(
@@ -209,12 +208,13 @@ def setup_types(database):
     database.addIndex(database.AllocatedGitRepoLocks, "testOrDeployId")
     database.addIndex(database.AllocatedGitRepoLocks, "commitHash")
 
-    database.addIndex(database.UnresolvedRepoDependency, 'test')
-    database.addIndex(database.UnresolvedRepoDependency, 'reponame')
-    database.addIndex(database.UnresolvedRepoDependency, 'test_and_reponame', lambda o:(o.test, o.reponame))
-    database.addIndex(database.UnresolvedSourceDependency, 'test')
-    database.addIndex(database.UnresolvedSourceDependency, 'repo_and_hash', lambda o:(o.repo, o.commitHash))
-    database.addIndex(database.UnresolvedSourceDependency, 'test_and_repo_and_hash', lambda o:(o.test, o.repo, o.commitHash))
+    database.addIndex(database.UnresolvedCommitRepoDependency, 'commit')
+    database.addIndex(database.UnresolvedCommitRepoDependency, 'reponame')
+    database.addIndex(database.UnresolvedCommitRepoDependency, 'commit_and_reponame', lambda o:(o.commit, o.reponame))
+    database.addIndex(database.UnresolvedCommitSourceDependency, 'commit')
+    database.addIndex(database.UnresolvedCommitSourceDependency, 'repo_and_hash', lambda o:(o.repo, o.commitHash))
+    database.addIndex(database.UnresolvedCommitSourceDependency, 'commit_and_repo_and_hash', lambda o:(o.commit, o.repo, o.commitHash))
+
     database.addIndex(database.TestDependency, 'test')
     database.addIndex(database.TestDependency, 'dependsOn')
     database.addIndex(database.TestDependency, 'test_and_depends', lambda o:(o.test, o.dependsOn))
@@ -236,12 +236,10 @@ def setup_types(database):
     database.addIndex(database.Test, 'machineCategoryAndPrioritized',
             lambda o: o.machineCategory if (
                     not o.priority.matches.NoMoreTests 
-                and not o.priority.matches.UnresolvedDependencies
                 and not o.priority.matches.WaitingToRetry
                 and not o.priority.matches.DependencyFailed
                 and not o.priority.matches.WaitingOnBuilds
                 and not o.priority.matches.HardwareComboUnbootable
-                and not o.priority.matches.InvalidTestDefinition
                 and o.machineCategory)
                 else None
             )
@@ -256,11 +254,10 @@ def setup_types(database):
     database.addIndex(database.Test, 'priority', 
             lambda o: o.priority if (
                     not o.priority.matches.NoMoreTests 
-                and not o.priority.matches.UnresolvedDependencies
                 and not o.priority.matches.WaitingToRetry
                 and not o.priority.matches.DependencyFailed
                 and not o.priority.matches.WaitingOnBuilds
                 and not o.priority.matches.HardwareComboUnbootable
-                and not o.priority.matches.InvalidTestDefinition)
+                )
                 else None
             )

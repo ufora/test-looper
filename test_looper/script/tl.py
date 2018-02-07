@@ -19,6 +19,7 @@ proj_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 sys.path.append(proj_root)
 
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
+import test_looper.data_model.TestDefinitionResolver as TestDefinitionResolver
 import test_looper.core.tools.Git as Git
 import test_looper.core.Config as Config
 import test_looper.worker.WorkerState as WorkerState
@@ -222,12 +223,12 @@ class WorkerStateOverride(WorkerState.WorkerState):
             return "Unknown dependency type: %s" % dep
 
 
-class TestDefinitionResolverOverride(WorkerState.TestDefinitionResolver):
+class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolver):
     def __init__(self, looperCtl):
-        WorkerState.TestDefinitionResolver.__init__(self, looperCtl.getGitRepo)
+        TestDefinitionResolver.TestDefinitionResolver.__init__(self, looperCtl.getGitRepo)
         self.looperCtl = looperCtl
 
-    def testAndEnvironmentDefinitionFor(self, repoName, commitHash):
+    def testEnvironmentAndRepoDefinitionsFor(self, repoName, commitHash):
         if commitHash in self.looperCtl.cur_checkouts.get(repoName, []):
             root_path = self.looperCtl.checkout_root_path(repoName, commitHash)
 
@@ -241,7 +242,7 @@ class TestDefinitionResolverOverride(WorkerState.TestDefinitionResolver):
 
                 return TestDefinitionScript.extract_tests_from_str(repoName, commitHash, os.path.splitext(path)[1], text)
 
-        return WorkerState.TestDefinitionResolver.testAndEnvironmentDefinitionFor(self, repoName, commitHash)
+        return TestDefinitionResolver.TestDefinitionResolver.testEnvironmentAndRepoDefinitionsFor(self, repoName, commitHash)
 
 class TestLooperCtl:
     def __init__(self, root_path):
@@ -440,7 +441,7 @@ class TestLooperCtl:
 
         def resolve(reponame, committish):
             #now find all the dependent repos and make sure we have them as well
-            _,_,repos = self.resolver.testAndEnvironmentDefinitionFor(reponame, committish)
+            _,_,repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, committish)
 
             for v in repos.values():
                 import_repo_ref(v.reference)
@@ -481,7 +482,7 @@ class TestLooperCtl:
 
         for reponame in sorted(repo_usages):
             for commit, commitName in self.cur_checkouts[reponame].iteritems():
-                _,_,repos = self.resolver.testAndEnvironmentDefinitionFor(reponame, commit)
+                _,_,repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, commit)
 
                 if repos:
                     print "repo ", self.repoShortname(reponame), commitName
@@ -545,7 +546,7 @@ class TestLooperCtl:
         repo = self.bestRepo(repo)
         commit, test = self.bestTest(repo, test)
 
-        tests, environments, repos = self.resolver.testAndEnvironmentDefinitionFor(repo, commit)
+        tests, environments, repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(repo, commit)
 
         if test not in tests:
             raise UserWarning("Can't find test %s" % test)
@@ -578,7 +579,7 @@ class TestLooperCtl:
         except:
             return
 
-        tests, environments, repos = self.resolver.testAndEnvironmentDefinitionFor(repo, commit)
+        tests, environments, repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(repo, commit)
 
         print "checked out to: ", commit
 
@@ -661,7 +662,7 @@ class TestLooperCtl:
         possible = []
 
         for commit in self.cur_checkouts[reponame]:
-            tests = self.resolver.testAndEnvironmentDefinitionFor(reponame, commit)[0]
+            tests = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, commit)[0]
             res = self._pickOne(test, tests, "test")
             if res:
                 possible.append((commit, res))
@@ -701,7 +702,7 @@ class TestLooperCtl:
 
         seen_already.add(path)
 
-        all_tests = self.resolver.testAndEnvironmentDefinitionFor(reponame, commit)[0]
+        all_tests = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, commit)[0]
 
         if testname not in all_tests:
             raise UserWarning("Can't find test/build %s/%s/%s" % (reponame, commit, testname))

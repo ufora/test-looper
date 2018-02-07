@@ -407,6 +407,34 @@ repos:
     reference: repo6/c0
 """
 
+basic_yml_file_repo7_circular = """
+looper_version: 2
+environments:
+  e1: 
+    base: [e2]
+  e2:
+    base: [e1]
+builds:
+  build:
+    environment: e1
+"""
+
+basic_yml_file_repo8_circular_builds = """
+looper_version: 2
+environments:
+  e1: 
+    platform: linux
+    image:
+      dockerfile: "test_looper/Dockerfile.txt"
+builds:
+  build2/e1:
+    dependencies:
+     input: build1/e1
+  build1/e1:
+    dependencies:
+     input: build2/e1
+"""
+
 class TestManagerTestHarness:
     def __init__(self, manager):
         self.manager = manager
@@ -947,11 +975,11 @@ class TestManagerTests(unittest.TestCase):
         with manager.database.view():
             repo3 = manager.database.Repo.lookupOne(name="repo3")
             commit3 = manager.database.Commit.lookupOne(repo_and_hash=(repo3, "c0"))
-            test3 = manager.database.Test.lookupOne(fullname=("repo3/c0/build/linux"))
+            test3 = manager.database.Test.lookupAny(fullname=("repo3/c0/build/linux"))
 
-            assert test3 is not None
-            assert test3.priority.matches.UnresolvedDependencies
-
+            #test doesn't exist yet
+            assert test3 is None
+            
         manager.source_control.addCommit("repo2/c0", [], basic_yml_file_repo2)
         manager.source_control.setBranch("repo2/master", "repo2/c0")
         
@@ -963,19 +991,17 @@ class TestManagerTests(unittest.TestCase):
         with manager.database.view():
             repo2 = manager.database.Repo.lookupOne(name="repo2")
             commit2 = manager.database.Commit.lookupOne(repo_and_hash=(repo2, "c0"))
-            test2 = manager.database.Test.lookupOne(fullname=("repo2/c0/build/linux"))
 
-            assert test2 is not None
-            assert test2.priority.matches.UnresolvedDependencies
+            test2 = manager.database.Test.lookupAny(fullname=("repo2/c0/build/linux"))
 
-            test2deps = manager.database.UnresolvedRepoDependency.lookupAll(test=test2)
-            self.assertEqual([x.reponame + "/" + x.commitHash for x in test2deps], ["repo1/c0"])
+            assert test2 is None
+            
+            commit2deps = manager.database.UnresolvedCommitRepoDependency.lookupAll(commit=commit2)
+            self.assertEqual([x.reponame for x in commit2deps], ["repo1"])
 
-            test3deps = manager.database.UnresolvedRepoDependency.lookupAll(test=test3)
-            self.assertEqual([x.reponame + "/" + x.commitHash for x in test3deps], ["repo1/c0"])
+            commit3deps = manager.database.UnresolvedCommitRepoDependency.lookupAll(commit=commit3)
+            self.assertEqual([x.reponame for x in commit3deps], ["repo1"])
 
-            assert test3.priority.matches.UnresolvedDependencies, test3.priority
-        
         manager.source_control.addCommit("repo1/c0", [], basic_yml_file_repo1)
         manager.source_control.setBranch("repo1/master", "repo1/c0")
         
@@ -989,16 +1015,19 @@ class TestManagerTests(unittest.TestCase):
             commit1 = manager.database.Commit.lookupOne(repo_and_hash=(repo1, "c0"))
             test1 = manager.database.Test.lookupOne(fullname=("repo1/c0/build/linux"))
 
-            test2deps = manager.database.UnresolvedSourceDependency.lookupAll(test=test2)
-            assert not test2deps, [x.repo.name + "/" + x.commitHash for x in test2deps]
+            self.assertFalse(manager.database.UnresolvedCommitRepoDependency.lookupAll(commit=commit1))
+            self.assertFalse(manager.database.UnresolvedCommitRepoDependency.lookupAll(commit=commit2))
+            self.assertFalse(manager.database.UnresolvedCommitRepoDependency.lookupAll(commit=commit3))
 
+            test2 = manager.database.Test.lookupAny(fullname=("repo2/c0/build/linux"))
+            test3 = manager.database.Test.lookupAny(fullname=("repo3/c0/build/linux"))
+            
             assert test1 is not None
+            assert test2 is not None
+            assert test3 is not None
+
             assert test1.priority.matches.NoMoreTests
             assert test2.priority.matches.WaitingOnBuilds, test2.priority
-
-            test3deps = manager.database.UnresolvedRepoDependency.lookupAll(test=test3)
-            self.assertEqual([x.reponame + "/" + x.commitHash for x in test3deps], [])
-
             assert test3.priority.matches.WaitingOnBuilds, test3.priority
 
     def test_manager_timeouts(self):
@@ -1084,7 +1113,10 @@ class TestManagerTests(unittest.TestCase):
         harness.startAllNewTests()
 
         with harness.database.view():
-            self.assertEqual(len(harness.database.TestRun.lookupAll(isRunning=True)), 1)
+            self.assertEqual(
+                [t.test.fullname for t in harness.database.TestRun.lookupAll(isRunning=True)], 
+                ["repo1/c0/build/linux","repo1/c0/test/windows"]
+                )
 
         harness.manager.source_control.setBranch("repo1/master", "repo1/c1")
         
@@ -1181,12 +1213,39 @@ class TestManagerTests(unittest.TestCase):
                 harness.consumeBackgroundTasks()
 
             with harness.database.view():
-                test = harness.database.Test.lookupOne(fullname=("repo2/c0/build_without_deps/linux"))
-                self.assertFalse(test.priority.matches.UnresolvedDependencies)
+                self.assertTrue(harness.database.Test.lookupAny(fullname=("repo2/c0/build_without_deps/linux")), ordering)
+                self.assertTrue(harness.database.Test.lookupAny(fullname=("repo3/c0/build_without_deps/linux")), ordering)
+                
 
-                test = harness.database.Test.lookupOne(fullname=("repo3/c0/build_without_deps/linux"))
-                self.assertFalse(test.priority.matches.UnresolvedDependencies)
 
+    def test_circular_environment_refs(self):
+        harness = self.get_harness()
+
+        harness.manager.source_control.addCommit("repo7/c0", [], basic_yml_file_repo7_circular)
+        harness.manager.source_control.setBranch("repo7/master", "repo7/c0")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        with harness.database.view():
+            self.assertFalse(harness.database.Test.lookupAny(fullname=("repo7/c0/build")))
+            
+    def test_circular_test_refs(self):
+        harness = self.get_harness()
+
+        harness.manager.source_control.addCommit("repo8/c0", [], basic_yml_file_repo8_circular_builds)
+        harness.manager.source_control.setBranch("repo8/master", "repo8/c0")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        with harness.database.view():
+            c = harness.getCommit("repo8/c0")
+            self.assertFalse(harness.database.Test.lookupAny(fullname=("repo8/c0/build1/e1")))
+
+            self.assertTrue("ircular" in c.data.testDefinitionsError, c.data.testDefinitionsError)
+            
+            
     def test_manager_import_export(self):
         harness = self.get_harness()
 

@@ -114,27 +114,24 @@ def map_image(reponame, commitHash, image_def):
         assert False, "Can't convert this kind of image: %s" % image_def
 
 def extract_tests(curRepoName, curCommitHash, testScript):
-    repos = {}
-
     for repoVarName, repoPin in testScript.repos.iteritems():
         if repoVarName in reservedNames:
             raise Exception("%s is a reserved name and can't be used as a reponame." % repoVarName)
 
-        repoDef = repoPin.reference
+        if repoPin.matches.Reference or repoPin.matches.Pin:
+            repoDef = repoPin.reference
 
-        assert len(repoDef.split("/")) >= 2, "Improperly formed repo definition: %s" % repoDef
+            assert len(repoDef.split("/")) >= 2, "Improperly formed repo definition: %s" % repoDef
 
-        parts = repoDef.split("/")
+            parts = repoDef.split("/")
 
-        assert len(parts) >= 2, "Improperly formed repo definition: %s" % repoDef
+            assert len(parts) >= 2, "Improperly formed repo definition: %s" % repoDef
 
-        repoName = "/".join(parts[:-1])
-        commitHash = parts[-1]
+            repoName = "/".join(parts[:-1])
+            commitHash = parts[-1]
 
-        if commitHash == "":
-            raise Exception("Can't have an empty commitHash")
-
-        repos[repoVarName] = (repoName, commitHash)
+            if commitHash == "":
+                raise Exception("Can't have an empty commitHash")
 
     environments = {}
 
@@ -158,22 +155,20 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 name="/".join(deps[1:])
                 )
         else:
-            if deps[0] not in repos:
+            if deps[0] not in testScript.repos:
                 raise Exception("Environment dependencies must reference a named repo. Can't find %s for %s" % (deps[0], dep))
 
             if len(deps) == 1:
                 #this is a source dependency
-                return TestDefinition.TestDependency.Source(
-                    repo=repos[deps[0]][0],
-                    commitHash=repos[deps[0]][1]
+                return TestDefinition.TestDependency.UnresolvedSource(
+                    repo_name=deps[0]
                     )
 
             if len(deps) < 3:
                 raise Exception("Malformed repo dependency: should be of form 'repoReference/buildName/environment'")
             
-            return TestDefinition.TestDependency.ExternalBuild(
-                repo=repos[deps[0]][0],
-                commitHash=repos[deps[0]][1],
+            return TestDefinition.TestDependency.UnresolvedExternalBuild(
+                repo_name=deps[0],
                 name="/".join(deps[1:])
                 )
 
@@ -209,13 +204,9 @@ def extract_tests(curRepoName, curCommitHash, testScript):
 
                     repoName, importEnvName = import_parts
 
-                    repo=repos[repoName][0]
-                    commitHash=repos[repoName][1]
-
                     imports.append(
-                        TestDefinition.EnvironmentReference(
-                            repo=repo,
-                            commitHash=commitHash,
+                        TestDefinition.EnvironmentReference.UnresolvedReference(
+                            repo_name=repoName,
                             name=importEnvName
                             )
                         )
@@ -267,21 +258,19 @@ def extract_tests(curRepoName, curCommitHash, testScript):
             else:
                 return TestDefinition.TestDefinition.Source(repo=curRepoName, commitHash=curCommitHash)
         else:
-            if deps[0] in repos:
+            if deps[0] in testScript.repos:
                 if len(deps) == 1:
                     #this is a source dependency
-                    return TestDefinition.TestDependency.Source(
-                        repo=repos[deps[0]][0],
-                        commitHash=repos[deps[0]][1]
+                    return TestDefinition.TestDependency.UnresolvedSource(
+                        repo_name=deps[0]
                         )
 
                 #this is a remote dependency: repoRef/buildName/environment
                 if len(deps) < 3:
                     raise Exception("Malformed repo dependency: should be of form 'repoReference/buildName/environment'")
                 
-                return TestDefinition.TestDependency.ExternalBuild(
-                    repo=repos[deps[0]][0],
-                    commitHash=repos[deps[0]][1],
+                return TestDefinition.TestDependency.UnresolvedExternalBuild(
+                    repo_name=deps[0],
                     name="/".join(deps[1:])
                     )
             
@@ -293,6 +282,9 @@ def extract_tests(curRepoName, curCommitHash, testScript):
         curEnv = d.environment or name.split("/")[-1]
 
         assert "$" not in curEnv, "Malformed name %s" % name
+
+        if curEnv not in environments:
+            raise Exception("Test %s refers to unknown environment %s" % (name, curEnv))
 
         if d.matches.Build:
             return TestDefinition.TestDefinition.Build(
@@ -351,7 +343,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
         )
 
     for name, definition in all_names_and_defs:
-        if name.split("/")[0] in repos:
+        if name.split("/")[0] in testScript.repos:
             raise Exception("Cant produce a test with name %s, because %s is already a repo name." % (name, name.split("/")[0]))
 
         allTests[name] = convert_def(name, definition)
@@ -519,6 +511,12 @@ def extract_postprocessed_test_definitions(extension, text):
 
     return expand_macros(test_defs_json, {})
 
+
+def parseRepoReference(encoder, value):
+    if isinstance(value, (str, unicode)):
+        return RepoReference.Reference(str(value))
+    return algebraic_to_json.Encoder().from_json(value, RepoReference)
+
 def parseVariableDict(encoder, value):
     def convert(k):
         if isinstance(k,str):
@@ -529,6 +527,10 @@ def parseVariableDict(encoder, value):
             return str(k)
         assert False, "Unsupported variable value: %s" % k
     return {convert(k): convert(v) for k,v in value.iteritems()}
+
+encoder = algebraic_to_json.Encoder()
+encoder.overrides[VariableDict] = parseVariableDict
+encoder.overrides[RepoReference] = parseRepoReference
 
 def extract_tests_from_str(repoName, commitHash, extension, text):
     test_defs_json = extract_postprocessed_test_definitions(extension, text)
@@ -542,7 +544,4 @@ def extract_tests_from_str(repoName, commitHash, extension, text):
     if version != 2:
         raise Exception("Can't handle looper version %s" % version)
 
-    e = algebraic_to_json.Encoder()
-    e.overrides[VariableDict] = parseVariableDict
-
-    return extract_tests(repoName, commitHash, e.from_json(test_defs_json, TestDefinitionScript))
+    return extract_tests(repoName, commitHash, encoder.from_json(test_defs_json, TestDefinitionScript))

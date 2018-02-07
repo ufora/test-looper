@@ -40,6 +40,8 @@ def setupYamlDumper():
 
     Dumper.add_representer(str, string_representer)
     Dumper.add_representer(unicode, string_representer)
+    Dumper.add_representer(int, lambda dumper, value : \
+        dumper.represent_scalar(u'tag:yaml.org,2002:int', str(value), style=''))
     Dumper.add_representer(bool, lambda dumper, value : \
         dumper.represent_scalar(u'tag:yaml.org,2002:bool', u"true" if value else u"false", style=''))
     Dumper.add_representer(type(None), lambda dumper, value : \

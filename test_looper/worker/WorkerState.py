@@ -88,53 +88,8 @@ class TestLooperDirectories:
         return [self.repo_copy_dir, self.scratch_dir, self.command_dir, self.test_inputs_dir, self.test_data_dir, 
                 self.build_cache_dir, self.ccache_dir, self.test_output_dir, self.build_output_dir, self.repo_cache]
 
-class TestDefinitionResolver:
-    def __init__(self, git_repo_lookup):
-        self.git_repo_lookup = git_repo_lookup
-
-    def resolveEnvironment(self, environment):
-        if environment.matches.Environment:
-            return environment
-
-        dependencies = {}
-
-        def import_dep(dep):
-            """Grab a dependency and all its children and stash them in 'dependencies'"""
-            if dep in dependencies:
-                return
-
-            underlying_env = self.environmentDefinitionFor(dep.repo, dep.commitHash, dep.name)
-
-            assert underlying_env is not None, "Can't find environment for %s/%s/%s" % (dep.repo, dep.commitHash, dep.name)
-
-            dependencies[dep] = underlying_env
-
-            if underlying_env.matches.Import:
-                for dep in underlying_env.imports:
-                    import_dep(dep)
-
-        for dep in environment.imports:
-            import_dep(dep)
-
-        return TestDefinition.merge_environments(environment, dependencies)
-
-    def environmentDefinitionFor(self, repoName, commitHash, envName):
-        return self.testAndEnvironmentDefinitionFor(repoName, commitHash)[1].get(envName)
-
-    def testAndEnvironmentDefinitionFor(self, repoName, commitHash):
-        path = self.git_repo_lookup(repoName).getTestDefinitionsPath(commitHash)
-
-        if path is None:
-            return {}, {}, {}
-
-        testText = self.git_repo_lookup(repoName).getFileContents(commitHash, path)
-
-        return TestDefinitionScript.extract_tests_from_str(repoName, commitHash, os.path.splitext(path)[1], testText)
-
-
-
 class WorkerState(object):
-    def __init__(self, name_prefix, worker_directory, source_control, artifactStorage, machineId, hardwareConfig, verbose=False, resolver=None):
+    def __init__(self, name_prefix, worker_directory, source_control, artifactStorage, machineId, hardwareConfig, verbose=False):
         import test_looper.worker.TestLooperWorker
 
         self.name_prefix = name_prefix
@@ -162,8 +117,6 @@ class WorkerState(object):
         self.artifactStorage = artifactStorage
 
         self.source_control = source_control
-
-        self.resolver = resolver or TestDefinitionResolver(self.getRepoCacheByName)
 
         self.cleanup()
 

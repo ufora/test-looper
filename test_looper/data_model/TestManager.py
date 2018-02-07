@@ -16,6 +16,7 @@ import test_looper.data_model.Types as Types
 import test_looper.data_model.BranchPinning as BranchPinning
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.data_model.TestDefinition as TestDefinition
+import test_looper.data_model.TestDefinitionResolver as TestDefinitionResolver
 
 pendingVeryHigh = Types.BackgroundTaskStatus.PendingVeryHigh()
 pendingHigh = Types.BackgroundTaskStatus.PendingHigh()
@@ -792,10 +793,8 @@ class TestManager(object):
                     
                     test = deployment.test
 
-                    fullyResolvedTestDef = test.testDefinition._withReplacement(environment=test.fullyResolvedEnvironment.Environment)
-
                     return (test.commitData.commit.repo.name, test.commitData.commit.hash, 
-                            test.testDefinition.name, deployment._identity, fullyResolvedTestDef)
+                            test.testDefinition.name, deployment._identity, test.testDefinition)
 
             return None, None, None, None, None
 
@@ -931,9 +930,7 @@ class TestManager(object):
 
             self._updateTestPriority(test, timestamp)
 
-            fullyResolvedTestDef = test.testDefinition._withReplacement(environment=test.fullyResolvedEnvironment.Environment)
-
-            return (test.commitData.commit.repo.name, test.commitData.commit.hash, test.testDefinition.name, runningTest._identity, fullyResolvedTestDef)
+            return (test.commitData.commit.repo.name, test.commitData.commit.hash, test.testDefinition.name, runningTest._identity, test.testDefinition)
 
     def performCleanupTasks(self, curTimestamp):
         #check all tests to see if we've exceeded the timeout and the test is dead
@@ -1151,7 +1148,9 @@ class TestManager(object):
         elif task.matches.UpdateBranchTopCommit:
             with self.transaction_and_lock():
                 self._updateBranchTopCommit(task.branch)
-
+        elif task.matches.CommitTestParse:
+            with self.transaction_and_lock():
+                self._parseCommitTests(task.commit)
         elif task.matches.UpdateCommitData:
             with self.transaction_and_lock():
                 self._updateCommitData(task.commit)
@@ -1205,11 +1204,10 @@ class TestManager(object):
             )
 
         #check for all source dependencies and make sure we update them!
-        for dep in self.database.UnresolvedSourceDependency.lookupAll(repo_and_hash=(repo, hash)):
-            test = dep.test
+        for dep in self.database.UnresolvedCommitSourceDependency.lookupAll(repo_and_hash=(repo, hash)):
+            commitNeedingUs = dep.commit
             dep.delete()
-            self._triggerTestPriorityUpdateIfNecessary(test)
-
+            self._triggerCommitTestParse(commitNeedingUs)
 
         for p in parents:
             self.database.CommitRelationship.New(child=commit,parent=p)
@@ -1231,36 +1229,7 @@ class TestManager(object):
             logging.info("Loading data for commit %s with timestamp %s", commit.hash, time.asctime(time.gmtime(commit.data.timestamp)))
             self._triggerCommitPriorityUpdate(commit)
 
-            try:
-                defText, extension = source_control_repo.getTestScriptDefinitionsForCommit(commit.hash)
-                
-                if defText is None:
-                    raise Exception("No test definition file found.")
-
-                all_tests, all_environments, all_repo_defs = TestDefinitionScript.extract_tests_from_str(commit.repo.name, commit.hash, extension, defText)
-
-                commit.data.testDefinitions = all_tests
-                commit.data.environments = all_environments
-                commit.data.repos = all_repo_defs
-                
-                for e in all_tests.values():
-                    fullname=commit.repo.name + "/" + commit.hash + "/" + e.name
-
-                    self._createTest(
-                        commitData=commit.data,
-                        fullname=fullname,
-                        testDefinition=e
-                        )
-
-                commit.repo.commitsWithTests = commit.repo.commitsWithTests + 1
-
-            except Exception as e:
-                if not str(e):
-                    logging.error("%s", traceback.format_exc())
-
-                logging.warn("Got an error parsing tests for %s/%s:\n%s", commit.repo.name, commit.hash, traceback.format_exc())
-
-                commit.data.testDefinitionsError=str(e)
+            self._parseCommitTests(commit)
         else:
             logging.info("Not loading data for commit %s with timestamp %s", commit.hash, time.asctime(time.gmtime(commit.data.timestamp)))
 
@@ -1269,6 +1238,55 @@ class TestManager(object):
         for branch in self.database.Branch.lookupAll(head=commit):
             self._recalculateBranchPins(branch)
 
+    def _parseCommitTests(self, commit):
+        try:
+            if commit.data.testsParsed:
+                return
+
+            def getRepo(reponame):
+                if not self.database.Repo.lookupAny(name=reponame):
+                    return None
+                return self.source_control.getRepo(reponame)
+
+            resolver = TestDefinitionResolver.TestDefinitionResolver(getRepo)
+
+            try:
+                all_tests, all_environments, all_repo_defs = \
+                    resolver.fullyResolvedTestEnvironmentAndRepoDefinitionsFor(
+                        commit.repo.name, 
+                        commit.hash
+                        )
+
+            except TestDefinitionResolver.MissingDependencyException as e:
+                self._createSourceDep(commit, e.reponame, e.commitHash)
+                return
+
+            commit.data.testDefinitions = all_tests
+            commit.data.environments = all_environments
+            commit.data.repos = all_repo_defs
+            
+            for e in all_tests.values():
+                fullname=commit.repo.name + "/" + commit.hash + "/" + e.name
+
+                self._createTest(
+                    commitData=commit.data,
+                    fullname=fullname,
+                    testDefinition=e
+                    )
+
+            commit.repo.commitsWithTests = commit.repo.commitsWithTests + 1
+
+            commit.data.testsParsed = True
+
+        except Exception as e:
+            if not str(e):
+                logging.error("%s", traceback.format_exc())
+
+            logging.warn("Got an error parsing tests for %s/%s:\n%s", commit.repo.name, commit.hash, traceback.format_exc())
+
+            commit.data.testDefinitionsError=str(e)
+
+            commit.data.testsParsed = True
 
     def _updateBranchPin(self, branch, ref_name, produceIntermediateCommits):
         pinning = BranchPinning.BranchPinning(self.database, self.source_control)
@@ -1544,19 +1562,8 @@ class TestManager(object):
 
         category = test.machineCategory
 
-        if test.fullyResolvedEnvironment.matches.Error:
-            test.priority = self.database.TestPriority.InvalidTestDefinition()
-            test.targetMachineBoot = 0
-        if test.fullyResolvedEnvironment.matches.Unresolved:
-            test.priority = self.database.TestPriority.UnresolvedDependencies()
-            test.targetMachineBoot = 0
-        elif category and category.hardwareComboUnbootable:
+        if category and category.hardwareComboUnbootable:
             test.priority = self.database.TestPriority.HardwareComboUnbootable()
-            test.targetMachineBoot = 0
-        elif (self.database.UnresolvedTestDependency.lookupAll(test=test) or 
-                self.database.UnresolvedRepoDependency.lookupAll(test=test) or 
-                self.database.UnresolvedSourceDependency.lookupAll(test=test)):
-            test.priority = self.database.TestPriority.UnresolvedDependencies()
             test.targetMachineBoot = 0
         elif self._testHasUnfinishedDeps(test):
             test.priority = self.database.TestPriority.WaitingOnBuilds()
@@ -1719,11 +1726,7 @@ class TestManager(object):
             )
 
     def _machineCategoryPairForTest(self, test):
-        if not test.fullyResolvedEnvironment.matches.Resolved:
-            logging.warn("Test %s has a bad environment: %s", test.fullname, test.fullyResolvedEnvironment)
-            return None
-
-        env = test.fullyResolvedEnvironment.Environment
+        env = test.testDefinition.environment
 
         if env.platform.matches.linux:
             if env.image.matches.Dockerfile or env.image.matches.DockerfileInline:
@@ -1847,81 +1850,22 @@ class TestManager(object):
             commitData=commitData, 
             fullname=fullname, 
             testDefinition=testDefinition, 
-            fullyResolvedEnvironment=self.database.FullyResolvedTestEnvironment.Unresolved(),
-            priority=self.database.TestPriority.UnresolvedDependencies()
+            priority=self.database.TestPriority.NoMoreTests()
             )
 
         self._checkAllTestDependencies(test)
         self._markTestFullnameCreated(fullname, test)
-        self._triggerTestPriorityUpdateIfNecessary(test)
+        self._triggerTestPriorityUpdate(test)
 
     def _checkAllTestDependencies(self, test):
         commitData = test.commitData
 
         env = test.testDefinition.environment
 
-        try:
-            if env.matches.Import:
-                dependencies = {}
-
-                def import_dep(dep):
-                    """Grab a dependency and all its children and stash them in 'dependencies'"""
-                    if dep in dependencies:
-                        return
-
-                    commit = self._lookupCommitByHash(dep.repo, dep.commitHash)
-                    self._createSourceDep(test, dep.repo, dep.commitHash)
-
-                    if commit and commit.data:
-                        underlying_env = commit.data.environments.get(dep.name, None)
-                        if not underlying_env:
-                            raise Exception("Can't find environment %s amongst %s within commit %s/%s" % (
-                                dep.name,
-                                list(commit.data.environments),
-                                commit.repo.name, 
-                                commit.hash
-                                ))
-                    else:
-                        underlying_env = None
-
-                    if underlying_env is not None:
-                        dependencies[dep] = underlying_env
-
-                        if underlying_env.matches.Import:
-                            for dep in underlying_env.imports:
-                                import_dep(dep)
-                    else:
-                        dependencies[dep] = None
-
-                for dep in env.imports:
-                    import_dep(dep)
-
-                if None in dependencies.values():
-                    logging.warn("Test %s can't find dependencies %s", 
-                        test.fullname, 
-                        [k for k,v in dependencies.iteritems() if v is None]
-                        )
-                    env = None
-                else:
-                    env = TestDefinition.merge_environments(env, dependencies)
-
-            if env is None:
-                return
-
-            assert env.matches.Environment
-
-            env = TestDefinition.apply_environment_substitutions(env)
-
-        except Exception as e:
-            logging.error(traceback.format_exc())
-            test.fullyResolvedEnvironment = self.database.FullyResolvedTestEnvironment.Error(Error=str(e))
-            return
-
         #here we should have a fully populated environment, with all dependencies
         #resolved
         assert env.matches.Environment
 
-        test.fullyResolvedEnvironment = self.database.FullyResolvedTestEnvironment.Resolved(env)
         test.machineCategory = self._machineCategoryForTest(test)
 
         #now we can resolve the test definition, so that we get reasonable dependencies
@@ -1939,22 +1883,23 @@ class TestManager(object):
                 fullname_dep = "/".join([commitData.commit.repo.name, commitData.commit.hash, dep.name])
                 self._createTestDep(test, fullname_dep)
             elif dep.matches.Source:
-                self._createSourceDep(test, dep.repo, dep.commitHash)
+                pass
 
 
 
-    def _createSourceDep(self, test, reponame, commitHash):
+    def _createSourceDep(self, commit, reponame, commitHash):
         repo = self.database.Repo.lookupAny(name=reponame)
         if not repo:
-            if self.database.UnresolvedRepoDependency.lookupAny(test_and_reponame=(test, reponame)) is None:
-                self.database.UnresolvedRepoDependency.New(test=test,reponame=reponame, commitHash=commitHash)
+            if self.database.UnresolvedCommitRepoDependency.lookupAny(commit_and_reponame=(commit, reponame)) is None:
+                self.database.UnresolvedCommitRepoDependency.New(commit=commit,reponame=reponame)
             return True
 
-        commit = self.database.Commit.lookupAny(repo_and_hash=(repo, commitHash))
-        if not commit or not commit.data:
-            if self.database.UnresolvedSourceDependency.lookupAny(test_and_repo_and_hash=(test, repo, commitHash)) is None:
-                self.database.UnresolvedSourceDependency.New(test=test, repo=repo, commitHash=commitHash)
-            return True
+        if commitHash:
+            foundCommit = self.database.Commit.lookupAny(repo_and_hash=(repo, commitHash))
+            if not foundCommit or not foundCommit.data:
+                if self.database.UnresolvedCommitSourceDependency.lookupAny(commit_and_repo_and_hash=(commit, repo, commitHash)) is None:
+                    self.database.UnresolvedCommitSourceDependency.New(commit=commit, repo=repo, commitHash=commitHash)
+                return True
 
         return False
 
@@ -1977,7 +1922,7 @@ class TestManager(object):
                 self.database.TestDependency.New(test=test, dependsOn=test_for_name)
 
             dep.delete()
-            self._triggerTestPriorityUpdateIfNecessary(test)
+            self._triggerTestPriorityUpdate(test)
                 
     def _triggerCommitPriorityUpdate(self, commit):
         self.database.DataTask.New(
@@ -1985,33 +1930,36 @@ class TestManager(object):
             status=pendingHigh
             )
 
-    def _triggerTestPriorityUpdateIfNecessary(self, test):
-        if not (self.database.UnresolvedTestDependency.lookupAll(test=test) + 
-                self.database.UnresolvedRepoDependency.lookupAll(test=test) +
-                self.database.UnresolvedSourceDependency.lookupAll(test=test)
-                ):
-            self._triggerTestPriorityUpdate(test)
-
     def _triggerTestPriorityUpdate(self, test):
-        #test priority updates are always 'low' because we want to ensure
-        #that all commit updates have triggered first. This way we know that
-        #we're not accidentally going to cancel a test
-        self.database.DataTask.New(
-            task=self.database.BackgroundTask.UpdateTestPriority(test=test),
-            status=pendingLow
-            )
+        if not self.database.UnresolvedTestDependency.lookupAll(test=test):
+            #test priority updates are always 'low' because we want to ensure
+            #that all commit updates have triggered first. This way we know that
+            #we're not accidentally going to cancel a test
+            self.database.DataTask.New(
+                task=self.database.BackgroundTask.UpdateTestPriority(test=test),
+                status=pendingLow
+                )
+
+    def _triggerCommitTestParse(self, commit):
+        if not (self.database.UnresolvedCommitRepoDependency.lookupAll(commit=commit) +
+                self.database.UnresolvedCommitSourceDependency.lookupAll(commit=commit)
+                ):
+            self.database.DataTask.New(
+                task=self.database.BackgroundTask.CommitTestParse(commit=commit),
+                status=pendingHigh
+                )
 
     def _createRepo(self, new_repo_name):
         r = self.database.Repo.New(name=new_repo_name,isActive=True)
 
-        for dep in self.database.UnresolvedRepoDependency.lookupAll(reponame=new_repo_name):
-            self._createSourceDep(dep.test, new_repo_name, dep.commitHash)
-            test = dep.test
+        for dep in self.database.UnresolvedCommitRepoDependency.lookupAll(reponame=new_repo_name):
+            self._createSourceDep(dep.commit, new_repo_name, None)
+            commit = dep.commit
 
             #delete this first, since we check to see if any such dependencies exist!
             dep.delete()
 
-            self._triggerTestPriorityUpdateIfNecessary(test)
+            self._triggerCommitTestParse(commit)
 
         return r
 
