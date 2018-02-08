@@ -56,13 +56,16 @@ def createArgumentParser():
     clear_parser.add_argument("-b", "--build", help="Get info on a specific test", default=False, action="store_true")
     clear_parser.add_argument("-s", "--src", help="Get info on a specific test", default=False, action="store_true")
 
-    init_parser = subparsers.add_parser("fetch")
-    init_parser.set_defaults(command="fetch")
+    fetch_parser = subparsers.add_parser("fetch")
+    fetch_parser.set_defaults(command="fetch")
 
     init_parser = subparsers.add_parser("init")
     init_parser.set_defaults(command="init")
     init_parser.add_argument("path", help="Path to disk storage")
     init_parser.add_argument("git_clone_root", help="Git clone root (e.g. git@gitlab.mycompany.com)")
+
+    status_parser = subparsers.add_parser("status")
+    status_parser.set_defaults(command="status")
 
     checkout_parser = subparsers.add_parser("checkout")
     checkout_parser.set_defaults(command="checkout")
@@ -70,6 +73,8 @@ def createArgumentParser():
     checkout_parser.add_argument("committish", help="Name of the commit or branch")
     checkout_parser.add_argument("--hard", help="Force a hard reset in the source repo", default=False, action="store_true")
     checkout_parser.add_argument("--prune", help="Get rid of unused repos", default=False, action="store_true")
+    checkout_parser.add_argument("--from", help="Create a new branch, based on this one", dest="from_name", default=None)
+    checkout_parser.add_argument("--orphan", help="Create a new orphaned branch, based on this one", dest="orphan", default=False, action='store_true')
 
     build_parser = subparsers.add_parser("build")
     build_parser.set_defaults(command="build")
@@ -235,15 +240,58 @@ class TestDefinitionResolverOverride(WorkerState.TestDefinitionResolver):
         return WorkerState.TestDefinitionResolver.testAndEnvironmentDefinitionFor(self, repoName, commitHash)
 
 class TestLooperCtl:
-    def __init__(self, root_path, config):
+    def __init__(self, root_path):
         self.root_path = root_path
-        self.git_clone_root = config["git_clone_root"]
         self.repos = {}
         self.resolver = TestDefinitionResolverOverride(self)
-
-        #map from repo->hash->name of the current checkout
-        self.cur_checkouts = config.get("cur_checkouts", {})
         self.initializeAllRepoNames()
+    
+        self._loadConfig()
+        self._loadState()
+
+    def _loadState(self):
+        try:
+            state_file_path = os.path.join(self.root_path, ".tl", "state.yml")
+
+            with open(state_file_path, "r") as f:
+                state = yaml.load(f.read())
+
+            #map from repo->hash->name of the current checkout
+            self.cur_checkouts = state.get("cur_checkouts", {})
+
+            #repo, branch (or None), commit
+            self.checkout_root = state.get("checkout_root", (None, None))
+        except Exception as e:
+            raise UserWarning("Corrupt state file: " + str(e))
+
+    def _loadConfig(self):
+        try:
+            config_file_path = os.path.join(self.root_path, ".tl", "config.yml")
+
+            with open(config_file_path, "r") as f:
+                config = yaml.load(f.read())
+
+            self.repo_prefixes_to_strip = config.get("repo_prefixes_to_strip", [])
+            self.repo_prefixes_to_ignore = config.get("repo_prefixes_to_ignore", [])
+
+            self.git_clone_root = config["git_clone_root"]
+
+        except Exception as e:
+            raise UserWarning("Corrupt config file: " + str(e))
+
+    def repoIsNotIgnored(self, repo):
+        for r in self.repo_prefixes_to_ignore:
+            if repo.startswith(r):
+                return False
+        return True
+
+    def repoShortname(self, repo):
+        prunes = [p for p in self.repo_prefixes_to_strip if repo.startswith(p)]
+        prunes = sorted(prunes, key=len)
+
+        if prunes:
+            return repo[len(prunes[-1]):]
+        return repo
 
     def initializeAllRepoNames(self):
         self.allRepoNames = set()
@@ -263,7 +311,7 @@ class TestLooperCtl:
 
 
     def fetch(self, args):
-        print "fetching origin for ", len(self.allRepoNames)
+        print "fetching origin for ", len(self.allRepoNames), " repos..."
 
         threads = []
         for reponame in self.allRepoNames:
@@ -303,12 +351,13 @@ class TestLooperCtl:
 
         return os.path.abspath(os.path.join(*((self.root_path, "src") + tuple(reponame.split("/")) + (self.sanitize(hashOrCommitName),))))
     
-    def writeStateToConfig(self):
+    def writeState(self):
         config = {
-            "git_clone_root": self.git_clone_root,
-            "cur_checkouts": self.cur_checkouts
+            "cur_checkouts": self.cur_checkouts,
+            "checkout_root": self.checkout_root
             }
-        with open(os.path.join(self.root_path, ".tl", "config.yml"), "w") as f:
+
+        with open(os.path.join(self.root_path, ".tl", "state.yml"), "w") as f:
             f.write(yaml.dump(config, indent=4, default_style=''))
 
     def getGitRepo(self, reponame):
@@ -347,15 +396,32 @@ class TestLooperCtl:
         if args.build:
             self.clearDirectoryAsRoot(os.path.join(self.root_path, "builds"))
 
+    def createNewBranchAndPush(self, repo, branchname, from_name):
+        if from_name:
+            repo.pushCommit("origin/" + from_name, branchname, force=False, create=True)
+        else:
+            hash = repo.createInitialCommit()
+            repo.pushCommit(hash, branchname, force=False, createBranch=True)
+
     def checkout(self, args):
-        reponame = self.bestRepo(args.repo)
+        if args.from_name or args.orphan:
+            reponame = args.repo
+        else:
+            reponame = self.bestRepo(args.repo)
 
         repo = self.getGitRepo(reponame)
         
         committish = args.committish
 
+        if args.from_name:
+            self.createNewBranchAndPush(repo, committish, args.from_name)
+        elif args.orphan:
+            self.createNewBranchAndPush(repo, committish, None)
+
         if not Git.isShaHash(committish):
             committish = repo.hashParentsAndCommitTitleFor("origin/" + committish)[0]
+
+        self.checkout_root = (reponame, committish)
 
         repo_usages = {}
 
@@ -395,17 +461,25 @@ class TestLooperCtl:
         if args.prune:
             for reponame in self.allRepoNames:
                 if reponame not in repo_usages:
-                    print "pruning ", reponame
+                    print "pruning enture repo reference ", self.repoShortname(reponame)
+
                     self.clearDirectoryAsRoot(self.checkout_root_path(reponame, None))
+                    shutil.rmtree(self.checkout_root_path(reponame, None))
 
         for reponame in sorted(repo_usages):
             for commit, commitName in self.cur_checkouts[reponame].iteritems():
                 _,_,repos = self.resolver.testAndEnvironmentDefinitionFor(reponame, commit)
 
                 if repos:
-                    print "repo ", reponame, commitName
+                    print "repo ", self.repoShortname(reponame), commitName
                     for refname, ref in repos.iteritems():
-                        print "\t", refname, " -> ", ref.reponame(), self.cur_checkouts[ref.reponame()][ref.commitHash()]
+                        if self.repoIsNotIgnored(ref.reponame()):
+                            print "\t", refname, " -> ", self.repoShortname(ref.reponame()), \
+                                self.cur_checkouts[ref.reponame()][ref.commitHash()]
+
+        for reponame in self.allRepoNames:
+            if reponame not in repo_usages and reponame in self.cur_checkouts:
+                del self.cur_checkouts[reponame]
 
     def _checkoutRepoNames(self, reponame, hashes, hard=False, prune=False):
         assert len(set(hashes.values())) == len(hashes), "Conflicting checkout names: " + str(hashes)
@@ -433,8 +507,9 @@ class TestLooperCtl:
         if prune:
             for name in os.listdir(self.checkout_root_path(reponame, None)):
                 if name not in hashes.values():
-                    print "pruning ", reponame, name
+                    print "pruning branch-checkout", self.repoShortname(reponame), name
                     self.clearDirectoryAsRoot(self.checkout_root_path(reponame, name))
+                    shutil.rmtree(self.checkout_root_path(reponame, name))
 
     def commitsForRepo(self, reponame):
         if reponame not in self.cur_checkouts:
@@ -471,14 +546,14 @@ class TestLooperCtl:
             if dep.matches.InternalBuild:
                 print "\tbuild: ", dep.name
             if dep.matches.ExternalBuild:
-                print "\tbuild: ", dep.repo + "/" + dep.commitHash + "/" + dep.name
+                print "\tbuild: ", self.repoShortname(dep.repo) + "/" + dep.commitHash + "/" + dep.name
             if dep.matches.Source:
-                print "\tsource:", dep.repo + "/" + dep.commitHash
+                print "\tsource:", self.repoShortname(dep.repo) + "/" + dep.commitHash
 
     def infoForRepo(self, repo):
         repo = self.bestRepo(repo)
 
-        print "repo: ", repo
+        print "repo: ", self.repoShortname(repo)
 
         git_repo = self.getGitRepo(repo)
         
@@ -509,6 +584,44 @@ class TestLooperCtl:
             return reponame
         return self._pickOne(reponame, self.cur_checkouts, "repo") or reponame
 
+
+    def walkCheckedOutRepos(self, f):
+        if self.checkout_root is None:
+            return None
+
+        seen = set()
+
+        def walk(reponame, committish):
+            if (reponame, committish) in seen:
+                return
+            seen.add((reponame, committish))
+
+            if self.repoIsNotIgnored(reponame):
+                f(reponame, committish)
+
+            _,_,repos = self.resolver.testAndEnvironmentDefinitionFor(reponame, committish)
+
+            for v in repos.values():
+                walk(v.reponame(), v.commitHash())
+
+        walk(self.checkout_root[0], self.checkout_root[1])
+
+    def status(self, args):
+        if self.checkout_root is None:
+            print "Nothing checked out..."
+            return
+
+        def printer(reponame, committish):
+            root = self.checkout_root_path(reponame, committish)
+            git = Git.Git(root)
+            print self.repoShortname(reponame), self.cur_checkouts[reponame][committish]
+            diffstat = git.currentFileNumStat()
+            for path in diffstat:
+                print "\t++ %-5d  -- %-5d   %s" % (diffstat[path][0], diffstat[path][1], path)
+
+        self.walkCheckedOutRepos(printer)
+        
+
     def _pickOne(self, lookfor, possibilities, kindOfThing):
         possible = [item for item in possibilities if lookfor in item]
         if len(possible) == 1:
@@ -530,7 +643,11 @@ class TestLooperCtl:
             raise UserWarning("Couldn't find a test named %s" % test)
 
         if len(possible) > 1:
-            raise UserWarning("Found multiple tests")
+            raise UserWarning(
+                "Found multiple tests: " + 
+                    ", ".join([self.cur_checkouts[reponame][commit] + "/" + test 
+                            for commit,test in possible])
+                )
 
         return possible[0]
 
@@ -570,14 +687,14 @@ class TestLooperCtl:
                     pass
                 if dep.matches.InternalBuild:
                     if not self.buildTest(reponame, commit, dep.name, cores, nologcapture, nodeps, interactive, seen_already):
-                        print "Dependent build ", reponame, commit, dep.name, " failed"
+                        print "Dependent build ", self.repoShortname(reponame), commit, dep.name, " failed"
                         return False
                 if dep.matches.ExternalBuild:
                     if not self.buildTest(dep.repo, dep.commitHash, dep.name, cores, nologcapture, nodeps, interactive, seen_already):
-                        print "Dependent build ", dep.repo, dep.commitHash, dep.name, " failed"
+                        print "Dependent build ", self.repoShortname(dep.repo), dep.commitHash, dep.name, " failed"
                         return False
         
-        print "Building ", reponame, commit, testname
+        print "Building ", self.repoShortname(reponame), commit, testname
 
         worker_state = WorkerStateOverride("test_looper_interactive_", path, self, cores)
 
@@ -635,16 +752,8 @@ def main(argv):
             root = find_cur_root(os.getcwd())
             if not root:
                 raise UserWarning("Not a tl path")
-            
-            try:
-                config_file = os.path.join(root, ".tl", "config.yml")
 
-                with open(config_file, "r") as f:
-                    config = yaml.load(f.read())
-            except Exception as e:
-                raise UserWarning("Corrupt config file: " + str(e))
-
-            ctl = TestLooperCtl(root, config)
+            ctl = TestLooperCtl(root)
 
             try:
                 if parsedArgs.command == "checkout":
@@ -657,10 +766,16 @@ def main(argv):
                     ctl.build(parsedArgs)
                 elif parsedArgs.command == "fetch":
                     ctl.fetch(parsedArgs)
+                elif parsedArgs.command == "status":
+                    ctl.status(parsedArgs)
+                elif parsedArgs.command == "cd":
+                    ctl.change_directory(parsedArgs)
+                elif parsedArgs.command == "branch_create":
+                    ctl.create_branch(parsedArgs)
                 else:
                     raise UserWarning("Unknown command " + parsedArgs.command)
             finally:
-                ctl.writeStateToConfig()
+                ctl.writeState()
 
     except UserWarning as e:
         print "Error:\n\n%s" % str(e)

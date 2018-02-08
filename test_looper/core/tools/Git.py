@@ -2,6 +2,7 @@ import cPickle as pickle
 import logging
 import subprocess
 import traceback
+import uuid
 import os
 import sys
 import threading
@@ -156,26 +157,60 @@ class Git(object):
 
         return self.subprocessCheckCall(["git", "push", "origin", "%s:%s" % (commitHash, branch)] + (["-f"] if force else [])) == 0
 
+    def currentFileDiff(self):
+        return [x.strip() for x in self.subprocessCheckOutput(["git", "diff", "--name-only"]).split("\n") if x.strip()]
+
+    def currentFileNumStat(self):
+        """Return a dict from path -> (added,removed) diff"""
+        pat = re.compile("\s*(\d+)\s+(\d+)\s+(.*)\s*")
+        
+        res = {}
+        for line in self.subprocessCheckOutput(["git", "diff", "--numstat"]).split("\n"):
+            match = pat.match(line)
+            if match:
+                res[match.groups()[2]] = (int(match.groups()[0]), int(match.groups()[1]))
+
+        return res
+
+    def createInitialCommit(self, commitMessage="Initial commit"):
+        with self.git_repo_lock:
+            branchname = str(uuid.uuid4())
+            
+            curHash = self.subprocessCheckOutput(["git", "log", "-n", "1", '--format=format:%H']).strip()
+
+            try:
+                assert self.subprocessCheckCall(["git", "checkout", "--orphan", branchname]) == 0
+                assert self.subprocessCheckCall(["git", "reset", "--hard"]) == 0
+                assert self.subprocessCheckCall(["git", "commit", "--allow-empty", "-m", commitMessage]) == 0
+                
+                return self.subprocessCheckOutput(["git", "log", "-n", "1", '--format=format:%H']).strip()
+            finally:
+                self.subprocessCheckCall(["git", "checkout", curHash])
+                self.subprocessCheckCall(["git", "branch", "-d", branchname])
+
+
+
     def commit(self, msg, timestamp_override=None, author="test_looper <test_looper@test_looper.com>", dir_override=None):
         """Commit the current state of the repo and return the commit id"""
-        if dir_override is None:
-            dir_override = self.path_to_repo
+        with self.git_repo_lock:
+            if dir_override is None:
+                dir_override = self.path_to_repo
 
-        assert self.subprocessCheckCallAltDir(dir_override, ["git", "add", "."]) == 0
+            assert self.subprocessCheckCallAltDir(dir_override, ["git", "add", "."]) == 0
 
-        env = dict(os.environ)
+            env = dict(os.environ)
 
-        if timestamp_override:
-            timestamp_override_options = ["--date", str(timestamp_override) + " -0500"]
-            env["GIT_COMMITTER_DATE"] = str(timestamp_override) + " -0500"
-        else:
-            timestamp_override_options = []
+            if timestamp_override:
+                timestamp_override_options = ["--date", str(timestamp_override) + " -0500"]
+                env["GIT_COMMITTER_DATE"] = str(timestamp_override) + " -0500"
+            else:
+                timestamp_override_options = []
 
-        cmds = ["git", "commit", "--allow-empty", "-m", msg] + timestamp_override_options + ["--author", author]
+            cmds = ["git", "commit", "--allow-empty", "-m", msg] + timestamp_override_options + ["--author", author]
 
-        assert self.subprocessCheckCallAltDir(dir_override, cmds, env=env) == 0
+            assert self.subprocessCheckCallAltDir(dir_override, cmds, env=env) == 0
 
-        return self.subprocessCheckOutputAltDir(dir_override, ["git", "log", "-n", "1", '--format=format:%H'])
+            return self.subprocessCheckOutputAltDir(dir_override, ["git", "log", "-n", "1", '--format=format:%H'])
 
     def isInitialized(self):
         logging.debug('Checking existence of %s', os.path.join(self.path_to_repo, ".git"))
