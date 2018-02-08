@@ -203,8 +203,7 @@ class WorkerState(object):
     def cleanup(self):
         if Docker is not None:
             Docker.DockerImage.removeDanglingDockerImages()
-
-        Docker.killAllWithNamePrefix(self.name_prefix)
+            Docker.killAllWithNamePrefix(self.name_prefix)
 
         self.clearDirectoryAsRoot(
             self.directories.test_data_dir, 

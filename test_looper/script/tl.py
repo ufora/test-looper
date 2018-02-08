@@ -376,6 +376,7 @@ class TestLooperCtl:
 
             if not self.repos[reponame].cloneFrom(clone_root):
                 del self.repos[reponame]
+                shutil.rmtree(clone_root)
                 raise UserWarning("Failed to clone " + reponame)
         
         return self.repos[reponame]

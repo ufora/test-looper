@@ -473,8 +473,6 @@ class DockerWatcher:
 
             container = docker_client.containers.create(image, args, volumes=volumes, **kwargs)
 
-            print "Creating container with name ", kwargs['name'], container.name
-
             self.mappedVolumesByParentID[container.id] = orig_volumes
 
             sockThread.containerID = container.id
