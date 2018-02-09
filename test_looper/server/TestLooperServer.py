@@ -121,7 +121,11 @@ class Session(object):
                 allowed = False
                 logging.warn("Denying git repo hit for unknown test/deploy id %s", msg.curTestOrDeployId)
             else:
-                allowed = self.testManager.tryToAllocateGitRepoLock(msg.requestUniqueId, self.currentDeploymentId or self.currentTestId)
+                try:
+                    allowed = self.testManager.tryToAllocateGitRepoLock(msg.requestUniqueId, self.currentDeploymentId or self.currentTestId)
+                except:
+                    logging.error("Allocating git repo lock failed!\n:%s", traceback.format_exc())
+                    allowed = False
 
             self.send(ServerToClientMsg.GrantOrDenyPermissionToHitGitRepo(requestUniqueId=msg.requestUniqueId, allowed=allowed))
 

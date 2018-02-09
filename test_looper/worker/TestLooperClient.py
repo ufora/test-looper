@@ -258,8 +258,13 @@ class TestLooperClient(object):
         self._send(TestLooperServer.ClientToServerMsg.RequestPermissionToHitGitRepo(requestUniqueId=reqId, curTestOrDeployId=curId))
 
         #now poll until we have permission
+        t0 = time.time()
         while True:
             try:
+                if time.time() - t0 > 10:
+                    #something's wrong - try again
+                    self._send(TestLooperServer.ClientToServerMsg.RequestPermissionToHitGitRepo(requestUniqueId=reqId, curTestOrDeployId=curId))
+
                 if queue.get(timeout=.1):
                     return reqId
                 else:
