@@ -503,6 +503,7 @@ class WorkerState(object):
                 print >> cmd_file, "gci env:* | sort-object name"
                 print >> cmd_file, "echo '********************************'"
             print >> cmd_file, command
+            print >> cmd_file, "exit $lastexitcode"
 
         running_subprocess = subprocess.Popen(
             ["powershell.exe", "-ExecutionPolicy", "Bypass", command_path],

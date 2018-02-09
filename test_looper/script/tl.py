@@ -462,7 +462,7 @@ class TestLooperCtl:
         if args.prune:
             for reponame in self.allRepoNames:
                 if reponame not in repo_usages:
-                    print "pruning enture repo reference ", self.repoShortname(reponame)
+                    print "pruning entire repo reference ", self.repoShortname(reponame)
 
                     self.clearDirectoryAsRoot(self.checkout_root_path(reponame, None))
                     shutil.rmtree(self.checkout_root_path(reponame, None))

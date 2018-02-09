@@ -13,15 +13,24 @@ headers = """
 <html lang="en">
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.6/css/bootstrap.min.css"
-      integrity="sha384-1q8mTJOASx8j1Au+a5WDVnPi2lkFfwwEAa8hDDdjZlpLegxhjVME1fgjWPGmkzs7"
-      crossorigin="anonymous"/>
+<link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" 
+      integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" 
+    crossorigin="anonymous">
+
 <link rel="stylesheet" href="/css/test-looper.css"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/gitgraph.js/1.11.4/gitgraph.css"/>
 </head>
 <body>
 <script src="/js/gitgraph.js"></script>
 <div class="container-fluid">
+"""
+
+footers = """
+<script src="https://code.jquery.com/jquery-3.2.1.slim.min.js" integrity="sha384-KJ3o2DKtIkvYIK3UENzmM7KCkRr/rE9/Qpg6aAZGJwFDMVNA/GpGFF93hXpG5KkN" crossorigin="anonymous"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script>
+<script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js" integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" crossorigin="anonymous"></script>
+</body>
+<html>
 """
 
 def gitgraph_canvas_setup(commit_generation, to_the_right):
@@ -209,11 +218,6 @@ class Link(HtmlElement):
 
 whitespace = "&nbsp;"
 
-def emphasize_probability(text, level, direction):
-    text = text + whitespace + \
-        '<span class="glyphicon glyphicon-asterisk" aria-hidden="true"></span>' * abs(level)
-    return greenBacking(text) if direction > 0 else redBacking(text)
-
 def pad(s, length):
     text_length = len(s)
     if text_length < length:
@@ -322,6 +326,9 @@ def lightGreyBacking(text):
 
 def lightGreyWithHover(text, title):
     return SpanTag(text, {'class': "text-muted", 'title': cgi.escape(title, quote=True)})
+
+def redWithHover(text, title):
+    return SpanTag(text, {'class': "text-danger", 'title': cgi.escape(title, quote=True)})
 
 def selectBox(name, items, default=None):
     '''
