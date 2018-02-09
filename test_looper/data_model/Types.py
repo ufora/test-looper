@@ -180,6 +180,12 @@ def setup_types(database):
         isAlive=bool
         )
 
+    database.AllocatedGitRepoLocks.define(
+        requestUniqueId=str,
+        testOrDeployId=str,
+        commitHash=str
+        )
+
     database.addIndex(database.IndividualTestNameSet, 'shaHash')
 
     database.addIndex(database.DataTask, 'status')
@@ -197,6 +203,11 @@ def setup_types(database):
     database.addIndex(database.UnresolvedTestDependency, 'dependsOnName')
     database.addIndex(database.UnresolvedTestDependency, 'test')
     database.addIndex(database.UnresolvedTestDependency, 'test_and_depends', lambda o:(o.test, o.dependsOnName))
+
+    database.addIndex(database.AllocatedGitRepoLocks, "alive", lambda o: True)
+    database.addIndex(database.AllocatedGitRepoLocks, "requestUniqueId")
+    database.addIndex(database.AllocatedGitRepoLocks, "testOrDeployId")
+    database.addIndex(database.AllocatedGitRepoLocks, "commitHash")
 
     database.addIndex(database.UnresolvedRepoDependency, 'test')
     database.addIndex(database.UnresolvedRepoDependency, 'reponame')

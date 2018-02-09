@@ -1,6 +1,7 @@
 import json
 import socket
 import time
+import uuid
 import logging
 import traceback
 import ssl
@@ -27,6 +28,7 @@ class TestLooperClient(object):
         self._socket = None
         self._clientToServerMessageQueue = Queue.Queue()
         self._serverToClientMessageQueue = Queue.Queue()
+        self._hitRepoPermissionQueues = {}
         self._readThread = threading.Thread(target=self._readLoop)
         self._writeThread = threading.Thread(target=self._writeLoop)
         self._curTestId = None
@@ -200,6 +202,8 @@ class TestLooperClient(object):
                             state=workerState
                             )
                         )
+                if m.matches.GrantOrDenyPermissionToHitGitRepo:
+                    self._hitRepoPermissionQueues[m.requestUniqueId].put(m.allowed)
                 if m.matches.AcknowledgeFinishedTest and self._curTestId == m.testId:
                     logging.info("TestLooperServer acknowledged test completion.")
                     self._curTestId = None
@@ -238,6 +242,53 @@ class TestLooperClient(object):
                 self._send(TestLooperServer.ClientToServerMsg.DeploymentTerminalOutput(deploymentId=self._curDeploymentId, data=msg.replace("\n","\r\n")))
         else:
             raise Exception("No active test or deployment")
+
+    def requestPermissionToHitGitRepo(self):
+        """Request permission to hit the git repo and then block. Returns a guid if successful.
+        Otherwise None. Throws if we get disconnected.
+        """
+
+        reqId = str(uuid.uuid4())
+
+        curId = self._curTestId or self._curDeploymentId
+        queue = Queue.Queue()
+
+        self._hitRepoPermissionQueues[reqId] = queue
+
+        self._send(TestLooperServer.ClientToServerMsg.RequestPermissionToHitGitRepo(requestUniqueId=reqId, curTestOrDeployId=curId))
+
+        #now poll until we have permission
+        while True:
+            try:
+                if queue.get(timeout=.1):
+                    return reqId
+                else:
+                    return None
+
+            except Queue.Empty:
+                if curId != (self._curTestId or self._curDeploymentId):
+                    raise Exception("Server canceled the test.")
+
+    def releaseGitRepoLock(self, requestUniqueId):
+        self._send(TestLooperServer.ClientToServerMsg.GitRepoPullCompleted(requestUniqueId))
+
+    def scopedReadLockAroundGitRepo(self):
+        class Scope:
+            def __init__(scope):
+                scope.reqId = None
+
+            def __enter__(scope, *args):
+                while scope.reqId is None:
+                    scope.reqId = self.requestPermissionToHitGitRepo()
+                    if not scope.reqId:
+                        time.sleep(5.0)
+
+            def __exit__(scope, *args, **kwargs):
+                if scope.reqId:
+                    self.releaseGitRepoLock(scope.reqId)
+
+        return Scope()
+
 
     def terminalOutput(self, output):
         if self._curDeploymentId is not None:

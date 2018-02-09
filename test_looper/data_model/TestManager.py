@@ -30,7 +30,7 @@ MACHINE_TIMEOUT_SECONDS = 600
 DISABLE_MACHINE_TERMINATION = False
 
 OLDEST_TIMESTAMP_WITH_TESTS = 1500000000
-
+MAX_GIT_CONNECTIONS = 4
 class MessageBuffer:
     def __init__(self, name):
         self.name = name
@@ -768,9 +768,72 @@ class TestManager(object):
 
                     fullyResolvedTestDef = test.testDefinition._withReplacement(environment=test.fullyResolvedEnvironment.Environment)
 
-                    return (test.commitData.commit.repo.name, test.commitData.commit.hash, test.testDefinition.name, deployment._identity, fullyResolvedTestDef)
+                    return (test.commitData.commit.repo.name, test.commitData.commit.hash, 
+                            test.testDefinition.name, deployment._identity, fullyResolvedTestDef)
 
             return None, None, None, None, None
+
+    def _cleanupGitRepoLocks(self):
+        cleaned = 0
+
+        for lock in self.database.AllocatedGitRepoLocks.lookupAll(alive=True):
+            testRun = self.database.TestRun(testId)
+            if testRun.exists() and (testRun.canceled or t.endTimestamp > 0.0):
+                logging.info("Deleted a GitRepoLock because test %s is dead.", testId)
+                lock.delete()
+                cleaned += 1
+
+            deployment = self.database.Deployment(testId)
+            if deployment.exists() and not deployment.isAlive:
+                logging.info("Deleted a GitRepoLock because deployment %s is dead", testId)
+                lock.delete()
+                cleaned += 1
+
+        if cleaned:
+            logging.info("Cleaned up %s git dead repo locks. %s remaining.", 
+                cleaned, 
+                len(self.database.AllocatedGitRepoLocks.lookupAll(alive=True))
+                )
+
+    def tryToAllocateGitRepoLock(self, requestId, testOrDeployId):
+        with self.transaction_and_lock():
+            self._cleanupGitRepoLocks()
+
+            if self.database.TestRun(testOrDeployId).exists():
+                commitHash = self.database.TestRun(testOrDeployId).test.commitData.commit.hash
+            elif self.database.Deployment(testOrDeployId).exists():
+                commitHash = self.database.Deployment(testOrDeployId).test.commitData.commit.hash
+            else:
+                return False
+
+            if len(self.database.AllocatedGitRepoLocks.lookupAll(alive=True)) > MAX_GIT_CONNECTIONS:
+                return False
+            if len(self.database.AllocatedGitRepoLocks.lookupAll(testOrDeployId=testOrDeployId)) > 1:
+                return False
+            if len(self.database.AllocatedGitRepoLocks.lookupAll(commitHash=commitHash)) > 1:
+                return False
+
+            self.database.AllocatedGitRepoLocks.New(requestUniqueId=requestId,testOrDeployId=testOrDeployId, commitHash=commitHash)
+            logging.info(
+                "Allocating a git repo lock to test/deploy %s. There are now %s",
+                testOrDeployId,
+                len(self.database.AllocatedGitRepoLocks.lookupAll(alive=True))
+                )
+            return True
+
+    def gitRepoLockReleased(self, requestId):
+        with self.transaction_and_lock():
+            lock = self.database.AllocatedGitRepoLocks.lookupAny(requestUniqueId=requestId)
+            if lock:
+                testOrDeployId = lock.testOrDeployId
+
+                lock.delete()
+
+                logging.info(
+                    "Released a git repo lock to test/deploy %s. There are now %s",
+                    testOrDeployId,
+                    len(self.database.AllocatedGitRepoLocks.lookupAll(alive=True))
+                    )
 
     def isDeployment(self, deploymentId):
         with self.database.view():

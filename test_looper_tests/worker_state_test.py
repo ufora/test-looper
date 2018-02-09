@@ -323,6 +323,14 @@ class WorkerStateTests(unittest.TestCase):
                         self.pending.append(msg)
                     else:
                         self.callback(msg)
+
+            def scopedReadLockAroundGitRepo(self):
+                class Scope:
+                    def __enter__(self, *args):
+                        pass
+                    def __exit__(self, *args):
+                        pass
+                return Scope()
                 
         callbacks = WorkerCallbacks()
 

@@ -29,6 +29,8 @@ ServerToClientMsg.AcknowledgeFinishedTest = {'testId': str}
 ServerToClientMsg.DeploymentAssignment = {'repoName': str, 'commitHash': str, 'deploymentId': str, 'testName': str, 'testDefinition': TestDefinition.TestDefinition }
 ServerToClientMsg.ShutdownDeployment = {'deploymentId': str}
 
+ServerToClientMsg.GrantOrDenyPermissionToHitGitRepo = {'requestUniqueId': str, "allowed": bool}
+
 ClientToServerMsg = algebraic.Alternative("ClientToServerMsg")
 
 
@@ -46,6 +48,8 @@ ClientToServerMsg.DeploymentHeartbeat = {'deploymentId': str}
 ClientToServerMsg.DeploymentExited = {'deploymentId': str}
 ClientToServerMsg.DeploymentTerminalOutput = {'deploymentId': str, 'data': str}
 ClientToServerMsg.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,bool)}
+ClientToServerMsg.RequestPermissionToHitGitRepo = {'requestUniqueId': str, 'curTestOrDeployId': str}
+ClientToServerMsg.GitRepoPullCompleted = {'requestUniqueId': str}
 
 
 class Session(object):
@@ -112,7 +116,17 @@ class Session(object):
             elif msg.state.matches.TestFinished:
                 self.testManager.recordTestResults(msg.state.success, msg.state.testId, msg.state.testSuccesses, time.time())
                 self.send(ServerToClientMsg.AcknowledgeFinishedTest(msg.state.testId))
+        elif msg.matches.RequestPermissionToHitGitRepo:
+            if self.currentDeploymentId != msg.curTestOrDeployId and self.currentTestId != msg.curTestOrDeployId:
+                allowed = False
+                logging.warn("Denying git repo hit for unknown test/deploy id %s", msg.curTestOrDeployId)
+            else:
+                allowed = self.testManager.tryToAllocateGitRepoLock(msg.requestUniqueId, self.currentDeploymentId or self.currentTestId)
 
+            self.send(ServerToClientMsg.GrantOrDenyPermissionToHitGitRepo(requestUniqueId=msg.requestUniqueId, allowed=allowed))
+
+        elif msg.matches.GitRepoPullCompleted:
+            self.testManager.gitRepoLockReleased(msg.requestUniqueId)
         elif msg.matches.WaitingHeartbeat:
             if self.machineId is None:
                 return

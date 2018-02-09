@@ -56,6 +56,14 @@ class DummyWorkerCallbacks:
     def subscribeToTerminalInput(self, callback):
         pass
 
+    def scopedReadLockAroundGitRepo(self):
+        class Scope:
+            def __enter__(self, *args):
+                pass
+            def __exit__(self, *args):
+                pass
+        return Scope()
+
 HEARTBEAT_INTERVAL=3
 
 PASSTHROUGH_KEYS = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
@@ -871,10 +879,10 @@ class WorkerState(object):
                         % (dep.repo, dep.commitHash, target_dir))
 
                 if os.path.exists(target_dir):
-                    log_function(time.asctime() + " TestLooper> Warning: source cache directory %s not empty\n" % target_dir)
                     shutil.rmtree(target_dir)
 
-                self.resetToCommitInDir(dep.repo, dep.commitHash, target_dir)
+                with worker_callback.scopedReadLockAroundGitRepo():
+                    self.resetToCommitInDir(dep.repo, dep.commitHash, target_dir)
 
                 with tarfile.open(tarball_name, "w:gz", compresslevel=1) as tf:
                     tf.add(target_dir, ".")
