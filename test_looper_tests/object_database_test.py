@@ -78,6 +78,44 @@ class ObjectDatabaseTests(unittest.TestCase):
         with db.view():
             self.assertTrue(root.obj.k.value > 1000, root.obj.k.value)
 
+    def test_read_performance(self):
+        mem_store = InMemoryJsonStore.InMemoryJsonStore()
+
+        db = object_database.Database(mem_store)
+        initialize_types(db)
+
+        objects = {}
+        with db.transaction():
+            for i in xrange(100):
+                root = db.Root.New()
+
+                e = expr.Constant(value=i)
+                e = expr.Add(l=e,r=e)
+                e = expr.Add(l=e,r=e)
+                e = expr.Add(l=e,r=e)
+
+                root.obj = db.Object.New(k=e)
+
+                objects[i] = root
+
+
+        db = object_database.Database(mem_store)
+        initialize_types(db)
+
+        objects = {k: db.Root(v._identity) for k,v in objects.iteritems()}
+
+        t0 = time.time()
+        count = 0
+        steps = 0
+        while time.time() < t0 + 1.0:
+            with db.transaction() as t:
+                for i in xrange(100):
+                    count += objects[i].obj.k.l.r.l.value
+                    steps += 1
+        
+        print steps
+
+
     def test_transactions(self):
         mem_store = InMemoryJsonStore.InMemoryJsonStore()
 

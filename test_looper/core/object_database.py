@@ -200,7 +200,7 @@ class DatabaseView(object):
     def _get_dbkey(self, key):
         if key in self._writes:
             return self._writes[key]
-        return self._db._get_versioned_object_data(key, self._transaction_num)
+        return self._db._get_versioned_object_data(key, self._transaction_num)[0]
 
     def _new(self, cls, kwds):
         if not self._writeable:
@@ -269,12 +269,21 @@ class DatabaseView(object):
         if key in self._writes:
             return self._writes[key]
 
+        db_val, parsed_val = self._db._get_versioned_object_data(key, self._transaction_num)
+
         db_val = self._get_dbkey(key)
 
         if db_val is None:
             return db_val
 
-        return _encoder.from_json(db_val, type)
+        if parsed_val is not None:
+            return parsed_val
+
+        parsed_val = _encoder.from_json(db_val, type)
+
+        self._db._update_versioned_object_data_cache(key, self._transaction_num, parsed_val)
+
+        return parsed_val
 
     def _exists(self, obj, obj_typename, identity):
         return self._get_dbkey(data_key(obj_typename, identity, ".exists")) is not None
@@ -345,7 +354,7 @@ class DatabaseView(object):
         if keyname in self._writes:
             identities = self._writes[keyname]
         else:
-            identities = self._db._get_versioned_object_data(keyname, self._transaction_num)
+            identities = self._db._get_versioned_object_data(keyname, self._transaction_num)[0]
             
         if not identities:
             return ()
@@ -357,7 +366,7 @@ class DatabaseView(object):
             raise Exception("Views are static. Please open a transaction.")
 
         if self._writes:
-            writes = {key: _encoder.to_json(v) for key, v in self._writes.iteritems()}
+            writes = {key: (_encoder.to_json(v), v) for key, v in self._writes.iteritems()}
             tid = self._transaction_num
             
             self._db._set_versioned_object_data(writes, tid)
@@ -439,11 +448,14 @@ class Database:
         #for each key, a sorted list of version numbers outstanding and the relevant objects
         self._key_version_numbers = {}
 
-        #for each (key, version), the object
+        #for each (key, version), the object, as (json, actual_object)
         self._key_and_version_to_object = {}
 
-        #for each key with versions, the value replaced by the oldest key
+        #for each key with versions, the value replaced by the oldest key. (json, actual_object)
         self._tail_values = {}
+
+        #our parsed representation of each thing in the database
+        self._current_database_object_cache = {}
 
     def __str__(self):
         return "Database(%s)" % id(self)
@@ -581,18 +593,46 @@ class Database:
                         #this key is now current in the database
                         del self._key_version_numbers[key]
                         del self._key_and_version_to_object[key, lowest]
+
+                        #it's OK to keep the key around if it's not None
                         del self._tail_values[key]
                     else:
                         self._key_version_numbers[key].pop(0)
                         self._tail_values[key] = self._key_and_version_to_object[key, lowest]
                         del self._key_and_version_to_object[key, lowest]
 
+    def _update_versioned_object_data_cache(self, key, transaction_id, parsed_val):
+        with self._lock:
+            if key not in self._key_version_numbers:
+                if key in self._tail_values:
+                    self._tail_values[key] = (self._tail_values[key][0], parsed_val)
+                else:
+                    self._current_database_object_cache[key] = parsed_val
+            else:
+                #get the largest version number less than or equal to transaction_id
+                version = self._best_version_for(transaction_id, self._key_version_numbers[key])
+
+                if version is not None:
+                    self._key_and_version_to_object[key, version] = (
+                        self._key_and_version_to_object[key, version][0],
+                        parsed_val
+                        )
+                else:
+                    self._tail_values[key] = (
+                        self._tail_values[key][0],
+                        parsed_val
+                        )
+
+
     def _get_versioned_object_data(self, key, transaction_id):
         with self._lock:
             assert transaction_id >= self._min_transaction_num
 
             if key not in self._key_version_numbers:
-                return self._kvstore.get(key)
+                if key in self._tail_values:
+                    return self._tail_values[key]
+
+                return (self._kvstore.get(key), self._current_database_object_cache.get(key))
 
             #get the largest version number less than or equal to transaction_id
             version = self._best_version_for(transaction_id, self._key_version_numbers[key])
@@ -601,7 +641,6 @@ class Database:
                 return self._key_and_version_to_object[key, version]
             else:
                 return self._tail_values[key]
-
 
     def _best_version_for(self, transactionId, transactions):
         i = len(transactions) - 1
@@ -614,6 +653,12 @@ class Database:
         return None
 
     def _set_versioned_object_data(self, key_value, transaction_id):
+        """Commit a transaction. 
+
+        key_value: a map
+            db_key -> (json_representation, database_representation)
+        that we want to commit. We cache the normal_representation for later.
+        """
         with self._lock:
             if transaction_id != self._cur_transaction_num:
                 raise RevisionConflictException()
@@ -626,9 +671,12 @@ class Database:
             for key in key_value:
                 #if this object is not versioned already, we need to keep the old value around
                 if key not in self._key_version_numbers:
-                    self._tail_values[key] = self._kvstore.get(key)
+                    self._tail_values[key] = (self._kvstore.get(key), self._current_database_object_cache.get(key))
 
-            self._kvstore.setSeveral(key_value)
+            #set the json representation in the database
+            self._kvstore.setSeveral({k: v[0] for k,v in key_value.iteritems()})
+            for k,v in key_value.iteritems():
+                self._current_database_object_cache[k] = v[1]
 
             #record what objects we touched
             self._version_number_objects[transaction_id] = list(key_value.keys())
