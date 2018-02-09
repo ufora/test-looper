@@ -22,6 +22,8 @@ import test_looper.core.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.core.algebraic_to_json as algebraic_to_json
 
+HtmlGeneration = reload(HtmlGeneration)
+
 def secondsUpToString(up_for):
     if up_for < 60:
         return ("%d seconds" % up_for)
@@ -117,7 +119,7 @@ class TestSummaryRenderer:
         if badBuilds:
             if badBuilds == len(builds):
                 return """
-                    <span class="alert-danger"><span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true" ></span></span>
+                    <span class="alert-danger"><span class="octicon octicon-issue-opened" aria-hidden="true" ></span></span>
                     """
 
         if waitingBuilds:
@@ -128,7 +130,7 @@ class TestSummaryRenderer:
         tests = self.allTests()
 
         if not tests:
-            return '<span class="glyphicon glyphicon-ok" aria-hidden="true"></span>'
+            return '<span class="octicon octicon-check" aria-hidden="true"></span>'
 
         totalTests = 0
         totalFailedTestCount = 0
@@ -145,7 +147,7 @@ class TestSummaryRenderer:
                 totalFailedTestCount += t.totalFailedTestCount / t.totalRuns
 
         if depFailed:
-            return '<span class="text-muted"><span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true"></span></span>'
+            return '<span class="text-muted"><span class="octicon octicon-issue-opened" aria-hidden="true"></span></span>'
 
         if suitesNotRun:
             if tests[0].commitData.commit.userPriority == 0:
@@ -418,7 +420,7 @@ class Renderer:
             self.deleteTestRunUrl(testId),
             "CLEAR", 
             is_button=True,
-            button_style=self.disable_if_cant_write('btn-danger btn-xs')
+            button_style=self.disable_if_cant_write('btn-primary btn-xs')
             )
 
     def testLogsButton(self, testId):
@@ -426,7 +428,7 @@ class Renderer:
             self.testLogsUrl(testId),
             "LOGS", 
             is_button=True,
-            button_style=self.disable_if_cant_write('btn-danger btn-xs')
+            button_style=self.disable_if_cant_write('btn-primary btn-xs')
             )
 
     def clearTestRun(self, testId, redirect):
@@ -537,7 +539,7 @@ class Renderer:
         return HtmlGeneration.Link(url,
                                    label,
                                    is_button=True,
-                                   button_style=self.disable_if_cant_write('btn-danger btn-xs'))
+                                   button_style=self.disable_if_cant_write('btn-primary btn-xs'))
 
 
     def clearBranchLink(self, branch):
@@ -595,7 +597,7 @@ class Renderer:
             self.address + "/cancelTestRun?" + urllib.urlencode({"testRunId":testRunId, "redirect": self.redirect()}),
             "cancel", 
             is_button=True,
-            button_style=self.disable_if_cant_write('btn-danger btn-xs')
+            button_style=self.disable_if_cant_write('btn-primary btn-xs')
             )        
     
     @HtmlWrapper
@@ -694,7 +696,7 @@ class Renderer:
                        "BOOT",
                        is_button=True,
                        new_tab=True,
-                       button_style=self.disable_if_cant_write('btn-danger btn-xs')
+                       button_style=self.disable_if_cant_write('btn-primary btn-xs')
                        )
                     )
 
@@ -1039,16 +1041,12 @@ class Renderer:
 
     def logout_link(self):
         return ('<a href="/logout">'
-                'Logout [%s] <span class="glyphicon glyphicon-user" aria-hidden="true"/>'
+                'Logout [<span class="octicon octicon-person" aria-hidden="true"/>%s]'
                 '</a>') % self.getCurrentLogin()
 
 
     def commonHeader(self):
         headers = []
-        headers.append(
-            '<div align="right"><h5>%s</h5></div>' % (
-                self.logout_link() if self.is_authenticated() else self.login_link())
-            )
 
         nav_links = [
             ('Repos', '/repos'),
@@ -1056,29 +1054,37 @@ class Renderer:
             ('Deployments', '/deployments')
             ]
 
-        headers += [
-            '<nav class="navbar navbar-default">', 
-            '<div class="container-fluid">',
-                '<ul class="nav nav-pills">'] + [
-                    '<li role="presentation" class="{is_active}"><a href="{link}">{label}</a></li>'.format(
+        headers += ["""
+            <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+            <div class="container-fluid">
+            <button class="navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarText" aria-controls="navbarText" aria-expanded="false" aria-label="Toggle navigation">
+              <span class="navbar-toggler-icon"></span>
+            </button>
+            <ul class="navbar-nav mr-auto">
+            """] + [
+                    '<li class="nav-item {is_active}"><a class="nav-link" href="{link}">{label}</a></li>'.format(
                         is_active="active" if link == cherrypy.request.path_info else "",
                         link=link,
                         label=label)
                     for label, link in nav_links
                     ] + [
-            '</ul></div></nav>']
+            '</ul>',
+            '<span class="navbar-text">',
+                self.logout_link() if self.is_authenticated() else self.login_link(),
+            '</span>',
+            '</div></nav>']
         return "\n" + "\n".join(headers)
 
 
     def toggleBranchUnderTestLink(self, branch):
-        icon = "glyphicon-pause" if branch.isUnderTest else "glyphicon-play"
+        icon = "octicon-triangle-right"
         hover_text = "%s testing this branch" % ("Pause" if branch.isUnderTest else "Start")
-        button_style = "btn-xs " + ("btn-success active" if branch.isUnderTest else "btn-default")
+        button_style = "btn-xs " + ("btn-primary active" if branch.isUnderTest else "btn-outline-dark")
         
         return HtmlGeneration.Link(
             "/toggleBranchUnderTest?" + 
                 urllib.urlencode({'repo': branch.repo.name, 'branchname':branch.branchname, 'redirect': self.redirect()}),
-            '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
+            '<span class="octicon %s" aria-hidden="true" style="horizontal-align:center"></span>' % icon,
             is_button=True,
             button_style=self.disable_if_cant_write(button_style),
             hover_text=hover_text
@@ -1087,14 +1093,14 @@ class Renderer:
     def toggleCommitUnderTestLink(self, commit):
         actual_priority = commit.userPriority > 0
 
-        icon = "glyphicon-pause" if actual_priority else "glyphicon-play"
+        icon = "octicon-triangle-right"
         hover_text = "%s testing this commit" % ("Pause" if actual_priority else "Start")
-        button_style = "btn-xs " + ("btn-success active" if actual_priority else "btn-default")
+        button_style = "btn-xs " + ("btn-primary active" if actual_priority else "btn-outline-dark")
         
         return HtmlGeneration.Link(
             "/toggleCommitUnderTest?" + 
                 urllib.urlencode({'reponame': commit.repo.name, 'hash':commit.hash, 'redirect': self.redirect()}),
-            '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
+            '<span class="octicon %s" aria-hidden="true"></span>' % icon,
             is_button=True,
             button_style=self.disable_if_cant_write(button_style),
             hover_text=hover_text
@@ -1257,7 +1263,7 @@ class Renderer:
                         self.address + "/shutdownDeployment?deploymentId=" + d._identity,
                         "shutdown", 
                         is_button=True,
-                        button_style=self.disable_if_cant_write('btn-danger btn-xs')
+                        button_style=self.disable_if_cant_write('btn-primary btn-xs')
                         )
                     )
 
@@ -1271,7 +1277,7 @@ class Renderer:
             "connect",
             is_button=True,
             new_tab=True,
-            button_style=self.disable_if_cant_write('btn-danger btn-xs')
+            button_style=self.disable_if_cant_write('btn-primary btn-xs')
             )
 
     def shutdownDeploymentLink(self, d):
@@ -1280,7 +1286,7 @@ class Renderer:
             "shutdown",
             is_button=True,
             new_tab=True,
-            button_style=self.disable_if_cant_write('btn-danger btn-xs')
+            button_style=self.disable_if_cant_write('btn-primary btn-xs')
             )
 
     def shutdownDeployment(self, deploymentId):
@@ -1419,50 +1425,14 @@ class Renderer:
             ).replace("button", 
                 HtmlGeneration.Link(
                     "/refresh?" + urllib.urlencode({"redirect": self.redirect()}),
-                    '<span class="glyphicon glyphicon-refresh " aria-hidden="true" />',
+                    '<span class="octicon octicon-sync " aria-hidden="true" />',
                     is_button=True,
-                    button_style='btn-default btn-xs',
+                    button_style='btn-outline-dark btn-xs',
                     hover_text='Refresh branches'
                     ).render()
                 )
 
         return refresh_branches + grid
-
-    def toggleBranchTargetedTestListLink(self, branch, testType, testGroupsToExpand):
-        is_drilling = False #testType in branch.targetedTestList()
-        icon = "glyphicon-minus" if is_drilling else "glyphicon-plus"
-        hover_text = "Run less of this test" if is_drilling else "Run more of this test"
-        button_style = "btn-default btn-xs" + (" active" if is_drilling else "")
-        return HtmlGeneration.Link(
-            "/toggleBranchTestTargeting?" + urllib.urlencode({
-                    "repo": branch.repo.name, 
-                    "branchname": branch.branchname,
-                    "testType": testType,
-                    "testGroupsToExpand": ",".join(testGroupsToExpand)
-                }),
-            '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
-            is_button=True,
-            button_style=self.disable_if_cant_write(button_style),
-            hover_text=hover_text
-            )
-
-    def toggleBranchTargetedCommitIdLink(self, branch, commit):
-        is_drilling = False
-
-        icon = "glyphicon-minus" if is_drilling else "glyphicon-plus"
-        hover_text = "Run less of this commit" if is_drilling else "Run more of this commit"
-        button_style = "btn-default btn-xs" + (" active" if is_drilling else "")
-        return HtmlGeneration.Link(
-                "/toggleBranchCommitTargeting?" + urllib.urlencode({
-                    "repo": branch.repo.name, 
-                    "branchname": branch.branchname,
-                    "commitHash": commit.hash
-                }),
-                '<span class="glyphicon %s" aria-hidden="true"></span>' % icon,
-                is_button=True,
-                button_style=self.disable_if_cant_write(button_style),
-                hover_text=hover_text
-                )
 
     def toggleBranchTestTargeting(self, reponame, branchname, testType, testGroupsToExpand):
         with self.testManager.database.view():
@@ -1754,7 +1724,7 @@ class Renderer:
                 }
 
             return ('<a href="/updateBranchPin?' + urllib.urlencode(params) + '" title="' + message + '">'
-                '<span class="glyphicon glyphicon-refresh " aria-hidden="true" />'
+                '<span class="octicon octicon-sync " aria-hidden="true" />'
                 '</a>')
 
 

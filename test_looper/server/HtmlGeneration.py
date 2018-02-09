@@ -16,7 +16,7 @@ headers = """
 <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/css/bootstrap.min.css" 
       integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" 
     crossorigin="anonymous">
-
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/octicons/4.4.0/font/octicons.min.css"/>
 <link rel="stylesheet" href="/css/test-looper.css"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/gitgraph.js/1.11.4/gitgraph.css"/>
 </head>
@@ -201,7 +201,7 @@ class Link(HtmlElement):
         self.new_tab = new_tab
         self.hover_text = hover_text or ''
         self.is_button = is_button
-        self.button_style = button_style or "btn-default"
+        self.button_style = button_style or "btn-sm btn-primary"
 
     def __len__(self):
         return len(self.text)
@@ -298,7 +298,7 @@ def grid(rows, header_rows=1, rowHeightOverride=None):
 
     table_rows = "\n".join(format_row(row) for row in rows[header_rows:])
 
-    format_str = ('<table class="table table-hscroll table-condensed table-striped">'
+    format_str = ('<table class="table table-hscroll table-sm table-striped">'
                   '{headers}\n{rows}'
                   '</table>')
     return format_str.format(
