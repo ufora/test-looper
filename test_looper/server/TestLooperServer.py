@@ -7,6 +7,7 @@ import base64
 import time
 import random
 
+import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.core.SimpleServer as SimpleServer
 import test_looper.core.socket_util as socket_util
 import test_looper.core.algebraic as algebraic
@@ -21,11 +22,11 @@ TerminalInputMsg.Resize = {"cols": int, "rows": int}
 ServerToClientMsg = algebraic.Alternative("ServerToClientMsg")
 ServerToClientMsg.IdentifyCurrentState = {}
 ServerToClientMsg.TerminalInput = {'deploymentId': str, 'msg': TerminalInputMsg}
-ServerToClientMsg.TestAssignment = {'repoName': str, 'commitHash': str, 'testId': str, 'testName': str}
+ServerToClientMsg.TestAssignment = {'repoName': str, 'commitHash': str, 'testId': str, 'testName': str, 'testDefinition': TestDefinition.TestDefinition }
 ServerToClientMsg.CancelTest = {'testId': str}
 ServerToClientMsg.AcknowledgeFinishedTest = {'testId': str}
 
-ServerToClientMsg.DeploymentAssignment = {'repoName': str, 'commitHash': str, 'deploymentId': str, 'testName': str}
+ServerToClientMsg.DeploymentAssignment = {'repoName': str, 'commitHash': str, 'deploymentId': str, 'testName': str, 'testDefinition': TestDefinition.TestDefinition }
 ServerToClientMsg.ShutdownDeployment = {'deploymentId': str}
 
 ClientToServerMsg = algebraic.Alternative("ClientToServerMsg")
@@ -119,28 +120,30 @@ class Session(object):
             self.testManager.machineHeartbeat(self.machineId, time.time())
 
             if self.currentDeploymentId is None and self.currentTestId is None:
-                repoName, commitHash, testName, deploymentId = self.testManager.startNewDeployment(self.machineId, time.time())
+                repoName, commitHash, testName, deploymentId, testDefinition = self.testManager.startNewDeployment(self.machineId, time.time())
                 if repoName is not None:
                     self.currentDeploymentId = deploymentId
                     self.send(ServerToClientMsg.DeploymentAssignment(
                         repoName=repoName,
                         commitHash=commitHash,
                         testName=testName,
-                        deploymentId=deploymentId
+                        deploymentId=deploymentId,
+                        testDefinition=testDefinition
                         ))
                     def onMessage(msg):
                         if self.currentDeploymentId == deploymentId:
                             self.send(ServerToClientMsg.TerminalInput(deploymentId=deploymentId,msg=msg))
                     self.testManager.subscribeToClientMessages(deploymentId, onMessage)
                 else:
-                    repoName, commitHash, testName, testId = self.testManager.startNewTest(self.machineId, time.time())
+                    repoName, commitHash, testName, testId, testDefinition = self.testManager.startNewTest(self.machineId, time.time())
                     if repoName is not None:
                         self.currentTestId = testId
                         self.send(ServerToClientMsg.TestAssignment(
                             repoName=repoName,
                             commitHash=commitHash,
                             testName=testName,
-                            testId=testId
+                            testId=testId,
+                            testDefinition=testDefinition
                             ))
 
         elif msg.matches.TestHeartbeat or msg.matches.TestLogOutput:

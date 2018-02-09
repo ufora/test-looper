@@ -145,7 +145,7 @@ class DockerImage(object):
             docker_client.images.remove(c.id)
 
     @classmethod
-    def from_dockerfile_as_string(cls, docker_repo, dockerfile_as_string, create_missing=False):
+    def from_dockerfile_as_string(cls, docker_repo, dockerfile_as_string, create_missing=False, env_keys_to_passthrough=()):
         dockerfile_hash = hash_string(dockerfile_as_string)
 
         if docker_repo is not None:
@@ -159,7 +159,7 @@ class DockerImage(object):
             if create_missing:
                 logging.info("Building docker image %s from source...", docker_image)
 
-                docker.buildFromString(dockerfile_as_string)
+                docker.buildFromString(dockerfile_as_string, env_keys_to_passthrough=env_keys_to_passthrough)
                 if docker_repo is not None:
                     docker.push()
             else:
@@ -195,7 +195,7 @@ class DockerImage(object):
             shell=True
             )
 
-    def buildFromString(self, dockerfile_text,timeout=None):
+    def buildFromString(self, dockerfile_text,timeout=None, env_keys_to_passthrough=()):
         with tempfile.NamedTemporaryFile() as tmp:
             print >> tmp, dockerfile_text
             tmp.flush()
@@ -206,14 +206,24 @@ class DockerImage(object):
                 output.append(m)
                 print m
 
-            proc = SubprocessRunner.SubprocessRunner(
-                ["{docker} build --label test_looper_worker {cache_builds} -t {image} - < {tmpfile}"
+            buildargs = []
+            for e in env_keys_to_passthrough:
+                if os.getenv(e):
+                    buildargs.append(
+                        '--build-arg %s="%s"' % (e, os.getenv(e))
+                        )
+
+            args = ["{docker} build --label test_looper_worker {cache_builds} {buildargs} -t {image} - < {tmpfile}"
                     .format(
                         docker=self.binary,
                         image=self.image,
                         tmpfile=tmp.name,
+                        buildargs=" ".join(buildargs),
                         cache_builds="--no-cache" if self.disable_build_cache() else ""
-                        )],
+                        )]
+
+            proc = SubprocessRunner.SubprocessRunner(
+                args,
                 onStdOut,
                 onStdOut,
                 shell=True,

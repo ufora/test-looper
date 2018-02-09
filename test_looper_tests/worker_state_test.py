@@ -10,6 +10,7 @@ import threading
 
 import test_looper_tests.common as common
 import test_looper.worker.WorkerState as WorkerState
+import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.core.Config as Config
 import test_looper.core.tools.Git as Git
 import test_looper.core.ArtifactStorage as ArtifactStorage
@@ -104,6 +105,16 @@ class WorkerStateTests(unittest.TestCase):
 
         return source_repo, repoName, commitHash, worker
 
+    def get_fully_resolved_definition(self, workerState, repoName, commitHash, testName):
+        resolver = WorkerState.TestDefinitionResolver(workerState.getRepoCacheByName)
+        test_definition = resolver.testAndEnvironmentDefinitionFor(repoName, commitHash)[0][testName]
+
+        environment = resolver.resolveEnvironment(test_definition.environment)
+        environment = TestDefinition.apply_environment_substitutions(environment)
+
+        return test_definition._withReplacement(environment=environment)
+
+
     def test_git_not_leaking_fds(self):
         #create a new git repo
         source_repo = Git.Git(os.path.join(self.testdir, "source_repo"))
@@ -130,21 +141,25 @@ class WorkerStateTests(unittest.TestCase):
         repo, commitHash = c[0]
         self.assertTrue("ubuntu" in source_repo.getFileContents(commitHash, "Dockerfile.txt"))
 
+    def runWorkerTest(self, worker, testId, repoName, commitHash, testName, callbacks, isDeploy):
+        test_def = self.get_fully_resolved_definition(worker, repoName, commitHash, testName)
+        return worker.runTest(testId, repoName, commitHash, testName, callbacks, test_def, isDeploy)
+
     def test_worker_basic(self):
         repo, repoName, commitHash, worker = self.get_worker("simple_project")
 
-        result = worker.runTest("testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
+        result = self.runWorkerTest(worker, "testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
 
         self.assertTrue(result)
 
         self.assertTrue(len(os.listdir(worker.artifactStorage.build_storage_path)) == 1)
 
         self.assertTrue(
-            worker.runTest("testId2", repoName, commitHash, "good/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
+            self.runWorkerTest(worker, "testId2", repoName, commitHash, "good/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
             )
 
         self.assertFalse(
-            worker.runTest("testId3", repoName, commitHash, "bad/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
+            self.runWorkerTest(worker, "testId3", repoName, commitHash, "bad/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
             )
 
         keys = worker.artifactStorage.testResultKeysFor(repoName, commitHash, "testId3")
@@ -157,31 +172,31 @@ class WorkerStateTests(unittest.TestCase):
     def test_worker_cant_run_tests_without_build(self):
         repo, repoName, commitHash, worker = self.get_worker("simple_project")
         
-        result = worker.runTest("testId", repoName, commitHash, "good/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
+        result = self.runWorkerTest(worker, "testId", repoName, commitHash, "good/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
 
         self.assertFalse(result)
 
     def test_worker_build_artifacts_go_to_correct_place(self):
         repo, repoName, commitHash, worker = self.get_worker("simple_project")
         
-        self.assertTrue(worker.runTest("testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
+        self.assertTrue(self.runWorkerTest(worker, "testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
 
-        self.assertTrue(worker.runTest("testId", repoName, commitHash, "check_build_output/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
+        self.assertTrue(self.runWorkerTest(worker, "testId", repoName, commitHash, "check_build_output/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
 
     def test_worker_doesnt_leak_fds(self):
         repo, repoName, commitHash, worker = self.get_worker("simple_project")
 
-        self.assertTrue(worker.runTest("testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
+        self.assertTrue(self.runWorkerTest(worker, "testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
 
         #need to use the connection pools because they can leave some sockets open
         for _ in xrange(3):
-            self.assertTrue(worker.runTest("testId2", repoName, commitHash, "good/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
+            self.assertTrue(self.runWorkerTest(worker, "testId2", repoName, commitHash, "good/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
 
         fds = len(self.get_fds())
 
         #but want to verify we're not actually leaking FDs once we're in a steadystate
         for _ in xrange(3):
-            self.assertTrue(worker.runTest("testId2", repoName, commitHash, "good/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
+            self.assertTrue(self.runWorkerTest(worker, "testId2", repoName, commitHash, "good/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
         
         fds2 = len(self.get_fds())
         
@@ -198,10 +213,10 @@ class WorkerStateTests(unittest.TestCase):
 
         repo, repoName, commitHash, worker = self.get_worker("simple_project")
 
-        self.assertTrue(worker.runTest("testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
+        self.assertTrue(self.runWorkerTest(worker, "testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
 
         self.assertTrue(
-            worker.runTest("testId2", repoName, commitHash, "docker/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
+            self.runWorkerTest(worker, "testId2", repoName, commitHash, "docker/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
             worker.artifactStorage.get_failure_log(repoName, commitHash, "testId2")
             )
         
@@ -212,10 +227,10 @@ class WorkerStateTests(unittest.TestCase):
 
         repo, repoName, commitHash, worker = self.get_worker("simple_project")
 
-        self.assertTrue(worker.runTest("testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
+        self.assertTrue(self.runWorkerTest(worker, "testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
 
         self.assertTrue(
-            worker.runTest("testId2", repoName, commitHash, "docker/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
+            self.runWorkerTest(worker, "testId2", repoName, commitHash, "docker/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
             worker.artifactStorage.get_failure_log(repoName, commitHash, "testId2")
             )
 
@@ -224,31 +239,31 @@ class WorkerStateTests(unittest.TestCase):
         repo2, _, commit2 = self.get_repo("simple_project_2")
         commit2Name, commit2Hash = commit2[0]
 
-        self.assertTrue(worker.runTest("testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
+        self.assertTrue(self.runWorkerTest(worker, "testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
 
         self.assertTrue(
-            worker.runTest("testId2", commit2Name, commit2Hash, "build2/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
+            self.runWorkerTest(worker, "testId2", commit2Name, commit2Hash, "build2/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
             worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId2")
             )
         self.assertTrue(
-            worker.runTest("testId3", commit2Name, commit2Hash, "test2/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
+            self.runWorkerTest(worker, "testId3", commit2Name, commit2Hash, "test2/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
             worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId3")
             )
         
         self.assertTrue(
-            worker.runTest("testId6", commit2Name, commit2Hash, "test2/linux_dependent", WorkerState.DummyWorkerCallbacks(), False)[0],
+            self.runWorkerTest(worker, "testId6", commit2Name, commit2Hash, "test2/linux_dependent", WorkerState.DummyWorkerCallbacks(), False)[0],
             worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId6")
             )
 
         self.assertTrue(
-            worker.runTest("testId7", commit2Name, commit2Hash, "test3/linux_dependent", WorkerState.DummyWorkerCallbacks(), False)[0],
+            self.runWorkerTest(worker, "testId7", commit2Name, commit2Hash, "test3/linux_dependent", WorkerState.DummyWorkerCallbacks(), False)[0],
             worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId7")
             )
         self.assertFalse(
-            worker.runTest("testId4", commit2Name, commit2Hash, "test2_fails/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
+            self.runWorkerTest(worker, "testId4", commit2Name, commit2Hash, "test2_fails/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
             )
         self.assertTrue(
-            worker.runTest("testId5", commit2Name, commit2Hash, "test2_dep_from_env/linux2", WorkerState.DummyWorkerCallbacks(), False)[0],
+            self.runWorkerTest(worker, "testId5", commit2Name, commit2Hash, "test2_dep_from_env/linux2", WorkerState.DummyWorkerCallbacks(), False)[0],
             worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId5")
             )
 
@@ -262,7 +277,7 @@ class WorkerStateTests(unittest.TestCase):
 
             callbacks = WorkerState.DummyWorkerCallbacks()
             self.assertTrue(
-                worker.runTest(testName, repoName, commitHash, name, callbacks, False)[0],
+                self.runWorkerTest(worker, testName, repoName, commitHash, name, callbacks, False)[0],
                 "".join(callbacks.logMessages)
                 )
             if not name.startswith("build/"):
@@ -312,7 +327,7 @@ class WorkerStateTests(unittest.TestCase):
         callbacks = WorkerCallbacks()
 
         def runner():
-            worker.runTest("testId", repoName, commitHash, "build/linux", callbacks, isDeploy=True)
+            self.runWorkerTest(worker, "testId", repoName, commitHash, "build/linux", callbacks, isDeploy=True)
 
         runThread = threading.Thread(target=runner)
         runThread.start()
@@ -339,12 +354,12 @@ class WorkerStateTests(unittest.TestCase):
         callbacks3 = WorkerState.DummyWorkerCallbacks()
 
         self.assertTrue(
-            worker.runTest("testId1", commit2Name, commit2Hash, "test3_dep_on_cached_source/linux", callbacks1, isDeploy=False)[0],
+            self.runWorkerTest(worker, "testId1", commit2Name, commit2Hash, "test3_dep_on_cached_source/linux", callbacks1, isDeploy=False)[0],
             "\n".join(callbacks1.logMessages)
             )
 
         self.assertTrue(
-            worker.runTest("testId2", commit2Name, commit2Hash, "test3_dep_on_cached_source/linux", callbacks2, isDeploy=False)[0]
+            self.runWorkerTest(worker, "testId2", commit2Name, commit2Hash, "test3_dep_on_cached_source/linux", callbacks2, isDeploy=False)[0]
             )
 
         logs1 = "\n".join(callbacks1.logMessages)
@@ -363,14 +378,14 @@ class WorkerStateTests(unittest.TestCase):
         self.assertTrue(test2_extracted and not test2_downloaded and not test2_uploaded)
 
         self.assertTrue(
-            worker.artifactStorage.build_exists(repoName, commitHash, "source.tar.gz")
+            worker.artifactStorage.build_exists(repoName, commitHash, "source-linux.tar.gz")
             )
 
         #after purging, we should have to download the build
         worker.purge_build_cache(0)
 
         self.assertTrue(
-            worker.runTest("testId3", commit2Name, commit2Hash, "test3_dep_on_cached_source/linux", callbacks3, isDeploy=False)[0]
+            self.runWorkerTest(worker, "testId3", commit2Name, commit2Hash, "test3_dep_on_cached_source/linux", callbacks3, isDeploy=False)[0]
             )
 
         logs3 = "\n".join(callbacks3.logMessages)
@@ -387,7 +402,7 @@ class WorkerStateTests(unittest.TestCase):
         commit2Name, commit2Hash = commit2[0]
 
         self.assertEqual(
-            worker.runTest(
+            self.runWorkerTest(worker, 
                 "testId1", 
                 commit2Name, commit2Hash, 
                 "test_with_individual_failures/linux", 
@@ -407,8 +422,8 @@ class WorkerStateTests(unittest.TestCase):
         callbacks2 = WorkerState.DummyWorkerCallbacks()
 
         self.assertTrue(
-            worker.runTest("test0", commit2Name, commit2Hash, "test_commit_message/linux", callbacks1, isDeploy=False)[0]
+            self.runWorkerTest(worker, "test0", commit2Name, commit2Hash, "test_commit_message/linux", callbacks1, isDeploy=False)[0]
             )
         self.assertTrue(
-            worker.runTest("test2", commit2Name, commit2Hash, "test_commit_message_in_dependencies/linux", callbacks2, isDeploy=False)[0]
+            self.runWorkerTest(worker, "test2", commit2Name, commit2Hash, "test_commit_message_in_dependencies/linux", callbacks2, isDeploy=False)[0]
             )

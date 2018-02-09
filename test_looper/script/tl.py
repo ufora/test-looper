@@ -372,12 +372,13 @@ class TestLooperCtl:
                 os.makedirs(self.repos[reponame].path_to_repo)
 
             clone_root = self.git_clone_root + ":" + reponame + ".git"
-            print "Cloning " + clone_root + " into " + self.repos[reponame].path_to_repo
-
+            
             if not self.repos[reponame].cloneFrom(clone_root):
                 del self.repos[reponame]
                 shutil.rmtree(clone_root)
-                raise UserWarning("Failed to clone " + reponame)
+                return None
+            else:
+                print "Cloned " + clone_root + " into " + self.repos[reponame].path_to_repo
         
         return self.repos[reponame]
 
@@ -411,6 +412,15 @@ class TestLooperCtl:
             reponame = self.bestRepo(args.repo)
 
         repo = self.getGitRepo(reponame)
+
+        if repo is None:
+            for path in self.repo_prefixes_to_strip:
+                repo = self.getGitRepo(path + reponame)
+                if repo:
+                    break
+
+        if not repo:
+            raise UserWarning("Can't find repo %s" % reponame)
         
         committish = args.committish
 
@@ -581,9 +591,14 @@ class TestLooperCtl:
                 print "\t\t", test
 
     def bestRepo(self, reponame):
-        if reponame in self.cur_checkouts:
+        if reponame in self.allRepoNames:
             return reponame
-        return self._pickOne(reponame, self.cur_checkouts, "repo") or reponame
+        
+        for path in sorted(self.repo_prefixes_to_strip, key=len):
+            if path + reponame in self.allRepoNames:
+                return path + reponame
+
+        return reponame
 
 
     def walkCheckedOutRepos(self, f):

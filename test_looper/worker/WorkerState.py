@@ -33,6 +33,10 @@ else:
     Docker = None
     DockerWatcher = None
 
+class SOURCE_DIR:
+    """Singleton to indicate this is the 'src' dependency"""
+    pass
+
 import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper
@@ -725,10 +729,7 @@ class WorkerState(object):
         if source is None:
             raise Exception("No file found at %s in commit %s" % (pathToDockerfile, commitHash))
 
-        return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True)
-
-    def resolveEnvironment(self, environment):
-        return self.resolver.resolveEnvironment(environment)
+        return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True, env_keys_to_passthrough=PASSTHROUGH_KEYS)
 
     def getDockerImage(self, testEnvironment, log_function):
         assert testEnvironment.matches.Environment
@@ -744,22 +745,18 @@ class WorkerState(object):
 
                 return self.getDockerImageFromRepo(git_repo, commitHash, testEnvironment.image)
             else:
-                return Docker.DockerImage.from_dockerfile_as_string(None, testEnvironment.image.dockerfile_contents, create_missing=True)
+                return Docker.DockerImage.from_dockerfile_as_string(
+                    None, 
+                    testEnvironment.image.dockerfile_contents, 
+                    create_missing=True, 
+                    env_keys_to_passthrough=PASSTHROUGH_KEYS
+                    )
         except Exception as e:
             log_function(time.asctime() + " TestLooper> Failed to build docker image:\n" + str(e))
 
         return None
 
-    def testAndEnvironmentDefinitionFor(self, repoName, commitHash):
-        return self.resolver.testAndEnvironmentDefinitionFor(repoName, commitHash)
-
-    def repoDefinitionsFor(self, repoName, commitHash):
-        return self.testAndEnvironmentDefinitionFor(repoName, commitHash)[2]
-
-    def testDefinitionFor(self, repoName, commitHash, testName):
-        return self.testAndEnvironmentDefinitionFor(repoName, commitHash)[0].get(testName)
-
-    def runTest(self, testId, repoName, commitHash, testName, workerCallback, isDeploy):
+    def runTest(self, testId, repoName, commitHash, testName, workerCallback, testDefinition, isDeploy):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
         self.cleanup()
 
@@ -776,19 +773,8 @@ class WorkerState(object):
             if msg is not None:
                 log_messages.append(msg)
 
-        with self.callHeartbeatInBackground(log_function, "Resetting the repo to %s/%s" % (repoName, commitHash)):
-            if not self.resetToCommit(repoName, commitHash):
-                workerCallback.heartbeat("Failed to checkout code!\n")
-
         def executeTest():
             try:
-                with self.callHeartbeatInBackground(log_function, "Extracting test definitions."):
-                    testDefinition = self.testDefinitionFor(repoName, commitHash, testName)
-
-                if not testDefinition:
-                    log_function("No test named %s\n" % testName)
-                    return False, {}
-
                 if not isDeploy and testDefinition.matches.Build and self.artifactStorage.build_exists(repoName, commitHash, self.artifactKeyForBuild(testName)):
                     log_function("Build already exists\n")
                     return True, {}
@@ -849,8 +835,11 @@ class WorkerState(object):
             logging.info("Extracting package %s to %s", package_file, target_dir)
             tar.extractall(target_dir)
 
-    def grabDependency(self, log_function, expose_as, dep, repoName, commitHash):
-        target_dir = os.path.join(self.directories.test_inputs_dir, expose_as)
+    def grabDependency(self, log_function, expose_as, dep, repoName, commitHash, worker_callback):
+        if expose_as is SOURCE_DIR:
+            target_dir = self.directories.repo_copy_dir
+        else:
+            target_dir = os.path.join(self.directories.test_inputs_dir, expose_as)
 
         if dep.matches.InternalBuild or dep.matches.ExternalBuild:
             if dep.matches.ExternalBuild:
@@ -866,9 +855,13 @@ class WorkerState(object):
             return None
 
         if dep.matches.Source:
-            sourceArtifactName = self.artifactKeyForBuild("source")
+            #keep the source tarballs separate by os-root, since windows line endings
+            #play havoc with linux builds!
+            source_platform_name = "source-linux" if sys.platform != "win32" else "source-win"
 
-            tarball_name = self._buildCachePathFor(dep.repo, dep.commitHash, "source")
+            sourceArtifactName = self.artifactKeyForBuild(source_platform_name)
+
+            tarball_name = self._buildCachePathFor(dep.repo, dep.commitHash, source_platform_name)
 
             log_function(time.asctime() + " TestLooper> Target tarball for %s/%s source is %s\n" 
                         % (dep.repo, dep.commitHash, tarball_name))
@@ -913,19 +906,16 @@ class WorkerState(object):
 
         return "Unknown dependency type: %s" % dep
 
-    def getEnvironmentAndDependencies(self, testId, repoName, commitHash, test_definition, log_function):
-        with self.callHeartbeatInBackground(log_function):
-            environment = self.resolveEnvironment(test_definition.environment)
-            if environment.matches.Import:
-                raise Exception("Environment didn't resolve to a real environment: inheritance is %s", environment.inheritance)
-            environment = TestDefinition.apply_environment_substitutions(environment)
-
+    def getEnvironmentAndDependencies(self, testId, repoName, commitHash, test_definition, log_function, worker_callback):
+        environment = test_definition.environment
+        
         env_overrides = self.environment_variables(testId, repoName, commitHash, environment, test_definition)
 
         #update the test definition to resolve dependencies
         test_definition = TestDefinition.apply_test_substitutions(test_definition, environment, env_overrides)
 
         all_dependencies = {}
+        all_dependencies[SOURCE_DIR] = TestDefinition.TestDependency.Source(repo=repoName, commitHash=commitHash)
         all_dependencies.update(environment.dependencies)
         all_dependencies.update(test_definition.dependencies)
 
@@ -938,7 +928,7 @@ class WorkerState(object):
 
             with self.callHeartbeatInBackground(
                     heartbeatWithLock, 
-                    "Pulling dependencies:\n%s" % "\n".join(["\t" + str(x) for x in all_dependencies.values()])
+                    "Pulling dependencies:\n%s" % "\n".join(["\t%s -> %s" % (k,v) for k,v in sorted(all_dependencies.iteritems())])
                     ):
 
                 results = {}
@@ -946,7 +936,7 @@ class WorkerState(object):
                 def callFun(expose_as, dep):
                     for tries in xrange(3):
                         try:
-                            results[expose_as] = self.grabDependency(heartbeatWithLock, expose_as, dep, repoName, commitHash)
+                            results[expose_as] = self.grabDependency(heartbeatWithLock, expose_as, dep, repoName, commitHash, worker_callback)
                             heartbeatWithLock(time.asctime() + " TestLooper> Done pulling %s.\n" % dep)
                             return
                         except Exception as e:
@@ -975,8 +965,8 @@ class WorkerState(object):
                         raise Exception("Failed to download dependency %s: %s" % (all_dependencies[e], results[e]))
         else:
             for expose_as, dep in all_dependencies.iteritems():
-                with self.callHeartbeatInBackground(log_function, "Pulling dependency %s" % dep):
-                    errStringOrNone = self.grabDependency(log_function, expose_as, dep, repoName, commitHash)
+                with self.callHeartbeatInBackground(log_function, "Pulling dependency %s for dep %s" % (dep, expose_as)):
+                    errStringOrNone = self.grabDependency(log_function, expose_as, dep, repoName, commitHash, worker_callback)
 
                 if errStringOrNone is not None:
                     raise Exception(errStringOrNone)
@@ -986,7 +976,7 @@ class WorkerState(object):
     def _run_task(self, testId, repoName, commitHash, test_definition, log_function, workerCallback, isDeploy):
         try:
             environment, all_dependencies, test_definition = \
-                self.getEnvironmentAndDependencies(testId, repoName, commitHash, test_definition, log_function)
+                self.getEnvironmentAndDependencies(testId, repoName, commitHash, test_definition, log_function, workerCallback)
         except Exception as e:
             logging.error(traceback.format_exc())
             log_function("\n\nTest failed because of exception:\n" + traceback.format_exc() + "\n")

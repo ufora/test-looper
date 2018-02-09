@@ -751,7 +751,7 @@ class TestManager(object):
 
             if machine is None or not machine.isAlive:
                 logging.warn("Can't assign work to a machine we don't know about: %s", machineId)
-                return None, None, None, None
+                return None, None, None, None, None
 
             self._machineHeartbeat(machine, timestamp)
 
@@ -766,9 +766,11 @@ class TestManager(object):
                     
                     test = deployment.test
 
-                    return (test.commitData.commit.repo.name, test.commitData.commit.hash, test.testDefinition.name, deployment._identity)
+                    fullyResolvedTestDef = test.testDefinition._withReplacement(environment=test.fullyResolvedEnvironment.Environment)
 
-            return None, None, None, None
+                    return (test.commitData.commit.repo.name, test.commitData.commit.hash, test.testDefinition.name, deployment._identity, fullyResolvedTestDef)
+
+            return None, None, None, None, None
 
     def isDeployment(self, deploymentId):
         with self.database.view():
@@ -795,12 +797,12 @@ class TestManager(object):
         return True
 
     def startNewTest(self, machineId, timestamp):
-        """Allocates a new test and returns (repoName, commitHash, testName, testId) or (None,None,None, None) if no work."""
+        """Allocates a new test and returns (repoName, commitHash, testName, testId, testDefinition) or (None,None,None,None,None) if no work."""
         with self.transaction_and_lock():
             machine = self.database.Machine.lookupAny(machineId=machineId)
 
             if not machine or not machine.isAlive:
-                return None, None, None, None
+                return None, None, None, None, None
 
             self._machineHeartbeat(machine, timestamp)
 
@@ -811,7 +813,7 @@ class TestManager(object):
                 logging.warn("Took %s to get priority", time.time() - t0)
 
             if not test:
-                return None, None, None, None
+                return None, None, None, None, None
 
             test.activeRuns = test.activeRuns + 1
 
@@ -826,7 +828,9 @@ class TestManager(object):
 
             self._updateTestPriority(test, timestamp)
 
-            return (test.commitData.commit.repo.name, test.commitData.commit.hash, test.testDefinition.name, runningTest._identity)
+            fullyResolvedTestDef = test.testDefinition._withReplacement(environment=test.fullyResolvedEnvironment.Environment)
+
+            return (test.commitData.commit.repo.name, test.commitData.commit.hash, test.testDefinition.name, runningTest._identity, fullyResolvedTestDef)
 
     def performCleanupTasks(self, curTimestamp):
         #check all tests to see if we've exceeded the timeout and the test is dead

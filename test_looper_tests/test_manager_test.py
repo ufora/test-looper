@@ -529,11 +529,11 @@ class TestManagerTestHarness:
 
             counts.append([x[0] + "/" + x[1] + "/" + x[2] for x in tests])
 
-            for _,_,_,testId in tests:
+            for _,_,_,testId,_ in tests:
                 self.manager.testHeartbeat(testId, self.timestamp)
                 self.timestamp += .1
 
-            for _,_,_,testId in tests:
+            for _,_,_,testId,_ in tests:
                 self.manager.recordTestResults(True, testId, {"ATest":True, "AnotherTest": False}, self.timestamp)
                 self.timestamp += .1
 

@@ -308,6 +308,12 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
             self._hash = None
             self._sha_hash_cache = None
 
+        def _withReplacement(self, **kwargs):
+            fields = self._fields
+            fields.update(kwargs)
+
+            return AlternativeOption(**fields)
+
         def __sha_hash__(self):
             if self._sha_hash_cache is None:
                 self._sha_hash_cache = sha_hash(self._fields) + sha_hash(self._which)

@@ -151,7 +151,9 @@ class TestSummaryRenderer:
                 return HtmlGeneration.lightGrey("%s suites" % len(tests)).render()
             return HtmlGeneration.lightGrey("%s suites pending" % suitesNotRun).render()
             
-        return "%d/%d tests failing" % (totalFailedTestCount, totalTests)
+        if totalTests == 0:
+            return '<span class="text-muted">OK</span>'
+        return '%d/%d' % (totalFailedTestCount, totalTests)
 
 
 class TestGridRenderer:
@@ -743,7 +745,7 @@ class Renderer:
         with self.testManager.database.view():
             machines = self.testManager.database.Machine.lookupAll(isAlive=True)
 
-            grid = [["MachineID", "Hardware", "OS", "BOOTED AT", "UP FOR", "STATUS", "LASTMSG", "COMMIT", "TEST", "LOGS", "CANCEL", ""]]
+            grid = [["MachineID", "Hardware", "OS", "UP FOR", "STATUS", "LASTMSG", "COMMIT", "TEST", "LOGS", "CANCEL", ""]]
             for m in sorted(machines, key=lambda m: -m.bootTime):
                 row = []
                 row.append(m.machineId)
@@ -759,13 +761,20 @@ class Renderer:
                 else:
                     row.append("Unknown")
 
-                row.append(time.asctime(time.gmtime(m.bootTime)))
                 row.append(secondsUpToString(time.time() - m.bootTime))
                 
                 if m.firstHeartbeat < 1.0:
-                    row.append("BOOTING")
+                    row.append('<span class="octicon octicon-watch" aria-hidden="true"></span>')
+                elif time.time() - m.lastHeartbeat < 60:
+                    row.append('<span class="octicon octicon-check" aria-hidden="true"'
+                        + ' data-toggle="tooltip" data-placement="right" title="Heartbeat %s seconds ago" ' % (int(time.time() - m.lastHeartbeat))
+                        + '></span>'
+                        )
                 else:
-                    row.append("Heartbeat %s seconds ago" % int(time.time() - m.lastHeartbeat))
+                    row.append('<span class="octicon octicon-issue-opened" aria-hidden="true"'
+                        + ' data-toggle="tooltip" data-placement="right" title="Heartbeat %s seconds ago" ' % (int(time.time() - m.lastHeartbeat))
+                        + '></span>'
+                        )
                 
                 row.append(m.lastHeartbeatMsg)
 
@@ -1454,7 +1463,7 @@ class Renderer:
 
             grid_headers = renderer.getGridHeaders(reposUrlWithGroupings)
 
-            for additionalHeader in reversed(["REPO NAME", "BRANCH COUNT", "COMMITS", "PRIMARY BRANCH"]):
+            for additionalHeader in reversed(["REPO NAME", "BRANCH COUNT", "COMMITS", "TOP TESTED COMMIT"]):
                 grid_headers = [[""] + g for g in grid_headers]
                 grid_headers[-1][0] = additionalHeader
 
