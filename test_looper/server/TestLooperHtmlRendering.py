@@ -643,13 +643,22 @@ class Renderer:
             self.address + "/allTestRuns" + ("?" if extras else "") + urllib.urlencode(extras)
             )
 
-    def wellNamedCommitLinkAsStr(self, commit, branch, branchExtension, excludeRepo=False):
+    def wellNamedCommitLinkAsStr(self, commit, branch=None, branchExtension=None, excludeRepo=False):
+        if not branch:
+            branch, branchExtension = self.testManager.bestCommitBranchAndName(commit)
+
+            if not branch:
+                return (
+                    (self.branchesLink(commit.repo.name).render() + "/" if not excludeRepo else "") + 
+                        self.commitLink(commit, commit.hash[:10])
+                    ).render()
+
         if not branchExtension:
-            branchExtension = "HEAD"
+            branchExtension = "/HEAD"
 
         return (
             (self.branchesLink(branch.repo.name).render() + "/" if not excludeRepo else "") + 
-            self.branchLink(branch).render() + "/" + 
+            self.branchLink(branch).render() + 
             self.commitLink(commit, textOverride=branchExtension + "&nbsp;" * max(0, 5 - len(branchExtension))).render()
             )
 
@@ -768,18 +777,18 @@ class Renderer:
                 elif tests:
                     commit = tests[0].test.commitData.commit
                     try:
-                        row.append(self.commitLink(commit, textOverride=commit.repo.name + "/" + self.testManager.bestCommitName(commit)))
+                        row.append(self.wellNamedCommitLinkAsStr(commit))
                     except:
                         row.append("")
 
-                    row.append(self.testRunLink(tests[0], "TEST "))
+                    row.append(self.testRunLink(tests[0], tests[0].test.testDefinition.name))
                     row.append(self.testLogsButton(tests[0]._identity))
                     row.append(self.cancelTestRunButton(tests[0]._identity))
                     
                 elif deployments:
                     commit = deployments[0].test.commitData.commit
                     try:
-                        row.append(self.commitLink(commit, textOverride=commit.repo.name + "/" + self.testManager.bestCommitName(commit)))
+                        row.append(self.wellNamedCommitLinkAsStr(commit))
                     except:
                         row.append("")
 
@@ -813,7 +822,6 @@ class Renderer:
             
             tests = sorted(tests, key=lambda test: test.fullname)
             
-
             grid = [["TEST", "", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "FAILED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", "", "TEST_DEPS"]]
 
             for t in tests:
@@ -1030,8 +1038,8 @@ class Renderer:
                 [commit, env]
                 )
 
-    def testRunLink(self, testRun, text_prefix=""):
-        return HtmlGeneration.link(text_prefix + str(testRun._identity)[:8], "/test?testId=" + testRun._identity)
+    def testRunLink(self, testRun, text_override=None):
+        return HtmlGeneration.link(text_override or str(testRun._identity)[:8], "/test?testId=" + testRun._identity)
 
     def gridForTestList_(self, sortedTests, commit=None, failuresOnly=False):
         grid = [["TEST", "TYPE", "STATUS", "LOGS", "CLEAR", "STARTED", "MACHINE", "ELAPSED (MIN)",

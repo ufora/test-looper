@@ -29,6 +29,8 @@ MAX_LOG_MESSAGES_PER_TEST = 100000
 MACHINE_TIMEOUT_SECONDS = 600
 DISABLE_MACHINE_TERMINATION = False
 
+OLDEST_TIMESTAMP_WITH_TESTS = 1500000000
+
 class MessageBuffer:
     def __init__(self, name):
         self.name = name
@@ -383,6 +385,10 @@ class TestManager(object):
             self._cancelDeployment(d, timestamp)
 
     def _cancelDeployment(self, deployment, timestamp):
+        if not deployment.isAlive:
+            logging.warn("Tried to cancel a deployment that's already shut down.")
+            return
+
         deploymentId = deployment._identity
         cat = self._machineCategoryForTest(deployment.test)
         cat.desired = cat.desired - 1
@@ -462,6 +468,7 @@ class TestManager(object):
         res = 0
         for test in self.database.Test.lookupAll(commitData=commit.data):
             res += max(0, test.activeRuns)
+
         return res
 
     def totalRunningCountForTest(self, test):
@@ -657,10 +664,54 @@ class TestManager(object):
         with self.transaction_and_lock():
             self._checkAllTestPriorities(curTimestamp)
 
+    def _allCommitsWithPossibilityOfTests(self):
+        commits = set()
+        to_check = set()
+
+        for repo in self.database.Repo.lookupAll(isActive=True):
+            for branch in self.database.Branch.lookupAll(repo=repo):
+                if branch.head:
+                    to_check.add(branch.head)
+
+        while to_check:
+            c = to_check.pop()
+            if c not in commits:
+                commits.add(c)
+                if c.data and c.data.timestamp > OLDEST_TIMESTAMP_WITH_TESTS:
+                    for child in c.data.parents:
+                        if child not in commits:
+                            to_check.add(child)
+
+        return commits
+
+    def _checkActiveRunsLooksCorrupt(self):
+        for priorityType in [
+                self.database.TestPriority.FirstBuild,
+                self.database.TestPriority.FirstTest,
+                self.database.TestPriority.WantsMoreTests
+                ]:
+            for priority in reversed(range(1,MAX_TEST_PRIORITY+1)):
+                for test in self.database.Test.lookupAll(priority=priorityType(priority)):
+                    if test.activeRuns < 0:
+                        return True
+
+        return False
+
     def _checkAllTestPriorities(self, curTimestamp):
         logging.info("Checking all test priorities to ensure they are correct")
 
         total = 0
+
+        if self._checkActiveRunsLooksCorrupt():
+            logging.warn("Active runs looks corrupt. Rebuilding.")
+            commitsWithTests = self._allCommitsWithPossibilityOfTests()
+
+            for c in commitsWithTests:
+                for test in self.database.Test.lookupAll(commitData=c.data):
+                    test.activeRuns = 0
+
+            for runningTest in self.database.TestRun.lookupAll(isRunning=True):
+                runningTest.test.activeRuns += 1
 
         for priorityType in [
                 self.database.TestPriority.FirstBuild,
@@ -673,6 +724,8 @@ class TestManager(object):
                     self._updateTestPriority(test, curTimestamp)
 
         logging.info("Done checking all test priorities to ensure they are correct. Checked %s", total)
+
+
                     
     def _lookupHighestPriorityTest(self, machine, curTimestamp):
         t0 = time.time()
@@ -812,7 +865,11 @@ class TestManager(object):
     def _cancelTestRun(self, testRun, curTimestamp):
         assert testRun.endTimestamp == 0.0
 
+        if testRun.canceled:
+            return
+
         testRun.canceled = True
+
         testRun.test.activeRuns = testRun.test.activeRuns - 1
         self.heartbeatHandler.testFinished(testRun.test._identity)
     
@@ -1063,7 +1120,7 @@ class TestManager(object):
         commit.userPriority = max(commit.userPriority, priority)
 
         #ignore commits produced before the looper existed. They won't have these files!
-        if commit.data.timestamp > 1500000000:
+        if commit.data.timestamp > OLDEST_TIMESTAMP_WITH_TESTS:
             logging.info("Loading data for commit %s with timestamp %s", commit.hash, time.asctime(time.gmtime(commit.data.timestamp)))
             self._triggerCommitPriorityUpdate(commit)
 
