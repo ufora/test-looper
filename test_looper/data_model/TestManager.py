@@ -213,12 +213,18 @@ class TestManager(object):
         return res
 
     def bestCommitName(self, commit):
+        branch, name = self.bestCommitBranchAndName(commit)
+        if not branch:
+            return name
+        return branch.branchname + name
+
+    def bestCommitBranchAndName(self, commit):
         branches = self.commitFindAllBranches(commit)
 
-        branches = {b.branchname:v for b,v in branches.items()}
+        branches_by_name = {b.branchname: v for b,v in branches.items()}
 
         if not branches:
-            return str(commit.hash)[:10]
+            return None, str(commit.hash)[:10]
 
         def masteryness(branchname):
             fields = []
@@ -244,14 +250,14 @@ class TestManager(object):
                 fields.append(version.split(" "))
 
             #shortest
-            fields.append(len(branchname + branches[branchname]))
+            fields.append(len(branchname + branches_by_name[branchname]))
 
             return tuple(fields)
             
         #pick the least feature-branchy name we can
-        best_branch = sorted(branches, key=lambda b: masteryness(b))[0]
+        best_branch = sorted(branches, key=lambda b: masteryness(b.branchname))[0]
 
-        return best_branch + branches[best_branch]
+        return best_branch, branches[best_branch]
 
     def commitFindAllBranches(self, commit):
         childCommits = {}
@@ -455,7 +461,7 @@ class TestManager(object):
 
         res = 0
         for test in self.database.Test.lookupAll(commitData=commit.data):
-            res += test.activeRuns
+            res += max(0, test.activeRuns)
         return res
 
     def totalRunningCountForTest(self, test):
@@ -543,6 +549,7 @@ class TestManager(object):
             return self.database.IndividualTestNameSet.New(shaHash=shaHash, test_names=sorted(testNames))
         else:
             return cur
+
 
     def clearTestRun(self, testId):
         """Remove a test run from the database."""

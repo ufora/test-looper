@@ -381,18 +381,6 @@ class TestLooperHttpServer(object):
         return self.renderer.build_contents(repoName, commitHash, key)
 
     @cherrypy.expose
-    def clearCommit(self, commitId, redirect):
-        self.authorize(read_only=False)
-
-        return self.renderer.clearCommit(commitId, redirect)
-
-    @cherrypy.expose
-    def clearBranch(self, branch, redirect=None):
-        self.authorize(read_only=False)
-
-        return self.renderer.clearBranch(branch, redirect)
-
-    @cherrypy.expose
     def cancelTestRun(self, testRunId, redirect):
         self.authorize(read_only=False)
             
@@ -457,16 +445,16 @@ class TestLooperHttpServer(object):
         return self.renderer.shutdownDeployment(deploymentId)
 
     @cherrypy.expose
-    def repos(self):
+    def repos(self, groupings=None):
         self.authorize(read_only=True)
 
-        return self.renderer.repos()
+        return self.renderer.repos(groupings=groupings)
 
     @cherrypy.expose
-    def branches(self, repoName):
+    def branches(self, repoName, groupings=None):
         self.authorize(read_only=True)
 
-        return self.renderer.branches(repoName)
+        return self.renderer.branches(repoName, groupings=groupings)
 
     @cherrypy.expose
     def toggleBranchTestTargeting(self, reponame, branchname, testType, testGroupsToExpand):
@@ -475,16 +463,10 @@ class TestLooperHttpServer(object):
         return self.renderer.toggleBranchTestTargeting(reponame, branchname, testType, testGroupsToExpand)
 
     @cherrypy.expose
-    def toggleBranchCommitTargeting(self, reponame, branchname, commitHash):
-        self.authorize(read_only=False)
-
-        return self.renderer.toggleBranchCommitTargeting(reponame, branchname, commitHash)
-
-    @cherrypy.expose
-    def branch(self, reponame, branchname, max_commit_count=100):
+    def branch(self, reponame, branchname, **kwargs):
         self.authorize(read_only=True)
 
-        return self.renderer.branch(reponame, branchname, max_commit_count)
+        return self.renderer.branch(reponame, branchname, **kwargs)
 
     @cherrypy.expose
     def updateBranchPin(self, repoName, branchName, ref, redirect):

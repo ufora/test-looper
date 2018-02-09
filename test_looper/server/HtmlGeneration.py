@@ -22,7 +22,6 @@ headers = """
 </head>
 <body>
 <script src="/js/gitgraph.js"></script>
-<div class="container-fluid">
 """
 
 footers = """
@@ -57,7 +56,7 @@ var templateConfig = {
         mergeStyle: "bezier"
         },
     commit: {
-        spacingY: 33,
+        spacingY: 36,
         dot: {
             size: 5,
             strokeColor: "#000000",
