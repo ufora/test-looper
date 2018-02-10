@@ -33,7 +33,7 @@ def setupYamlDumper():
             style = "|"
 
         # if it looks like an identifier, use no style
-        if re.match(r"^[a-zA-Z0-9_\-/]+$", value) and len(value) < 60:
+        if re.match(r"^[a-zA-Z0-9_\-/]+$", value) and len(value) < 60 and value not in ("true", "false"):
             style = ''
 
         return dumper.represent_scalar(u'tag:yaml.org,2002:str', value, style=style)
@@ -41,7 +41,7 @@ def setupYamlDumper():
     Dumper.add_representer(str, string_representer)
     Dumper.add_representer(unicode, string_representer)
     Dumper.add_representer(bool, lambda dumper, value : \
-        dumper.represent_scalar(u'tag:yaml.org,2002:bool', u"true" if value else u"false"))
+        dumper.represent_scalar(u'tag:yaml.org,2002:bool', u"true" if value else u"false", style=''))
     Dumper.add_representer(type(None), lambda dumper, value : \
         dumper.represent_scalar(u'tag:yaml.org,2002:null', u"~"))
 

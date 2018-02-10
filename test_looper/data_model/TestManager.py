@@ -777,17 +777,22 @@ class TestManager(object):
         cleaned = 0
 
         for lock in self.database.AllocatedGitRepoLocks.lookupAll(alive=True):
-            testRun = self.database.TestRun(lock.testOrDeployId)
-            if testRun.exists() and (testRun.canceled or testRun.endTimestamp > 0.0):
-                logging.info("Deleted a GitRepoLock because test %s is dead.", lock.testOrDeployId)
+            if lock.testOrDeployId is None:
+                logging.info("Deleted an invalid GitRepoLock.")
                 lock.delete()
                 cleaned += 1
-
-            deployment = self.database.Deployment(lock.testOrDeployId)
-            if deployment.exists() and not deployment.isAlive:
-                logging.info("Deleted a GitRepoLock because deployment %s is dead", lock.testOrDeployId)
-                lock.delete()
-                cleaned += 1
+            else:                
+                testRun = self.database.TestRun(lock.testOrDeployId)
+                if testRun.exists() and (testRun.canceled or testRun.endTimestamp > 0.0):
+                    logging.info("Deleted a GitRepoLock because test %s is dead.", lock.testOrDeployId)
+                    lock.delete()
+                    cleaned += 1
+                else:
+                    deployment = self.database.Deployment(lock.testOrDeployId)
+                    if deployment.exists() and not deployment.isAlive:
+                        logging.info("Deleted a GitRepoLock because deployment %s is dead", lock.testOrDeployId)
+                        lock.delete()
+                        cleaned += 1
 
         if cleaned:
             logging.info("Cleaned up %s git dead repo locks. %s remaining.", 
