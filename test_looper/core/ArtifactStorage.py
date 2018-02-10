@@ -135,7 +135,7 @@ class AwsArtifactStorage(ArtifactStorage):
     def _bucket(self):
         return self._session.resource('s3').Bucket(self.bucket_name)
 
-    def testResultKeysFor(self, repoName, commitHash, testId):
+    def testResultKeysForWithSizes(self, repoName, commitHash, testId):
         prefix = self.test_artifact_key_prefix + "/" + repoName + "/" + commitHash + "/" + testId + "/"
 
         keys = list(self._bucket.objects.filter(Prefix=prefix))
@@ -144,9 +144,13 @@ class AwsArtifactStorage(ArtifactStorage):
 
         for k in keys:
             assert k.key.startswith(prefix)
-            result.append(k.key[len(prefix):])
+            result.append((k.key[len(prefix):],k.size))
 
         return result
+
+    
+    def testResultKeysFor(self, repoName, commitHash, testId):
+        return [x[0] for x in self.testResultKeysForWithSizes(repoName, commitHash, testId)]
 
     def uploadSingleTestArtifact(self, repoName, commitHash, testId, key, full_path):
         content_type, keyname, is_gzipped = ArtifactStorage.keyname_to_encoding(key)
@@ -223,6 +227,13 @@ class AwsArtifactStorage(ArtifactStorage):
         except botocore.exceptions.ClientError as e:
             return False
 
+    def build_size(self, repoName, commitHash, key_name):
+        try:
+            key = self._bucket.Object(self.build_artifact_key_prefix + "/" + repoName + "/" + commitHash + "/" + key_name).load()
+            return None if not key else key.size
+        except botocore.exceptions.ClientError as e:
+            return False
+
 class LocalArtifactStorage(ArtifactStorage):
     def __init__(self, config):
         ArtifactStorage.__init__(self)
@@ -282,12 +293,15 @@ class LocalArtifactStorage(ArtifactStorage):
             raise
 
     def testResultKeysFor(self, repoName, commitHash, testId):
+        return [x[0] for x in self.testResultKeysForWithSizes(repoName, commitHash, testId)]
+
+    def testResultKeysForWithSizes(self, repoName, commitHash, testId):
         path = os.path.join(self.test_artifacts_storage_path, repoName, commitHash, testId)
         
         if not os.path.exists(path):
             return []
 
-        return os.listdir(path)
+        return [(x,os.stat(os.path.join(path,x)).st_size) for x in os.listdir(path)]
 
     def upload_build(self, repoName, commitHash, key_name, file_name):
         tgt = os.path.join(self.build_storage_path, repoName, commitHash, key_name)
@@ -306,6 +320,12 @@ class LocalArtifactStorage(ArtifactStorage):
     def build_exists(self, repoName, commitHash, key_name):
         return os.path.exists(os.path.join(self.build_storage_path, repoName, commitHash, key_name))
 
+    def build_size(self, repoName, commitHash, key_name):
+        path = os.path.join(self.build_storage_path, repoName, commitHash, key_name)
+        if os.path.exists(path):
+            return os.stat(path).st_size
+        return None
+        
 def storageFromConfig(config):
     if config.matches.S3:
         return AwsArtifactStorage(config)

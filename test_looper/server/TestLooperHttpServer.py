@@ -247,7 +247,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def disableDev(self, redirect = "/repos"):
-        cherrypy.session["dev_enabled"] = True
+        cherrypy.session["dev_enabled"] = False
         raise cherrypy.HTTPRedirect(redirect)
 
     def addLogMessage(self, format_string, *args, **kwargs):

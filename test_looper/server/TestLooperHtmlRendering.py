@@ -26,6 +26,68 @@ import test_looper.core.algebraic_to_json as algebraic_to_json
 
 HtmlGeneration = reload(HtmlGeneration)
 
+
+def bytesToHumanSize(bytes):
+    if bytes is None:
+        return ""
+
+    if bytes < 1024 * 2:
+        return "%s bytes" % bytes
+
+    if bytes < 1024 * 2 * 1024:
+        return "%.1f Kb" % (bytes / 1024.0)
+
+    if bytes < 1024 * 2 * 1024 * 1024:
+        return "%.1f Mb" % (bytes / 1024.0 / 1024.0)
+
+    return "%.1f Gb" % (bytes / 1024.0 / 1024.0 / 1024.0)
+
+
+def card(text):
+    return """<div class="card">
+                  <div class="card-body">
+                    {text}
+                  </div>
+                </div>""".format(text=text)
+
+def tabs(name, tabSeq):
+    pils = []
+    bodies = []
+
+    for ix in xrange(len(tabSeq)):
+        header, contents, selector = tabSeq[ix]
+
+        active = "active" if ix == 0 else ""
+        pils.append(
+            """
+            <li class="nav-item">
+                <a class="nav-link {active}" id="{selector}-tab" data-toggle="tab" href="#{selector}" role="tab" aria-controls="{selector}" aria-selected="{selected}">
+                    {header}
+                </a>
+              </li>
+            """.format(active=active, selector=selector, header=header, selected=ix==0)
+            )
+
+        bodies.append(
+            """
+            <div class="tab-pane fade {show} {active}" id="{selector}" role="tabpanel" aria-labelledby="{selector}-tab">{contents}</div>
+            """.format(selector=selector,contents=contents, active=active, show="show" if ix == 0 else "")
+            )
+
+    return ("""<div class="container-fluid mb-3">
+                     <ul class="nav nav-pills" id="{name}" role="tablist">
+                      {pils}
+                    </ul>
+                    <div class="tab-content" id="{name}Content">
+                      {body}
+                    </div>
+                </div>
+                """.format(pils="".join(pils), body="".join(bodies),name=name))
+
+
+def octicon(text, extra=""):
+    return '<span class="octicon octicon-%s %s" aria-hidden="true"/>' % (text,extra)
+
 def secondsUpToString(up_for):
     if up_for < 60:
         return ("%d seconds" % up_for)
@@ -115,19 +177,17 @@ class TestSummaryRenderer:
 
         if badBuilds:
             if badBuilds == len(builds):
-                return """
-                    <span class="alert-danger"><span class="octicon octicon-issue-opened" aria-hidden="true" ></span></span>
-                    """
+                return """<span class="text-danger">%s</span>""" % octicon("x")
 
         if waitingBuilds:
             if builds[0].commitData.commit.userPriority == 0:
-                return HtmlGeneration.lightGrey("%s builds" % len(builds)).render()
-            return HtmlGeneration.lightGrey("builds pending").render()
+                return '<span class="text-muted">%s</span>' % "..."
+            return "..."
 
         tests = self.allTests()
 
         if not tests:
-            return '<span class="octicon octicon-check" aria-hidden="true"></span>'
+            return octicon("check")
 
         totalTests = 0
         totalFailedTestCount = 0
@@ -144,16 +204,19 @@ class TestSummaryRenderer:
                 totalFailedTestCount += t.totalFailedTestCount / t.totalRuns
 
         if depFailed:
-            return '<span class="text-muted"><span class="octicon octicon-issue-opened" aria-hidden="true"></span></span>'
+            return '<span class="text-muted">%s</span>' % octicon("x")
 
         if suitesNotRun:
             if tests[0].commitData.commit.userPriority == 0:
-                return HtmlGeneration.lightGrey("%s suites" % len(tests)).render()
-            return HtmlGeneration.lightGrey("%s suites pending" % suitesNotRun).render()
+                return '<span class="text-muted">%s</span>' % "..."
+            return "..."
             
         if totalTests == 0:
-            return '<span class="text-muted">OK</span>'
-        return '%d/%d' % (totalFailedTestCount, totalTests)
+            return '<span class="text-muted">%s</span>' % octicon("check")
+
+        if totalFailedTestCount == 0:
+            return '%d%s' % (testTypes, '<span class="text-success">%s</span>' % octicon("check"))
+        return '<span class="text-danger">%d</span>%s%d' % (totalFailedTestCount, '<span class="text-muted px-1">/</span>', totalTests)
 
 
 class TestGridRenderer:
@@ -335,34 +398,50 @@ class Renderer:
     def getCurrentLogin(self):
         return self.httpServer.getCurrentLogin()
 
-    def commonHeader(self, breadcrumb):
+    def commonHeader(self, currentObject):
         headers = []
 
         nav_links = [
-            ('Machines', '/machines', breadcrumb and breadcrumb[0] == "machines", []),
-            ('Deployments', '/deployments', breadcrumb and breadcrumb[0] == "deployments", []),
-            ('Repos', '/repos', breadcrumb and breadcrumb[0] == "repos",[])
+            ('Machines', '/machines', currentObject == "machines", []),
+            ('Deployments', '/deployments', currentObject == "deployments", []),
+            ('Repos', '/repos', currentObject == "repos",[]),
+            ('<span class="px-4"/>', False, False,[]),
             ]
+
+        arrow_link_ix = len(nav_links)-1
 
         def addRepo(repo, isActive):
             dds = []
 
+            dds.append((self.branchesUrl(repo.name),repo.name))
+            dds.append('<div class="dropdown-divider"></div>')
+
             for r in sorted(self.testManager.database.Repo.lookupAll(isActive=True),key=lambda r:r.name):
-                if r.commitsWithTests:
-                    dds.append((self.branchesUrl(r.name),r.name))
+                if r.commitsWithTests and r != repo:
+                    dds.append((self.branchesUrl(r.name), r.name))
 
             nav_links.append(
-                    ('<span class="octicon octicon-repo" aria-hidden="true"/>' + repo.name, "", isActive, dds)
+                    (octicon('repo') + repo.name, "", isActive, dds)
                     )
+
+        def addSpacer():
+            nav_links.append(("/", "",False,[]))
 
         def addBranch(branch, isActive):
             addRepo(branch.repo, False)
+            addSpacer()
 
             dds = []
 
+            dds.append((self.branchUrl(branch),branch.branchname))
+            dds.append('<div class="dropdown-divider"></div>')
+
             for b in sorted(self.testManager.database.Branch.lookupAll(repo=branch.repo),key=lambda b:b.branchname):
-                if self.branchHasTests(b):
+                if self.branchHasTests(b) and b != branch:
                     dds.append((self.branchUrl(b),b.branchname))
+
+            if len(dds) == 2:
+                dds = []
 
             if not dds:
                 link = self.branchUrl(branch)
@@ -380,6 +459,8 @@ class Renderer:
             else:
                 addRepo(commit.repo, False)
 
+            addSpacer()
+
             nav_links.append(
                     ('Commit&nbsp;<span class="octicon octicon-git-commit" aria-hidden="true"/>' + "HEAD"+name, 
                         self.commitUrl(commit), 
@@ -387,43 +468,46 @@ class Renderer:
                     )
 
         def addTest(test, isActive):
-            addCommit(test.commitData.commit, False)
+            commit = test.commitData.commit
+
+            addCommit(commit, False)
+            branch, name = self.testManager.bestCommitBranchAndName(commit)
+            addSpacer()
+
+            if test.testDefinition.matches.Build:
+                icon = 'tools'
+            else:
+                icon = "beaker"
 
             nav_links.append(
-                    ('<span class="octicon octicon-beaker" aria-hidden="true"/>' + test.testDefinition.name, "", isActive, [])
+                    (octicon(icon) + '<span class="px-1"/>' + test.testDefinition.name, 
+                        self.testUrl(test)
+                        , isActive, [])
                     )
+
+        def addTestRun(testRun, isActive):
+            addTest(testRun.test, False)
+            addSpacer()
+            nav_links.append(
+                (octicon("file-directory") + '<span class="px-1"/>' + testRun._identity[:8], "", isActive, [])
+                )
             
-        if breadcrumb:
-            if isinstance(breadcrumb[0], self.testManager.database.Repo):
-                addRepo(breadcrumb[0], True)
+        if currentObject:
+            if isinstance(currentObject, self.testManager.database.Repo):
+                addRepo(currentObject, True)
 
-            if isinstance(breadcrumb[0], self.testManager.database.Branch):
-                addBranch(breadcrumb[0], False)
+            if isinstance(currentObject, self.testManager.database.Branch):
+                addBranch(currentObject, False)
 
-                facet = "commits"
-                if len(breadcrumb) > 1:
-                    facet = breadcrumb[1]
-
-                if facet == "commits":
-                    linkTitle = '<span class="octicon octicon-git-commit" aria-hidden="true"/>Commits</span>'
-                else:
-                    linkTitle = '<span class="octicon octicon-pin" aria-hidden="true"/>Branch Pins</span>'
-
-                nav_links.append(
-                    (linkTitle, 
-                        "", True, [
-                        (self.branchUrl(breadcrumb[0]), "Commits"),
-                        (self.branchUrl(breadcrumb[0],showPins=True), "Branch Pins"),
-                        ])
-                    )
-
-            if isinstance(breadcrumb[0], self.testManager.database.Commit):
-                commit = breadcrumb[0]
-
+            if isinstance(currentObject, self.testManager.database.Commit):
+                commit = currentObject
                 addCommit(commit, True)
 
-            if isinstance(breadcrumb[0], self.testManager.database.Test):
-                addTest(breadcrumb[0], True)
+            if isinstance(currentObject, self.testManager.database.Test):
+                addTest(currentObject, True)
+
+            if isinstance(currentObject, self.testManager.database.TestRun):
+                addTestRun(currentObject, True)
                 
         
         headers += ["""
@@ -444,10 +528,14 @@ class Renderer:
 
             if dropdowns:
                 dd_items = []
-                for href, contents in dropdowns:
-                    dd_items += [
-                        '<a class="dropdown-item" href="{link}">{contents}</a>'.format(link=href,contents=contents)
-                        ]
+                for item in dropdowns:
+                    if isinstance(item,str):
+                        dd_items += [item]
+                    else:
+                        href, contents = item
+                        dd_items += [
+                            '<a class="dropdown-item" href="{link}">{contents}</a>'.format(link=href,contents=contents)
+                            ]
 
                 elt = """
                     <div class="btn-group">
@@ -470,10 +558,24 @@ class Renderer:
             headers += [elt]
 
         headers += [
-            '</ul>',
+            '</ul>'
+            ]
+
+        if currentObject == "repos":
+            headers += [
+                """<span class="navbar-text pr-5"><button class="btn btn-outline-secondary btn-light">
+                    <a href="{url}"><span class="octicon octicon-sync" aria-hidden="true"/> Refresh {kind}</a>
+                    </button></span>
+                """.format(
+                    url="/refresh?" + urllib.urlencode({"redirect": self.redirect()}),
+                    kind="Repos"
+                    )
+                ]
+
+        headers += [
             '<span class="navbar-text">',
                 self.logout_link() if self.is_authenticated() else self.login_link(),
-            '</span>'
+            '</span>',
             '</nav>']
         return "\n" + "\n".join(headers)
     
@@ -497,54 +599,63 @@ class Renderer:
             if testRun is None:
                 return self.errorPage("Unknown testid %s" % testId)
 
-            grid = [["ARTIFACTS"]]
+            artifacts = self.artifactsForTestRunGrid(testRun)
 
-            commit = testRun.test.commitData.commit
-
-            if testRun.test.testDefinition.matches.Build:
-                build_key = testRun.test.testDefinition.name.replace("/","_") + ".tar.gz"
-
-                if self.artifactStorage.build_exists(commit.repo.name, commit.hash, build_key):
-                    grid.append([
-                        HtmlGeneration.link(build_key, self.buildDownloadUrl(commit.repo.name, commit.hash, build_key))
-                        ])
-                else:
-                    logging.info("No build found at %s", build_key)
-
-            for artifactName in self.artifactStorage.testResultKeysFor(commit.repo.name, commit.hash, testId):
-                grid.append([
-                    HtmlGeneration.link(
-                        artifactName,
-                        self.testResultDownloadUrl(testId, artifactName)
-                        )
-                    ])
-
-            if testRun.totalTestCount:
-                individual_tests_grid = [["TEST_NAME", "PASSED"]]
-                pass_dict = {}
-
-                for ix in xrange(len(testRun.testNames.test_names)):
-                    pass_dict[testRun.testNames.test_names[ix]] = "PASS" if testRun.testFailures[ix] else "FAIL"
-
-                for k,v in sorted(pass_dict.items()):
-                    individual_tests_grid.append((k,v))
-
-                individual_tests = markdown.markdown("## Tests") + HtmlGeneration.grid(individual_tests_grid)
-            else:
-                individual_tests = ""
+            individualTestReport = self.individualTestReport(testRun)
 
             return self.wrapInHeader(
-                markdown.markdown("# Test\n") +
-                markdown.markdown("Test: %s\n" % testId) +
-                markdown.markdown("## Commit ") + 
-                self.commitLink(testRun.test.commitData.commit).render() + 
-                markdown.markdown("##") + 
-                self.testLogsButton(testId).render() + 
-                markdown.markdown("## Artifacts\n") +
-                (HtmlGeneration.grid(grid) if grid else "") + 
-                individual_tests,
-                [testRun]
+                tabs("test_tab", [
+                    ("Artifacts", artifacts, "artifacts"),
+                    ("Individual Tests", individualTestReport, "tests_individual")
+                    ]),
+                testRun
                 )
+
+    def individualTestReport(self, testRun):
+        if testRun.totalTestCount:
+            individual_tests_grid = [["TEST_NAME", "PASSED"]]
+            pass_dict = {}
+
+            for ix in xrange(len(testRun.testNames.test_names)):
+                pass_dict[testRun.testNames.test_names[ix]] = "PASS" if testRun.testFailures[ix] else "FAIL"
+
+            for k,v in sorted(pass_dict.items()):
+                individual_tests_grid.append((k,v))
+
+            return HtmlGeneration.grid(individual_tests_grid)
+        else:
+            return card("No Individual Tests Reported")
+
+    def artifactsForTestRunGrid(self, testRun):
+        grid = [["Artifact", "Size"]]
+
+        commit = testRun.test.commitData.commit
+
+        if testRun.test.testDefinition.matches.Build:
+            build_key = testRun.test.testDefinition.name.replace("/","_") + ".tar.gz"
+
+            if self.artifactStorage.build_exists(commit.repo.name, commit.hash, build_key):
+                grid.append([
+                    HtmlGeneration.link(build_key, self.buildDownloadUrl(commit.repo.name, commit.hash, build_key)),
+                    bytesToHumanSize(self.artifactStorage.build_size(commit.repo.name, commit.hash, build_key))
+                    ])
+            else:
+                logging.info("No build found at %s", build_key)
+
+        for artifactName, sizeInBytes in self.artifactStorage.testResultKeysForWithSizes(commit.repo.name, commit.hash, testRun._identity):
+            grid.append([
+                HtmlGeneration.link(
+                    artifactName,
+                    self.testResultDownloadUrl(testRun._identity, artifactName)
+                    ),
+                bytesToHumanSize(sizeInBytes)
+                ])
+
+        if not grid:
+            return card("No Test Artifacts produced")
+
+        return HtmlGeneration.grid(grid)
+
 
     def test_contents(self, testId, key):
         with self.testManager.database.view():
@@ -629,7 +740,14 @@ class Renderer:
     def buildDownloadUrl(self, repoName, commitHash, key):
         return self.address + "/build_contents?" + urllib.urlencode({"key": key, "repoName": repoName, "commitHash": commitHash})
 
-    def allTestsLink(self, text, commit, testName, failuresOnly=False):
+    def testUrl(self, test):
+        return "/allTestRuns?" + urllib.urlencode({
+            "repoName": test.commitData.commit.repo.name,
+            "commitHash": test.commitData.commit.hash,
+            "testName": test.testDefinition.name
+            })
+
+    def testLink(self, text, commit, testName, failuresOnly=False):
         extras = {}
 
         if failuresOnly:
@@ -689,8 +807,8 @@ class Renderer:
     def branchLink(self, branch):
         return HtmlGeneration.link(branch.branchname, self.branchUrl(branch))
 
-    def branchUrl(self, branch, showPins=False):
-        args = {"reponame": branch.repo.name, "branchname": branch.branchname, 'showPins': showPins}
+    def branchUrl(self, branch):
+        args = {"reponame": branch.repo.name, "branchname": branch.branchname}
         return self.address + "/branch?" + urllib.urlencode(args)
 
 
@@ -810,7 +928,7 @@ class Renderer:
                 
             return self.wrapInHeader(
                 HtmlGeneration.grid(grid),
-                ["machines"]
+                "machines"
                 )
 
     @HtmlWrapper
@@ -837,7 +955,7 @@ class Renderer:
                 row = []
 
                 row.append(
-                    self.allTestsLink(t.testDefinition.name, commit, t.testDefinition.name)
+                    self.testLink(t.testDefinition.name, commit, t.testDefinition.name)
                     )
                 row.append("") #self.clearTestLink(t.fullname))
                 row.append(
@@ -942,7 +1060,7 @@ class Renderer:
             else:
                 res = header + HtmlGeneration.grid(grid)
 
-            return self.wrapInHeader(res, [commit])
+            return self.wrapInHeader(res, commit)
 
     
     def testDependencySummary(self, t):
@@ -963,44 +1081,48 @@ class Renderer:
             if not commit.data:
                 return self.errorPage("Commit hasn't been imported yet")
 
-            testTypes = self.testManager.database.Test.lookupAll(commitData=commit.data)
+            test = [x for x in 
+                self.testManager.database.Test.lookupAll(commitData=commit.data)
+                    if x.testDefinition.name == testName][0]
 
-            if testName is not None:
-                testTypes = [x for x in testTypes if x.testDefinition.name == testName]
+            testRuns = self.testManager.database.TestRun.lookupAll(test=test)
 
-            tests = []
-            for test in testTypes:
-                tests.extend(self.testManager.database.TestRun.lookupAll(test=test))
-            
-            tests = sorted(tests, key=lambda test: -test.startedTimestamp)
-            
-            if failuresOnly:
-                tests = [x for x in tests if not x.success and x.endTimestamp > 0.0]
+            grid = self.gridForTestList_(testRuns, commit=commit, failuresOnly=failuresOnly)
 
-            grid = self.gridForTestList_(tests, commit=commit, failuresOnly=failuresOnly)
+            testDeps = HtmlGeneration.grid(self.allTestDependencyGrid(test))
 
-            header = ""
+            if len(testRuns) == 1:
+                extra_tabs = [
+                    ("Artifacts", self.artifactsForTestRunGrid(testRuns[0]), "artifacts"),
+                    ("Individual Tests", self.individualTestReport(testRuns[0]), "tests_individual")
+                    ]
+            else:
+                extra_tabs = []
 
-            if testName and len(testTypes) == 1:
-                header += markdown.markdown("### Test Dependencies:\n") + HtmlGeneration.grid(self.allTestDependencyGrid(testTypes[0]))
-
-            return self.wrapInHeader(header + HtmlGeneration.grid(grid), [testTypes[0] if testTypes else commit])
+            return self.wrapInHeader(
+                tabs("test", [
+                    ("Individual Test Runs", HtmlGeneration.grid(grid), "testruns"), 
+                    ("Test Dependencies", testDeps, "testdeps")
+                    ] + extra_tabs),
+                test
+                )
 
     def allTestDependencyGrid(self, test):
-        grid = [["COMMIT", "TEST"]]
+        grid = [["COMMIT", "TEST", ""]]
 
         for subtest in self.testManager.allTestsDependedOnByTest(test):
             grid.append([
-                self.commitLink(subtest.commitData.commit, textIsSubject=False),
-                    self.allTestsLink(subtest.testDefinition.name, subtest.commitData.commit, subtest.testDefinition.name)
+                self.wellNamedCommitLinkAsStr(subtest.commitData.commit),
+                    self.testLink(subtest.testDefinition.name, subtest.commitData.commit, subtest.testDefinition.name),
+                    TestSummaryRenderer(self, [test]).renderSummary()
                 ])
 
         for dep in self.testManager.database.UnresolvedTestDependency.lookupAll(test=test):
-            grid.append(["Unresolved Test", dep.dependsOnName])
+            grid.append(["Unresolved Test", dep.dependsOnName,""])
         for dep in self.testManager.database.UnresolvedSourceDependency.lookupAll(test=test):
-            grid.append(["Unresolved Commit", dep.repo.name + "/" + dep.commitHash])
+            grid.append(["Unresolved Commit", dep.repo.name + "/" + dep.commitHash, ""])
         for dep in self.testManager.database.UnresolvedRepoDependency.lookupAll(test=test):
-            grid.append(["Unresolved Repo", dep.reponame + "/" + dep.commitHash])
+            grid.append(["Unresolved Repo", dep.reponame + "/" + dep.commitHash, ""])
 
         return grid
 
@@ -1044,7 +1166,7 @@ class Renderer:
 
             return self.wrapInHeader(
                 HtmlGeneration.PreformattedTag(text).render(),
-                [commit, env]
+                commit
                 )
 
     def testRunLink(self, testRun, text_override=None):
@@ -1288,12 +1410,15 @@ class Renderer:
     def deployments(self):
         grid = HtmlGeneration.grid(self.deploymentsGrid())
         
-        return self.wrapInHeader(grid, ["deployments"])
+        return self.wrapInHeader(grid, "deployments")
 
     def branchesLink(self, reponame, text=None):
         return HtmlGeneration.link(text or reponame, self.branchesUrl(reponame))
 
     def branchesUrl(self, reponame, groupings=None):
+        if isinstance(reponame, self.testManager.database.Repo):
+            reponame = reponame.name
+
         return self.address + "/branches?" + urllib.urlencode({'repoName':reponame,'groupings':groupings})
 
     def deploymentsGrid(self):
@@ -1371,7 +1496,7 @@ class Renderer:
 
         grid = HtmlGeneration.grid(headers+grid, header_rows=len(headers))
         
-        return self.wrapInHeader(grid, ["repos"])
+        return self.wrapInHeader(grid, "repos")
 
     def primaryBranchForRepo(self, repo):
         branches = [b for b in self.testManager.database.Branch.lookupAll(repo=repo)
@@ -1432,6 +1557,10 @@ class Renderer:
 
         return True
 
+    def reposUrl(self, newInstructions=None):
+        return "/repos?" + urllib.urlencode({'groupings':json.dumps(newInstructions)} if newInstructions else {})
+
+            
     def reposGrid(self, groupingInstructions):
         groupingInstructions = None
 
@@ -1456,12 +1585,9 @@ class Renderer:
 
                 test_rows[r] = self.allTestsForCommit(best_commit[r]) if best_commit[r] else []
 
-            def reposUrlWithGroupings(newInstructions):
-                return "/repos?" + urllib.urlencode({'groupings':json.dumps(newInstructions)} if newInstructions else {})
-
             renderer = TestGridRenderer(test_rows, list(repos), groupingInstructions)
 
-            grid_headers = renderer.getGridHeaders(reposUrlWithGroupings)
+            grid_headers = renderer.getGridHeaders(self.reposUrl)
 
             for additionalHeader in reversed(["REPO NAME", "BRANCH COUNT", "COMMITS", "TOP TESTED COMMIT"]):
                 grid_headers = [[""] + g for g in grid_headers]
@@ -1477,7 +1603,7 @@ class Renderer:
                 branches = self.testManager.database.Branch.lookupAll(repo=repo)
 
                 if best_commit[repo] and best_commit[repo].userPriority:
-                    testRow = renderer.render_row(repo, reposUrlWithGroupings)
+                    testRow = renderer.render_row(repo, self.reposUrl)
                 else:
                     testRow = [""] * len(renderer.columnsInOrder())
 
@@ -1496,25 +1622,14 @@ class Renderer:
 
         grid = HtmlGeneration.grid(headers+grid, header_rows=len(headers))
         
-        refresh_branches = markdown.markdown(
-            "### Refresh Branches button"
-            ).replace("button", 
-                HtmlGeneration.Link(
-                    "/refresh?" + urllib.urlencode({"redirect": self.redirect()}),
-                    '<span class="octicon octicon-sync " aria-hidden="true" />',
-                    is_button=True,
-                    button_style='btn-outline-dark btn-xs',
-                    hover_text='Refresh branches'
-                    ).render()
-                )
         with self.testManager.database.view():
             return self.wrapInHeader(
-                refresh_branches + grid, 
+                grid, 
                 [self.testManager.database.Repo.lookupOne(name=repoName)]
                 )
 
     @HtmlWrapper
-    def branch(self, reponame, branchname, max_commit_count=100, showPins=False):
+    def branch(self, reponame, branchname, max_commit_count=100):
         t0 = time.time()
         with self.testManager.database.view():
             branch = self.testManager.database.Branch.lookupAny(reponame_and_branchname=(reponame,branchname))
@@ -1522,33 +1637,25 @@ class Renderer:
             if branch is None:
                 return self.errorPage("Branch %s/%s doesn't exist" % (reponame, branchname))
 
-            if showPins == "True":
-                pinGrid = self.pinGridWithUpdateButtons(branch)
+            pinGrid = self.pinGridWithUpdateButtons(branch)
 
-                if len(pinGrid) > 1:
-                    pinContents = (
-                        markdown.markdown("## Branch Pins") + 
-                        HtmlGeneration.grid(pinGrid)
-                        )
-                else:
-                    pinContents = """
-                    <div class="card">
-                      <div class="card-body">
-                        Branch has no pins.
-                      </div>
-                    </div>
-                    """
-
-                return self.wrapInHeader(pinContents, [branch, "pins"])
-            else:
-                return self.wrapInHeader(
-                    self.testDisplayForCommits(
-                        reponame,
-                        self.testManager.commitsToDisplayForBranch(branch, max_commit_count), 
-                        branch
-                        ),
-                    [branch, "commits"]
+            if len(pinGrid) > 1:
+                pinContents = (
+                    HtmlGeneration.grid(pinGrid)
                     )
+            else:
+                pinContents = card("Branch has no pins.")
+
+            commitContents = self.testDisplayForCommits(
+                reponame,
+                self.testManager.commitsToDisplayForBranch(branch, max_commit_count), 
+                branch
+                )
+
+            return self.wrapInHeader(
+                tabs("branchtab", [("Commits", commitContents, 'commit'), ("Branch Pins", pinContents, 'pins')]),
+                branch
+                )
 
     def collapseName(self, name, env):
         name = "/".join([p.split(":")[0] for p in name.split("/")])
