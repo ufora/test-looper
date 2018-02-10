@@ -19,14 +19,14 @@ import os
 import json
 import cgi
 
-import test_looper.core.DirectoryScope as DirectoryScope
+import test_looper.core.tools.Git as Git
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.core.algebraic_to_json as algebraic_to_json
+import re
 
 HtmlGeneration = reload(HtmlGeneration)
-
 
 def bytesToHumanSize(bytes):
     if bytes is None:
@@ -399,6 +399,23 @@ class Renderer:
     def getCurrentLogin(self):
         return self.httpServer.getCurrentLogin()
 
+
+    def splitEnvNameIntoCommitAndEnv(self, environment_name):
+        tokens = environment_name.split("/")
+        for i in xrange(len(tokens)):
+            if Git.isShaHash(tokens[i]):
+                repoName = "/".join(tokens[:i])
+                hash = tokens[i]
+                envName = "/".join(tokens[i+1:])
+
+                repo = self.testManager.database.Repo.lookupAny(name=repoName)
+                if repo:
+                    commit = self.testManager.database.Commit.lookupAny(repo_and_hash=(repo, hash))
+                    if commit:
+                        return commit, envName
+
+        return None, environment_name
+
     def commonHeader(self, currentObject):
         headers = []
 
@@ -492,6 +509,17 @@ class Renderer:
             nav_links.append(
                 (octicon("file-directory") + '<span class="px-1"/>' + testRun._identity[:8], "", isActive, [])
                 )
+
+        def addEnvironment(env, isActive):
+            commit, envName = self.splitEnvNameIntoCommitAndEnv(env.environment_name)
+
+            if commit:
+                addCommit(commit, False)
+                addSpacer()
+
+            nav_links.append(
+                (octicon("server") + '<span class="px-1"/>Environment ' + envName, "", isActive, [])
+                )
             
         if currentObject:
             if isinstance(currentObject, self.testManager.database.Repo):
@@ -509,6 +537,9 @@ class Renderer:
 
             if isinstance(currentObject, self.testManager.database.TestRun):
                 addTestRun(currentObject, True)
+
+            if hasattr(currentObject, "environment_name"):
+                addEnvironment(currentObject, True)
                 
         
         headers += ["""
@@ -1085,6 +1116,12 @@ class Renderer:
 
             testDeps = HtmlGeneration.grid(self.allTestDependencyGrid(test))
 
+            testDefs = card(
+                '<pre class="language-yaml"><code class="line-numbers">%s</code></pre>' % cgi.escape(
+                    algebraic_to_json.encode_and_dump_as_yaml(test.testDefinition)
+                    )
+                )
+
             if len(testRuns) == 1:
                 extra_tabs = [
                     ("Artifacts", self.artifactsForTestRunGrid(testRuns[0]), "artifacts"),
@@ -1095,8 +1132,9 @@ class Renderer:
 
             return self.wrapInHeader(
                 tabs("test", [
-                    ("Individual Test Runs", HtmlGeneration.grid(grid), "testruns"), 
-                    ("Test Dependencies", testDeps, "testdeps")
+                    ("Test Suite Runs", HtmlGeneration.grid(grid), "testruns"), 
+                    ("Test Dependencies", testDeps, "testdeps"),
+                    ("Test Definition", testDefs, "testdefs"),
                     ] + extra_tabs),
                 test
                 )
@@ -1159,8 +1197,8 @@ class Renderer:
             text = algebraic_to_json.encode_and_dump_as_yaml(env)
 
             return self.wrapInHeader(
-                HtmlGeneration.PreformattedTag(text).render(),
-                commit
+                card('<pre class="language-yaml"><code class="line-numbers">%s</code></pre>' % cgi.escape(text)),
+                env
                 )
 
     def testRunLink(self, testRun, text_override=None):

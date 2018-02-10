@@ -16,6 +16,37 @@ import test_looper.core.algebraic as algebraic
 import logging
 import json
 import yaml
+import re
+
+def setupYamlDumper():
+    try:
+        # Use the native code backends, if available.   
+        from yaml import CSafeLoader as Loader, CDumper as Dumper
+    except ImportError:
+        from yaml import SafeLoader as Loader, Dumper
+
+    def string_representer(dumper, value):
+        style = None
+
+        # If it has newlines, request a block style.
+        if "\n" in value:
+            style = "|"
+
+        # if it looks like an identifier, use no style
+        if re.match(r"^[a-zA-Z0-9_\-/]+$", value) and len(value) < 60:
+            style = ''
+
+        return dumper.represent_scalar(u'tag:yaml.org,2002:str', value, style=style)
+
+    Dumper.add_representer(str, string_representer)
+    Dumper.add_representer(unicode, string_representer)
+    Dumper.add_representer(bool, lambda dumper, value : \
+        dumper.represent_scalar(u'tag:yaml.org,2002:bool', u"true" if value else u"false"))
+    Dumper.add_representer(type(None), lambda dumper, value : \
+        dumper.represent_scalar(u'tag:yaml.org,2002:null', u"~"))
+
+
+setupYamlDumper()
 
 class Encoder(object):
     """An algebraic <---> json encoder.

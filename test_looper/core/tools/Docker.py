@@ -61,8 +61,6 @@ class MissingImageError(Exception):
 def killAllWithNamePrefix(name_prefix):
     all_containers = docker_client.containers.list()
 
-    print "found ", [c.name for c in all_containers]
-
     toKill = 0
 
     for c in all_containers:
