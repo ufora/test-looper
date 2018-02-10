@@ -17,6 +17,7 @@ import simplejson
 import struct
 import os
 import json
+import cgi
 
 import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.core.SubprocessRunner as SubprocessRunner
@@ -945,123 +946,116 @@ class Renderer:
             if not commit.data:
                 return self.errorPage("Commit hasn't been imported yet")
 
-            tests = self.testManager.database.Test.lookupAll(commitData=commit.data)
-            
-            tests = sorted(tests, key=lambda test: test.fullname)
-            
-            grid = [["TEST", "", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "FAILED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", "", "TEST_DEPS"]]
+            commitTestGrid = self.commitTestGrid(commit)
 
-            for t in tests:
-                row = []
-
-                row.append(
-                    self.testLink(t.testDefinition.name, commit, t.testDefinition.name)
-                    )
-                row.append("") #self.clearTestLink(t.fullname))
-                row.append(
-                    HtmlGeneration.Link(self.bootTestOrEnvUrl(t.fullname),
-                       "BOOT",
-                       is_button=True,
-                       new_tab=True,
-                       button_style=self.disable_if_cant_write('btn-primary btn-xs')
-                       )
-                    )
-
-                row.append(self.environmentLink(t, t.testDefinition.environment_name))
-
-                row.append(str(t.activeRuns))
-                row.append(str(t.totalRuns))
-                row.append(str(t.totalRuns - t.successes))
-
-                def stringifyPriority(calculatedPriority, priority):
-                    if priority.matches.UnresolvedDependencies:
-                        if t.fullyResolvedEnvironment.matches.Unresolved:
-                            return "UnresolvedEnvironmentDependencies"
-                        return "UnresolvedDependencies"
-                    if priority.matches.HardwareComboUnbootable:
-                        return "HardwareComboUnbootable"
-                    if priority.matches.InvalidTestDefinition:
-                        return "InvalidTestDefinition"
-                    if priority.matches.WaitingOnBuilds:
-                        return "WaitingOnBuilds"
-                    if priority.matches.NoMoreTests:
-                        return "HaveEnough"
-                    if priority.matches.DependencyFailed:
-                        return "DependencyFailed"
-                    if (priority.matches.WantsMoreTests or priority.matches.FirstTest or priority.matches.FirstBuild):
-                        return "WaitingForHardware"
-                    if priority.matches.WaitingToRetry:
-                        return "WaitingToRetry"
-
-                    return "Unknown"
-
-                row.append(stringifyPriority(t.calculatedPriority, t.priority))
-
-                all_tests = list(self.testManager.database.TestRun.lookupAll(test=t))
-                all_noncanceled_tests = [testRun for testRun in all_tests if not testRun.canceled]
-                finished_tests = [testRun for testRun in all_noncanceled_tests if testRun.endTimestamp > 0.0]
-
-                if t.totalRuns:
-                    if t.totalRuns == 1:
-                        #don't want to convert these to floats
-                        row.append("%d" % t.totalTestCount)
-                        row.append("%d" % t.totalFailedTestCount)
-                    else:
-                        row.append(str(t.totalTestCount / float(t.totalRuns)))
-                        row.append(str(t.totalFailedTestCount / float(t.totalRuns)))
-
-                    if finished_tests:
-                        row.append(secondsUpToString(sum([testRun.endTimestamp - testRun.startedTimestamp for testRun in finished_tests]) / len(finished_tests)))
-                    else:
-                        row.append("")
-                else:
-                    row.append("")
-                    row.append("")
-                    
-                    if all_noncanceled_tests:
-                        row.append(secondsUpToString(sum([time.time() - testRun.startedTimestamp for testRun in all_noncanceled_tests]) / len(all_noncanceled_tests)) + " so far")
-                    else:
-                        row.append("")
-
-
-                runButtons = []
-
-                for testRun in all_noncanceled_tests:
-                    runButtons.append(self.testLogsButton(testRun._identity).render())
-
-                row.append(" ".join(runButtons))
-                row.append(self.testDependencySummary(t))
-
-                grid.append(row)
-
-            header = ""
-
-            if commit.data.testDefinitionsError:
-                raw_text, extension = self.testManager.getRawTestFileForCommit(commit)
-                try:
-                    if extension is None:
-                        post_expansion_text = ""
-                    else:
-                        expansion = TestDefinitionScript.extract_postprocessed_test_definitions(extension, raw_text)
-                        post_expansion_text = markdown.markdown("#### After macro expansion") + \
-                            HtmlGeneration.PreformattedTag(yaml.dump(expansion)).render()
-                except Exception as e:
-                    post_expansion_text = markdown.markdown("#### Error parsing and expanding macros") + \
-                        HtmlGeneration.PreformattedTag(traceback.format_exc()).render()
-
-                res = (
-                    header + 
-                    markdown.markdown("## Invalid Test Definitions\n\n#### ERROR") + 
-                    HtmlGeneration.PreformattedTag(commit.data.testDefinitionsError).render() + 
-                    markdown.markdown("#### Raw Test File") + 
-                    HtmlGeneration.PreformattedTag(raw_text).render() + 
-                    post_expansion_text
-                    )
-            else:
-                res = header + HtmlGeneration.grid(grid)
+            res = tabs("commit", [
+                ("Tests", HtmlGeneration.grid(commitTestGrid), "commit_tests"),
+                ("Test Definitions", self.commitTestDefinitionsInfo(commit), "commit_test_defs")
+                ])
 
             return self.wrapInHeader(res, commit)
 
+
+    def commitTestDefinitionsInfo(self, commit):
+        raw_text, extension = self.testManager.getRawTestFileForCommit(commit)
+
+        return card('<pre class="language-yaml"><code class="line-numbers">%s</code></pre>' % cgi.escape(raw_text))
+
+
+    def commitTestGrid(self, commit):
+        tests = self.testManager.database.Test.lookupAll(commitData=commit.data)
+        
+        if not tests:
+            return card("Commit defined no tests. Maybe look at the test definitions?")
+
+        tests = sorted(tests, key=lambda test: test.fullname)
+        
+        grid = [["TEST", "", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "FAILED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", "", "TEST_DEPS"]]
+
+        for t in tests:
+            row = []
+
+            row.append(
+                self.testLink(t.testDefinition.name, commit, t.testDefinition.name)
+                )
+            row.append("") #self.clearTestLink(t.fullname))
+            row.append(
+                HtmlGeneration.Link(self.bootTestOrEnvUrl(t.fullname),
+                   "BOOT",
+                   is_button=True,
+                   new_tab=True,
+                   button_style=self.disable_if_cant_write('btn-primary btn-xs')
+                   )
+                )
+
+            row.append(self.environmentLink(t, t.testDefinition.environment_name))
+
+            row.append(str(t.activeRuns))
+            row.append(str(t.totalRuns))
+            row.append(str(t.totalRuns - t.successes))
+
+            def stringifyPriority(calculatedPriority, priority):
+                if priority.matches.UnresolvedDependencies:
+                    if t.fullyResolvedEnvironment.matches.Unresolved:
+                        return "UnresolvedEnvironmentDependencies"
+                    return "UnresolvedDependencies"
+                if priority.matches.HardwareComboUnbootable:
+                    return "HardwareComboUnbootable"
+                if priority.matches.InvalidTestDefinition:
+                    return "InvalidTestDefinition"
+                if priority.matches.WaitingOnBuilds:
+                    return "WaitingOnBuilds"
+                if priority.matches.NoMoreTests:
+                    return "HaveEnough"
+                if priority.matches.DependencyFailed:
+                    return "DependencyFailed"
+                if (priority.matches.WantsMoreTests or priority.matches.FirstTest or priority.matches.FirstBuild):
+                    return "WaitingForHardware"
+                if priority.matches.WaitingToRetry:
+                    return "WaitingToRetry"
+
+                return "Unknown"
+
+            row.append(stringifyPriority(t.calculatedPriority, t.priority))
+
+            all_tests = list(self.testManager.database.TestRun.lookupAll(test=t))
+            all_noncanceled_tests = [testRun for testRun in all_tests if not testRun.canceled]
+            finished_tests = [testRun for testRun in all_noncanceled_tests if testRun.endTimestamp > 0.0]
+
+            if t.totalRuns:
+                if t.totalRuns == 1:
+                    #don't want to convert these to floats
+                    row.append("%d" % t.totalTestCount)
+                    row.append("%d" % t.totalFailedTestCount)
+                else:
+                    row.append(str(t.totalTestCount / float(t.totalRuns)))
+                    row.append(str(t.totalFailedTestCount / float(t.totalRuns)))
+
+                if finished_tests:
+                    row.append(secondsUpToString(sum([testRun.endTimestamp - testRun.startedTimestamp for testRun in finished_tests]) / len(finished_tests)))
+                else:
+                    row.append("")
+            else:
+                row.append("")
+                row.append("")
+                
+                if all_noncanceled_tests:
+                    row.append(secondsUpToString(sum([time.time() - testRun.startedTimestamp for testRun in all_noncanceled_tests]) / len(all_noncanceled_tests)) + " so far")
+                else:
+                    row.append("")
+
+
+            runButtons = []
+
+            for testRun in all_noncanceled_tests:
+                runButtons.append(self.testLogsButton(testRun._identity).render())
+
+            row.append(" ".join(runButtons))
+            row.append(self.testDependencySummary(t))
+
+            grid.append(row)
+
+        return grid
     
     def testDependencySummary(self, t):
         """Return a single cell displaying all the builds this test depends on"""
