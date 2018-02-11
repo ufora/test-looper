@@ -10,7 +10,7 @@ import socket
 import sys
 import threading
 import time
-
+import yaml
 import test_looper.core.algebraic_to_json as algebraic_to_json
 import test_looper.core.Config as Config
 import test_looper.core.machine_management.MachineManagement as MachineManagement
@@ -22,6 +22,7 @@ import test_looper.server.TestLooperHttpServer as TestLooperHttpServer
 from test_looper.server.TestLooperHttpServerEventLog import TestLooperHttpServerEventLog
 import test_looper.server.TestLooperServer as TestLooperServer
 import test_looper.data_model.TestManager as TestManager
+import test_looper.data_model.ImportExport as ImportExport
 import test_looper.core.ArtifactStorage as ArtifactStorage
 
 def createArgumentParser():
@@ -40,6 +41,17 @@ def createArgumentParser():
     parser.add_argument("--repocheck",
                         action='store_true',
                         help="Print the set of known repos and exit")
+
+    parser.add_argument("--export",
+                        default=None,
+                        help="Export the state of the server to a file and exit."
+                        )
+
+    parser.add_argument("--import",
+                        default=None,
+                        dest="import_filename",
+                        help="Import the state of the server from a file and exit."
+                        )
 
     parser.add_argument("--auth",
                         choices=['full', 'write', 'none'],
@@ -102,6 +114,52 @@ def main():
     machine_management = MachineManagement.fromConfig(config, src_ctrl, artifact_storage)
 
     testManager = TestManager.TestManager(config.server_ports, src_ctrl, machine_management, jsonStore)
+
+    if parsedArgs.export:
+        with open(parsedArgs.export, "w") as f:
+            exporter = ImportExport.ImportExport(testManager)
+
+            res = exporter.export()
+            print >> f, yaml.dump(res)
+
+        totalCommits = 0
+        totalTests = 0
+        for repo in res["repos"].values():
+            for commit in repo["commits"].values():
+                totalCommits += 1
+                for test in commit["tests"].values():
+                    totalTests += len(test["runs"])
+
+        print "Wrote ", totalCommits, " commits and ", totalTests, " test runs to ", parsedArgs.export
+
+        sys.exit(0)
+
+
+    if parsedArgs.import_filename:
+        with open(parsedArgs.import_filename, "r") as f:
+            res = yaml.load(f.read())
+
+        testManager.markRepoListDirty(time.time())
+        while testManager.performBackgroundWork(time.time()):
+            pass
+
+        exporter = ImportExport.ImportExport(testManager)
+
+        errors = exporter.importResults(res)
+
+        if errors:
+            print "*****************"
+            print "import errors: "
+            for e in errors:
+                print "\t", e
+
+            sys.exit(1)
+        else:
+            print "imported successfully"
+
+            sys.exit(0)
+    
+
     
     httpServer = TestLooperHttpServer.TestLooperHttpServer(
         config.server_ports,

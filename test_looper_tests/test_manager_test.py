@@ -7,6 +7,7 @@ import sys
 import simplejson
 
 import test_looper_tests.common as common
+import test_looper.data_model.ImportExport as ImportExport
 import test_looper.data_model.TestManager as TestManager
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.core.Config as Config
@@ -1185,3 +1186,30 @@ class TestManagerTests(unittest.TestCase):
 
                 test = harness.database.Test.lookupOne(fullname=("repo3/c0/build_without_deps/linux"))
                 self.assertFalse(test.priority.matches.UnresolvedDependencies)
+
+    def test_manager_import_export(self):
+        harness = self.get_harness()
+
+        harness.add_content()
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        harness.enableBranchTesting("repo1", "master")
+        harness.enableBranchTesting("repo2", "master")
+        
+        phases = harness.doTestsInPhases()
+
+        exporter = ImportExport.ImportExport(harness.manager)
+        jsonRepresentation = exporter.export()
+
+        harness2 = self.get_harness()
+        harness2.add_content()
+        harness2.markRepoListDirty()
+        harness2.consumeBackgroundTasks()
+
+        importer = ImportExport.ImportExport(harness2.manager)
+        self.assertFalse(importer.importResults(jsonRepresentation, True))
+
+        self.assertEqual(importer.export(), jsonRepresentation)
+

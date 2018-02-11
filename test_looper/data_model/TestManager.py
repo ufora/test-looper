@@ -581,6 +581,29 @@ class TestManager(object):
 
             self._triggerTestPriorityUpdate(testRun.test)
 
+    def _importTestRun(self, test, identity, startedTimestamp, lastHeartbeat, endTimestamp, success, 
+                      canceled, testNameList, testFailureBits, testCount, failedTestCount):
+        
+        testRun = self.database.TestRun.New(
+            _identity=identity,
+            test=test,
+            startedTimestamp=startedTimestamp,
+            lastHeartbeat=lastHeartbeat,
+            endTimestamp=endTimestamp,
+            canceled=canceled,
+            success=success,
+            testNames=self._testNameSet(testNameList),
+            testFailures=Bitstring.Bitstring(testFailureBits),
+            totalTestCount=testCount,
+            totalFailedTestCount=failedTestCount
+            )
+
+        if success:
+            test.successes += 1
+
+        if not canceled:
+            test.totalRuns += 1
+
     def recordTestResults(self, success, testId, testSuccesses, curTimestamp):
         with self.transaction_and_lock():
             testRun = self.database.TestRun(str(testId))
@@ -664,6 +687,9 @@ class TestManager(object):
         with self.transaction_and_lock():
             self._checkAllTestPriorities(curTimestamp)
 
+    def _commitMightHaveTests(self, c):
+        return c.data and c.data.timestamp > OLDEST_TIMESTAMP_WITH_TESTS        
+
     def _allCommitsWithPossibilityOfTests(self):
         commits = set()
         to_check = set()
@@ -677,7 +703,7 @@ class TestManager(object):
             c = to_check.pop()
             if c not in commits:
                 commits.add(c)
-                if c.data and c.data.timestamp > OLDEST_TIMESTAMP_WITH_TESTS:
+                if c.data and self._commitMightHaveTests(c):
                     for child in c.data.parents:
                         if child not in commits:
                             to_check.add(child)
