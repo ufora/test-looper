@@ -102,6 +102,11 @@ class BranchPinning:
             #find all dirty autopins.
             pins = self.branchGetAllPinsAutopinnedToSelf(branch)
 
+            logging.info("Found the following branches pinned to %s: %s", 
+                branch.branchname, 
+                [pin.branch.repo.name + "/" + pin.branch.branchname + " as " + pin.repo_def for pin in pins]
+                )
+
             sourceCommits = {p: self.pinGetCurrentAndDesiredCommit(p)[0] for p in pins}
             desiredCommit = branch.head
 
@@ -120,8 +125,10 @@ class BranchPinning:
             for p in pins:
                 if p.branch not in res:
                     res[p.branch] = {}
-                
+
                 res[p.branch][p] = desiredCommit
+
+            logging.info("Updating the following branches %s", {b.branchname: {p.repo_def: res[b][p] for p in res[b]} for b in res})
 
             return res
         else:
@@ -270,6 +277,8 @@ class BranchPinning:
 
         branches = set(initialPinsToUpdate)
 
+        logging.info("Updating branches: %s", [b.branchname for b in branches])
+
         #now make a branch update ordering
         update_levels = GraphUtil.placeNodesInLevels(branches, self.branchGetAllBranchesAutopinnedToSelf)
 
@@ -290,6 +299,8 @@ class BranchPinning:
                 ])
 
         for branch in update_levels[0]:
+            logging.info("Checking root-level pin for branch %s", branch.branchname)
+
             assert branch in initialPinsToUpdate, "update level 0 should have only pins in our init set"
 
             for p in initialPinsToUpdate[branch]:
@@ -301,33 +312,51 @@ class BranchPinning:
                 standard_git_commit_message
                 )
 
+            if branch_new_hashes[branch] is None:
+                #we didn't actually update this pin. Ignore it
+                del branch_new_hashes[branch]
+                logging.info("Branch %s is already up to date.", branch.branchname)
+
+
         #now update downstream levels
+        level_ix = 1
         for level in update_levels[1:]:
+            logging.info("Checking a level %s", level_ix)
+
             for branch_to_update in level:
+                logging.info("Checking branch %s in level %s", branch_to_update.branchname, level_ix)
+
                 pins = self.branchGetAllAutopins(branch_to_update)
-                pins_to_update = {}
+
+                pins_to_update = {p: c.hash for p,c in initialPinsToUpdate.get(branch_to_update, {}).iteritems()}
 
                 for pin in pins:
                     pinned_to_branch = self.pinGetPinnedToBranchAndCommit(pin)[0]
                     if pinned_to_branch and pinned_to_branch in branch_new_hashes:
                         pins_to_update[pin] = branch_new_hashes[pinned_to_branch]
 
-                if pins_to_update and None not in pins_to_update.values():
+
+                if pins_to_update:
                     branch_new_hashes[branch_to_update] = self._updatePinsInCommitAndReturnHash(
                         branch_to_update,
                         pins_to_update,
                         standard_git_commit_message
                         )
-                else:
-                    branch_new_hashes[branch_to_update] = None
+                    if branch_new_hashes[branch_to_update] is None:
+                        #we didn't need to update this
+                        del branch_new_hashes[branch_to_update]
+                        logging.info("Branch %s is already up to date.", branch_to_update.branchname)
 
+            level_ix += 1
         res = []
         for level in update_levels:
-            res.append([(branch, branch_new_hashes[branch]) for branch in level])
+            res.append([(branch, branch_new_hashes[branch]) for branch in level if branch in branch_new_hashes])
 
         return res
 
     def _updatePinsInCommitAndReturnHash(self, branch, pinToNewCommitHash, rootCommitMessage):
+        assert pinToNewCommitHash
+
         repo = self.source_control.getRepo(branch.repo.name)
         path = repo.source_repo.getTestDefinitionsPath(branch.head.hash)
         branchCommitHash = branch.head.hash
@@ -340,6 +369,9 @@ class BranchPinning:
             raise Exception("Couldn't update pin")
 
         contents = repo.source_repo.getFileContents(branchCommitHash, path)
+        orig_contents = contents
+
+        anyPinsApplied = False
 
         for pin, newCommitHash in pinToNewCommitHash.iteritems():
             assert pin, "Branch %s/%s has no pin named %s" % (branch.repo.name, branch.branchname, pin.repo_def)
@@ -348,24 +380,31 @@ class BranchPinning:
 
             curCommitHash = pin.branch.head.data.repos[pin.repo_def].reference.split("/")[-1]
 
-            pat_text = r"\b({r})(\s*:\s*reference\s*:\s*)({tr}/{h})\b".format(r=pin.repo_def,h=curCommitHash, tr=target_repo_name)
+            if curCommitHash != newCommitHash:
+                pat_text = r"\b({r})(\s*:\s*reference\s*:\s*)({tr}/{h})\b".format(r=pin.repo_def,h=curCommitHash, tr=target_repo_name)
 
-            pattern = re.compile(pat_text, flags=re.MULTILINE)
+                pattern = re.compile(pat_text, flags=re.MULTILINE)
 
-            new_contents = re.sub(pattern, (r"\1\2" + target_repo_name + "/" + newCommitHash), contents)
+                new_contents = re.sub(pattern, (r"\1\2" + target_repo_name + "/" + newCommitHash), contents)
 
-            if contents == new_contents:
-                logging.error("Failed to update %s/%s (%s)'s reference to %s=%s/%s", 
-                    branch.repo.name,
-                    branch.branchname, 
-                    branchCommitHash,
-                    pin.repo_def, 
-                    target_repo_name,
-                    curCommitHash
-                    )
-                return None
+                if contents == new_contents:
+                    logging.error("Failed to update %s/%s_updatePinsInCommitAndReturnHash (%s)'s reference to %s=%s/%s", 
+                        branch.repo.name,
+                        branch.branchname, 
+                        branchCommitHash,
+                        pin.repo_def, 
+                        target_repo_name,
+                        curCommitHash
+                        )
+                    raise Exception("Failed to update the pin in the testDefinitions file.")
 
-            contents = new_contents
+                anyPinsApplied = True
+                contents = new_contents
+
+        if not anyPinsApplied:
+            return None
+
+        assert orig_contents != contents
 
         new_commit_message = "Updating pin%s %s:\n\n" % (
             's' if len(pinToNewCommitHash) > 1 else '',
@@ -377,4 +416,7 @@ class BranchPinning:
             {path:new_contents},
             new_commit_message
             )
+
+        assert new_hash
+
         return new_hash

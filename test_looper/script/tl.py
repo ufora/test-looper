@@ -195,27 +195,31 @@ class WorkerStateOverride(WorkerState.WorkerState):
 
         return True
 
-    def grabDependency(self, log_function, expose_as, dep, repoName, commitHash):
-        target_dir = os.path.join(self.directories.test_inputs_dir, expose_as)
+    def grabDependency(self, log_function, expose_as, dep, repoName, commitHash, worker_callback):
+        if expose_as is WorkerState.SOURCE_DIR:
+            self.extra_mappings[self.looperCtl.checkout_root_path(repoName, commitHash)] = \
+                "/test_looper/src"
+        else:
+            target_dir = os.path.join(self.directories.test_inputs_dir, expose_as)
 
-        if dep.matches.InternalBuild or dep.matches.ExternalBuild:
-            if dep.matches.ExternalBuild:
-                repoName, commitHash = dep.repo, dep.commitHash
+            if dep.matches.InternalBuild or dep.matches.ExternalBuild:
+                if dep.matches.ExternalBuild:
+                    repoName, commitHash = dep.repo, dep.commitHash
 
-            self.extra_mappings[
-                os.path.join(self.looperCtl.build_path(repoName, commitHash, dep.name), "build_output")
-                ] = os.path.join("/test_looper/test_inputs", expose_as)
+                self.extra_mappings[
+                    os.path.join(self.looperCtl.build_path(repoName, commitHash, dep.name), "build_output")
+                    ] = os.path.join("/test_looper/test_inputs", expose_as)
 
-            return None
+                return None
 
-        if dep.matches.Source:
-            self.extra_mappings[
-                self.looperCtl.checkout_root_path(dep.repo, dep.commitHash)
-                ] = os.path.join("/test_looper/test_inputs", expose_as)
+            if dep.matches.Source:
+                self.extra_mappings[
+                    self.looperCtl.checkout_root_path(dep.repo, dep.commitHash)
+                    ] = os.path.join("/test_looper/test_inputs", expose_as)
 
-            return None
+                return None
 
-        return "Unknown dependency type: %s" % dep
+            return "Unknown dependency type: %s" % dep
 
 
 class TestDefinitionResolverOverride(WorkerState.TestDefinitionResolver):
@@ -643,7 +647,12 @@ class TestLooperCtl:
         if len(possible) == 1:
             return possible[0]
         if len(possible) > 1:
+            #if it's an exact match, then use that.
+            if lookfor in possible:
+                return lookfor
+
             raise UserWarning("%s could refer to %s of %s" % (lookfor, "any" if len(possible) > 2 else "either", possible))
+
         return None
 
     def bestTest(self, reponame, test):
@@ -749,7 +758,9 @@ class TestLooperCtl:
         else:
             callbacks = WorkerState.DummyWorkerCallbacks(localTerminal=True)
 
-        if not worker_state.runTest("interactive", reponame, commit, testname, callbacks, interactive)[0]:
+        testDef = testDef._withReplacement(environment=self.resolver.resolveEnvironment(testDef.environment))
+
+        if not worker_state.runTest("interactive", reponame, commit, testname, callbacks, testDef, interactive)[0]:
             print "Build failed. Exiting."
             return False
         return True

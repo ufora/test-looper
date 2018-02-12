@@ -258,7 +258,7 @@ class WorkerState(object):
             self.directories.command_dir: "/test_looper/command"
             }
 
-    def _run_deployment(self, command, env, workerCallback, docker_image):
+    def _run_deployment(self, command, env, workerCallback, docker_image, extraPorts=None):
         build_log = StringIO.StringIO()
 
         self.dumpPreambleLog(build_log, env, docker_image, command)
@@ -378,6 +378,11 @@ class WorkerState(object):
             
             with DockerWatcher.DockerWatcher(self.name_prefix + str(uuid.uuid4()) + "_") as watcher:
                 if isinstance(workerCallback, DummyWorkerCallbacks) and workerCallback.localTerminal:
+                    kwargs = {}
+                    if extraPorts:
+                        logging.info("Exposing extra ports: %s", extraPorts)
+                        kwargs["ports"] = extraPorts
+
                     container = watcher.run(
                         docker_image,
                         ["/bin/bash", "/test_looper/command/cmd_invoker.sh"],
@@ -388,7 +393,8 @@ class WorkerState(object):
                         working_dir="/test_looper/src",
                         tty=True,
                         stdin_open=True,
-                        start=False
+                        start=False,
+                        **kwargs
                         )
                     import dockerpty
 
@@ -764,7 +770,7 @@ class WorkerState(object):
 
         return None
 
-    def runTest(self, testId, repoName, commitHash, testName, workerCallback, testDefinition, isDeploy):
+    def runTest(self, testId, repoName, commitHash, testName, workerCallback, testDefinition, isDeploy, extraPorts=None):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
         self.cleanup()
 
@@ -787,7 +793,7 @@ class WorkerState(object):
                     log_function("Build already exists\n")
                     return True, {}
                 
-                return self._run_task(testId, repoName, commitHash, testDefinition, log_function, workerCallback, isDeploy)
+                return self._run_task(testId, repoName, commitHash, testDefinition, log_function, workerCallback, isDeploy, extraPorts)
             except KeyboardInterrupt:
                 log_function("\nInterrupted by Ctrl-C\n")
                 return False, {}
@@ -981,7 +987,7 @@ class WorkerState(object):
 
         return environment, all_dependencies, test_definition
 
-    def _run_task(self, testId, repoName, commitHash, test_definition, log_function, workerCallback, isDeploy):
+    def _run_task(self, testId, repoName, commitHash, test_definition, log_function, workerCallback, isDeploy, extraPorts):
         try:
             environment, all_dependencies, test_definition = \
                 self.getEnvironmentAndDependencies(testId, repoName, commitHash, test_definition, log_function, workerCallback)
@@ -1025,7 +1031,7 @@ class WorkerState(object):
                          command)
 
             if isDeploy:
-                self._run_deployment(command, test_definition.variables, workerCallback, image)
+                self._run_deployment(command, test_definition.variables, workerCallback, image, extraPorts=extraPorts)
                 return False, {}
             else:
                 log_function(time.asctime() + " TestLooper> Starting Test Run\n")
