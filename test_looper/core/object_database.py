@@ -140,7 +140,7 @@ class DatabaseObject(object):
     @classmethod
     def methods_from(cls, other):
         for method_name, method in other.__dict__.iteritems():
-            if not method_name.startswith("__"):
+            if not method_name.startswith("__") or method_name in ["__str__", "__repr__"]:
                 setattr(cls, method_name, method)
 
     @classmethod

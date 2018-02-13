@@ -11,6 +11,13 @@ expr.Add = {'l': expr, 'r': expr}
 expr.Sub = {'l': expr, 'r': expr}
 expr.Mul = {'l': expr, 'r': expr}
 
+expr.__str__ = lambda self: (
+    "Constant(%s)" % self.value if self.matches.Constant else
+    "Add(%s,%s)" % (self.l,self.r) if self.matches.Add else
+    "Sub(%s,%s)" % (self.l,self.r) if self.matches.Sub else
+    "Mul(%s,%s)" % (self.l,self.r) if self.matches.Mul else "<unknown>"
+    )
+
 def initialize_types(db):
     db.Root.define(
         obj=db.Object
@@ -24,6 +31,8 @@ def initialize_types(db):
     class CounterMethods:
         def f(self):
             return self.k + 1
+        def __str__(self):
+            return "Counter(k=%s)" % self.k
 
     db.Counter.define(k=int).methods_from(CounterMethods)
 
@@ -39,6 +48,7 @@ class ObjectDatabaseTests(unittest.TestCase):
             counter = db.Counter.New()
             counter.k = 2
             self.assertEqual(counter.f(), 3)
+            self.assertEqual(str(counter), "Counter(k=2)")
 
     def test_basic(self):
         mem_store = InMemoryJsonStore.InMemoryJsonStore()

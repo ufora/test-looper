@@ -8,6 +8,7 @@ import test_looper.core.machine_management.MachineManagement as MachineManagemen
 BackgroundTaskStatus = algebraic.Alternative("BackgroundTaskStatus")
 BackgroundTaskStatus.PendingVeryHigh = {}
 BackgroundTaskStatus.PendingHigh = {}
+BackgroundTaskStatus.PendingMedium = {}
 BackgroundTaskStatus.PendingLow = {}
 BackgroundTaskStatus.Running = {}
 

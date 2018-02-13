@@ -20,6 +20,7 @@ import test_looper.data_model.TestDefinitionResolver as TestDefinitionResolver
 
 pendingVeryHigh = Types.BackgroundTaskStatus.PendingVeryHigh()
 pendingHigh = Types.BackgroundTaskStatus.PendingHigh()
+pendingMedium = Types.BackgroundTaskStatus.PendingMedium()
 pendingLow = Types.BackgroundTaskStatus.PendingLow()
 running = Types.BackgroundTaskStatus.Running()
 
@@ -996,6 +997,7 @@ class TestManager(object):
             logging.info("Tasks pending: %s", 
                 len(self.database.DataTask.lookupAll(status=pendingVeryHigh) +
                         self.database.DataTask.lookupAll(status=pendingHigh) +
+                        self.database.DataTask.lookupAll(status=pendingMedium) +
                     self.database.DataTask.lookupAll(status=pendingLow)))
             logging.info("Total commits: %s",
                 sum([r.commits for r in  self.database.Repo.lookupAll(isActive=True)])
@@ -1005,6 +1007,8 @@ class TestManager(object):
                 task = self.database.DataTask.lookupAny(status=pendingVeryHigh)
                 if task is None:
                     task = self.database.DataTask.lookupAny(status=pendingHigh)
+                if task is None:
+                    task = self.database.DataTask.lookupAny(status=pendingMedium)
                 if task is None:
                     task = self.database.DataTask.lookupAny(status=pendingLow)
 
@@ -1032,6 +1036,8 @@ class TestManager(object):
             task = self.database.DataTask.lookupAny(status=pendingVeryHigh)
             if task is None:
                 task = self.database.DataTask.lookupAny(status=pendingHigh)
+            if task is None:
+                task = self.database.DataTask.lookupAny(status=pendingMedium)
             if task is None:
                 task = self.database.DataTask.lookupAny(status=pendingLow)
 
@@ -1377,6 +1383,20 @@ class TestManager(object):
         if not branch.head.data:
             self._updateCommitData(branch.head)
 
+        needingAnyBranchSet = set()
+        if branch.head:
+            needingAnyBranchSet.add(branch.head)
+
+        while needingAnyBranchSet:
+            commit = needingAnyBranchSet.pop()
+            if not commit.anyBranch:
+                commit.anyBranch = branch
+                self._triggerCommitPriorityUpdate(commit)
+                if commit.data:
+                    for p in commit.data.parents:
+                        needingAnyBranchSet.add(p)
+
+
     def _computeCommitPriority(self, commit):
         if commit.anyBranch:
             return commit.userPriority
@@ -1405,7 +1425,7 @@ class TestManager(object):
                 commit.calculatedPriority,
                 priority
                 )
-            
+
             commit.calculatedPriority = priority
             changed = True
 
@@ -1992,7 +2012,7 @@ class TestManager(object):
     def _triggerCommitPriorityUpdate(self, commit):
         self.database.DataTask.New(
             task=self.database.BackgroundTask.UpdateCommitPriority(commit=commit),
-            status=pendingHigh
+            status=pendingMedium
             )
 
     def _triggerTestPriorityUpdate(self, test):
