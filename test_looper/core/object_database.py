@@ -361,6 +361,28 @@ class DatabaseView(object):
         
         return tuple([type(str(x)) for x in identities])
 
+    def indexLookupAny(self, type, **kwargs):
+        assert len(kwargs) == 1, "Can only lookup one index at a time."
+        tname, value = kwargs.items()[0]
+
+        if type.__name__ not in self._db._indices or tname not in self._db._indices[type.__name__]:
+            raise Exception("No index enabled for %s.%s" % (type.__name__, tname))
+
+        if not hasattr(_cur_view, "view"):
+            raise Exception("Please access indices from within a view.")
+
+        keyname = index_key(type.__name__, tname, value)
+
+        if keyname in self._writes:
+            identities = self._writes[keyname]
+        else:
+            identities = self._db._get_versioned_object_data(keyname, self._transaction_num)[0]
+            
+        if not identities:
+            return None
+        
+        return type(str(identities[0]))
+
     def commit(self):
         if not self._writeable:
             raise Exception("Views are static. Please open a transaction.")
@@ -397,12 +419,6 @@ class DatabaseView(object):
             self.commit()
 
         self._db._releaseView(self)
-
-    def indexLookupAny(self, type, **kwargs):
-        res = self.indexLookup(type, **kwargs)
-        if not res:
-            return None
-        return res[0]
 
     def indexLookupOne(self, type, **kwargs):
         res = self.indexLookup(type, **kwargs)
