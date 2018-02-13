@@ -1170,6 +1170,11 @@ class TestManager(object):
                 try:
                     branch = self.database.Branch.lookupOne(reponame_and_branchname=(db_repo.name, branchname))
                     if not branch.head or branch.head.hash != branchHash:
+                        logging.info("Branch head %s looks dirty (%s != %s). Updating. ", 
+                            branch.repo.name + "/" + branch.branchname, 
+                            branch.head.hash if branch.head else "<none>",
+                            branchHash
+                            )
                         self._scheduleUpdateBranchTopCommit(branch)
                 except:
                     logging.error("Error scheduling branch commit lookup:\n\n%s", traceback.format_exc())
@@ -1382,12 +1387,25 @@ class TestManager(object):
         branch = self._calcCommitAnybranch(commit)
         changed = False
         if branch != commit.anyBranch:
+            logging.info("Commit %s/%s changed anybranch from %s to %s", 
+                commit.repo.name,
+                commit.hash,
+                commit.anyBranch.branchname if commit.anyBranch else "<none>",
+                branch.branchname if branch else "<none>"
+                )
             commit.anyBranch = branch
             changed = True
 
         priority = self._computeCommitPriority(commit)
         
         if priority != commit.calculatedPriority:
+            logging.info("Commit %s/%s changed priority from %s to %s", 
+                commit.repo.name,
+                commit.hash,
+                commit.calculatedPriority,
+                priority
+                )
+            
             commit.calculatedPriority = priority
             changed = True
 
