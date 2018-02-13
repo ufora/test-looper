@@ -118,7 +118,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
         if repoVarName in reservedNames:
             raise Exception("%s is a reserved name and can't be used as a reponame." % repoVarName)
 
-        if repoPin.matches.Reference or repoPin.matches.Pin:
+        if repoPin.matches.Reference or repoPin.matches.Pin or repoPin.matches.ImportedReference:
             repoDef = repoPin.reference
 
             assert len(repoDef.split("/")) >= 2, "Improperly formed repo definition: %s" % repoDef
@@ -514,7 +514,7 @@ def extract_postprocessed_test_definitions(extension, text):
 
 def parseRepoReference(encoder, value):
     if isinstance(value, (str, unicode)):
-        return RepoReference.Reference(str(value))
+        return RepoReference.Reference(reference=str(value))
     return algebraic_to_json.Encoder().from_json(value, RepoReference)
 
 def parseVariableDict(encoder, value):

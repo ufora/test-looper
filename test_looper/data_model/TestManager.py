@@ -1143,9 +1143,9 @@ class TestManager(object):
 
             repo.source_repo.fetchOrigin()
 
-            branchnames = repo.listBranches()
+            branchnamesAndHashes = repo.source_repo.listBranchesForRemote("origin")
 
-            branchnames_set = set(branchnames)
+            branchnames_set = set(branchnamesAndHashes)
 
             db_repo = task.repo
 
@@ -1166,11 +1166,11 @@ class TestManager(object):
             for newname in branchnames_set - set([x.branchname for x in db_branches]):
                 newbranch = self.database.Branch.New(branchname=newname, repo=db_repo)
 
-            for branchname in branchnames:
+            for branchname, branchHash in branchnamesAndHashes.iteritems():
                 try:
-                    self._scheduleUpdateBranchTopCommit(
-                        self.database.Branch.lookupOne(reponame_and_branchname=(db_repo.name, branchname))
-                        )
+                    branch = self.database.Branch.lookupOne(reponame_and_branchname=(db_repo.name, branchname))
+                    if not branch.head or branch.head.hash != branchHash:
+                        self._scheduleUpdateBranchTopCommit(branch)
                 except:
                     logging.error("Error scheduling branch commit lookup:\n\n%s", traceback.format_exc())
 
@@ -1293,7 +1293,7 @@ class TestManager(object):
             def getRepo(reponame):
                 if not self.database.Repo.lookupAny(name=reponame):
                     return None
-                return self.source_control.getRepo(reponame)
+                return self.source_control.getRepo(reponame).source_repo
 
             resolver = TestDefinitionResolver.TestDefinitionResolver(getRepo)
 

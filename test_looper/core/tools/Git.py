@@ -252,7 +252,7 @@ class Git(object):
 
             return [l for l in output if l and self.isValidBranchName_(l)]
     
-    def branchnameForCommitSloppy(self, hash, remoteName="origin", maxSearchDepth=1000):
+    def branchnameForCommitSloppy(self, hash, remoteName="origin", maxSearchDepth=100):
         """Try to return a name for the commit relative to a branch.
 
         Note that this doesn't handle merge commits correctly
@@ -273,13 +273,30 @@ class Git(object):
             else:
                 return branch + "~%s" % ix
 
-    def listBranchesForRemote(self, remote):
+    def listCurrentlyKnownBranchesForRemote(self, remote):
+        """List the branches we currently know about"""
         with self.git_repo_lock:
             lines = self.subprocessCheckOutput(['git', 'branch', '-r']).strip().split('\n')
             lines = [l[:l.find(" -> ")].strip() if ' -> ' in l else l.strip() for l in lines]
             lines = [l[7:].strip() for l in lines if l.startswith("origin/")]
 
             return [r for r in lines if r != "HEAD"]
+
+    def listBranchesForRemote(self, remote):
+        """Check the remote and return a map from branchname->hash"""
+        with self.git_repo_lock:
+            lines = self.subprocessCheckOutput(['git', 'ls-remote', remote]).strip().split('\n')
+
+        res = {}
+        for l in lines:
+            if l.strip():
+                hashcode, refname = l.split("\t", 1)
+                hashcode = hashcode.strip()
+                refname = refname.strip()
+                if refname.startswith("refs/heads/"):
+                    res[refname[len("refs/heads/"):]] = hashcode
+
+        return res
 
     def standardCommitMessageFor(self, commitHash):
         with self.git_repo_lock:

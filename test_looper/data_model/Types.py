@@ -60,6 +60,7 @@ def setup_types(database):
         subject=str,
         timestamp=int,
         commitMessage=str,
+        author=str,
         testDefinitions=algebraic.Dict(str, TestDefinition.TestDefinition),
         environments=algebraic.Dict(str, TestDefinition.TestEnvironment),
         repos=algebraic.Dict(str, TestDefinition.RepoReference),

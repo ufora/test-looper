@@ -97,6 +97,16 @@ class MockGitRepo:
     def fetchOrigin(self):
         pass
 
+    def listBranchesForRemote(self, remote):
+        if remote != "origin":
+            return {}
+        res = {}
+        for branch, commitId in self.repo.source_control.branch_to_commitId.iteritems():
+            if branch.startswith(self.repo.repoName + "/"):
+                res[branch[len(self.repo.repoName + "/"):]] = commitId.split("/")[-1]
+
+        return res
+
     def commitExists(self, branchOrHash):
         return self.repo.commitExists(branchOrHash)
 

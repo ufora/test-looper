@@ -47,9 +47,13 @@ class GitTests(unittest.TestCase):
 
         self.assertTrue("new_branch" in dep_repo.listBranchesForRemote('origin'))
 
-        self.assertTrue("new_branch" not in dep_repo2.listBranchesForRemote('origin'))
-        dep_repo2.fetchOrigin()
+
+        self.assertTrue("new_branch" not in dep_repo2.listCurrentlyKnownBranchesForRemote('origin'))
         self.assertTrue("new_branch" in dep_repo2.listBranchesForRemote('origin'))
+
+        dep_repo2.fetchOrigin()
+        
+        self.assertTrue("new_branch" in dep_repo2.listCurrentlyKnownBranchesForRemote('origin'))
 
         h2_2_info, h2_info = dep_repo.hashParentsAndCommitTitleForMulti(h2_2, 2)
 

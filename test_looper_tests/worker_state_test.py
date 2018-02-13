@@ -17,6 +17,7 @@ import test_looper.core.ArtifactStorage as ArtifactStorage
 import test_looper.core.source_control.ReposOnDisk as ReposOnDisk
 import test_looper.core.machine_management.MachineManagement as MachineManagement
 import test_looper.core.SubprocessRunner as SubprocessRunner
+import test_looper.data_model.TestDefinitionResolver as TestDefinitionResolver
 import test_looper.server.TestLooperServer as TestLooperServer
 import docker
 
@@ -106,8 +107,8 @@ class WorkerStateTests(unittest.TestCase):
         return source_repo, repoName, commitHash, worker
 
     def get_fully_resolved_definition(self, workerState, repoName, commitHash, testName):
-        resolver = WorkerState.TestDefinitionResolver(workerState.getRepoCacheByName)
-        test_definition = resolver.testAndEnvironmentDefinitionFor(repoName, commitHash)[0][testName]
+        resolver = TestDefinitionResolver.TestDefinitionResolver(workerState.getRepoCacheByName)
+        test_definition = resolver.fullyResolvedTestEnvironmentAndRepoDefinitionsFor(repoName, commitHash)[0][testName]
 
         environment = resolver.resolveEnvironment(test_definition.environment)
         environment = TestDefinition.apply_environment_substitutions(environment)

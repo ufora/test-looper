@@ -8,6 +8,11 @@ class MissingDependencyException(Exception):
         self.reponame = reponame
         self.commitHash = commitHash
 
+    def __str__(self):
+        if self.commitHash is None:
+            return "MissingDependencyException(repo=%s)" % self.reponame
+        return "MissingDependencyException(repo=%s, commit=%s)" % (self.reponame, self.commitHash)
+
 class TestDefinitionResolver:
     def __init__(self, git_repo_lookup):
         self.git_repo_lookup = git_repo_lookup
@@ -24,6 +29,8 @@ class TestDefinitionResolver:
             if dep in dependencies:
                 return
 
+            assert not dep.matches.UnresolvedReference, dep
+
             underlying_env = self.environmentDefinitionFor(dep.repo, dep.commitHash, dep.name)
 
             assert underlying_env is not None, "Can't find environment for %s/%s/%s" % (dep.repo, dep.commitHash, dep.name)
@@ -39,11 +46,7 @@ class TestDefinitionResolver:
 
         merged = TestDefinition.merge_environments(environment, dependencies)
 
-        if merged.matches.Import:
-            raise Exception("Environment didn't resolve to a real environment: inheritance is %s", merged.inheritance)
-
         return TestDefinition.apply_environment_substitutions(merged)
-
 
     def environmentDefinitionFor(self, repoName, commitHash, envName):
         return self.testEnvironmentAndRepoDefinitionsFor(repoName, commitHash)[1].get(envName)
@@ -52,10 +55,16 @@ class TestDefinitionResolver:
         tests, envs, repos = self.testEnvironmentAndRepoDefinitionsFor(repoName, commitHash)
 
         envs = {e:self.resolveEnvironment(env) for e,env in envs.iteritems()}
+
         tests = {t: test._withReplacement(
                         environment=self.resolveEnvironment(test.environment)
                         )
                 for t, test in tests.iteritems()}
+
+        bad_test_envs = [t for t in tests if not tests[t].environment.matches.Environment]
+
+        if bad_test_envs:
+            raise Exception("Tests %s resolved to environments that didn't specify an image or platform" % bad_test_envs)
 
         return tests, envs, repos
 
@@ -66,38 +75,47 @@ class TestDefinitionResolver:
 
         return self.definitionCache[(repoName, commitHash)]
 
-    def testEnvironmentAndRepoDefinitionsFor_(self, repoName, commitHash):
+    def testDefinitionTextAndExtensionFor(self, repoName, commitHash):
         repo = self.git_repo_lookup(repoName)
 
         if not repo:
             raise MissingDependencyException(repoName, None)
 
-        if not repo.source_repo.commitExists(commitHash):
+        if not repo.commitExists(commitHash):
             raise MissingDependencyException(repoName, commitHash)
 
-        path = repo.source_repo.getTestDefinitionsPath(commitHash)
+        path = repo.getTestDefinitionsPath(commitHash)
 
         if path is None:
+            return None, None
+
+        testText = repo.getFileContents(commitHash, path)
+
+        return testText, os.path.splitext(path)[1]
+
+        
+    def testEnvironmentAndRepoDefinitionsFor_(self, repoName, commitHash):
+        textAndExtension = self.testDefinitionTextAndExtensionFor(repoName, commitHash)
+
+        if textAndExtension is None or textAndExtension[1] is None:
             return {}, {}, {}
 
-        testText = repo.source_repo.getFileContents(commitHash, path)
-
         tests, envs, repos = \
-            TestDefinitionScript.extract_tests_from_str(repoName, commitHash, os.path.splitext(path)[1], testText)
+            TestDefinitionScript.extract_tests_from_str(repoName, commitHash, textAndExtension[1], textAndExtension[0])
 
         resolved_repos = {}
         resolved_tests = {}
         resolved_envs = {}
 
-        def resolveRepoRef(ref, pathSoFar):
-            if ref in pathSoFar:
+        def resolveRepoRef(refName, ref, pathSoFar):
+            if refName in pathSoFar:
                 raise Exception("Circular repo-refs: %s" % pathSoFar)
 
             if not ref.matches.Import:
                 return ref
             
-            if ref in resolved_repos:
-                return resolved_repos[ref]
+            if refName in resolved_repos:
+                return resolved_repos[refName]
 
             importSeq = getattr(ref, "import").split("/")
 
@@ -106,9 +124,12 @@ class TestDefinitionResolver:
                     importSeq[0]
                     ))
 
-            subref = resolveRepoRef(repos[importSeq[0]], pathSoFar + (ref,))
+            subref_parent_repo = repoName
+            subref = resolveRepoRef(importSeq[0], repos[importSeq[0]], pathSoFar + (ref,))
 
             for s in importSeq[1:]:
+                subref_parent_repo = subref.reponame()
+
                 repos_for_subref = self.testEnvironmentAndRepoDefinitionsFor(subref.reponame(), subref.commitHash())[2]
 
                 if s not in repos_for_subref:
@@ -120,9 +141,15 @@ class TestDefinitionResolver:
                 assert not subref.matches.Import
 
             #make sure it's not a pin - we don't want to create a pin for it!
-            subref = TestDefinition.RepoReference.Reference(subref.reference)
+            subref = TestDefinition.RepoReference.ImportedReference(
+                reference=subref.reference,
+                import_source=getattr(ref, "import"),
+                orig_reference="" if subref.matches.Reference
+                    else subref.orig_reference if subref.matches.ImportedReference 
+                    else subref_parent_repo + "/" + subref.branch
+                )
 
-            resolved_repos[ref] = subref
+            resolved_repos[refName] = subref
 
             return subref
 
@@ -205,7 +232,7 @@ class TestDefinitionResolver:
             raise Exception("Circular test dependency found: %s" % (" -> ".join(cycle)))
 
         for r in repos:
-            resolved_repos[r] = resolveRepoRef(repos[r], (r,))
+            resolved_repos[r] = resolveRepoRef(r, repos[r], ())
 
         for e in envs:
             resolved_envs[e] = resolveEnvironment(envs[e])

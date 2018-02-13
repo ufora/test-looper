@@ -228,7 +228,7 @@ class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolv
         TestDefinitionResolver.TestDefinitionResolver.__init__(self, looperCtl.getGitRepo)
         self.looperCtl = looperCtl
 
-    def testEnvironmentAndRepoDefinitionsFor(self, repoName, commitHash):
+    def testDefinitionTextAndExtensionFor(self, repoName, commitHash):
         if commitHash in self.looperCtl.cur_checkouts.get(repoName, []):
             root_path = self.looperCtl.checkout_root_path(repoName, commitHash)
 
@@ -236,13 +236,13 @@ class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolv
                 path = Git.Git.getTestDefinitionsPathFromDir(root_path)
 
                 if not path:
-                    return {}, {}, {}
+                    return None
 
                 text = open(os.path.join(root_path, path), "r").read()
 
-                return TestDefinitionScript.extract_tests_from_str(repoName, commitHash, os.path.splitext(path)[1], text)
+                return text, os.path.splitext(path)[1]
 
-        return TestDefinitionResolver.TestDefinitionResolver.testEnvironmentAndRepoDefinitionsFor(self, repoName, commitHash)
+        return TestDefinitionResolver.TestDefinitionResolver.testDefinitionTextAndExtensionFor(self, repoName, commitHash)
 
 class TestLooperCtl:
     def __init__(self, root_path):
@@ -258,6 +258,11 @@ class TestLooperCtl:
         try:
             state_file_path = os.path.join(self.root_path, ".tl", "state.yml")
 
+            if not os.path.exists(state_file_path):
+                self.cur_checkouts = {}
+                self.checkout_root = (None, None)
+                return
+        
             with open(state_file_path, "r") as f:
                 state = yaml.load(f.read())
 
@@ -571,27 +576,37 @@ class TestLooperCtl:
 
         git_repo = self.getGitRepo(repo)
         
-        for branchname in git_repo.listBranchesForRemote("origin"):
-            print "\t", branchname, " -> ", git_repo.hashParentsAndCommitTitleFor("origin/" + branchname)[0]
+        for branchname, sha_hash in git_repo.listBranchesForRemote("origin").iteritems():
+            print "\t", branchname, " -> ", sha_hash
 
-        try:
-            commit = self.commitForRepo(repo)
-        except:
-            return
+        for commit in self.commitsForRepo(repo):
+            tests, environments, repos = self.resolver.fullyResolvedTestEnvironmentAndRepoDefinitionsFor(repo, commit)
 
-        tests, environments, repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(repo, commit)
+            print self.cur_checkouts[repo][commit], " -> ", commit
 
-        print "checked out to: ", commit
+            print "\tbuilds: "
+            for test, testDef in tests.iteritems():
+                if testDef.matches.Build:
+                    print "\t\t", test
 
-        print "\tbuilds: "
-        for test, testDef in tests.iteritems():
-            if testDef.matches.Build:
-                print "\t\t", test
+            print "\ttests: "
+            for test, testDef in tests.iteritems():
+                if testDef.matches.Test:
+                    print "\t\t", test
 
-        print "\ttests: "
-        for test, testDef in tests.iteritems():
-            if testDef.matches.Test:
-                print "\t\t", test
+            print "\trepos: "
+            for repo, repoDef in repos.iteritems():
+                if repoDef.matches.Pin:
+                    print "\t\t", repo, "->", "/".join(repoDef.reference.split("/")[:-1] + [repoDef.branch]), "=", repoDef.commitHash()
+
+            print "\trepo imports: "
+            for repo, repoDef in repos.iteritems():
+                if repoDef.matches.ImportedReference:
+                    print "\t\t", repo, "from", repoDef.import_source, "=", repoDef.orig_reference, "=", repoDef.commitHash()
+
+            print "\tenvironments: "
+            for envName, envDef in environments.iteritems():
+                print "\t\t", envName
 
     def bestRepo(self, reponame):
         if reponame in self.allRepoNames:
@@ -622,7 +637,7 @@ class TestLooperCtl:
             if self.repoIsNotIgnored(reponame):
                 f(reponame, committish)
 
-            _,_,repos = self.resolver.testAndEnvironmentDefinitionFor(reponame, committish)
+            _,_,repos = self.resolver.fullyResolvedTestEnvironmentAndRepoDefinitionsFor(reponame, committish)
 
             for v in repos.values():
                 walk(v.reponame(), v.commitHash())

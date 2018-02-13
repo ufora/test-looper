@@ -35,6 +35,7 @@ EnvironmentReference.UnresolvedReference = {"repo_name": str, "name": str}
 
 RepoReference = algebraic.Alternative("RepoReference")
 RepoReference.Import = {"import": str} # /-separated sequence of repo refs
+RepoReference.ImportedReference = {"reference": str, "import_source": str, "orig_reference": str}
 RepoReference.Reference = {"reference": str}
 RepoReference.Pin = {
     "reference": str,
@@ -199,35 +200,47 @@ def merge_environments(import_environment, underlying_environments):
 
     order_by_name = [o.environment_name for o in order]
 
-    assert len([e for e in order if e.matches.Environment]) == 1, "Can't depend on two different non-import environments: %s" % order_by_name
-
-    actual_environment = [e for e in order if e.matches.Environment][0]
+    assert len([e for e in order if e.matches.Environment]) <= 1, \
+        "Can't depend on two different non-import environments: %s" % order_by_name
 
     environment_name = order[0].environment_name
     inheritance = [e.environment_name for e in order[1:]]
-    platform = actual_environment.platform
-    image = actual_environment.image
-
-    extra_setups = [e.setup_script_contents for e in order if e.matches.Import and e.setup_script_contents]
-
-    if extra_setups:
-        image = merge_image_and_extra_setup(actual_environment.image, "\n".join(reversed(extra_setups)))
-    
+        
     variables = order[-1].variables
     dependencies = order[-1].dependencies
+
+    extra_setups = [e.setup_script_contents for e in order if e.matches.Import and e.setup_script_contents]
 
     for e in reversed(order[:-1]):
         variables = merge_dicts(variables, e.variables)
         dependencies = merge_dicts(dependencies, e.dependencies)
 
-    return TestEnvironment.Environment(
-        environment_name=environment_name,
-        inheritance=inheritance,
-        platform=platform,
-        image=image,
-        variables=variables,
-        dependencies=dependencies
-        )
+    if len([e for e in order if e.matches.Environment]) == 1:
+        actual_environment = [e for e in order if e.matches.Environment][0]
+
+        platform = actual_environment.platform
+        image = actual_environment.image
+
+        if extra_setups:
+            image = merge_image_and_extra_setup(actual_environment.image, "\n".join(reversed(extra_setups)))
+        
+        return TestEnvironment.Environment(
+            environment_name=environment_name,
+            inheritance=inheritance,
+            platform=platform,
+            image=image,
+            variables=variables,
+            dependencies=dependencies
+            )
+    else:
+        return TestEnvironment.Import(
+            environment_name=environment_name,
+            inheritance=inheritance,
+            variables=variables,
+            dependencies=dependencies,
+            imports=(),
+            setup_script_contents="\n".join(reversed(extra_setups))
+            )
 
 def substitute_variables_in_image(image, vars):
     if image.matches.AMI:
