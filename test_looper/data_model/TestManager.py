@@ -1045,6 +1045,8 @@ class TestManager(object):
         try:
             with self.transaction_and_lock():
                 self._processTask(testDef, curTimestamp)
+        except KeyboardInterrupt:
+            raise
         except:
             traceback.print_exc()
             logging.error("Exception processing task %s:\n\n%s", testDef, traceback.format_exc())

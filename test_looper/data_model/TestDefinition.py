@@ -34,7 +34,7 @@ EnvironmentReference.Reference = {"repo": str, "commitHash": str, "name": str}
 EnvironmentReference.UnresolvedReference = {"repo_name": str, "name": str}
 
 RepoReference = algebraic.Alternative("RepoReference")
-RepoReference.Import = {"import": str} #dot-escaped sequence of repo refs
+RepoReference.Import = {"import": str} # /-separated sequence of repo refs
 RepoReference.Reference = {"reference": str}
 RepoReference.Pin = {
     "reference": str,

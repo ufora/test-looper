@@ -99,20 +99,30 @@ class TestDefinitionResolver:
             if ref in resolved_repos:
                 return resolved_repos[ref]
 
-            importSeq = getattr(ref, "import").split(".")
+            importSeq = getattr(ref, "import").split("/")
 
-            subref = resolveRepoRef(importSeq[0], pathSoFar + (ref,))
+            if importSeq[0] not in repos:
+                raise Exception("Can't resolve reference to repo def %s" % (
+                    importSeq[0]
+                    ))
+
+            subref = resolveRepoRef(repos[importSeq[0]], pathSoFar + (ref,))
 
             for s in importSeq[1:]:
-                repos = self.testEnvironmentAndRepoDefinitionsFor(subref.reponame(), subref.commitHash())[2]
+                repos_for_subref = self.testEnvironmentAndRepoDefinitionsFor(subref.reponame(), subref.commitHash())[2]
 
-                if s not in repos:
+                if s not in repos_for_subref:
                     raise Exception("Can't resolve reference %s because %s/%s doesn't have %s" % 
                         (importSeq, subref.reponame(), subref.commitHash(), s))
 
-                subref = repos[s]
+                subref = repos_for_subref[s]
 
                 assert not subref.matches.Import
+
+            #make sure it's not a pin - we don't want to create a pin for it!
+            subref = TestDefinition.RepoReference.Reference(subref.reference)
+
+            resolved_repos[ref] = subref
 
             return subref
 

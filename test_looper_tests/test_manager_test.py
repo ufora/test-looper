@@ -220,6 +220,13 @@ class MockRepo:
 
 basic_yml_file_repo0 = """
 looper_version: 2
+environments:
+  repo0_env:
+    platform: linux
+    image:
+      dockerfile_contents: hi
+    variables:
+      ENV: repo0
 """
 
 basic_yml_file_repo1 = """
@@ -433,6 +440,32 @@ builds:
   build1/e1:
     dependencies:
      input: build2/e1
+"""
+
+basic_yml_file_repo9_import_child_refs = """
+looper_version: 2
+repos:
+  repo2_ref: repo2/c0
+  repo0c0_ref: 
+    import: repo2_ref/child/repo0c0
+  repo1c0_ref: 
+    import: repo2_ref/child
+environments:
+  repo0_env: 
+    base: repo0c0_ref/repo0_env
+  repo1_env: 
+    base: repo1c0_ref/linux
+  repo2_env: 
+    base: repo2_ref/linux
+builds:
+  build/repo0_env:
+    command: hi
+  build/repo1_env:
+    dependencies:
+     input: repo1_ref/build/linux
+  build/repo2_env:
+    dependencies:
+     input: repo2_ref/build_without_deps/linux
 """
 
 class TestManagerTestHarness:
@@ -1273,3 +1306,28 @@ class TestManagerTests(unittest.TestCase):
 
         self.assertEqual(importer.export(), jsonRepresentation)
 
+    def test_child_repo_refs(self):
+        harness = self.get_harness()
+
+        harness.add_content()
+        harness.manager.source_control.addCommit("repo9/c0", [], basic_yml_file_repo9_import_child_refs)
+        harness.manager.source_control.setBranch("repo9/master", "repo9/c0")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        with harness.database.view():
+            c = harness.getCommit("repo9/c0")
+            test0 = harness.database.Test.lookupAny(fullname=("repo9/c0/build/repo0_env"))
+            test1 = harness.database.Test.lookupAny(fullname=("repo9/c0/build/repo1_env"))
+            test2 = harness.database.Test.lookupAny(fullname=("repo9/c0/build/repo2_env"))
+       
+            self.assertTrue(test0)
+            self.assertTrue(test1)
+            self.assertTrue(test2) 
+
+            self.assertEqual(test0.testDefinition.environment.variables['ENV'], "repo0")
+            self.assertEqual(test1.testDefinition.environment.variables['ENV_VAR'], "LINUX")
+            self.assertEqual(test2.testDefinition.environment.variables['ENV_VAR_2'], "LINUX_2")
+
+basic_yml_file_repo9_import_child_refs
