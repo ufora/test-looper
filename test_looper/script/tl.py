@@ -379,7 +379,8 @@ class TestLooperCtl:
             
             if not self.repos[reponame].cloneFrom(clone_root):
                 del self.repos[reponame]
-                shutil.rmtree(clone_root)
+                if os.path.exists(clone_root):
+                    shutil.rmtree(clone_root)
                 return None
             else:
                 print "Cloned " + clone_root + " into " + self.repos[reponame].path_to_repo
@@ -410,10 +411,7 @@ class TestLooperCtl:
             repo.pushCommit(hash, branchname, force=False, createBranch=True)
 
     def checkout(self, args):
-        if args.from_name or args.orphan:
-            reponame = args.repo
-        else:
-            reponame = self.bestRepo(args.repo)
+        reponame = self.bestRepo(args.repo)
 
         repo = self.getGitRepo(reponame)
 
@@ -600,6 +598,10 @@ class TestLooperCtl:
         
         for path in sorted(self.repo_prefixes_to_strip, key=len):
             if path + reponame in self.allRepoNames:
+                return path + reponame
+
+        for path in sorted(self.repo_prefixes_to_strip, key=len):
+            if self.getGitRepo(path + reponame):
                 return path + reponame
 
         return reponame
