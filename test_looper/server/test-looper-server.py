@@ -160,6 +160,10 @@ def main():
             sys.exit(0)
     
 
+    print "Before booting, cleaning up old tasks..."
+    while testManager.performBackgroundWorkSynchronously(time.time(), 100):
+        pass
+
     
     httpServer = TestLooperHttpServer.TestLooperHttpServer(
         config.server_ports,
