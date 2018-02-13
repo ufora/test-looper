@@ -605,6 +605,8 @@ class TestManager(object):
         if not canceled:
             test.totalRuns += 1
 
+        self._triggerTestPriorityUpdate(testRun.test)
+
     def recordTestResults(self, success, testId, testSuccesses, curTimestamp):
         with self.transaction_and_lock():
             testRun = self.database.TestRun(str(testId))
@@ -986,6 +988,37 @@ class TestManager(object):
 
         self._triggerTestPriorityUpdate(testRun.test)
 
+    def performBackgroundWorkSynchronously(self, curTimestamp, count):
+        with self.transaction_and_lock():
+            logging.info("Tasks pending: %s", 
+                len(self.database.DataTask.lookupAll(status=pendingVeryHigh) +
+                        self.database.DataTask.lookupAll(status=pendingHigh) +
+                    self.database.DataTask.lookupAll(status=pendingLow)))
+
+            for i in xrange(count):
+                task = self.database.DataTask.lookupAny(status=pendingVeryHigh)
+                if task is None:
+                    task = self.database.DataTask.lookupAny(status=pendingHigh)
+                if task is None:
+                    task = self.database.DataTask.lookupAny(status=pendingLow)
+
+                if task is None:
+                    return
+                    
+                task.status = running
+
+                testDef = task.task
+
+                try:
+                    self._processTask(testDef, curTimestamp)
+                except:
+                    traceback.print_exc()
+                    logging.error("Exception processing task %s:\n\n%s", testDef, traceback.format_exc())
+                finally:
+                    task.delete()
+
+        return testDef
+
     def performBackgroundWork(self, curTimestamp):
         with self.transaction_and_lock():
             task = self.database.DataTask.lookupAny(status=pendingVeryHigh)
@@ -1002,7 +1035,8 @@ class TestManager(object):
             testDef = task.task
 
         try:
-            self._processTask(testDef, curTimestamp)
+            with self.transaction_and_lock():
+                self._processTask(testDef, curTimestamp)
         except:
             traceback.print_exc()
             logging.error("Exception processing task %s:\n\n%s", testDef, traceback.format_exc())
@@ -1061,109 +1095,100 @@ class TestManager(object):
         if task.matches.RefreshRepos:
             all_repos = set(self.source_control.listRepos())
 
-            with self.transaction_and_lock():
-                repos = self.database.Repo.lookupAll(isActive=True)
+            repos = self.database.Repo.lookupAll(isActive=True)
 
-                for r in repos:
-                    if r.name not in all_repos:
-                        r.isActive = False
+            for r in repos:
+                if r.name not in all_repos:
+                    r.isActive = False
 
-                existing = set([x.name for x in repos])
+            existing = set([x.name for x in repos])
 
-                for new_repo_name in all_repos - existing:
-                    r = self.database.Repo.lookupAny(name=new_repo_name)
-                    if r:
-                        r.isActive = True
-                    else:
-                        r = self._createRepo(new_repo_name)
+            for new_repo_name in all_repos - existing:
+                r = self.database.Repo.lookupAny(name=new_repo_name)
+                if r:
+                    r.isActive = True
+                else:
+                    r = self._createRepo(new_repo_name)
 
-                for r in self.database.Repo.lookupAll(isActive=True):
-                    self.database.DataTask.New(
-                        task=self.database.BackgroundTask.RefreshBranches(r),
-                        status=pendingVeryHigh
-                        )
-
-        elif task.matches.RefreshBranches:
-            with self.transaction_and_lock():
-                repo = self.source_control.getRepo(task.repo.name)
-
-                try:
-                    if not self.source_control.isWebhookInstalled(task.repo.name, self.server_port_config):
-                        self.source_control.installWebhook(
-                            task.repo.name, 
-                            self.server_port_config
-                            )
-                except:
-                    logging.error("Tried to install webhook for %s but failed: %s", 
-                        task.repo.name,
-                        traceback.format_exc()
-                        )
-
-                repo.source_repo.fetchOrigin()
-
-                branchnames = repo.listBranches()
-
-                branchnames_set = set(branchnames)
-
-                db_repo = task.repo
-
-                db_branches = self.database.Branch.lookupAll(repo=db_repo)
-
-                logging.info(
-                    "Comparing branchlist from server: %s to local: %s", 
-                    sorted(branchnames_set), 
-                    sorted([x.branchname for x in db_branches])
+            for r in self.database.Repo.lookupAll(isActive=True):
+                self.database.DataTask.New(
+                    task=self.database.BackgroundTask.RefreshBranches(r),
+                    status=pendingVeryHigh
                     )
 
-                final_branches = tuple([x for x in db_branches if x.branchname in branchnames_set])
-                for branch in db_branches:
-                    if branch.branchname not in branchnames_set:
-                        self._branchDeleted(branch)
-                        branch.delete()
+        elif task.matches.RefreshBranches:
+            repo = self.source_control.getRepo(task.repo.name)
 
-                for newname in branchnames_set - set([x.branchname for x in db_branches]):
-                    newbranch = self.database.Branch.New(branchname=newname, repo=db_repo)
+            try:
+                if not self.source_control.isWebhookInstalled(task.repo.name, self.server_port_config):
+                    self.source_control.installWebhook(
+                        task.repo.name, 
+                        self.server_port_config
+                        )
+            except:
+                logging.error("Tried to install webhook for %s but failed: %s", 
+                    task.repo.name,
+                    traceback.format_exc()
+                    )
 
-                for branchname in branchnames:
-                    try:
-                        self._scheduleUpdateBranchTopCommit(
-                            self.database.Branch.lookupOne(reponame_and_branchname=(db_repo.name, branchname))
-                            )
-                    except:
-                        logging.error("Error scheduling branch commit lookup:\n\n%s", traceback.format_exc())
+            repo.source_repo.fetchOrigin()
+
+            branchnames = repo.listBranches()
+
+            branchnames_set = set(branchnames)
+
+            db_repo = task.repo
+
+            db_branches = self.database.Branch.lookupAll(repo=db_repo)
+
+            logging.info(
+                "Comparing branchlist from server: %s to local: %s", 
+                sorted(branchnames_set), 
+                sorted([x.branchname for x in db_branches])
+                )
+
+            final_branches = tuple([x for x in db_branches if x.branchname in branchnames_set])
+            for branch in db_branches:
+                if branch.branchname not in branchnames_set:
+                    self._branchDeleted(branch)
+                    branch.delete()
+
+            for newname in branchnames_set - set([x.branchname for x in db_branches]):
+                newbranch = self.database.Branch.New(branchname=newname, repo=db_repo)
+
+            for branchname in branchnames:
+                try:
+                    self._scheduleUpdateBranchTopCommit(
+                        self.database.Branch.lookupOne(reponame_and_branchname=(db_repo.name, branchname))
+                        )
+                except:
+                    logging.error("Error scheduling branch commit lookup:\n\n%s", traceback.format_exc())
 
         elif task.matches.UpdateBranchPins:
-            with self.transaction_and_lock():
-                branch = task.branch
+            branch = task.branch
 
-                if not (branch.head and branch.head.data):
-                    return
+            if not (branch.head and branch.head.data):
+                return
 
-                pinning = BranchPinning.BranchPinning(self.database, self.source_control)
-                pinning.updateBranchPin(branch, lookDownstream=True)
+            pinning = BranchPinning.BranchPinning(self.database, self.source_control)
+            pinning.updateBranchPin(branch, lookDownstream=True)
 
-                for branch_updated in pinning.branches_updated:
-                    self._scheduleUpdateBranchTopCommit(branch_updated)
+            for branch_updated in pinning.branches_updated:
+                self._scheduleUpdateBranchTopCommit(branch_updated)
 
         elif task.matches.UpdateBranchTopCommit:
-            with self.transaction_and_lock():
-                self._updateBranchTopCommit(task.branch)
+            self._updateBranchTopCommit(task.branch)
         elif task.matches.CommitTestParse:
-            with self.transaction_and_lock():
-                self._parseCommitTests(task.commit)
+            self._parseCommitTests(task.commit)
         elif task.matches.UpdateCommitData:
-            with self.transaction_and_lock():
-                self._updateCommitData(task.commit)
+            self._updateCommitData(task.commit)
 
         elif task.matches.UpdateTestPriority:
-            with self.transaction_and_lock():
-                self._updateTestPriority(task.test, curTimestamp)
+            self._updateTestPriority(task.test, curTimestamp)
         elif task.matches.BootMachineCheck:
-            with self.transaction_and_lock():
-                self._bootMachinesIfNecessary(curTimestamp)
+            self._bootMachinesIfNecessary(curTimestamp)
         elif task.matches.UpdateCommitPriority:
-            with self.transaction_and_lock():
-                self._updateCommitPriority(task.commit)
+            self._updateCommitPriority(task.commit)
         else:
             raise Exception("Unknown task: %s" % task)
 

@@ -139,13 +139,13 @@ def main():
         with open(parsedArgs.import_filename, "r") as f:
             res = yaml.load(f.read())
 
-        testManager.markRepoListDirty(time.time())
-        while testManager.performBackgroundWork(time.time()):
+        #testManager.markRepoListDirty(time.time())
+        while testManager.performBackgroundWorkSynchronously(time.time(), 100):
             pass
 
         exporter = ImportExport.ImportExport(testManager)
 
-        errors = exporter.importResults(res)
+        errors = exporter.importResults(res, True)
 
         if errors:
             print "*****************"
