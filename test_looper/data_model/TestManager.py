@@ -1628,7 +1628,7 @@ class TestManager(object):
 
     def _updateTestPriority(self, test, curTimestamp):
         self._checkAllTestDependencies(test)
-        
+
         test.calculatedPriority = test.commitData.commit.calculatedPriority
 
         #now check all tests that depend on us
@@ -1650,6 +1650,9 @@ class TestManager(object):
         if category and category.hardwareComboUnbootable:
             test.priority = self.database.TestPriority.HardwareComboUnbootable()
             test.targetMachineBoot = 0
+        elif self._testHasUnresolvedDependencies(test):
+            test.priority = self.database.TestPriority.UnresolvedDependencies()
+            test.targetMachineBoot = 0
         elif self._testHasUnfinishedDeps(test):
             test.priority = self.database.TestPriority.WaitingOnBuilds()
             test.targetMachineBoot = 0
@@ -1661,6 +1664,7 @@ class TestManager(object):
             if not test.testDefinition.matches.Deployment and test.testDefinition.disabled:
                 test.priority = self.database.TestPriority.NoMoreTests()
             elif self._updateTestTargetMachineCountAndReturnIsDone(test, curTimestamp):
+
                 if self._testWantsRetries(test):
                     if test.activeRuns:
                         #if we have an active test, then it is itself a retry and we don't
@@ -1686,7 +1690,7 @@ class TestManager(object):
                 self._scheduleBootCheck()
 
         if test.priority != oldPriority:
-            logging.info("test priority for test %s changed to %s", test._identity, test.priority)
+            logging.info("test priority for test %s changed to %s", test.fullname, test.priority)
         
             for dep in self.database.TestDependency.lookupAll(test=test):
                 self._triggerTestPriorityUpdate(dep.dependsOn)
@@ -1886,9 +1890,11 @@ class TestManager(object):
 
         return test.totalRuns + test.activeRuns >= needed
 
+    def _testHasUnresolvedDependencies(self, test):
+        return self.database.UnresolvedTestDependency.lookupAll(test=test)
+
     def _testHasUnfinishedDeps(self, test):
         deps = self.database.TestDependency.lookupAll(test=test)
-        unresolved_deps = self.database.UnresolvedTestDependency.lookupAll(test=test)
 
         for dep in deps:
             if dep.dependsOn.totalRuns == 0:
@@ -1991,6 +1997,8 @@ class TestManager(object):
     def _createTestDep(self, test, fullname_dep):
         dep_test = self.database.Test.lookupAny(fullname=fullname_dep)
 
+        assert dep_test != test
+
         if not dep_test:
             if self.database.UnresolvedTestDependency.lookupAny(test_and_depends=(test, fullname_dep)) is None:
                 self.database.UnresolvedTestDependency.New(test=test, dependsOnName=fullname_dep)
@@ -2016,14 +2024,13 @@ class TestManager(object):
             )
 
     def _triggerTestPriorityUpdate(self, test):
-        if not self.database.UnresolvedTestDependency.lookupAll(test=test):
-            #test priority updates are always 'low' because we want to ensure
-            #that all commit updates have triggered first. This way we know that
-            #we're not accidentally going to cancel a test
-            self.database.DataTask.New(
-                task=self.database.BackgroundTask.UpdateTestPriority(test=test),
-                status=pendingLow
-                )
+        #test priority updates are always 'low' because we want to ensure
+        #that all commit updates have triggered first. This way we know that
+        #we're not accidentally going to cancel a test
+        self.database.DataTask.New(
+            task=self.database.BackgroundTask.UpdateTestPriority(test=test),
+            status=pendingLow
+            )
 
     def _triggerCommitTestParse(self, commit):
         if not (self.database.UnresolvedCommitRepoDependency.lookupAll(commit=commit) +

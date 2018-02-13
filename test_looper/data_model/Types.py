@@ -30,6 +30,7 @@ def setup_types(database):
     database.TestPriority.WaitingToRetry = {}
     database.TestPriority.DependencyFailed = {}
     database.TestPriority.WaitingOnBuilds = {}
+    database.TestPriority.UnresolvedDependencies = {}
     database.TestPriority.HardwareComboUnbootable = {}
     database.TestPriority.NoMoreTests = {}
     database.TestPriority.FirstBuild = {"priority": int}
@@ -242,6 +243,7 @@ def setup_types(database):
                 and not o.priority.matches.WaitingToRetry
                 and not o.priority.matches.DependencyFailed
                 and not o.priority.matches.WaitingOnBuilds
+                and not o.priority.matches.UnresolvedDependencies
                 and not o.priority.matches.HardwareComboUnbootable
                 and o.machineCategory)
                 else None
@@ -260,6 +262,7 @@ def setup_types(database):
                 and not o.priority.matches.WaitingToRetry
                 and not o.priority.matches.DependencyFailed
                 and not o.priority.matches.WaitingOnBuilds
+                and not o.priority.matches.UnresolvedDependencies
                 and not o.priority.matches.HardwareComboUnbootable
                 )
                 else None

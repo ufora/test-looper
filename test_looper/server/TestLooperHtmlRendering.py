@@ -1036,6 +1036,8 @@ class Renderer:
                     return "HardwareComboUnbootable"
                 if priority.matches.WaitingOnBuilds:
                     return "WaitingOnBuilds"
+                if priority.matches.UnresolvedDependencies:
+                    return "UnresolvedTestDependencies"
                 if priority.matches.NoMoreTests:
                     return "HaveEnough"
                 if priority.matches.DependencyFailed:
