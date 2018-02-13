@@ -112,7 +112,7 @@ def cached(f):
 
 
 class TestSummaryRenderer:
-    """Class for rendering a specific set of tests."""
+    """Class for rendering html markup summarizing a set of tests."""
     def __init__(self, main_renderer, tests):
         self.main_renderer = main_renderer
         self.tests = tests
@@ -141,10 +141,86 @@ class TestSummaryRenderer:
         if not self.tests or not self.allEnvironments():
             return ""
 
-        return self.renderSingleEnvironment()
+        import uuid
+        divid = str(uuid.uuid4())
+        button_text = self.renderSingleEnvironment()
 
-    def renderMultipleEnvironments(self):
-        return "%s builds over %s environments" % (len(self.allBuilds()), len(self.allEnvironments()))
+        active = sum(t.activeRuns for t in self.tests)
+        if active:
+            button_text = '<span class="pr-1">%s</span>' % button_text
+            button_text += '<span class="badge badge-info pl-1">%s%s</span>' % (max(active,0), octicon("pulse"))
+
+        if not button_text:
+            return ""
+
+        title, detail, width = self.renderDetail()
+
+        return """
+            <a href="#" data-toggle="popover" data-trigger="focus" data-bind="#{div}" container="body" class="btn btn-xs" role="button">{button_text}</a>
+            <div style="display:none;">
+              <div id="{div}">
+                <div class="data-title">{detail_title}</div>
+                <div class="data-content"><div style="width:{width}px">{detail_view}<div></div>
+              </div></div>""".format(div=divid, button_text=button_text, detail_title=title, detail_view=detail, width=width)
+
+    def renderPopoutForSingleTest(self, test):
+        if test.testDefinition.matches.Build:
+            if test.successes:
+                if test.totalRuns > 1:
+                    return "Build succeeded after %s tries" % test.totalRuns
+                return "Build succeeded"
+            if test.priority.matches.WaitingToRetry:
+                return "Build waiting to retry"
+            if test.priority.matches.DependencyFailed:
+                return "Build failed because a dependency failed"
+            if test.totalRuns > 0:
+                return "Build failed"
+            if test.priority == 0:
+                return "Build not prioritized"
+            if test.activeRuns:
+                return "%s active runs" % test.activeRuns
+            return "Build waiting for hardware."
+        else:            
+            if test.successes:
+                return self.renderFailureCount(test.totalFailedTestCount, test.totalTestCount, verbose=True)
+            if test.priority.matches.DependencyFailed:
+                return "Test failed because a dependency failed"
+            if test.totalRuns > 0:
+                return "Test failed"
+            if test.priority == 0:
+                return "Test not prioritized"
+            if test.activeRuns:
+                return "%s active runs" % test.activeRuns
+            return "Test waiting for hardware."
+
+    def renderDetail(self):
+        if len(self.tests) == 1:
+            test = self.tests[0]
+
+            return (test.testDefinition.name, self.renderPopoutForSingleTest(test), 276)
+        else:
+            res = ""
+            buildct = len(self.allBuilds())
+            testct = len(self.allTests())
+            envCount = len(self.allEnvironments())
+
+            if buildct:
+                res += "%s build" % buildct + ("s" if buildct > 1 else "")
+            if testct:
+                if res:
+                    res += ", "
+                res += "%s test" % testct + ("s" if testct > 1 else "")
+
+            res += " over %s environment" % envCount + ("s" if envCount > 1 else "")
+
+            return (res, self.renderMultiEnvironmentPopoverDetail(), 400)
+
+    def renderMultiEnvironmentPopoverDetail(self):
+        return HtmlGeneration.grid(
+            [[test.testDefinition.name, self.renderPopoutForSingleTest(test)] for test in 
+                sorted(self.tests, key=lambda t: (t.testDefinition.environment_name, t.testDefinition.name))]
+            )
+
 
     def categorizeBuild(self, b):
         if b.successes > 0:
@@ -156,10 +232,6 @@ class TestSummaryRenderer:
         return "PENDING"
 
     def renderSingleEnvironment(self):
-        active = sum(t.activeRuns for t in self.tests)
-        if active:
-            return "%s running" % max(active,0)
-
         #first, see if all of our builds have completed
         goodBuilds = 0
         badBuilds = 0
@@ -211,12 +283,20 @@ class TestSummaryRenderer:
                 return '<span class="text-muted">%s</span>' % "..."
             return "..."
             
-        if totalTests == 0:
-            return '<span class="text-muted">%s</span>' % octicon("check")
+        return self.renderFailureCount(totalFailedTestCount, totalTests)
 
-        if totalFailedTestCount == 0:
-            return '%d%s' % (testTypes, '<span class="text-success">%s</span>' % octicon("check"))
-        return '<span class="text-danger">%d</span>%s%d' % (totalFailedTestCount, '<span class="text-muted px-1">/</span>', totalTests)
+    def renderFailureCount(self, totalFailedTestCount, totalTests, verbose=False):
+        if not verbose:
+            if totalTests == 0:
+                return '<span class="text-muted">%s</span>' % octicon("check")
+
+            if totalFailedTestCount == 0:
+                return '%d%s' % (totalTests, '<span class="text-success">%s</span>' % octicon("check"))
+
+        if verbose:
+            return '<span class="text-danger">%d</span>%s%d' % (totalFailedTestCount, '<span class="text-muted px-1"> failed out of </span>', totalTests)
+        else:
+            return '<span class="text-danger">%d</span>%s%d' % (totalFailedTestCount, '<span class="text-muted px-1">/</span>', totalTests)
 
 
 class TestGridRenderer:

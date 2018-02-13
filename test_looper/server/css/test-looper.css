@@ -4,6 +4,10 @@
     width: 1%;
 }
 
+.popover{
+    max-width: none;
+}
+
 .btn-xs {
 	padding-top: 0;
 	padding-bottom: 0;
