@@ -180,13 +180,19 @@ class TestDefinitionResolver:
                 environment=resolveEnvironment(testDef.environment)
                 )
 
+        def children(t):
+            return (
+                [dep.name for dep in tests[t].dependencies.values() if dep.matches.InternalBuild]
+                    if t in tests else []
+                )
+
         cycle = GraphUtil.graphFindCycleMultipleRoots(
-            tests, 
-            lambda t: [dep.name for dep in tests[t].dependencies.values() if dep.matches.InternalBuild]
+            tests,
+            children
             )
 
         if cycle:
-            raise Exception("Circular test dependency found: %s" % (cycle,))
+            raise Exception("Circular test dependency found: %s" % (" -> ".join(cycle)))
 
         for r in repos:
             resolved_repos[r] = resolveRepoRef(repos[r], (r,))

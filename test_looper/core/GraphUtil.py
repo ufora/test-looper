@@ -61,12 +61,14 @@ def graphFindCycleMultipleRoots(roots, childrenFunction):
     def check(node, above=()):
         if node in not_circular:
             return
-        
+
+        above = above + (node,)
+
         for child in childrenFunction(node):
             if child in above:
                 return above + (child,)
 
-            res = check(child, above + (node,))
+            res = check(child, above)
             if res is not None:
                 return res
 

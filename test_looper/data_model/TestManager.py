@@ -1168,6 +1168,7 @@ class TestManager(object):
             raise Exception("Unknown task: %s" % task)
 
     def _updateCommitData(self, commit):
+        logging.info("Updating commit data for %s/%s", commit.repo.name, commit.hash)
         source_control_repo = self.source_control.getRepo(commit.repo.name)
 
         if commit.data is self.database.CommitData.Null:
@@ -1233,6 +1234,7 @@ class TestManager(object):
         else:
             logging.info("Not loading data for commit %s with timestamp %s", commit.hash, time.asctime(time.gmtime(commit.data.timestamp)))
 
+            commit.data.noTestsFound = True
             commit.data.testDefinitionsError = "Commit old enough that we won't check for test definitions."
 
         for branch in self.database.Branch.lookupAll(head=commit):
@@ -1242,6 +1244,16 @@ class TestManager(object):
         try:
             if commit.data.testsParsed:
                 return
+
+            raw_text, extension = self.getRawTestFileForCommit(commit)
+
+            if not raw_text:
+                commit.data.noTestsFound = True
+                commit.data.testsParsed = True
+                logging.info("No test data for %s", commit.hash)
+                return
+            else:
+                logging.info("Test data found for %s", commit.hash)
 
             def getRepo(reponame):
                 if not self.database.Repo.lookupAny(name=reponame):
@@ -1284,7 +1296,7 @@ class TestManager(object):
 
             logging.warn("Got an error parsing tests for %s/%s:\n%s", commit.repo.name, commit.hash, traceback.format_exc())
 
-            commit.data.testDefinitionsError=str(e)
+            commit.data.testDefinitionsError=traceback.format_exc(e)
 
             commit.data.testsParsed = True
 

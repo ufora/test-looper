@@ -1244,8 +1244,9 @@ class TestManagerTests(unittest.TestCase):
             self.assertFalse(harness.database.Test.lookupAny(fullname=("repo8/c0/build1/e1")))
 
             self.assertTrue("ircular" in c.data.testDefinitionsError, c.data.testDefinitionsError)
+
             
-            
+
     def test_manager_import_export(self):
         harness = self.get_harness()
 

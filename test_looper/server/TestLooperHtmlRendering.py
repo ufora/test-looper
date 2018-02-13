@@ -329,7 +329,7 @@ class TestGridRenderer:
 
             return {"content": self.groupHeader(group, url_fun), "colspan": self.column_widths[group]}
 
-        return [[cellForHeader(c) for c in line] for line in header_meaning[1:-1]]
+        return [[cellForHeader(c) for c in line] for line in header_meaning[1:-1]] or [[]]
 
     def groupHeader(self, group, url_fun):
         if group not in self.leafColumnAllTests:
@@ -613,7 +613,7 @@ class Renderer:
             )            
 
     @HtmlWrapper
-    def errorPage(self, errorMessage, breadcrumb):
+    def errorPage(self, errorMessage, breadcrumb=None):
         return self.wrapInHeader(
             markdown.markdown("#ERROR\n\n" + errorMessage),
             breadcrumb
@@ -976,7 +976,7 @@ class Renderer:
             commitTestGrid = self.commitTestGrid(commit)
 
             res = tabs("commit", [
-                ("Tests", HtmlGeneration.grid(commitTestGrid), "commit_tests"),
+                ("Tests", commitTestGrid, "commit_tests"),
                 ("Test Definitions", self.commitTestDefinitionsInfo(commit), "commit_test_defs")
                 ])
 
@@ -986,14 +986,24 @@ class Renderer:
     def commitTestDefinitionsInfo(self, commit):
         raw_text, extension = self.testManager.getRawTestFileForCommit(commit)
 
-        return card('<pre class="language-yaml"><code class="line-numbers">%s</code></pre>' % cgi.escape(raw_text))
+        if raw_text:
+            return card('<pre class="language-yaml"><code class="line-numbers">%s</code></pre>' % cgi.escape(raw_text))
+        else:
+            return card("No test definitions found")
 
 
     def commitTestGrid(self, commit):
         tests = self.testManager.database.Test.lookupAll(commitData=commit.data)
         
         if not tests:
-            return card("Commit defined no tests. Maybe look at the test definitions?")
+            if commit.data.noTestsFound:
+                return card("Commit defined no test definition file.")
+
+            raw_text, extension = self.testManager.getRawTestFileForCommit(commit)
+            if not raw_text:
+                return card("Commit defined no tests because the test-definitions file is empty.")
+            else:
+                return card("<div>Commit defined no tests. Maybe look at the test definitions? Error was</div><pre><code>%s</code></pre>" % commit.data.testDefinitionsError)
 
         tests = sorted(tests, key=lambda test: test.fullname)
         
@@ -1076,7 +1086,7 @@ class Renderer:
 
             grid.append(row)
 
-        return grid
+        return HtmlGeneration.grid(grid)
     
     def testDependencySummary(self, t):
         """Return a single cell displaying all the builds this test depends on"""
@@ -1308,12 +1318,9 @@ class Renderer:
     def branchHasTests(self, b):
         if not b.head or not b.head.data:
             return False
-        if b.head.data.testDefinitions or (
-                b.head.data.testDefinitionsError != "No test definition file found."
-                and not b.head.data.testDefinitionsError.startswith("Commit old")
-                ):
-            return True
-        return False
+        if b.head.data.noTestsFound:
+            return False
+        return True
 
     def branchesGrid(self, repoName, groupingInstructions):
         groupingInstructions = None
@@ -1370,7 +1377,10 @@ class Renderer:
                 else:
                     row.append(HtmlGeneration.lightGrey("loading"))
 
-                row.append(self.wellNamedCommitLinkAsStr(best_commit[branch], branch, best_commit_name[branch],excludeRepo=True))
+                if best_commit[branch]:
+                    row.append(self.wellNamedCommitLinkAsStr(best_commit[branch], branch, best_commit_name[branch],excludeRepo=True))
+                else:
+                    row.append("")
 
                 row.extend(renderer.render_row(branch, branchesUrlWithGroupings))
 
@@ -1509,9 +1519,12 @@ class Renderer:
     def repos(self, groupings=None):
         headers, grid = self.reposGrid(groupings)
 
-        grid = HtmlGeneration.grid(headers+grid, header_rows=len(headers))
+        if not headers:
+            res = card("No repos found")
+        else:
+            res = HtmlGeneration.grid(headers+grid, header_rows=len(headers))
         
-        return self.wrapInHeader(grid, "repos")
+        return self.wrapInHeader(res, "repos")
 
     def primaryBranchForRepo(self, repo):
         branches = [b for b in self.testManager.database.Branch.lookupAll(repo=repo)
@@ -1531,7 +1544,7 @@ class Renderer:
         return self.testManager.database.Test.lookupAll(commitData=commit.data)
 
     def bestCommitForBranch(self, branch):
-        if branch is None or branch.head is None or not branch.head.data:
+        if not branch or not branch.head or not branch.head.data:
             return None, None
 
         if branch.repo.commitsWithTests == 0:
@@ -1581,7 +1594,10 @@ class Renderer:
 
         with self.testManager.database.view():
             repos = self.testManager.database.Repo.lookupAll(isActive=True)
-            
+                
+            if not repos:
+                return [], []
+
             repos = sorted(
                 repos, 
                 key=lambda repo:
@@ -1649,8 +1665,11 @@ class Renderer:
         with self.testManager.database.view():
             branch = self.testManager.database.Branch.lookupAny(reponame_and_branchname=(reponame,branchname))
 
-            if branch is None:
+            if not branch:
                 return self.errorPage("Branch %s/%s doesn't exist" % (reponame, branchname))
+
+            if not branch.head:
+                return self.errorPage("Branch %s/%s data isn't loaded yet" % (reponame, branchname), branch)
 
             pinGrid = self.pinGridWithUpdateButtons(branch)
 
@@ -1875,8 +1894,10 @@ class Renderer:
         row.append(self.sourceLinkForCommit(commit))
         
         row.append(
-            HtmlGeneration.lightGrey("waiting to load tests") 
+            HtmlGeneration.lightGrey("waiting to load commit") 
                     if not commit.data
+            else HtmlGeneration.lightGrey("no test file") 
+                    if commit.data.noTestsFound
             else HtmlGeneration.lightGrey("invalid test file") 
                     if commit.data.testDefinitionsError
             else ""
