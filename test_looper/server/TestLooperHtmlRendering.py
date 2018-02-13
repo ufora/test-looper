@@ -1657,7 +1657,7 @@ class Renderer:
         with self.testManager.database.view():
             return self.wrapInHeader(
                 grid, 
-                [self.testManager.database.Repo.lookupOne(name=repoName)]
+                self.testManager.database.Repo.lookupOne(name=repoName)
                 )
 
     @HtmlWrapper
