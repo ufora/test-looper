@@ -1198,7 +1198,7 @@ class Renderer:
         return HtmlGeneration.link(text_override or str(testRun._identity)[:8], "/test?testId=" + testRun._identity)
 
     def gridForTestList_(self, sortedTests, commit=None, failuresOnly=False):
-        grid = [["TEST", "TYPE", "STATUS", "LOGS", "CLEAR", "STARTED", "MACHINE", "ELAPSED (MIN)",
+        grid = [["TEST", "TYPE", "STATUS", "LOGS", "CLEAR", "STARTED", "ELAPSED (MIN)",
                  "SINCE LAST HEARTBEAT (SEC)", "TOTAL TESTS", "FAILING TESTS"]]
 
         sortedTests = [x for x in sortedTests if not x.canceled]
@@ -1228,8 +1228,6 @@ class Renderer:
             else:
                 elapsed = (time.time() - testRun.startedTimestamp) / 60.0
 
-            row.append(self.machineLink(testRun.machine))
-
             row.append("%.2f" % elapsed)
 
             if hasattr(testRun, "lastHeartbeat") and testRun.endTimestamp <= 0.0:
@@ -1249,10 +1247,6 @@ class Renderer:
             grid.append(row)
 
         return grid
-
-    @staticmethod
-    def machineLink(machine):
-        return HtmlGeneration.link(machine, "/machine?machineId="+machine.machineId)
 
     def login_link(self):
         self.save_current_url()

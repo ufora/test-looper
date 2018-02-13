@@ -605,6 +605,9 @@ class TestManager(object):
         if not canceled:
             test.totalRuns += 1
 
+        test.totalTestCount += testCount
+        test.totalFailedTestCount += failedTestCount
+
         self._triggerTestPriorityUpdate(testRun.test)
 
     def recordTestResults(self, success, testId, testSuccesses, curTimestamp):
@@ -994,6 +997,9 @@ class TestManager(object):
                 len(self.database.DataTask.lookupAll(status=pendingVeryHigh) +
                         self.database.DataTask.lookupAll(status=pendingHigh) +
                     self.database.DataTask.lookupAll(status=pendingLow)))
+            logging.info("Total commits: %s",
+                sum([r.commits for r in  self.database.Repo.lookupAll(isActive=True)])
+                )
 
             for i in xrange(count):
                 task = self.database.DataTask.lookupAny(status=pendingVeryHigh)
@@ -1011,6 +1017,8 @@ class TestManager(object):
 
                 try:
                     self._processTask(testDef, curTimestamp)
+                except KeyboardInterrupt:
+                    raise
                 except:
                     traceback.print_exc()
                     logging.error("Exception processing task %s:\n\n%s", testDef, traceback.format_exc())
