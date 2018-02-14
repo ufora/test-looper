@@ -37,13 +37,13 @@ class RemoteRepo(object):
         if not self.source_repo.commitExists(branchOrHash):
             return []
 
-        return self.source_repo.hashParentsAndCommitTitleForMulti(branchOrHash, depth=depth)
+        return self.source_repo.gitCommitDataMulti(branchOrHash, depth=depth)
     
     def listBranches(self):
         return self.source_repo.listBranchesForRemote("origin")
 
     def branchTopCommit(self, branch):
-        return self.source_repo.hashParentsAndCommitTitleFor("origin/" + branch)[0]
+        return self.source_repo.gitCommitData("origin/" + branch)[0]
 
     def getTestScriptDefinitionsForCommit(self, commitHash):
         test_definitions_path = self.source_repo.getTestDefinitionsPath(commitHash)

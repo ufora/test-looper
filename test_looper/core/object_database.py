@@ -412,7 +412,7 @@ class DatabaseView(object):
         return self
 
     def __exit__(self, type, val, tb):
-        if time.time() - self._t0 > 1.0:
+        if time.time() - self._t0 > 30.0:
             logging.warn("long db transaction: %s elapsed.\n%s", time.time() - self._t0, "".join(self._stack))
         del _cur_view.view
         if type is None and self._writes:

@@ -68,7 +68,8 @@ def setup_types(database):
         repos=algebraic.Dict(str, TestDefinition.RepoReference),
         testDefinitionsError=str,
         testsParsed=bool,
-        noTestsFound=bool
+        noTestsFound=bool,
+        wantsRefresh=bool
         )
 
     database.CommitRelationship.define(

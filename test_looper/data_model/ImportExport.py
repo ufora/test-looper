@@ -34,6 +34,9 @@ class DictWrapper:
             return DictWrapper(res)
         return res
 
+    def __len__(self):
+        return len(self._jsonDict)
+
     def __iter__(self):
         return self._jsonDict.__iter__()
 
@@ -46,6 +49,7 @@ class DictWrapper:
 
 
 ImportError = algebraic.Alternative("ImportError")
+ImportError.UnknownRepo = makeDict(repo=str)
 ImportError.UnknownBranch = makeDict(repo=str, name=str)
 ImportError.UnknownCommit = makeDict(repo=str, hash=str)
 ImportError.UnknownTest = makeDict(repo=str, hash=str, test=str)
@@ -75,24 +79,21 @@ class ImportExport(object):
                     )
 
                 for run in self.database.TestRun.lookupAll(test=t):
-                    if run.endTimestamp > 0.0 or run.canceled:
-                        if run.testNames and run.testNames.shaHash not in testNameSets:
-                            testNameSets[run.testNames.shaHash] = run.testNames.test_names
+                    if run.testNames and run.testNames.shaHash not in testNameSets:
+                        testNameSets[run.testNames.shaHash] = run.testNames.test_names
 
-                        runList.append(makeDict(
-                            identity=run._identity,
-                            startedTimestamp=run.startedTimestamp,
-                            lastHeartbeat=run.lastHeartbeat,
-                            endTimestamp=run.endTimestamp,
-                            success=run.success,
-                            canceled=run.canceled,
-                            testNames=run.testNames.shaHash if run.testNames else "",
-                            testFailures=run.testFailures.bits,
-                            totalTestCount=run.totalTestCount,
-                            totalFailedTestCount=run.totalFailedTestCount
-                            ))
-                    else:
-                        logging.warn("Not exporting running test %s (%s)", run._identity, t.testDefinition.name)
+                    runList.append(makeDict(
+                        identity=run._identity,
+                        startedTimestamp=run.startedTimestamp,
+                        lastHeartbeat=run.lastHeartbeat,
+                        endTimestamp=run.endTimestamp,
+                        success=run.success,
+                        canceled=run.canceled,
+                        testNames=run.testNames.shaHash if run.testNames else "",
+                        testFailures=run.testFailures.bits,
+                        totalTestCount=run.totalTestCount,
+                        totalFailedTestCount=run.totalFailedTestCount
+                        ))
 
             commitsToCheck = set()
 
@@ -104,29 +105,31 @@ class ImportExport(object):
 
                     commitsToCheck.add(branch.head)
 
+            totalCommitsChecked = 0
+
             while commitsToCheck:
                 c = commitsToCheck.pop()
 
-                if not c:
-                    return
+                if c and c.hash not in repos[c.repo.name]["commits"] and c.data:
+                    totalCommitsChecked += 1
+                    if totalCommitsChecked % 1000 == 0:
+                        logging.info("Doing commit #%s: %s", totalCommitsChecked, c.repo.name + "/" + c.hash)
 
-                if c.hash in repos[c.repo.name]:
-                    return
+                    testDict = {}
 
-                if len(repos[c.repo.name]) % 1000 == 0:
-                    print "Doing commit #%s: %s" % (len(repos[c.repo.name]), c.repo.name + "/" + c.hash)
-
-                testDict = {}
-
-                if c.data and self.testManager._commitMightHaveTests(c):
-                    for test in self.database.Test.lookupAll(commitData=c.data):
-                        walkTest(test, testDict)
+                    if self.testManager._commitMightHaveTests(c):
+                        for test in self.database.Test.lookupAll(commitData=c.data):
+                            walkTest(test, testDict)
 
                     for parent in c.data.parents:
                         commitsToCheck.add(parent)
 
-                if testDict or c.userPriority:
-                    repos[c.repo.name]["commits"][c.hash] = {"priority": c.userPriority, "tests": testDict}
+                    repos[c.repo.name]["commits"][c.hash] = {
+                        "priority": c.userPriority, 
+                        "tests": testDict, 
+                        "hasTestFile": self.testManager._commitMightHaveTests(c) and not c.data.noTestsFound,
+                        "parents": [p.hash for p in c.data.parents]
+                        }
 
 
             return makeDict(
@@ -134,51 +137,65 @@ class ImportExport(object):
                 testNameSets=testNameSets
                 )
 
-    def importResults(self, results, actuallyApply):
+    def importResults(self, results):
         results = DictWrapper(results)
         errors = []
 
-        transaction = self.database.transaction() if actuallyApply else self.database.view()
+        transaction = self.database.transaction()
 
         with transaction:
+            #make sure we have repos and branches
+            self.testManager._refreshRepos()
+
             for reponame, repodef in results.repos.iteritems():
+                repo = self.database.Repo.lookupAny(name=reponame)
+                if repo:
+                    self.testManager._refreshBranches(repo)
+                else:
+                    errors.append(ImportError.UnknownRepo(repo=reponame))
+
+            for reponame, repodef in results.repos.iteritems():
+                logging.info("Starting sync of repo %s", reponame)
                 for branchname, branchdef in repodef.branches.iteritems():
                     branch = self.database.Branch.lookupAny(reponame_and_branchname=(reponame, branchname))
                     if not branch:
                         errors.append(ImportError.UnknownBranch(repo=reponame, name=branchname))
                     else:
-                        if actuallyApply:
-                            branch.isUnderTest=branchdef.isUnderTest
+                        branch.isUnderTest=branchdef.isUnderTest
 
+                seen = 0
                 for hash, commitdef in repodef.commits.iteritems():
+                    seen += 1
+                    logging.info("Have done %s/%s commits in %s", seen, len(repodef.commits), reponame)
                     repo = self.database.Repo.lookupAny(name=reponame)
-                    commit = self.database.Commit.lookupAny(repo_and_hash=(repo,hash))
+                    commit = self.testManager._lookupCommitByHash(repo, hash)
 
-                    if not commit:
-                        errors.append(ImportError.UnknownCommit(repo=reponame, hash=hash))
-                    else:
-                        if actuallyApply:
-                            commit.userPriority=commitdef.priority
+                    self.testManager._updateSingleCommitData(
+                        commit,
+                        knownNoTestFile=not commitdef.hasTestFile
+                        )
 
-                        for testname, testdef in commitdef.tests.iteritems():
-                            test = self.database.Test.lookupAny(fullname=commit.repo.name +"/" + commit.hash + "/" + testname)
-                            if not test:
-                                errors.append(
-                                    ImportError.UnknownTest(
-                                        repo=reponame, 
-                                        hash=hash, 
-                                        test=testname
-                                        )
+                    commit.userPriority=commitdef.priority
+
+                    for testname, testdef in commitdef.tests.iteritems():
+                        test = self.database.Test.lookupAny(fullname=commit.repo.name +"/" + commit.hash + "/" + testname)
+                        if not test:
+                            errors.append(
+                                ImportError.UnknownTest(
+                                    repo=reponame, 
+                                    hash=hash, 
+                                    test=testname
                                     )
-                            else:
-                                for run in testdef.runs:
-                                    errors.extend(
-                                        self._importTestRun(test, DictWrapper(run), results.testNameSets, actuallyApply)
-                                        )
+                                )
+                        else:
+                            for run in testdef.runs:
+                                errors.extend(
+                                    self._importTestRun(test, DictWrapper(run), results.testNameSets)
+                                    )
 
         return errors
 
-    def _importTestRun(self, test, run, testNameSets, actuallyApply):
+    def _importTestRun(self, test, run, testNameSets):
         if self.database.TestRun(run.identity).exists():
             return [ImportError.TestAlreadyExists(
                 repo=test.commitData.commit.repo.name, 

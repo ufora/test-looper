@@ -192,11 +192,14 @@ class MockRepo:
         self.repoName = repoName
         self.source_repo = MockGitRepo(self)
 
-    def hashParentsAndCommitTitleFor(self, commitId):
+    def gitCommitData(self, commitId, isCommitId=False):
+        if not isCommitId:
+            commitId = self.repoName + "/" + commitId
+            
         if commitId not in self.source_control.commit_parents:
             raise Exception("Can't find %s in %s" % (commitId, self.source_control.commit_parents.keys()))
 
-        return commitId.split("/")[1], [p.split("/")[1] for p in self.source_control.commit_parents[commitId]], 1516486261, "title"
+        return commitId.split("/")[1], [p.split("/")[1] for p in self.source_control.commit_parents[commitId]], 1516486261, "title", "author"
 
     def commitExists(self, branchOrHash):
         branchOrHash = self.repoName + "/" + branchOrHash
@@ -210,11 +213,11 @@ class MockRepo:
 
         tuples = []
 
-        tuples.append(self.hashParentsAndCommitTitleFor(branchOrHash))
+        tuples.append(self.gitCommitData(branchOrHash, isCommitId=True))
 
         while len(tuples) < depth and len(tuples[-1][1]):
             firstParent = tuples[-1][1][0]
-            tuples.append(self.hashParentsAndCommitTitleFor(self.repoName + "/" + firstParent))
+            tuples.append(self.gitCommitData(self.repoName + "/" + firstParent, isCommitId=True))
 
         return tuples
     
@@ -1308,11 +1311,12 @@ class TestManagerTests(unittest.TestCase):
 
         harness2 = self.get_harness()
         harness2.add_content()
-        harness2.markRepoListDirty()
-        harness2.consumeBackgroundTasks()
 
         importer = ImportExport.ImportExport(harness2.manager)
-        self.assertFalse(importer.importResults(jsonRepresentation, True))
+        self.assertFalse(importer.importResults(jsonRepresentation))
+
+        harness2.markRepoListDirty()
+        harness2.consumeBackgroundTasks()
 
         self.assertEqual(importer.export(), jsonRepresentation)
 

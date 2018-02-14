@@ -44,7 +44,7 @@ def createArgumentParser():
 
     parser.add_argument("--export",
                         default=None,
-                        help="Export the state of the server to a file and exit."
+                        help="Export the state of the server to a file in this directory in the background."
                         )
 
     parser.add_argument("--import",
@@ -85,6 +85,17 @@ def configureLogging(verbose=False):
         )
     logging.getLogger().addHandler(handler)
 
+def exportToFile(testManager, exportDir):
+    exportPath = os.path.join(exportDir, time.strftime("%Y%m%d-%H%M%S-UTC.yml", time.gmtime()))
+
+    exporter = ImportExport.ImportExport(testManager)
+    res = exporter.export()
+
+    logging.info("Dumping yaml file to %s", exportPath)
+    with open(exportPath, "w") as f:
+        print >> f, yaml.dump(res)
+    logging.info("Done dumping yaml file to %s", exportPath)
+
 def main():
     parsedArgs = createArgumentParser().parse_args()
     config = loadConfiguration(parsedArgs.config)
@@ -116,36 +127,23 @@ def main():
     testManager = TestManager.TestManager(config.server_ports, src_ctrl, machine_management, jsonStore)
 
     if parsedArgs.export:
-        with open(parsedArgs.export, "w") as f:
-            exporter = ImportExport.ImportExport(testManager)
-
-            res = exporter.export()
-            print >> f, yaml.dump(res)
-
-        totalCommits = 0
-        totalTests = 0
-        for repo in res["repos"].values():
-            for commit in repo["commits"].values():
-                totalCommits += 1
-                for test in commit["tests"].values():
-                    totalTests += len(test["runs"])
-
-        print "Wrote ", totalCommits, " commits and ", totalTests, " test runs to ", parsedArgs.export
-
-        sys.exit(0)
-
+        logging.info("Starting background export thread.")
+        exportThread = threading.Thread(target=exportToFile,args=(testManager, parsedArgs.export))
+        exportThread.start()
 
     if parsedArgs.import_filename:
+        logging.info("Loading yaml file: %s", parsedArgs.import_filename)
         with open(parsedArgs.import_filename, "r") as f:
             res = yaml.load(f.read())
-
-        #testManager.markRepoListDirty(time.time())
-        while testManager.performBackgroundWorkSynchronously(time.time(), 100):
-            pass
+        logging.info("Done loading yaml file: %s", parsedArgs.import_filename)
 
         exporter = ImportExport.ImportExport(testManager)
 
-        errors = exporter.importResults(res, True)
+        errors = exporter.importResults(res)
+
+        print "burning down background work"
+        while testManager.performBackgroundWorkSynchronously(time.time(), 100):
+            pass
 
         if errors:
             print "*****************"

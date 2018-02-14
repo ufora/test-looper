@@ -258,8 +258,9 @@ class Git(object):
         Note that this doesn't handle merge commits correctly
         """
         branches = []
-        for b in self.listBranchesForRemote(remoteName):
-            hashes = [x[0] for x in self.hashParentsAndCommitTitleForMulti("origin/" + b, maxSearchDepth)]
+
+        for b in self.listCurrentlyKnownBranchesForRemote(remoteName):
+            hashes = [x[0] for x in self.gitCommitDataMulti("origin/" + b, maxSearchDepth)]
 
             if hash in hashes:
                 ix = hashes.index(hash)
@@ -304,28 +305,29 @@ class Git(object):
                     ["git", "log", "-n", "1", commitHash]
                     )
 
-    def hashParentsAndCommitTitleFor(self, commitHash):
-        return self.hashParentsAndCommitTitleForMulti(commitHash, depth=1)[0]
+    def gitCommitData(self, commitHash):
+        return self.gitCommitDataMulti(commitHash, depth=1)[0]
 
-    def hashParentsAndCommitTitleForMulti(self, commitHash, depth):
+    def gitCommitDataMulti(self, commitHash, depth):
         with self.git_repo_lock:
             data = None
             try:
-                uuid = '--e1ecbbfadd6e429892fc34602289e93c'
+                uuid_line = '--' + str(uuid.uuid4()) + "--"
+                uuid_item = '--' + str(uuid.uuid4()) + "--"
 
                 result = []
 
                 commandResult = self.subprocessCheckOutput(
-                    ["git", "--no-pager", "log", "-n", str(depth), "--topo-order", commitHash, '--format=format:%H %P--%ct--%B' + uuid]
+                    ["git", "--no-pager", "log", "-n", str(depth), "--topo-order", 
+                        commitHash, '--format=format:' + uuid_item.join(["%H %P","%ct", "%B", "%an"]) + uuid_line]
                     )
 
-                for data in commandResult.split(uuid):
-                    data = data.strip()
-                    if data:
-                        commits, timestamp, message = data.split('--', 2)
+                for data in commandResult.split(uuid_line):
+                    if data.strip():
+                        commits, timestamp, message, author = data.split(uuid_item)
                         commits = [c.strip() for c in commits.split(" ") if c.strip()]
 
-                        result.append((commits[0], commits[1:], timestamp, message.strip()))
+                        result.append((commits[0], commits[1:], timestamp, message.strip(), author))
 
                 return result
             except:

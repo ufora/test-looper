@@ -130,9 +130,9 @@ class WorkerStateTests(unittest.TestCase):
 
         fds = len(self.get_fds())
         for i in xrange(10):
-            source_repo.hashParentsAndCommitTitleFor(c1)
-            source_repo.hashParentsAndCommitTitleFor(c2)
-            source_repo.hashParentsAndCommitTitleFor(c3)
+            source_repo.gitCommitData(c1)
+            source_repo.gitCommitData(c2)
+            source_repo.gitCommitData(c3)
         fds2 = len(self.get_fds())
 
         self.assertEqual(fds, fds2)

@@ -30,7 +30,7 @@ class GitTests(unittest.TestCase):
         dep_repo2.cloneFrom(os.path.join(self.testdir, "base_repo"))
 
         h2_1 = dep_repo.createCommit(h2, {'file1': 'hi2_1', "dir/file2": None}, "message3")
-        h2_2 = dep_repo.createCommit(h2, {'file1': 'hi2_2', "dir/file2": None}, "message3\n\nnewline")
+        h2_2 = dep_repo.createCommit(h2, {'file1': 'hi2_2', "dir/file2": None}, "message3\n\nnewline\n\n\n")
 
         dep_repo.pushCommit(h2_1, "master")
         self.assertTrue(base_repo.commitExists(h2_1))
@@ -55,7 +55,7 @@ class GitTests(unittest.TestCase):
         
         self.assertTrue("new_branch" in dep_repo2.listCurrentlyKnownBranchesForRemote('origin'))
 
-        h2_2_info, h2_info = dep_repo.hashParentsAndCommitTitleForMulti(h2_2, 2)
+        h2_2_info, h2_info = dep_repo.gitCommitDataMulti(h2_2, 2)
 
         self.assertEqual(h2_2_info[0], h2_2)
         self.assertEqual(h2_2_info[1], [h2])

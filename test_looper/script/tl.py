@@ -438,7 +438,7 @@ class TestLooperCtl:
             self.createNewBranchAndPush(repo, committish, None)
 
         if not Git.isShaHash(committish):
-            committish = repo.hashParentsAndCommitTitleFor("origin/" + committish)[0]
+            committish = repo.gitCommitData("origin/" + committish)[0]
 
         self.checkout_root = (reponame, committish)
 
@@ -828,6 +828,7 @@ def main(argv):
 
     except UserWarning as e:
         print "Error:\n\n%s" % str(e)
+        #print traceback.format_exc()
         return 1    
 
     return 0

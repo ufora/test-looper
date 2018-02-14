@@ -606,6 +606,9 @@ class TestManager(object):
         if not canceled:
             test.totalRuns += 1
 
+        if not canceled and endTimestamp == 0.0:
+            test.activeRuns += 1
+
         test.totalTestCount += testCount
         test.totalFailedTestCount += failedTestCount
 
@@ -1109,82 +1112,9 @@ class TestManager(object):
 
     def _processTask(self, task, curTimestamp):
         if task.matches.RefreshRepos:
-            all_repos = set(self.source_control.listRepos())
-
-            repos = self.database.Repo.lookupAll(isActive=True)
-
-            for r in repos:
-                if r.name not in all_repos:
-                    r.isActive = False
-
-            existing = set([x.name for x in repos])
-
-            for new_repo_name in all_repos - existing:
-                r = self.database.Repo.lookupAny(name=new_repo_name)
-                if r:
-                    r.isActive = True
-                else:
-                    r = self._createRepo(new_repo_name)
-
-            for r in self.database.Repo.lookupAll(isActive=True):
-                self.database.DataTask.New(
-                    task=self.database.BackgroundTask.RefreshBranches(r),
-                    status=pendingVeryHigh
-                    )
-
+            self._refreshRepos()
         elif task.matches.RefreshBranches:
-            repo = self.source_control.getRepo(task.repo.name)
-
-            try:
-                if not self.source_control.isWebhookInstalled(task.repo.name, self.server_port_config):
-                    self.source_control.installWebhook(
-                        task.repo.name, 
-                        self.server_port_config
-                        )
-            except:
-                logging.error("Tried to install webhook for %s but failed: %s", 
-                    task.repo.name,
-                    traceback.format_exc()
-                    )
-
-            repo.source_repo.fetchOrigin()
-
-            branchnamesAndHashes = repo.source_repo.listBranchesForRemote("origin")
-
-            branchnames_set = set(branchnamesAndHashes)
-
-            db_repo = task.repo
-
-            db_branches = self.database.Branch.lookupAll(repo=db_repo)
-
-            logging.info(
-                "Comparing branchlist from server: %s to local: %s", 
-                sorted(branchnames_set), 
-                sorted([x.branchname for x in db_branches])
-                )
-
-            final_branches = tuple([x for x in db_branches if x.branchname in branchnames_set])
-            for branch in db_branches:
-                if branch.branchname not in branchnames_set:
-                    self._branchDeleted(branch)
-                    branch.delete()
-
-            for newname in branchnames_set - set([x.branchname for x in db_branches]):
-                newbranch = self.database.Branch.New(branchname=newname, repo=db_repo)
-
-            for branchname, branchHash in branchnamesAndHashes.iteritems():
-                try:
-                    branch = self.database.Branch.lookupOne(reponame_and_branchname=(db_repo.name, branchname))
-                    if not branch.head or branch.head.hash != branchHash:
-                        logging.info("Branch head %s looks dirty (%s != %s). Updating. ", 
-                            branch.repo.name + "/" + branch.branchname, 
-                            branch.head.hash if branch.head else "<none>",
-                            branchHash
-                            )
-                        self._scheduleUpdateBranchTopCommit(branch)
-                except:
-                    logging.error("Error scheduling branch commit lookup:\n\n%s", traceback.format_exc())
-
+            self._refreshBranches(task.repo)
         elif task.matches.UpdateBranchPins:
             branch = task.branch
 
@@ -1213,6 +1143,81 @@ class TestManager(object):
         else:
             raise Exception("Unknown task: %s" % task)
 
+    def _refreshRepos(self):
+        all_repos = set(self.source_control.listRepos())
+
+        repos = self.database.Repo.lookupAll(isActive=True)
+
+        for r in repos:
+            if r.name not in all_repos:
+                r.isActive = False
+
+        existing = set([x.name for x in repos])
+
+        for new_repo_name in all_repos - existing:
+            r = self.database.Repo.lookupAny(name=new_repo_name)
+            if r:
+                r.isActive = True
+            else:
+                r = self._createRepo(new_repo_name)
+
+        for r in self.database.Repo.lookupAll(isActive=True):
+            self.database.DataTask.New(
+                task=self.database.BackgroundTask.RefreshBranches(r),
+                status=pendingVeryHigh
+                )
+
+    def _refreshBranches(self, db_repo):
+        repo = self.source_control.getRepo(db_repo.name)
+
+        try:
+            if not self.source_control.isWebhookInstalled(db_repo.name, self.server_port_config):
+                self.source_control.installWebhook(
+                    db_repo.name, 
+                    self.server_port_config
+                    )
+        except:
+            logging.error("Tried to install webhook for %s but failed: %s", 
+                db_repo.name,
+                traceback.format_exc()
+                )
+
+        repo.source_repo.fetchOrigin()
+
+        branchnamesAndHashes = repo.source_repo.listBranchesForRemote("origin")
+
+        branchnames_set = set(branchnamesAndHashes)
+
+        db_branches = self.database.Branch.lookupAll(repo=db_repo)
+
+        logging.info(
+            "Comparing branchlist from server: %s to local: %s", 
+            sorted(branchnames_set), 
+            sorted([x.branchname for x in db_branches])
+            )
+
+        final_branches = tuple([x for x in db_branches if x.branchname in branchnames_set])
+        for branch in db_branches:
+            if branch.branchname not in branchnames_set:
+                self._branchDeleted(branch)
+                branch.delete()
+
+        for newname in branchnames_set - set([x.branchname for x in db_branches]):
+            newbranch = self.database.Branch.New(branchname=newname, repo=db_repo)
+
+        for branchname, branchHash in branchnamesAndHashes.iteritems():
+            try:
+                branch = self.database.Branch.lookupOne(reponame_and_branchname=(db_repo.name, branchname))
+                if not branch.head or branch.head.hash != branchHash:
+                    logging.info("Branch head %s looks dirty (%s != %s). Updating. ", 
+                        branch.repo.name + "/" + branch.branchname, 
+                        branch.head.hash if branch.head else "<none>",
+                        branchHash
+                        )
+                    self._scheduleUpdateBranchTopCommit(branch)
+            except:
+                logging.error("Error scheduling branch commit lookup:\n\n%s", traceback.format_exc())
+
     def _updateCommitData(self, commit):
         logging.info("Updating commit data for %s/%s", commit.repo.name, commit.hash)
         source_control_repo = self.source_control.getRepo(commit.repo.name)
@@ -1228,16 +1233,38 @@ class TestManager(object):
                     timestamp=int(hashParentsAndTitle[2]),
                     subject=hashParentsAndTitle[3].split("\n")[0],
                     body=hashParentsAndTitle[3],
+                    author=hashParentsAndTitle[4],
                     parentHashes=hashParentsAndTitle[1]
                     )
 
+    def _updateSingleCommitData(self, commit, knownNoTestFile=False):
+        logging.info("Updating commit data for %s/%s", commit.repo.name, commit.hash)
+        source_control_repo = self.source_control.getRepo(commit.repo.name)
 
-    def _updateCommitDataForHash(self, repo, hash, timestamp, subject, body, parentHashes):
+        if commit.data is self.database.CommitData.Null:
+            if not source_control_repo.source_repo.commitExists(commit.hash):
+                return
+
+            hashParentsAndTitle = source_control_repo.gitCommitData(commit.hash)
+
+            self._updateCommitDataForHash(
+                repo=commit.repo,
+                hash=hashParentsAndTitle[0],
+                timestamp=int(hashParentsAndTitle[2]),
+                subject=hashParentsAndTitle[3].split("\n")[0],
+                body=hashParentsAndTitle[3],
+                author=hashParentsAndTitle[4],
+                parentHashes=hashParentsAndTitle[1],
+                knownNoTestFile=knownNoTestFile
+                )
+
+
+    def _updateCommitDataForHash(self, repo, hash, timestamp, subject, body, author, parentHashes, knownNoTestFile=False):
         source_control_repo = self.source_control.getRepo(repo.name)
 
         commit = self._lookupCommitByHash(repo, hash)
 
-        if commit is None or commit.data:
+        if commit is None or commit.data and not commit.data.wantsRefresh:
             return
 
         parents=[self._lookupCommitByHash(commit.repo, p) for p in parentHashes]
@@ -1272,7 +1299,9 @@ class TestManager(object):
         commit.userPriority = max(commit.userPriority, priority)
 
         #ignore commits produced before the looper existed. They won't have these files!
-        if commit.data.timestamp > OLDEST_TIMESTAMP_WITH_TESTS:
+        if knownNoTestFile:
+            logging.info("Commit %s is known not to have a test file")
+        elif commit.data.timestamp > OLDEST_TIMESTAMP_WITH_TESTS:
             logging.info("Loading data for commit %s with timestamp %s", commit.hash, time.asctime(time.gmtime(commit.data.timestamp)))
             self._triggerCommitPriorityUpdate(commit)
 
