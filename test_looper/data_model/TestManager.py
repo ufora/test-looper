@@ -608,10 +608,10 @@ class TestManager(object):
             test.successes += 1
 
         if not canceled:
-            test.totalRuns += 1
-
-        if not canceled and endTimestamp == 0.0:
-            test.activeRuns += 1
+            if endTimestamp > 0.0:
+                test.totalRuns += 1
+            else:
+                test.activeRuns += 1
 
         test.totalTestCount += testCount
         test.totalFailedTestCount += failedTestCount
