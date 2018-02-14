@@ -1946,3 +1946,6 @@ class Renderer:
                 self.testManager._updateCommitData(branch.head)
 
             raise cherrypy.HTTPRedirect(redirect)
+
+    def default(self, *args, **kwargs):
+        return self.errorPage("Invalid URL provided")

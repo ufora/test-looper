@@ -125,6 +125,8 @@ class MockGitRepo:
         commitId = self.repo.repoName + "/" + commit
         return self.repo.source_control.commit_test_defs.get(commitId)
 
+    def gitCommitData(self, hash):
+        return self.repo.getCommitData(self.repo.repoName + "/" + hash)
 
     def createCommit(self, commitHash, fileContents, commit_message, timestamp_override=None, author="test_looper <test_looper@test_looper.com>"):
         assert len(fileContents) == 1 and "testDefinitions.yml" in fileContents
@@ -192,10 +194,7 @@ class MockRepo:
         self.repoName = repoName
         self.source_repo = MockGitRepo(self)
 
-    def gitCommitData(self, commitId, isCommitId=False):
-        if not isCommitId:
-            commitId = self.repoName + "/" + commitId
-            
+    def getCommitData(self, commitId):
         if commitId not in self.source_control.commit_parents:
             raise Exception("Can't find %s in %s" % (commitId, self.source_control.commit_parents.keys()))
 
@@ -213,11 +212,11 @@ class MockRepo:
 
         tuples = []
 
-        tuples.append(self.gitCommitData(branchOrHash, isCommitId=True))
+        tuples.append(self.getCommitData(branchOrHash))
 
         while len(tuples) < depth and len(tuples[-1][1]):
             firstParent = tuples[-1][1][0]
-            tuples.append(self.gitCommitData(self.repoName + "/" + firstParent, isCommitId=True))
+            tuples.append(self.getCommitData(self.repoName + "/" + firstParent))
 
         return tuples
     

@@ -141,9 +141,9 @@ class ImportExport(object):
         results = DictWrapper(results)
         errors = []
 
-        transaction = self.database.transaction()
+        commitInfoCache = {}
 
-        with transaction:
+        with self.database.transaction():
             #make sure we have repos and branches
             self.testManager._refreshRepos()
 
@@ -154,7 +154,8 @@ class ImportExport(object):
                 else:
                     errors.append(ImportError.UnknownRepo(repo=reponame))
 
-            for reponame, repodef in results.repos.iteritems():
+        for reponame, repodef in results.repos.iteritems():
+            with self.database.transaction():
                 logging.info("Starting sync of repo %s", reponame)
                 for branchname, branchdef in repodef.branches.iteritems():
                     branch = self.database.Branch.lookupAny(reponame_and_branchname=(reponame, branchname))
@@ -163,16 +164,26 @@ class ImportExport(object):
                     else:
                         branch.isUnderTest=branchdef.isUnderTest
 
-                seen = 0
+            seen = 0
+            try:
+                transaction = self.database.transaction()
+                transaction.__enter__()
+
                 for hash, commitdef in repodef.commits.iteritems():
                     seen += 1
-                    logging.info("Have done %s/%s commits in %s", seen, len(repodef.commits), reponame)
+                    if seen % 100 == 0:
+                        transaction.__exit__(None, None, None)
+                        logging.info("Have done %s/%s commits in %s", seen, len(repodef.commits), reponame)
+                        transaction = self.database.transaction()
+                        transaction.__enter__()
+
                     repo = self.database.Repo.lookupAny(name=reponame)
                     commit = self.testManager._lookupCommitByHash(repo, hash)
 
                     self.testManager._updateSingleCommitData(
                         commit,
-                        knownNoTestFile=not commitdef.hasTestFile
+                        knownNoTestFile=not commitdef.hasTestFile,
+                        commitInfoCache=commitInfoCache
                         )
 
                     commit.userPriority=commitdef.priority
@@ -192,6 +203,8 @@ class ImportExport(object):
                                 errors.extend(
                                     self._importTestRun(test, DictWrapper(run), results.testNameSets)
                                     )
+            finally:
+                transaction.__exit__(None, None, None)
 
         return errors
 

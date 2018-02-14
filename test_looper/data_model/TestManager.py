@@ -1237,15 +1237,22 @@ class TestManager(object):
                     parentHashes=hashParentsAndTitle[1]
                     )
 
-    def _updateSingleCommitData(self, commit, knownNoTestFile=False):
-        logging.info("Updating commit data for %s/%s", commit.repo.name, commit.hash)
+    def _updateSingleCommitData(self, commit, knownNoTestFile=False, commitInfoCache=None):
         source_control_repo = self.source_control.getRepo(commit.repo.name)
 
         if commit.data is self.database.CommitData.Null:
             if not source_control_repo.source_repo.commitExists(commit.hash):
                 return
 
-            hashParentsAndTitle = source_control_repo.gitCommitData(commit.hash)
+            if commitInfoCache is not None:
+                if commit.hash not in commitInfoCache:
+                    for hashParentsAndTitle in source_control_repo.commitsLookingBack(commit.hash, 50):
+                        if hashParentsAndTitle[0] not in commitInfoCache:
+                            commitInfoCache[hashParentsAndTitle[0]] = hashParentsAndTitle
+
+                hashParentsAndTitle = commitInfoCache[commit.hash]
+            else:
+                hashParentsAndTitle = source_control_repo.source_repo.gitCommitData(commit.hash)
 
             self._updateCommitDataForHash(
                 repo=commit.repo,
@@ -1265,6 +1272,7 @@ class TestManager(object):
         commit = self._lookupCommitByHash(repo, hash)
 
         if commit is None or commit.data and not commit.data.wantsRefresh:
+            logging.info("Not updating commit %s because it has commit.data and doesn't want a refresh.", commit.hash)
             return
 
         parents=[self._lookupCommitByHash(commit.repo, p) for p in parentHashes]
@@ -1298,9 +1306,9 @@ class TestManager(object):
 
         commit.userPriority = max(commit.userPriority, priority)
 
-        #ignore commits produced before the looper existed. They won't have these files!
         if knownNoTestFile:
-            logging.info("Commit %s is known not to have a test file")
+            pass
+        #ignore commits produced before the looper existed. They won't have these files!
         elif commit.data.timestamp > OLDEST_TIMESTAMP_WITH_TESTS:
             logging.info("Loading data for commit %s with timestamp %s", commit.hash, time.asctime(time.gmtime(commit.data.timestamp)))
             self._triggerCommitPriorityUpdate(commit)

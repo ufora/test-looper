@@ -638,6 +638,10 @@ class TestLooperHttpServer(object):
         </html>
         """.replace("__websocket_address__", self.websocket_address + "/interactive_socket?" + urlQuery)
 
+    @cherrypy.expose
+    def default(self, *args, **kwargs):
+        return self.renderer.default(*args, **kwargs)
+
     def start(self):
         config = {
             'global': {
