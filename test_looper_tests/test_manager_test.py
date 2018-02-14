@@ -1,643 +1,18 @@
 import unittest
-import tempfile
 import os
-import shutil
 import logging
-import sys
-import simplejson
 
 import test_looper_tests.common as common
-import test_looper.data_model.ImportExport as ImportExport
-import test_looper.data_model.TestManager as TestManager
-import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
-import test_looper.core.Config as Config
-import test_looper.core.machine_management.MachineManagement as MachineManagement
-import test_looper.core.InMemoryJsonStore as InMemoryJsonStore
-import test_looper.core.tools.Git as Git
-import test_looper.core.ArtifactStorage as ArtifactStorage
-import test_looper.core.algebraic as algebraic
-import test_looper.core.source_control.SourceControl as SourceControl
-import test_looper.core.SubprocessRunner as SubprocessRunner
-import docker
-import threading
+import test_looper_tests.TestYamlFiles as TestYamlFiles
+import test_looper_tests.TestManagerTestHarness as TestManagerTestHarness
 
-own_dir = os.path.split(__file__)[0]
+import test_looper.data_model.ImportExport as ImportExport
 
 common.configureLogging()
 
-class MockSourceControl(SourceControl.SourceControl):
-    def __init__(self):
-        self.repos = set()
-        self.commit_test_defs = {}
-        self.commit_parents = {}
-        self.branch_to_commitId = {}
-        self.created_commits = 0
-        self.prepushHooks = {}
-
-    def clearContents(self):
-        self.repos = set()
-        self.commit_test_defs = {}
-        self.commit_parents = {}
-        self.branch_to_commitId = {}
-        self.created_commits = 0
-        self.prepushHooks = {}
-
-    def listRepos(self):
-        return sorted(self.repos)
-
-    def addRepo(self, reponame):
-        self.repos.add(reponame)
-
-    def addCommit(self, commitId, parents, testDefs):
-        assert len(commitId.split("/")) == 2
-
-        self.repos.add(commitId.split("/")[0])
-
-        for p in parents:
-            assert len(p.split("/")) == 2
-            assert p.split("/")[0] == commitId.split("/")[0]
-            assert p in self.commit_test_defs
-
-        assert commitId not in self.commit_test_defs
-
-        self.commit_test_defs[commitId] = testDefs
-        self.commit_parents[commitId] = tuple(parents)
-
-    def getBranch(self, repoAndBranch):
-        return self.branch_to_commitId[repoAndBranch]
-
-    def setBranch(self, repoAndBranch, commit):
-        if commit is None:
-            if repoAndBranch in self.branch_to_commitId:
-                del sef.branch_to_commitId[repoAndBranch]
-        else:
-            assert len(repoAndBranch.split("/")) == 2, "not a valid repo/branch name"
-            if "/" not in commit:
-                commit = repoAndBranch.split("/")[0] + "/" + commit
-            assert len(commit.split("/")) == 2, "not a valid commitId"
-            
-            assert repoAndBranch.split("/")[0] == commit.split("/")[0], "repos dont match"
-
-            self.branch_to_commitId[repoAndBranch] = commit
-
-    def getRepo(self, repoName):
-        if repoName in self.repos:
-            return MockRepo(self, repoName)
-
-    def listBranches(self):
-        return sorted(list(self.branch_to_commitId))
-
-    def refresh(self):
-        pass
-
-class MockGitRepo:
-    def __init__(self, repo):
-        self.repo = repo
-
-    def fetchOrigin(self):
-        pass
-
-    def listBranchesForRemote(self, remote):
-        if remote != "origin":
-            return {}
-        res = {}
-        for branch, commitId in self.repo.source_control.branch_to_commitId.iteritems():
-            if branch.startswith(self.repo.repoName + "/"):
-                res[branch[len(self.repo.repoName + "/"):]] = commitId.split("/")[-1]
-
-        return res
-
-    def commitExists(self, branchOrHash):
-        return self.repo.commitExists(branchOrHash)
-
-    def standardCommitMessageFor(self, hash):
-        assert self.repo.commitExists(hash)
-
-        return "Commit %s by whomever.\n\nThis is a message." % hash
-
-    def getTestDefinitionsPath(self, hash):
-        return "testDefinitions.yml"
-
-    def getFileContents(self, commit, path):
-        if path != "testDefinitions.yml":
-            return None
-
-        commitId = self.repo.repoName + "/" + commit
-        return self.repo.source_control.commit_test_defs.get(commitId)
-
-    def gitCommitData(self, hash):
-        return self.repo.getCommitData(self.repo.repoName + "/" + hash)
-
-    def createCommit(self, commitHash, fileContents, commit_message, timestamp_override=None, author="test_looper <test_looper@test_looper.com>"):
-        assert len(fileContents) == 1 and "testDefinitions.yml" in fileContents
-
-        self.repo.source_control.created_commits += 1
-
-        assert self.repo.source_control.created_commits < 50, "Created too many new commits for the test to be reasonable"
-
-        newCommitHash = "created_" + str(self.repo.source_control.created_commits)
-        newCommitId = self.repo.repoName + "/" + newCommitHash
-
-        self.repo.source_control.commit_parents[newCommitId] = [self.repo.repoName + "/" + commitHash]
-        self.repo.source_control.commit_test_defs[newCommitId] = fileContents['testDefinitions.yml']
-
-        return newCommitHash
-
-    def allAncestors(self, c):
-        ancestors = set()
-
-        def check(commitId):
-            if commitId in ancestors:
-                return
-
-            ancestors.add(commitId)
-
-            for child in self.repo.source_control.commit_parents[commitId]:
-                check(child)        
-        
-        check(c)
-
-        return ancestors
-
-    def pushCommit(self, commitHash, target_branch):
-        commitId = self.repo.repoName + "/" + commitHash
-
-        bn = self.repo.repoName + "/" + target_branch
-
-        if bn not in self.repo.source_control.branch_to_commitId:
-            return False
-
-        ancestors = self.allAncestors(commitId)
-
-        if self.repo.source_control.branch_to_commitId[bn] not in ancestors:
-            logging.error("Can't fast-forward because %s is not an ancestor of %s (%s)", self.repo.source_control.branch_to_commitId[bn], commitId, ancestors)
-            return False
-
-        if bn in self.repo.source_control.prepushHooks:
-            #run the test hook
-            self.repo.source_control.prepushHooks[bn]()
-            del self.repo.source_control.prepushHooks[bn]
-
-            #check again that this is a fast-forward
-            if self.repo.source_control.branch_to_commitId[bn] not in ancestors:
-                logging.error("Can't fast-forward after hook because %s is not an ancestor of %s", self.repo.source_control.branch_to_commitId[bn], commitId)
-                return False
-
-        self.repo.source_control.branch_to_commitId[bn] = commitId
-
-        return True
-
-
-class MockRepo:
-    def __init__(self, source_control, repoName):
-        self.source_control = source_control
-        self.repoName = repoName
-        self.source_repo = MockGitRepo(self)
-
-    def getCommitData(self, commitId):
-        if commitId not in self.source_control.commit_parents:
-            raise Exception("Can't find %s in %s" % (commitId, self.source_control.commit_parents.keys()))
-
-        return commitId.split("/")[1], [p.split("/")[1] for p in self.source_control.commit_parents[commitId]], 1516486261, "title", "author"
-
-    def commitExists(self, branchOrHash):
-        branchOrHash = self.repoName + "/" + branchOrHash
-        branchOrHash = self.source_control.branch_to_commitId.get(branchOrHash, branchOrHash)
-
-        return branchOrHash in self.source_control.commit_parents
-
-    def commitsLookingBack(self, branchOrHash, depth):
-        branchOrHash = self.repoName + "/" + branchOrHash
-        branchOrHash = self.source_control.branch_to_commitId.get(branchOrHash, branchOrHash)
-
-        tuples = []
-
-        tuples.append(self.getCommitData(branchOrHash))
-
-        while len(tuples) < depth and len(tuples[-1][1]):
-            firstParent = tuples[-1][1][0]
-            tuples.append(self.getCommitData(self.repoName + "/" + firstParent))
-
-        return tuples
-    
-    def listBranches(self):
-        return sorted([b.split("/")[1] for b in self.source_control.branch_to_commitId if b.startswith(self.repoName + "/")])
-
-    def branchTopCommit(self, branch):
-        return self.source_control.branch_to_commitId[self.repoName + "/" + branch].split("/")[1]
-
-    def getTestScriptDefinitionsForCommit(self, commitHash):
-        assert "/" not in commitHash
-        return self.source_control.commit_test_defs[self.repoName + "/" + commitHash], ".yml"
-
-basic_yml_file_repo0 = """
-looper_version: 2
-environments:
-  repo0_env:
-    platform: linux
-    image:
-      dockerfile_contents: hi
-    variables:
-      ENV: repo0
-"""
-
-basic_yml_file_repo1 = """
-looper_version: 2
-repos:
-  repo0c0: repo0/c0
-  repo0c1: repo0/c1
-environments:
-  linux: 
-    platform: linux
-    image:
-      dockerfile: "test_looper/Dockerfile.txt"
-    variables:
-      ENV_VAR: LINUX
-  windows: 
-    platform: windows
-    image:
-      base_ami: "ami-123"
-      setup_script_contents: |
-        echo 'ami-contents'
-    variables:
-      ENV_VAR: WINDOWS
-    dependencies:
-      dep0: repo0c0
-  windows_2:
-    base: windows
-    variables:
-      ENV_VAR: OVERRIDDEN
-      ENV_VAR2: WINDOWS_2
-    setup_script_contents: |
-      echo 'more ami contents'
-    dependencies:
-      dep1: repo0c1
-builds:
-  build/linux:
-    command: "build.sh"
-    min_cores: 1
-    max_cores: 1
-tests:
-  test/linux:
-    command: "test.sh"
-    dependencies:
-      build: build/linux
-    min_cores: 4
-  test/windows:
-    command: "test.py"
-"""
-basic_yml_file_repo2 = """
-looper_version: 2
-repos:
-  child: repo1/c0
-  repo0c0: repo0/c0
-  repo0c1: repo0/c1
-environments:
-  linux: 
-    base: child/linux
-    variables:
-      ENV_VAR_2: LINUX_2
-    dependencies:
-      dep1: repo0c1
-  windows:
-    base: child/windows
-    variables:
-      ENV_VAR_2: WINDOWS_2
-    dependencies:
-      dep1: repo0c1
-  windows_2: 
-    base: child/windows_2
-    variables:
-      ENV_VAR_2: WINDOWS_3
-    dependencies:
-      dep2: repo0c1
-  test_linux:
-    platform: linux
-    image:
-      dockerfile: "test_looper/Dockerfile.txt"
-    variables:
-      ENV_VAR: ENV_VAL
-builds:
-  merge:
-    - foreach: {env: [linux, test_linux, windows]}
-      repeat:
-        build/${env}:
-          command: "build.sh $TEST_LOOPER_IMPORTS/child"
-          dependencies:
-            child: child/build/${env}
-    - build_without_deps/linux:
-        command: "build.sh"
-        disabled: true
-tests:
-  foreach: {env: [linux, test_linux, windows]}
-  repeat:
-      test/${env}:
-        command: "test.sh $TEST_LOOPER_IMPORTS/build"
-        dependencies:
-          build: build/${env}
-"""
-
-basic_yml_file_repo3 = """
-looper_version: 2
-repos:
-  child: repo2/c0
-environments:
-  linux: 
-    base: child/linux
-builds:
-  build/linux:
-    command: "build.sh $TEST_LOOPER_IMPORTS/child"
-    dependencies:
-      child: child/build/linux
-  build_without_deps/linux:
-    command: "build.sh"
-    disabled: true
-"""
-
-basic_yml_file_repo4 = """
-looper_version: 2
-environments:
-  windows_good: 
-    platform: windows
-    image:
-      base_ami: "ami-123"
-  windows_bad: 
-    platform: windows
-    image:
-      base_ami: "not_an_ami"
-builds:
-  build/windows_good:
-    command: "build.sh"
-  build/windows_bad:
-    command: "build.sh"
-"""
-
-basic_yml_file_repo5 = """
-looper_version: 2
-repos:
-  child: 
-    reference: repo2/c0
-    branch: master
-    auto: true
-"""
-
-basic_yml_file_repo5_nopin = """
-looper_version: 2
-repos:
-  child: 
-    reference: repo2/c0
-"""
-
-basic_yml_file_repo6 = """
-looper_version: 2
-repos:
-  child: 
-    reference: repo6/c0
-    branch: __branch__
-    auto: true
-"""
-
-basic_yml_file_repo6_twopins = """
-looper_version: 2
-repos:
-  child: 
-    reference: repo6/HEAD1
-    branch: __branch__
-    auto: true
-  child2: 
-    reference: repo6/HEAD2
-    branch: __branch2__
-    auto: true
-"""
-
-basic_yml_file_repo6_headpin = """
-looper_version: 2
-repos:
-  child: 
-    reference: repo6/HEAD
-    branch: __branch__
-    auto: true
-"""
-
-basic_yml_file_repo6_nopin = """
-looper_version: 2
-repos:
-  child: 
-    reference: repo6/c0
-"""
-
-basic_yml_file_repo7_circular = """
-looper_version: 2
-environments:
-  e1: 
-    base: [e2]
-  e2:
-    base: [e1]
-builds:
-  build:
-    environment: e1
-"""
-
-basic_yml_file_repo8_circular_builds = """
-looper_version: 2
-environments:
-  e1: 
-    platform: linux
-    image:
-      dockerfile: "test_looper/Dockerfile.txt"
-builds:
-  build2/e1:
-    dependencies:
-     input: build1/e1
-  build1/e1:
-    dependencies:
-     input: build2/e1
-"""
-
-basic_yml_file_repo9_import_child_refs = """
-looper_version: 2
-repos:
-  repo2_ref: repo2/c0
-  repo0c0_ref: 
-    import: repo2_ref/child/repo0c0
-  repo1c0_ref: 
-    import: repo2_ref/child
-environments:
-  repo0_env: 
-    base: repo0c0_ref/repo0_env
-  repo1_env: 
-    base: repo1c0_ref/linux
-  repo2_env: 
-    base: repo2_ref/linux
-builds:
-  build/repo0_env:
-    command: hi
-  build/repo1_env:
-    dependencies:
-     input: repo1_ref/build/linux
-  build/repo2_env:
-    dependencies:
-     input: repo2_ref/build_without_deps/linux
-"""
-
-class TestManagerTestHarness:
-    def __init__(self, manager):
-        self.manager = manager
-        self.database = manager.database
-        self.timestamp = 1.0
-        self.test_record = {}
-        self.machine_record = {}
-
-    def add_content(self):
-        self.manager.source_control.addCommit("repo0/c0", [], basic_yml_file_repo0)
-        self.manager.source_control.addCommit("repo0/c1", ["repo0/c0"], basic_yml_file_repo0)
-
-        self.manager.source_control.addCommit("repo1/c0", [], basic_yml_file_repo1)
-        self.manager.source_control.addCommit("repo1/c1", ["repo1/c0"], basic_yml_file_repo1)
-
-        self.manager.source_control.addCommit("repo2/c0", [], basic_yml_file_repo2)
-        self.manager.source_control.addCommit("repo2/c1", ["repo2/c0"], basic_yml_file_repo2)
-
-        self.manager.source_control.setBranch("repo0/master", "repo0/c1")
-        self.manager.source_control.setBranch("repo1/master", "repo1/c1")
-        self.manager.source_control.setBranch("repo2/master", "repo2/c1")
-
-    def markRepoListDirty(self):
-        self.manager.markRepoListDirty(self.timestamp)
-
-    def getUnusedMachineId(self):
-        with self.manager.database.view():
-            for m in self.manager.database.Machine.lookupAll(isAlive=True):
-                if not self.manager.database.TestRun.lookupAny(runningOnMachine=m):
-                    return m.machineId
-
-    def consumeBackgroundTasks(self):
-        cleanedup = False
-
-        while True:
-            self.timestamp += 1.0
-            task = self.manager.performBackgroundWork(self.timestamp)
-            if task is None:
-                if not cleanedup:
-                    cleanedup=True
-                    self.manager.performCleanupTasks(self.timestamp)
-                else:
-                    return
-
-    def getCommit(self, commitId):
-        reponame = "/".join(commitId.split("/")[:-1])
-        commitHash = commitId.split("/")[-1]
-
-        repo = self.manager.database.Repo.lookupAny(name=reponame)
-        if not repo:
-            return
-
-        return self.manager.database.Commit.lookupAny(repo_and_hash=(repo,commitHash))
-
-    def enableBranchTesting(self, reponame, branchname):
-        with self.manager.database.transaction():
-            b = self.manager.database.Branch.lookupOne(reponame_and_branchname=(reponame,branchname))
-            self.manager.toggleBranchUnderTest(b)
-            self.manager.prioritizeAllCommitsUnderBranch(b, 1, 100)
-        
-    def disableBranchTesting(self, reponame, branchname):
-        with self.manager.database.transaction():
-            b = self.manager.database.Branch.lookupOne(reponame_and_branchname=(reponame,branchname))
-            if b.isUnderTest:
-                self.manager.toggleBranchUnderTest(b)
-            self.manager.prioritizeAllCommitsUnderBranch(b, 0, 100)
-        
-    def machinesThatRan(self, fullname):
-        return [x[0] for x in self.test_record.get(fullname,())]
-
-    def machineConfig(self, machineId):
-        with self.manager.database.view():
-            m = self.manager.database.Machine.lookupAny(machineId=machineId)
-            return (m.hardware, m.os)
-
-    def fullnamesThatRan(self):
-        return sorted(self.test_record)
-
-    def assertOneshotMachinesDoOneTest(self):
-        for m in self.machine_record:
-            os = self.machineConfig(m)[1]
-            if os.matches.WindowsVM or os.matches.LinuxVM:
-                assert len(self.machine_record[m]) == 1, self.machine_record[m]
-
-    def startAllNewTests(self):
-        tests = []
-        while len(tests) < 1000:
-            machineId = self.getUnusedMachineId()
-
-            if machineId is None:
-                return tests
-
-            commitNameAndTest = self.manager.startNewTest(machineId, self.timestamp)
-
-            if commitNameAndTest[0]:
-                fullname, testId = ("%s/%s/%s" % commitNameAndTest[:3], commitNameAndTest[3])
-                if fullname not in self.test_record:
-                    self.test_record[fullname] = []
-                self.test_record[fullname].append((machineId, testId))
-                if machineId not in self.machine_record:
-                    self.machine_record[machineId] = []
-                self.machine_record[machineId].append((fullname, testId))
-
-                tests.append(commitNameAndTest)
-            else:
-                return tests
-
-            self.timestamp
-
-        assert False
-
-    def doTestsInPhases(self):
-        counts = []
-
-        while True:
-            self.consumeBackgroundTasks()
-            tests = self.startAllNewTests()
-
-            if not tests:
-                return counts
-
-            counts.append([x[0] + "/" + x[1] + "/" + x[2] for x in tests])
-
-            for _,_,_,testId,_ in tests:
-                self.manager.testHeartbeat(testId, self.timestamp)
-                self.timestamp += .1
-
-            for _,_,_,testId,_ in tests:
-                self.manager.recordTestResults(True, testId, {"ATest":True, "AnotherTest": False}, self.timestamp)
-                self.timestamp += .1
-
-FakeConfig = algebraic.Alternative("FakeConfig")
-FakeConfig.Config = {"machine_management": Config.MachineManagementConfig}
-
 class TestManagerTests(unittest.TestCase):
-    def get_harness(self, max_workers=1000):
-        return TestManagerTestHarness(
-            TestManager.TestManager(
-                None,
-                MockSourceControl(), 
-                MachineManagement.DummyMachineManagement(
-                    FakeConfig(
-                        machine_management=Config.MachineManagementConfig.Dummy(
-                            max_cores=1000,
-                            max_ram_gb=1000,
-                            max_workers=max_workers
-                            )
-                        ),
-                    None,
-                    None
-                    ),
-                InMemoryJsonStore.InMemoryJsonStore(),
-                initialTimestamp = -1000.0
-                )
-            )
-
     def test_manager_refresh(self):
-        harness = self.get_harness()
+        harness = TestManagerTestHarness.getHarness()
 
         harness.add_content()
 
@@ -673,7 +48,7 @@ class TestManagerTests(unittest.TestCase):
         harness.assertOneshotMachinesDoOneTest()
 
     def test_manager_only_prioritize_repo2(self):
-        harness = self.get_harness()
+        harness = TestManagerTestHarness.getHarness()
 
         harness.add_content()
 
@@ -703,11 +78,11 @@ class TestManagerTests(unittest.TestCase):
         harness.assertOneshotMachinesDoOneTest()
 
     def test_manager_branch_pinning(self):
-        harness = self.get_harness(max_workers=1)
+        harness = TestManagerTestHarness.getHarness(max_workers=1)
 
         harness.add_content()
         
-        harness.manager.source_control.addCommit("repo5/c0", [], basic_yml_file_repo5)
+        harness.manager.source_control.addCommit("repo5/c0", [], TestYamlFiles.repo5)
         harness.manager.source_control.setBranch("repo5/master", "repo5/c0")
 
         harness.markRepoListDirty()
@@ -723,7 +98,7 @@ class TestManagerTests(unittest.TestCase):
         branchRefs("repo5/master", "repo2/c1")
 
         #push another commit to repo2
-        harness.manager.source_control.addCommit("repo2/c2", ["repo2/c1"], basic_yml_file_repo2)
+        harness.manager.source_control.addCommit("repo2/c2", ["repo2/c1"], TestYamlFiles.repo2)
         harness.manager.source_control.setBranch("repo2/master", "repo2/c2")
         
         harness.markRepoListDirty()
@@ -732,11 +107,11 @@ class TestManagerTests(unittest.TestCase):
         branchRefs("repo5/master", "repo2/c2")
 
         #push a commit to both repo2
-        harness.manager.source_control.addCommit("repo2/c3", ["repo2/c2"], basic_yml_file_repo2)
+        harness.manager.source_control.addCommit("repo2/c3", ["repo2/c2"], TestYamlFiles.repo2)
         harness.manager.source_control.setBranch("repo2/master", "repo2/c3")
 
         #and also repo5
-        harness.manager.source_control.addCommit("repo5/c1", ["repo5/c0"], basic_yml_file_repo5)
+        harness.manager.source_control.addCommit("repo5/c1", ["repo5/c0"], TestYamlFiles.repo5)
         harness.manager.source_control.setBranch("repo5/master", "repo5/c1")
 
         harness.markRepoListDirty()
@@ -747,11 +122,11 @@ class TestManagerTests(unittest.TestCase):
         #now simulate pushing to c3 failing because we updated a commit
 
         #update the underlying repo
-        harness.manager.source_control.addCommit("repo2/c4", ["repo2/c3"], basic_yml_file_repo2)
+        harness.manager.source_control.addCommit("repo2/c4", ["repo2/c3"], TestYamlFiles.repo2)
         harness.manager.source_control.setBranch("repo2/master", "repo2/c4")
 
         def beforePush():
-            harness.manager.source_control.addCommit("repo5/c2", ["repo5/c1"], basic_yml_file_repo5_nopin)
+            harness.manager.source_control.addCommit("repo5/c2", ["repo5/c1"], TestYamlFiles.repo5_nopin)
             harness.manager.source_control.setBranch("repo5/master", "repo5/c2")
             
         harness.manager.source_control.prepushHooks["repo5/master"] = beforePush
@@ -763,20 +138,20 @@ class TestManagerTests(unittest.TestCase):
         self.assertEqual(harness.manager.source_control.commit_parents[curCommit][0], "repo5/c1")
 
     def test_manager_branch_fastforwarding(self):
-        harness = self.get_harness(max_workers=1)
+        harness = TestManagerTestHarness.getHarness(max_workers=1)
 
         harness.add_content()
         
-        harness.manager.source_control.addCommit("repo5/c0", [], basic_yml_file_repo5)
+        harness.manager.source_control.addCommit("repo5/c0", [], TestYamlFiles.repo5)
         harness.manager.source_control.setBranch("repo5/master", "repo5/c0")
 
         harness.markRepoListDirty()
         harness.consumeBackgroundTasks()
 
-        harness.manager.source_control.addCommit("repo2/c2", ["repo2/c1"], basic_yml_file_repo2)
-        harness.manager.source_control.addCommit("repo2/c3", ["repo2/c2"], basic_yml_file_repo2)
-        harness.manager.source_control.addCommit("repo2/c4", ["repo2/c3"], basic_yml_file_repo2)
-        harness.manager.source_control.addCommit("repo2/c5", ["repo2/c4"], basic_yml_file_repo2)
+        harness.manager.source_control.addCommit("repo2/c2", ["repo2/c1"], TestYamlFiles.repo2)
+        harness.manager.source_control.addCommit("repo2/c3", ["repo2/c2"], TestYamlFiles.repo2)
+        harness.manager.source_control.addCommit("repo2/c4", ["repo2/c3"], TestYamlFiles.repo2)
+        harness.manager.source_control.addCommit("repo2/c5", ["repo2/c4"], TestYamlFiles.repo2)
         harness.manager.source_control.setBranch("repo2/master", "repo2/c5")
 
         harness.markRepoListDirty()
@@ -799,10 +174,10 @@ class TestManagerTests(unittest.TestCase):
             self.assertEqual(top_commit.data.repos["child"].reference, "repo2/c1")
 
         #now push a non-fastforward
-        harness.manager.source_control.addCommit("repo2/c2_alt", ["repo2/c1"], basic_yml_file_repo2)
-        harness.manager.source_control.addCommit("repo2/c3_alt", ["repo2/c2_alt"], basic_yml_file_repo2)
-        harness.manager.source_control.addCommit("repo2/c4_alt", ["repo2/c3_alt"], basic_yml_file_repo2)
-        harness.manager.source_control.addCommit("repo2/c5_alt", ["repo2/c4_alt"], basic_yml_file_repo2)
+        harness.manager.source_control.addCommit("repo2/c2_alt", ["repo2/c1"], TestYamlFiles.repo2)
+        harness.manager.source_control.addCommit("repo2/c3_alt", ["repo2/c2_alt"], TestYamlFiles.repo2)
+        harness.manager.source_control.addCommit("repo2/c4_alt", ["repo2/c3_alt"], TestYamlFiles.repo2)
+        harness.manager.source_control.addCommit("repo2/c5_alt", ["repo2/c4_alt"], TestYamlFiles.repo2)
         harness.manager.source_control.setBranch("repo2/master", "repo2/c5_alt")
 
         harness.markRepoListDirty()
@@ -818,15 +193,15 @@ class TestManagerTests(unittest.TestCase):
         
 
     def test_manager_branch_circular_pinning(self):
-        harness = self.get_harness(max_workers=1)
+        harness = TestManagerTestHarness.getHarness(max_workers=1)
 
         harness.add_content()
         
-        harness.manager.source_control.addCommit("repo6/c0", [], basic_yml_file_repo6.replace("__branch__", "master1"))
-        harness.manager.source_control.addCommit("repo6/c1", [], basic_yml_file_repo6.replace("__branch__", "master2"))
-        harness.manager.source_control.addCommit("repo6/c2", [], basic_yml_file_repo6.replace("__branch__", "master3"))
-        harness.manager.source_control.addCommit("repo6/c3", [], basic_yml_file_repo6.replace("__branch__", "master4"))
-        harness.manager.source_control.addCommit("repo6/c4", [], basic_yml_file_repo6.replace("__branch__", "master0"))
+        harness.manager.source_control.addCommit("repo6/c0", [], TestYamlFiles.repo6.replace("__branch__", "master1"))
+        harness.manager.source_control.addCommit("repo6/c1", [], TestYamlFiles.repo6.replace("__branch__", "master2"))
+        harness.manager.source_control.addCommit("repo6/c2", [], TestYamlFiles.repo6.replace("__branch__", "master3"))
+        harness.manager.source_control.addCommit("repo6/c3", [], TestYamlFiles.repo6.replace("__branch__", "master4"))
+        harness.manager.source_control.addCommit("repo6/c4", [], TestYamlFiles.repo6.replace("__branch__", "master0"))
 
         harness.manager.source_control.setBranch("repo6/master0", "repo6/c0")
         harness.manager.source_control.setBranch("repo6/master1", "repo6/c1")
@@ -839,7 +214,7 @@ class TestManagerTests(unittest.TestCase):
 
         self.assertTrue(harness.manager.source_control.created_commits == 0)
 
-        harness.manager.source_control.addCommit("repo6/c0_alt", [], basic_yml_file_repo6_nopin)
+        harness.manager.source_control.addCommit("repo6/c0_alt", [], TestYamlFiles.repo6_nopin)
         harness.manager.source_control.setBranch("repo6/master3", "repo6/c0_alt")
 
         harness.markRepoListDirty()
@@ -848,15 +223,15 @@ class TestManagerTests(unittest.TestCase):
         self.assertEqual(harness.manager.source_control.created_commits, 4)
 
     def test_manager_pin_resolution_ordering(self):
-        harness = self.get_harness(max_workers=1)
+        harness = TestManagerTestHarness.getHarness(max_workers=1)
 
         harness.add_content()
         
-        harness.manager.source_control.addCommit("repo6/underlying", [], basic_yml_file_repo6_nopin)
+        harness.manager.source_control.addCommit("repo6/underlying", [], TestYamlFiles.repo6_nopin)
         harness.manager.source_control.setBranch("repo6/root", "repo6/underlying")
 
         nonauto_pin_contents = (
-            basic_yml_file_repo6_headpin
+            TestYamlFiles.repo6_headpin
             .replace("__branch__", "root")
             .replace("HEAD", "underlying")
             .replace("true", "false")
@@ -868,13 +243,13 @@ class TestManagerTests(unittest.TestCase):
                 contents = nonauto_pin_contents
             elif len(deps) == 1:
                 contents = (
-                    basic_yml_file_repo6_headpin
+                    TestYamlFiles.repo6_headpin
                     .replace("__branch__", deps[0])
                     .replace("HEAD", harness.manager.source_control.getBranch("repo6/" + deps[0]).split("/")[1])
                     )
             elif len(deps) == 2:
                 contents = (
-                    basic_yml_file_repo6_twopins
+                    TestYamlFiles.repo6_twopins
                     .replace("__branch__", deps[0])
                     .replace("HEAD1", harness.manager.source_control.getBranch("repo6/" + deps[0]).split("/")[1])
                     .replace("__branch2__", deps[1])
@@ -922,7 +297,7 @@ class TestManagerTests(unittest.TestCase):
 
         self.assertEqual(harness.manager.source_control.created_commits, 15)
 
-        harness.manager.source_control.addCommit("repo6/underlying2", [], basic_yml_file_repo6_nopin)
+        harness.manager.source_control.addCommit("repo6/underlying2", [], TestYamlFiles.repo6_nopin)
         harness.manager.source_control.setBranch("repo6/root", "repo6/underlying2")
 
         harness.markRepoListDirty()
@@ -942,17 +317,17 @@ class TestManagerTests(unittest.TestCase):
 
 
     def test_manager_update_head_commits(self):
-        harness = self.get_harness(max_workers=1)
+        harness = TestManagerTestHarness.getHarness(max_workers=1)
 
         harness.add_content()
 
         harness.markRepoListDirty()
         harness.consumeBackgroundTasks()
 
-        harness.manager.source_control.addCommit("repo6/c0", [], basic_yml_file_repo6_nopin)
+        harness.manager.source_control.addCommit("repo6/c0", [], TestYamlFiles.repo6_nopin)
         harness.manager.source_control.setBranch("repo6/master", "repo6/c0")
 
-        harness.manager.source_control.addCommit("repo6/c1", [], basic_yml_file_repo6_headpin.replace("__branch__", 'master'))
+        harness.manager.source_control.addCommit("repo6/c1", [], TestYamlFiles.repo6_headpin.replace("__branch__", 'master'))
         harness.manager.source_control.setBranch("repo6/branch2", "repo6/c1")
 
         harness.markRepoListDirty()
@@ -968,7 +343,7 @@ class TestManagerTests(unittest.TestCase):
 
 
     def test_manager_with_one_machine(self):
-        harness = self.get_harness(max_workers=1)
+        harness = TestManagerTestHarness.getHarness(max_workers=1)
 
         harness.add_content()
         harness.markRepoListDirty()
@@ -984,9 +359,9 @@ class TestManagerTests(unittest.TestCase):
 
 
     def test_manager_unbootable_hardware_combos(self):
-        harness = self.get_harness(max_workers=0)
+        harness = TestManagerTestHarness.getHarness(max_workers=0)
 
-        harness.manager.source_control.addCommit("repo4/c0", [], basic_yml_file_repo4)
+        harness.manager.source_control.addCommit("repo4/c0", [], TestYamlFiles.repo4)
         harness.manager.source_control.setBranch("repo4/master", "repo4/c0")
         harness.markRepoListDirty()
         harness.consumeBackgroundTasks()
@@ -1003,13 +378,13 @@ class TestManagerTests(unittest.TestCase):
 
 
     def test_manager_env_imports(self):
-        manager = self.get_harness().manager
+        manager = TestManagerTestHarness.getHarness().manager
 
-        manager.source_control.addCommit("repo0/c0", [], basic_yml_file_repo0)
-        manager.source_control.addCommit("repo0/c1", ["repo0/c0"], basic_yml_file_repo0)
+        manager.source_control.addCommit("repo0/c0", [], TestYamlFiles.repo0)
+        manager.source_control.addCommit("repo0/c1", ["repo0/c0"], TestYamlFiles.repo0)
         manager.source_control.setBranch("repo0/master", "repo0/c1")
 
-        manager.source_control.addCommit("repo3/c0", [], basic_yml_file_repo3)
+        manager.source_control.addCommit("repo3/c0", [], TestYamlFiles.repo3)
         manager.source_control.setBranch("repo3/master", "repo3/c0")
 
         manager.markRepoListDirty(0.0)
@@ -1025,7 +400,7 @@ class TestManagerTests(unittest.TestCase):
             #test doesn't exist yet
             assert test3 is None
             
-        manager.source_control.addCommit("repo2/c0", [], basic_yml_file_repo2)
+        manager.source_control.addCommit("repo2/c0", [], TestYamlFiles.repo2)
         manager.source_control.setBranch("repo2/master", "repo2/c0")
         
         manager.markRepoListDirty(0.0)
@@ -1047,7 +422,7 @@ class TestManagerTests(unittest.TestCase):
             commit3deps = manager.database.UnresolvedCommitRepoDependency.lookupAll(commit=commit3)
             self.assertEqual([x.reponame for x in commit3deps], ["repo1"])
 
-        manager.source_control.addCommit("repo1/c0", [], basic_yml_file_repo1)
+        manager.source_control.addCommit("repo1/c0", [], TestYamlFiles.repo1)
         manager.source_control.setBranch("repo1/master", "repo1/c0")
         
         manager.markRepoListDirty(0.0)
@@ -1076,7 +451,7 @@ class TestManagerTests(unittest.TestCase):
             assert test3.priority.matches.WaitingOnBuilds, test3.priority
 
     def test_manager_timeouts(self):
-        harness = self.get_harness()
+        harness = TestManagerTestHarness.getHarness()
 
         harness.add_content()
         harness.markRepoListDirty()
@@ -1145,10 +520,10 @@ class TestManagerTests(unittest.TestCase):
         harness.assertOneshotMachinesDoOneTest()
 
     def test_manager_cancel_orphans(self):
-        harness = self.get_harness()
+        harness = TestManagerTestHarness.getHarness()
 
-        harness.manager.source_control.addCommit("repo1/c0", [], basic_yml_file_repo1)
-        harness.manager.source_control.addCommit("repo1/c1", [], basic_yml_file_repo0)
+        harness.manager.source_control.addCommit("repo1/c0", [], TestYamlFiles.repo1)
+        harness.manager.source_control.addCommit("repo1/c1", [], TestYamlFiles.repo0)
         harness.manager.source_control.setBranch("repo1/master", "repo1/c0")
         
         harness.markRepoListDirty()
@@ -1176,7 +551,7 @@ class TestManagerTests(unittest.TestCase):
             self.assertEqual(len(harness.database.TestRun.lookupAll(isRunning=True)), 0)
         
     def test_manager_drop_machines_without_heartbeat(self):
-        harness = self.get_harness()
+        harness = TestManagerTestHarness.getHarness()
 
         harness.add_content()
 
@@ -1200,7 +575,7 @@ class TestManagerTests(unittest.TestCase):
         self.assertTrue(machines != set(harness.manager.machine_management.runningMachines))
         
     def test_manager_remembers_old_repos(self):
-        harness = self.get_harness()
+        harness = TestManagerTestHarness.getHarness()
 
         harness.add_content()
 
@@ -1230,19 +605,19 @@ class TestManagerTests(unittest.TestCase):
     def test_manager_missing_environment_refs(self):
         def add(harness, whichRepo):
             if whichRepo == 0:
-                harness.manager.source_control.addCommit("repo0/c0", [], basic_yml_file_repo0)
-                harness.manager.source_control.addCommit("repo0/c1", ['repo0/c0'], basic_yml_file_repo0)
+                harness.manager.source_control.addCommit("repo0/c0", [], TestYamlFiles.repo0)
+                harness.manager.source_control.addCommit("repo0/c1", ['repo0/c0'], TestYamlFiles.repo0)
                 harness.manager.source_control.setBranch("repo0/master", "repo0/c1")
             if whichRepo == 1:
-                harness.manager.source_control.addCommit("repo1/c0", [], basic_yml_file_repo1)
+                harness.manager.source_control.addCommit("repo1/c0", [], TestYamlFiles.repo1)
                 harness.manager.source_control.setBranch("repo1/master", "repo1/c0")
             if whichRepo == 2:
                 harness.manager.source_control.addCommit("repo2/c0", [], 
-                    basic_yml_file_repo2.replace("disabled: true", "disabled: false"))
+                    TestYamlFiles.repo2.replace("disabled: true", "disabled: false"))
                 harness.manager.source_control.setBranch("repo2/master", "repo2/c0")
             if whichRepo == 3:
                 harness.manager.source_control.addCommit("repo3/c0", [], 
-                    basic_yml_file_repo3.replace("disabled: true", "disabled: false"))
+                    TestYamlFiles.repo3.replace("disabled: true", "disabled: false"))
                 harness.manager.source_control.setBranch("repo3/master", "repo3/c0")
 
         for ordering in [
@@ -1250,7 +625,7 @@ class TestManagerTests(unittest.TestCase):
                     (3,2,1,0), 
                     (3,1,2,0)
                     ]:
-            harness = self.get_harness()
+            harness = TestManagerTestHarness.getHarness()
 
             #make sure it knows about all the repos
             for reponumber in xrange(4):
@@ -1268,9 +643,9 @@ class TestManagerTests(unittest.TestCase):
 
 
     def test_circular_environment_refs(self):
-        harness = self.get_harness()
+        harness = TestManagerTestHarness.getHarness()
 
-        harness.manager.source_control.addCommit("repo7/c0", [], basic_yml_file_repo7_circular)
+        harness.manager.source_control.addCommit("repo7/c0", [], TestYamlFiles.repo7_circular)
         harness.manager.source_control.setBranch("repo7/master", "repo7/c0")
 
         harness.markRepoListDirty()
@@ -1280,9 +655,9 @@ class TestManagerTests(unittest.TestCase):
             self.assertFalse(harness.database.Test.lookupAny(fullname=("repo7/c0/build")))
             
     def test_circular_test_refs(self):
-        harness = self.get_harness()
+        harness = TestManagerTestHarness.getHarness()
 
-        harness.manager.source_control.addCommit("repo8/c0", [], basic_yml_file_repo8_circular_builds)
+        harness.manager.source_control.addCommit("repo8/c0", [], TestYamlFiles.repo8_circular_builds)
         harness.manager.source_control.setBranch("repo8/master", "repo8/c0")
 
         harness.markRepoListDirty()
@@ -1297,7 +672,7 @@ class TestManagerTests(unittest.TestCase):
             
 
     def test_manager_import_export(self):
-        harness = self.get_harness()
+        harness = TestManagerTestHarness.getHarness()
 
         harness.add_content()
 
@@ -1312,7 +687,7 @@ class TestManagerTests(unittest.TestCase):
         exporter = ImportExport.ImportExport(harness.manager)
         jsonRepresentation = exporter.export()
 
-        harness2 = self.get_harness()
+        harness2 = TestManagerTestHarness.getHarness()
         harness2.add_content()
 
         importer = ImportExport.ImportExport(harness2.manager)
@@ -1324,10 +699,10 @@ class TestManagerTests(unittest.TestCase):
         self.assertEqual(importer.export(), jsonRepresentation)
 
     def test_child_repo_refs(self):
-        harness = self.get_harness()
+        harness = TestManagerTestHarness.getHarness()
 
         harness.add_content()
-        harness.manager.source_control.addCommit("repo9/c0", [], basic_yml_file_repo9_import_child_refs)
+        harness.manager.source_control.addCommit("repo9/c0", [], TestYamlFiles.repo9_import_child_refs)
         harness.manager.source_control.setBranch("repo9/master", "repo9/c0")
 
         harness.markRepoListDirty()
@@ -1347,4 +722,4 @@ class TestManagerTests(unittest.TestCase):
             self.assertEqual(test1.testDefinition.environment.variables['ENV_VAR'], "LINUX")
             self.assertEqual(test2.testDefinition.environment.variables['ENV_VAR_2'], "LINUX_2")
 
-basic_yml_file_repo9_import_child_refs
+TestYamlFiles.repo9_import_child_refs

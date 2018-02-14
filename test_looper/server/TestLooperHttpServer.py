@@ -254,12 +254,13 @@ class TestLooperHttpServer(object):
         self.eventLog.addLogMessage(self.getCurrentLogin(), format_string, *args, **kwargs)
 
     def getCurrentLogin(self):
+        cherrypy.session['github_access_token'] = "DUMMY"
+
         login = cherrypy.session.get('github_login', None)
         if login is None and self.is_authenticated():
             token = self.access_token()
             login = cherrypy.session['github_login'] = self.src_ctrl.getUserNameFromToken(token)
         return login or "Guest"
-
 
     def authenticate(self):
         auth_url = self.src_ctrl.authenticationUrl()
@@ -270,16 +271,27 @@ class TestLooperHttpServer(object):
             raise cherrypy.HTTPRedirect(auth_url)
         else:
             cherrypy.session['github_access_token'] = "DUMMY"
+    
+    @staticmethod
+    def currentUrl(remove_query_params=None):
+        if remove_query_params is None:
+            return cherrypy.url(qs=cherrypy.request.query_string).replace('http://', 'https://')
 
-
+        query_string = cherrypy.lib.httputil.parse_query_string(
+            cherrypy.request.query_string
+            )
+        return cherrypy.url(
+            qs="&".join("%s=%s" % (k, v)
+                        for k, v in query_string.iteritems()
+                        if k not in remove_query_params)
+            ).replace('http://', 'https://')
+    
     def save_current_url(self):
         cherrypy.session['redirect_after_authentication'] = self.currentUrl()
-
 
     @staticmethod
     def is_authenticated():
         return 'github_access_token' in cherrypy.session
-
 
     @staticmethod
     def access_token():
@@ -357,12 +369,6 @@ class TestLooperHttpServer(object):
         raise cherrypy.HTTPRedirect(self.address + "/repos")
 
     @cherrypy.expose
-    def test(self, testId):
-        self.authorize(read_only=True)
-
-        return self.renderer.test(testId)
-
-    @cherrypy.expose
     def test_contents(self, testId, key):
         return self.renderer.test_contents(testId, key)
 
@@ -385,24 +391,6 @@ class TestLooperHttpServer(object):
         self.authorize(read_only=False)
             
         return self.renderer.cancelTestRun(testRunId, redirect)
-
-    @cherrypy.expose
-    def machines(self):
-        self.authorize(read_only=True)
-
-        return self.renderer.machines()
-
-    @cherrypy.expose
-    def commit(self, repoName, commitHash):
-        self.authorize(read_only=True)
-
-        return self.renderer.commit(repoName, commitHash)
-
-    @cherrypy.expose
-    def allTestRuns(self, repoName, commitHash, failuresOnly=False, testName=None):
-        self.authorize(read_only=True)
-
-        return self.renderer.allTestRuns(repoName, commitHash, failuresOnly, testName)
 
     @cherrypy.expose
     def bootDeployment(self, fullname):
@@ -433,28 +421,10 @@ class TestLooperHttpServer(object):
 
         raise cherrypy.HTTPRedirect(redirect or self.address + "/repos")
 
-    
-    @cherrypy.expose
-    def deployments(self):
-        self.authorize(read_only=True)
-    
-        return self.renderer.deployments()
 
     @cherrypy.expose
     def shutdownDeployment(self, deploymentId):
         return self.renderer.shutdownDeployment(deploymentId)
-
-    @cherrypy.expose
-    def repos(self, groupings=None):
-        self.authorize(read_only=True)
-
-        return self.renderer.repos(groupings=groupings)
-
-    @cherrypy.expose
-    def branches(self, repoName, groupings=None):
-        self.authorize(read_only=True)
-
-        return self.renderer.branches(repoName, groupings=groupings)
 
     @cherrypy.expose
     def toggleBranchTestTargeting(self, reponame, branchname, testType, testGroupsToExpand):
@@ -463,20 +433,8 @@ class TestLooperHttpServer(object):
         return self.renderer.toggleBranchTestTargeting(reponame, branchname, testType, testGroupsToExpand)
 
     @cherrypy.expose
-    def branch(self, reponame, branchname, **kwargs):
-        self.authorize(read_only=True)
-
-        return self.renderer.branch(reponame, branchname, **kwargs)
-
-    @cherrypy.expose
     def updateBranchPin(self, repoName, branchName, ref, redirect):
         return self.renderer.updateBranchPin(repoName, branchName, ref, redirect)
-
-
-    @cherrypy.expose
-    def eventLogs(self):
-        self.authorize(read_only=True)
-        return self.renderer.eventLogs()
 
     @cherrypy.expose
     def githubReceivedAPush(self):
@@ -640,6 +598,7 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def default(self, *args, **kwargs):
+        self.authenticate()
         return self.renderer.default(*args, **kwargs)
 
     def start(self):
