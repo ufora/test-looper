@@ -1289,7 +1289,7 @@ class TestManager(object):
 
         commit = self._lookupCommitByHash(repo, hash)
 
-        if commit is None or commit.data and not commit.data.wantsRefresh:
+        if commit is None or commit.data:
             logging.info("Not updating commit %s because it has commit.data and doesn't want a refresh.", commit.hash)
             return
 
@@ -1325,7 +1325,7 @@ class TestManager(object):
         commit.userPriority = max(commit.userPriority, priority)
 
         if knownNoTestFile:
-            pass
+            commit.data.noTestsFound = True
         #ignore commits produced before the looper existed. They won't have these files!
         elif commit.data.timestamp > OLDEST_TIMESTAMP_WITH_TESTS:
             logging.info("Loading data for commit %s with timestamp %s", commit.hash, time.asctime(time.gmtime(commit.data.timestamp)))
