@@ -991,13 +991,15 @@ class TestManager(object):
 
         testRun.test.activeRuns = testRun.test.activeRuns - 1
         self.heartbeatHandler.testFinished(testRun.test._identity)
-    
-        os = testRun.machine.os
 
-        if (os.matches.WindowsVM or os.matches.LinuxVM):
-            #we need to shut down this machine since it has a setup script
-            if not DISABLE_MACHINE_TERMINATION:
-                self._terminateMachine(testRun.machine, curTimestamp)
+
+        if testRun.machine:
+            os = testRun.machine.os
+
+            if (os.matches.WindowsVM or os.matches.LinuxVM):
+                #we need to shut down this machine since it has a setup script
+                if not DISABLE_MACHINE_TERMINATION:
+                    self._terminateMachine(testRun.machine, curTimestamp)
 
         self._triggerTestPriorityUpdate(testRun.test)
 
