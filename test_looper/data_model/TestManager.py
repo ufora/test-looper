@@ -537,18 +537,22 @@ class TestManager(object):
             
     def markRepoListDirty(self, curTimestamp):
         with self.transaction_and_lock():
-            self.database.DataTask.New(
-                task=self.database.BackgroundTask.RefreshRepos(), 
-                status=pendingVeryHigh
+            self._queueTask(
+                self.database.DataTask.New(
+                    task=self.database.BackgroundTask.RefreshRepos(), 
+                    status=pendingVeryHigh
+                    )
                 )
 
     def markBranchListDirty(self, reponame, curTimestamp):
         with self.transaction_and_lock():
             repo = self.database.Repo.lookupAny(name=reponame)
             assert repo, "Can't find repo named %s" % reponame
-            self.database.DataTask.New(
-                task=self.database.BackgroundTask.RefreshBranches(repo=repo),
-                status=pendingVeryHigh
+            self._queueTask(
+                self.database.DataTask.New(
+                    task=self.database.BackgroundTask.RefreshBranches(repo=repo),
+                    status=pendingVeryHigh
+                    )
                 )
 
     def _testNameSet(self, testNames):
@@ -970,9 +974,11 @@ class TestManager(object):
 
     def _scheduleBootCheck(self):
         if not self.database.DataTask.lookupAny(pending_boot_machine_check=True):
-            self.database.DataTask.New(
-                task=self.database.BackgroundTask.BootMachineCheck(),
-                status=pendingVeryHigh
+            self._queueTask(
+                self.database.DataTask.New(
+                    task=self.database.BackgroundTask.BootMachineCheck(),
+                    status=pendingVeryHigh
+                    )
                 )
 
     def _cancelTestRun(self, testRun, curTimestamp):
@@ -995,13 +1001,18 @@ class TestManager(object):
 
         self._triggerTestPriorityUpdate(testRun.test)
 
-    def performBackgroundWorkSynchronously(self, curTimestamp, count):
-        with self.transaction_and_lock():
-            logging.info("Tasks pending: %s", 
-                len(self.database.DataTask.lookupAll(status=pendingVeryHigh) +
+    def _taskCount(self):
+        count = 0
+        for task in (self.database.DataTask.lookupAll(status=pendingVeryHigh) +
                         self.database.DataTask.lookupAll(status=pendingHigh) +
                         self.database.DataTask.lookupAll(status=pendingMedium) +
-                    self.database.DataTask.lookupAll(status=pendingLow)))
+                    self.database.DataTask.lookupAll(status=pendingLow)):
+            count += task.prior_ct
+        return count
+
+    def performBackgroundWorkSynchronously(self, curTimestamp, count):
+        with self.transaction_and_lock():
+            logging.info("Tasks pending: %s", self._taskCount())
             logging.info("Total commits: %s",
                 sum([r.commits for r in  self.database.Repo.lookupAll(isActive=True)])
                 )
@@ -1017,19 +1028,20 @@ class TestManager(object):
 
                 if task is None:
                     return
-                    
-                task.status = running
 
                 testDef = task.task
+                task.status = running
 
                 try:
-                    self._processTask(testDef, curTimestamp)
+                    self._processTask(task.task, curTimestamp)
                 except KeyboardInterrupt:
                     raise
                 except:
                     traceback.print_exc()
-                    logging.error("Exception processing task %s:\n\n%s", testDef, traceback.format_exc())
+                    logging.error("Exception processing task %s:\n\n%s", task.task, traceback.format_exc())
                 finally:
+                    if task.prior:
+                        task.prior.isHead = True
                     task.delete()
 
         return testDef
@@ -1061,6 +1073,8 @@ class TestManager(object):
             logging.error("Exception processing task %s:\n\n%s", testDef, traceback.format_exc())
         finally:
             with self.transaction_and_lock():
+                if task.prior:
+                    task.prior.isHead=True
                 task.delete()
 
         return testDef
@@ -1162,9 +1176,11 @@ class TestManager(object):
                 r = self._createRepo(new_repo_name)
 
         for r in self.database.Repo.lookupAll(isActive=True):
-            self.database.DataTask.New(
-                task=self.database.BackgroundTask.RefreshBranches(r),
-                status=pendingVeryHigh
+            self._queueTask(
+                self.database.DataTask.New(
+                    task=self.database.BackgroundTask.RefreshBranches(r),
+                    status=pendingVeryHigh
+                    )
                 )
 
     def _refreshBranches(self, db_repo):
@@ -1497,9 +1513,11 @@ class TestManager(object):
         return sorted(branches, key=lambda b: b.branchname)[0]
 
     def _scheduleUpdateBranchTopCommit(self, branch):
-        self.database.DataTask.New(
-            task=self.database.BackgroundTask.UpdateBranchTopCommit(branch),
-            status=pendingVeryHigh
+        self._queueTask(
+            self.database.DataTask.New(
+                task=self.database.BackgroundTask.UpdateBranchTopCommit(branch),
+                status=pendingVeryHigh
+                )
             )
 
     def _recalculateBranchPins(self, branch):
@@ -1524,9 +1542,11 @@ class TestManager(object):
         self._scheduleBranchPinNeedsUpdating(branch)
 
     def _scheduleBranchPinNeedsUpdating(self, branch):
-        self.database.DataTask.New(
-            task=self.database.BackgroundTask.UpdateBranchPins(branch=branch),
-            status=pendingLow
+        self._queueTask(
+            self.database.DataTask.New(
+                task=self.database.BackgroundTask.UpdateBranchPins(branch=branch),
+                status=pendingLow
+                )
             )
 
     def _bootMachinesIfNecessary(self, curTimestamp):
@@ -1631,9 +1651,14 @@ class TestManager(object):
             return
 
         def check():
+            shutDownAny = False
+
             for cat in self.database.MachineCategory.lookupAll(want_less=True):
                 if cat.desired < cat.booted:
-                    return self._shutdown(cat, curTimestamp, onlyIdle=True)
+                    if self._shutdown(cat, curTimestamp, onlyIdle=True):
+                        shutDownAny = True
+
+            return shutDownAny
 
         while check():
             pass
@@ -2055,27 +2080,33 @@ class TestManager(object):
             self._triggerTestPriorityUpdate(test)
                 
     def _triggerCommitPriorityUpdate(self, commit):
-        self.database.DataTask.New(
-            task=self.database.BackgroundTask.UpdateCommitPriority(commit=commit),
-            status=pendingMedium
+        self._queueTask(
+            self.database.DataTask.New(
+                task=self.database.BackgroundTask.UpdateCommitPriority(commit=commit),
+                status=pendingMedium
+                )
             )
 
     def _triggerTestPriorityUpdate(self, test):
         #test priority updates are always 'low' because we want to ensure
         #that all commit updates have triggered first. This way we know that
         #we're not accidentally going to cancel a test
-        self.database.DataTask.New(
-            task=self.database.BackgroundTask.UpdateTestPriority(test=test),
-            status=pendingLow
+        self._queueTask(
+            self.database.DataTask.New(
+                task=self.database.BackgroundTask.UpdateTestPriority(test=test),
+                status=pendingLow
+                )
             )
 
     def _triggerCommitTestParse(self, commit):
         if not (self.database.UnresolvedCommitRepoDependency.lookupAll(commit=commit) +
                 self.database.UnresolvedCommitSourceDependency.lookupAll(commit=commit)
                 ):
-            self.database.DataTask.New(
-                task=self.database.BackgroundTask.CommitTestParse(commit=commit),
-                status=pendingHigh
+            self._queueTask(
+                self.database.DataTask.New(
+                    task=self.database.BackgroundTask.CommitTestParse(commit=commit),
+                    status=pendingHigh
+                    )
                 )
 
     def _createRepo(self, new_repo_name):
@@ -2107,9 +2138,22 @@ class TestManager(object):
             repo.commits = repo.commits + 1
 
         if not commit.data:
-            self.database.DataTask.New(
-                task=self.database.BackgroundTask.UpdateCommitData(commit=commit),
-                status=pendingHigh
+            self._queueTask(
+                self.database.DataTask.New(
+                    task=self.database.BackgroundTask.UpdateCommitData(commit=commit),
+                    status=pendingHigh
+                    )
                 )
 
         return commit
+
+    def _queueTask(self, task):
+        existing = self.database.DataTask.lookupAny(status=task.status)
+
+        task.isHead = True
+
+        if existing:
+            existing.isHead = False
+            task.prior = existing
+            task.prior_ct = existing.prior_ct + 1
+

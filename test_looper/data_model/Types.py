@@ -44,7 +44,10 @@ def setup_types(database):
 
     database.DataTask.define(
         task=database.BackgroundTask,
-        status=BackgroundTaskStatus
+        status=BackgroundTaskStatus,
+        prior=database.DataTask,
+        prior_ct=int,
+        isHead=bool
         )
 
     database.Commit.define(
@@ -192,7 +195,7 @@ def setup_types(database):
 
     database.addIndex(database.IndividualTestNameSet, 'shaHash')
 
-    database.addIndex(database.DataTask, 'status')
+    database.addIndex(database.DataTask, 'status', lambda d: d.status if d.isHead else None)
     database.addIndex(database.DataTask, 'pending_boot_machine_check', lambda d: True if d.status.matches.Pending and d.task.matches.BootMachineCheck else None)
     database.addIndex(database.Machine, 'machineId')
 

@@ -1106,7 +1106,11 @@ class TestManagerTests(unittest.TestCase):
 
         self.assertEqual(len(harness.manager.machine_management.runningMachines), 4)
 
+        print "Disabling at ", harness.timestamp
+
         harness.disableBranchTesting("repo1", "master")
+
+        harness.consumeBackgroundTasks()
 
         harness.timestamp += 500
 
@@ -1159,8 +1163,8 @@ class TestManagerTests(unittest.TestCase):
 
         with harness.database.view():
             self.assertEqual(
-                [t.test.fullname for t in harness.database.TestRun.lookupAll(isRunning=True)], 
-                ["repo1/c0/build/linux","repo1/c0/test/windows"]
+                sorted([t.test.fullname for t in harness.database.TestRun.lookupAll(isRunning=True)]), 
+                sorted(["repo1/c0/build/linux","repo1/c0/test/windows"])
                 )
 
         harness.manager.source_control.setBranch("repo1/master", "repo1/c1")
