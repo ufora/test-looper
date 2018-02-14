@@ -462,10 +462,14 @@ class TestLooperCtl:
                 is_new = hash not in repo_usages[reponame]
 
             if is_new:
-                repo_usages[reponame][hash] = self.getGitRepo(reponame).branchnameForCommitSloppy(hash)
+                repo = self.getGitRepo(reponame)
+                if not repo:
+                    return
+
+                repo_usages[reponame][hash] = repo.branchnameForCommitSloppy(hash)
                 
                 if repo_usages[reponame][hash] is None:
-                    repo_usages[reponame][hash] = self.getGitRepo(reponame).branchnameForCommitSloppy(hash)
+                    repo_usages[reponame][hash] = repo.branchnameForCommitSloppy(hash)
 
                 if repo_usages[reponame][hash] is None:
                     repo_usages[reponame][hash] = hash[:10]
@@ -494,7 +498,7 @@ class TestLooperCtl:
                     for refname, ref in repos.iteritems():
                         if self.repoIsNotIgnored(ref.reponame()):
                             print "\t", refname, " -> ", self.repoShortname(ref.reponame()), \
-                                self.cur_checkouts[ref.reponame()][ref.commitHash()]
+                                self.cur_checkouts[ref.reponame()].get(ref.commitHash(), ref.commitHash()[:10])
 
         for reponame in self.allRepoNames:
             if reponame not in repo_usages and reponame in self.cur_checkouts:
