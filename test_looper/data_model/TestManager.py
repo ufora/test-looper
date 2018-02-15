@@ -1279,6 +1279,7 @@ class TestManager(object):
                     subject=hashParentsAndTitle[3].split("\n")[0],
                     body=hashParentsAndTitle[3],
                     author=hashParentsAndTitle[4],
+                    authorEmail=hashParentsAndTitle[5],
                     parentHashes=hashParentsAndTitle[1]
                     )
 
@@ -1306,12 +1307,13 @@ class TestManager(object):
                 subject=hashParentsAndTitle[3].split("\n")[0],
                 body=hashParentsAndTitle[3],
                 author=hashParentsAndTitle[4],
+                authorEmail=hashParentsAndTitle[5],
                 parentHashes=hashParentsAndTitle[1],
                 knownNoTestFile=knownNoTestFile
                 )
 
 
-    def _updateCommitDataForHash(self, repo, hash, timestamp, subject, body, author, parentHashes, knownNoTestFile=False):
+    def _updateCommitDataForHash(self, repo, hash, timestamp, subject, body, author, authorEmail, parentHashes, knownNoTestFile=False):
         source_control_repo = self.source_control.getRepo(repo.name)
 
         commit = self._lookupCommitByHash(repo, hash)
@@ -1327,7 +1329,9 @@ class TestManager(object):
             subject=subject,
             timestamp=timestamp,
             commitMessage=body,
-            parents=parents
+            parents=parents,
+            author=author,
+            authorEmail=authorEmail
             )
 
         #check for all source dependencies and make sure we update them!

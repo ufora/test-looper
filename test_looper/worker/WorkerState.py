@@ -766,26 +766,25 @@ class WorkerState(object):
             return False, {}
 
         try:
-            log_function(time.asctime() + " TestLooper> Uploading logfile.\n")
+            with self.callHeartbeatInBackground(log_function, "Uploading logfiles."):
+                path = os.path.join(self.directories.scratch_dir, "test_result.json")
+                with open(path, "w") as f:
+                    f.write(
+                        json.dumps(
+                            {"success": success,
+                             "individualTests": individualTestSuccesses,
+                             "start_timestamp": t0,
+                             "end_timestamp": time.time()
+                            })
+                        )
+                        
+                self.artifactStorage.uploadSingleTestArtifact(repoName, commitHash, testId, "test_result.json", path)
 
-            path = os.path.join(self.directories.scratch_dir, "test_result.json")
-            with open(path, "w") as f:
-                f.write(
-                    json.dumps(
-                        {"success": success,
-                         "individualTests": individualTestSuccesses,
-                         "start_timestamp": t0,
-                         "end_timestamp": time.time()
-                        })
-                    )
-                    
-            self.artifactStorage.uploadSingleTestArtifact(repoName, commitHash, testId, "test_result.json", path)
+                path = os.path.join(self.directories.scratch_dir, "test_looper_log.txt")
+                with open(path, "w") as f:
+                    f.write("".join(log_messages))
 
-            path = os.path.join(self.directories.scratch_dir, "test_looper_log.txt")
-            with open(path, "w") as f:
-                f.write("".join(log_messages))
-
-            self.artifactStorage.uploadSingleTestArtifact(repoName, commitHash, testId, "test_looper_log.txt", path)
+                self.artifactStorage.uploadSingleTestArtifact(repoName, commitHash, testId, "test_looper_log.txt", path)
 
         except:
             log_function("ERROR: Failed to upload the testlooper logfile to artifactStorage:\n\n%s" % traceback.format_exc())
@@ -855,10 +854,10 @@ class WorkerState(object):
                         )
                     self.artifactStorage.upload_build(dep.repo, dep.commitHash, sourceArtifactName, tarball_name)
                 except:
-                    log_function(time.asctime() + " TestLooper> Failed to upload package '%s':\n%s",
+                    log_function(time.asctime() + " TestLooper> Failed to upload package '%s':\n%s" % (
                           tarball_name,
                           traceback.format_exc()
-                          )
+                          ))
             else:
                 if not os.path.exists(tarball_name):
                     log_function(time.asctime() + " TestLooper> Downloading source cache for %s/%s.\n" % (dep.repo, dep.commitHash))

@@ -62,9 +62,9 @@ class RepoContext(Context.Context):
 
             test_rows[b] = self.renderer.allTestsForCommit(best_commit[b]) if best_commit[b] else []
 
-        renderer = TestGridRenderer.TestGridRenderer(test_rows, list(branches), None)
+        gridRenderer = TestGridRenderer.TestGridRenderer(branches, lambda b: test_rows.get(b, []))
 
-        grid_headers = renderer.getGridHeaders(None)
+        grid_headers = [gridRenderer.headers()]
 
         if grid_headers:
             for additionalHeader in reversed(["TEST", "BRANCH NAME", "TOP COMMIT", "TOP TESTED COMMIT"]):
@@ -97,6 +97,6 @@ class RepoContext(Context.Context):
             else:
                 row.append("")
 
-            row.extend(renderer.render_row(branch, None))
+            row.extend(gridRenderer.gridRow(branch))
 
         return grid_headers, grid

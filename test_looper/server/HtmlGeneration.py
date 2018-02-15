@@ -4,6 +4,7 @@ HtmlGeneration
 Simple utilities for generating HTML for the TestLooperHttpServer.
 """
 
+import uuid
 import logging
 import re
 import cgi
@@ -42,6 +43,26 @@ footers = """
 $(function () {
   $('[data-toggle="tooltip"]').tooltip()
 })
+const getChildProp = (el, child) => {
+  return $(`.data-${child}`, $(el).attr('data-bind')).html();
+};
+$('.popover-dismiss').popover({
+  trigger: 'focus'
+})
+$('[data-toggle="popover"]').popover({
+  html: true,
+  container: 'body',
+  placement: 'bottom',
+  title: function () {
+    return getChildProp(this, 'title');
+  },
+  content: function () {
+    return getChildProp(this, 'content');
+  },
+  placement: function () {
+    return getChildProp(this, 'placement');
+  }
+});
 </script>
 </body>
 <html>
@@ -51,7 +72,7 @@ def gitgraph_canvas_setup(commit_generation, to_the_right):
     return """
 <div style="width:3000px">
     <div style="display:inline-block; vertical-align: top">
-        <div style="height: 40px"></div>
+        <div style="height: 4px"></div>
         <canvas id='gitGraph'></canvas>
     </div>
     <div style="width:1500px;display:inline-block">
@@ -242,7 +263,6 @@ def pad(s, length):
 def link(linkTxt, linkUrl, hover_text=None):
     return Link(linkUrl, linkTxt, hover_text)
 
-
 def stack(*elements):
     return "".join(str(x) for x in elements)
 
@@ -252,6 +272,22 @@ def button(value, linkVal):
         <input type="submit" value=\"%s\"/>
     </form>
     """ % (linkVal, value)
+
+def popover(contents, detail_title, detail_view, width, data_placement=None):
+    divid = str(uuid.uuid4())
+
+    return """
+        <a href="#" data-toggle="popover" data-trigger="focus" data-bind="#{div}" container="body" class="btn btn-xs" role="button">{button_text}</a>
+        <div style="display:none;">
+          <div id="{div}">
+            <div class='data-placement'>{placement}</div>
+            <div class="data-title">{detail_title}</div>
+            <div class="data-content"><div style="width:{width}px">{detail_view}</div></div>
+          </div>
+        </div>
+        """.format(div=divid, button_text=contents, detail_title=detail_title, detail_view=detail_view, width=width, 
+            placement=data_placement or "bottom")
+
 
 
 def elementTextLength(e):
@@ -366,7 +402,7 @@ def secondsUpToString(up_for):
 
 
 def octicon(text, extra=""):
-    return '<span class="octicon octicon-%s %s" aria-hidden="true"/>' % (text,extra)
+    return '<span class="octicon octicon-%s %s" aria-hidden="true"></span>' % (text,extra)
 
 def bytesToHumanSize(bytes):
     if bytes is None:
