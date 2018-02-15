@@ -70,7 +70,8 @@ class Encoder(object):
 
     def to_json(self, value):
         if isinstance(value, unicode):
-            value = str(value)
+            value = value.encode('ascii',errors='ignore')
+
 
         if isinstance(value, algebraic.AlternativeInstance):
             if isinstance(value._alternative, algebraic.NullableAlternative):
@@ -112,7 +113,7 @@ class Encoder(object):
         
         try:
             if isinstance(value, unicode):
-                value = str(value)
+                value = value.encode('ascii',errors='ignore')
 
             if value is None:
                 return value
@@ -147,7 +148,7 @@ class Encoder(object):
 
             if isinstance(algebraic_type, algebraic.Alternative):
                 if isinstance(value, unicode):
-                    value = str(value)
+                    value = value.encode('ascii',errors='ignore')
 
                 if isinstance(value, str):
                     zero_arg_types = []
@@ -170,8 +171,8 @@ class Encoder(object):
 
                     if '_type' in value:
                         if isinstance(value['_type'], unicode):
-                            value['_type'] = str(value['_type'])
-                        
+                            value['_type'] = value['_type'].encode('ascii',errors='ignore')
+
                         if not isinstance(value['_type'], str):
                             raise UserWarning('typenames have to be strings')
 
