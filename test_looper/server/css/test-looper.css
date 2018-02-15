@@ -11,6 +11,11 @@
 	padding-right: 6px;
 }
 
+.popover{
+    max-width: none;
+}
+
+
 .table td p,
 .table th p {
     margin-bottom: 0px;

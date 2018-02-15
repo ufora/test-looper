@@ -1,6 +1,6 @@
 import test_looper.server.rendering.Context as Context
 import test_looper.server.HtmlGeneration as HtmlGeneration
-import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
+import test_looper.server.rendering.TestGridRenderer as TestGridRenderer
 
 octicon = HtmlGeneration.octicon
 card = HtmlGeneration.card
@@ -45,37 +45,6 @@ class BranchContext(Context.Context):
         return HtmlGeneration.tabs("branchtab", [("Commits", commitContents, 'commit'), ("Branch Pins", pinContents, 'pins')])
 
     def testDisplayForCommits(self, commits):
-        test_env_and_name_pairs = set()
-
-        for c in commits:
-            for test in self.testManager.database.Test.lookupAll(commitData=c.data):
-                if not test.testDefinition.matches.Deployment:
-                    test_env_and_name_pairs.add((test.testDefinition.environment_name, test.testDefinition.name))
-
-        #this is how we will aggregate our tests
-        envs_and_collapsed_names = sorted(
-            set([(env, self.collapseName(name, env)) for env, name in test_env_and_name_pairs])
-            )
-
-        collapsed_name_environments = []
-        for env, name in envs_and_collapsed_names:
-            if not collapsed_name_environments or collapsed_name_environments[-1]["content"] != env:
-                collapsed_name_environments.append({"content": env, "colspan": 1})
-            else:
-                collapsed_name_environments[-1]["colspan"] += 1
-
-        for env in collapsed_name_environments:
-            env["content"] = '<div class="border %s text-center">%s</div>' % (
-                "border-dark" if env["colspan"]>1 else "", env["content"]
-                )
-
-        grid = [[""] * 3 + collapsed_name_environments + [""] * 4,
-                ["COMMIT", "", "(running)"] + 
-                [name for env,name in envs_and_collapsed_names] + 
-                ["SOURCE", ""]
-            ]
-
-
         commit_string = ""
         detail_divs = ""
 
@@ -170,49 +139,35 @@ class BranchContext(Context.Context):
 
                     branches[(c.hash, other_child)] = branchname
 
+        gridRenderer = TestGridRenderer.TestGridRenderer(commits, 
+            lambda c: [
+                t for t in self.testManager.database.Test.lookupAll(commitData=c.data)
+                    if not t.testDefinition.matches.Deployment
+                ] if c.data else []
+            )
+
+        grid = [["COMMIT"] + gridRenderer.headers() + ["", ""]]
 
         for c in reversed(commits):
-            gridrow = self.getBranchCommitRow(c, envs_and_collapsed_names)
+            gridrow = self.getBranchCommitRow(c, gridRenderer)
 
             grid.append(gridrow)
 
-        grid = HtmlGeneration.grid(grid, header_rows=2, rowHeightOverride=36)
+        grid = HtmlGeneration.grid(grid, rowHeightOverride=36)
         
         canvas = HtmlGeneration.gitgraph_canvas_setup(commit_string, grid)
 
         return detail_divs + canvas
 
-    def getBranchCommitRow(self,
-                           commit,
-                           envs_and_collapsed_names):
-        row = [self.contextFor(commit).renderLinkWithSubject()]
+    def getBranchCommitRow(self, commit, renderer):
+        row = [self.contextFor(commit).renderLinkWithShaHash()]
 
         all_tests = self.testManager.database.Test.lookupAll(commitData=commit.data)
 
-        running = self.testManager.totalRunningCountForCommit(commit)
-
         if all_tests:
-            row.append(self.contextFor(commit).toggleCommitUnderTestLink())
-        else:
-            row.append("")
-
-        if running:
-            row.append(str(running))
-        else:
-            row.append("")
+            row[-1] += "&nbsp;" + self.contextFor(commit).toggleCommitUnderTestLink()
         
-        tests_by_name = {(env,name): [] for env, name in envs_and_collapsed_names}
-        if commit.data:
-            for t in all_tests:
-                if not t.testDefinition.matches.Deployment:
-                    env_name_pair = (t.testDefinition.environment_name, 
-                            self.collapseName(t.testDefinition.name, t.testDefinition.environment_name))
-                    tests_by_name[env_name_pair].append(t)
-        
-        for env, name in envs_and_collapsed_names:
-            row.append(TestSummaryRenderer.TestSummaryRenderer(self, tests_by_name[env, name]).renderSummary())
-
-        row.append(self.contextFor(commit).renderLinkToSCM())
+        row.extend(renderer.gridRow(commit))
         
         row.append(
             HtmlGeneration.lightGrey("waiting to load commit") 
@@ -223,6 +178,8 @@ class BranchContext(Context.Context):
                     if commit.data.testDefinitionsError
             else ""
             )
+
+        row.append(self.contextFor(commit).renderSubjectAndAuthor())
 
         return row
 

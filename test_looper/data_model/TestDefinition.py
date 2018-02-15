@@ -75,6 +75,7 @@ TestDefinition = algebraic.Alternative("TestDefinition")
 TestDefinition.Build = {
     "buildCommand": str,
     "cleanupCommand": str,
+    'displayGroup': str,
     "name": str,
     "environment_name": str,
     "environment": TestEnvironment,
@@ -91,6 +92,7 @@ TestDefinition.Build = {
 TestDefinition.Test = {
     "testCommand": str,
     "cleanupCommand": str,
+    'displayGroup': str,
     "name": str,
     "environment_name": str,
     "environment": TestEnvironment,
@@ -104,6 +106,7 @@ TestDefinition.Test = {
     }
 TestDefinition.Deployment = {
     "deployCommand": str,
+    'displayGroup': str,
     "name": str,
     "environment_name": str,
     "environment": TestEnvironment,
@@ -326,6 +329,7 @@ def apply_test_substitutions(test, env, input_var_defs):
         return type(
             name=test.name,
             environment=env,
+            displayGroup=test.displayGroup,
             environment_name=test.environment_name,
             variables=vardefs,
             dependencies=dependencies,

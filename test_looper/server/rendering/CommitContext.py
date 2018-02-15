@@ -4,6 +4,7 @@ import test_looper.server.HtmlGeneration as HtmlGeneration
 import urllib
 import cgi
 import time
+import uuid
 
 octicon = HtmlGeneration.octicon
 card = HtmlGeneration.card
@@ -49,7 +50,7 @@ class CommitContext(Context.Context):
         actual_priority = commit.userPriority > 0
 
         icon = "octicon-triangle-right"
-        hover_text = "%s testing this commit" % ("Pause" if actual_priority else "Start")
+        hover_text = "%s tests for this commit" % ("Enable" if not actual_priority else "Disable")
         button_style = "btn-xs " + ("btn-primary active" if actual_priority else "btn-outline-dark")
         
         return HtmlGeneration.Link(
@@ -63,21 +64,70 @@ class CommitContext(Context.Context):
     
     def renderLinkToSCM(self):
         url = self.renderer.src_ctrl.commit_url(self.commit.repo.name, self.commit.hash)
-        if url:
-            return HtmlGeneration.link(octicon("diff") + "diff", url)
-        else:
-            return ""
+        return HtmlGeneration.link(octicon("diff"), url, hover_text="View diff")
 
     
-    def renderLinkWithSubject(self, maxChars=60):
-        subject = "<not loaded yet>" if not self.commit.data else self.commit.data.subject
-        text = subject if len(subject) <= maxChars else subject[:maxChars] + '...'
+    def recency(self):
+        return '<span class="text-muted">%s</span>' % (HtmlGeneration.secondsUpToString(time.time() - self.commit.data.timestamp) + " ago")
 
-        return HtmlGeneration.link(
-            text,
-            self.urlString(),
-            hover_text=("commit " + self.commit.hash[:10] + " : " + ("" if not self.commit.data else self.commit.data.commitMessage))
+    def renderLinkWithShaHash(self):
+        if not self.commit.data:
+            return ''
+
+        return octicon("git-commit") + HtmlGeneration.link(
+                "<code>" + self.commit.hash[:8] + "</code>",
+                self.urlString(),
+                hover_text=("commit " + self.commit.hash[:10] + " : " + ("" if not self.commit.data else self.commit.data.commitMessage))
+                )
+
+    def renderSubjectAndAuthor(self, maxChars=40):
+        if not self.commit.data:
+            return ""
+
+        text = self.commit.data.subject
+        text = text if len(text) <= maxChars else text[:maxChars] + '...'
+
+        return (
+            cgi.escape(text) +
+            '&nbsp;&middot;&nbsp;<span class="text-muted">by</span> <span class="text-secondary">%s</span>' % self.commit.data.author +
+            "&nbsp;&middot;&nbsp;" + 
+            self.recency() + 
+            self.renderContentCallout() + 
+            self.renderLinkToSCM()
             )
+
+    def renderLinkWithSubject(self, maxChars=40):
+        if not self.commit.data:
+            return ""
+
+        return (
+            self.renderLinkWithShaHash() + 
+            "&nbsp;" +
+            self.renderSubjectAndAuthor(maxChars)
+            )
+
+    def renderContentCallout(self):
+        detail_header = "Commit Info"
+
+        header,body = (self.commit.data.commitMessage + "\n").split("\n",1)
+
+        header = header.strip()
+        body = body.strip()
+
+        detail = """
+            <div>Author: {author} &lt;{author_email}&gt;</div>
+            <div>Date: {timestamp}</div>
+            <h3>{header}</h3>
+            <pre>{body}</pre>
+            """.format(
+                header=cgi.escape(header),
+                body=cgi.escape(body), 
+                author=self.commit.data.author, 
+                author_email=self.commit.data.authorEmail,
+                timestamp=time.asctime(time.gmtime(self.commit.data.timestamp))
+                )
+
+        return HtmlGeneration.popover(contents=octicon("comment"), detail_title=detail_header, detail_view=detail, width=400, data_placement="right") 
 
     def renderLink(self, includeRepo=True, includeBranch=True):
         res = ""
@@ -226,5 +276,5 @@ class CommitContext(Context.Context):
     
     def testDependencySummary(self, t):
         """Return a single cell displaying all the builds this test depends on"""
-        return TestSummaryRenderer.TestSummaryRenderer(self.renderer, self.testManager.allTestsDependedOnByTest(t)).renderSummary()
+        return TestSummaryRenderer.TestSummaryRenderer(self.testManager.allTestsDependedOnByTest(t)).renderSummary()
 

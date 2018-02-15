@@ -188,7 +188,7 @@ class MockRepo:
         if commitId not in self.source_control.commit_parents:
             raise Exception("Can't find %s in %s" % (commitId, self.source_control.commit_parents.keys()))
 
-        return commitId.split("/")[1], [p.split("/")[1] for p in self.source_control.commit_parents[commitId]], 1516486261, "title", "author"
+        return commitId.split("/")[1], [p.split("/")[1] for p in self.source_control.commit_parents[commitId]], 1516486261, "title", "author", "author@company"
 
     def commitExists(self, branchOrHash):
         branchOrHash = self.repoName + "/" + branchOrHash

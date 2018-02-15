@@ -15,8 +15,7 @@ def cached(f):
 
 class TestSummaryRenderer:
     """Class for rendering a specific set of tests."""
-    def __init__(self, main_renderer, tests):
-        self.main_renderer = main_renderer
+    def __init__(self, tests):
         self.tests = tests
 
     @cached
@@ -43,7 +42,14 @@ class TestSummaryRenderer:
         if not self.tests or not self.allEnvironments():
             return ""
 
-        return self.renderSingleEnvironment()
+        button_text = self.renderSingleEnvironment()
+
+        active = sum(t.activeRuns for t in self.tests)
+        if active:
+            button_text = '<span class="pr-1">%s</span>' % button_text
+            button_text += '<span class="badge badge-info pl-1" title="{workers} jobs running">{workers}{icon}</span>'.format(workers=max(active,0), icon=octicon("pulse"))
+
+        return button_text
 
     def renderMultipleEnvironments(self):
         return "%s builds over %s environments" % (len(self.allBuilds()), len(self.allEnvironments()))
@@ -58,10 +64,6 @@ class TestSummaryRenderer:
         return "PENDING"
 
     def renderSingleEnvironment(self):
-        active = sum(t.activeRuns for t in self.tests)
-        if active:
-            return "%s running" % max(active,0)
-
         #first, see if all of our builds have completed
         goodBuilds = 0
         badBuilds = 0

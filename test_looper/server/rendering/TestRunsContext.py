@@ -79,7 +79,7 @@ class TestRunsContext(Context.Context):
             grid.append([
                 self.contextFor(subtest.commitData.commit).renderLink(),
                 self.contextFor(subtest).renderLink(),
-                TestSummaryRenderer.TestSummaryRenderer(self, [self.test]).renderSummary()
+                TestSummaryRenderer.TestSummaryRenderer([self.test]).renderSummary()
                 ])
 
         return grid

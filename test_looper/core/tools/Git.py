@@ -319,15 +319,15 @@ class Git(object):
 
                 commandResult = self.subprocessCheckOutput(
                     ["git", "--no-pager", "log", "-n", str(depth), "--topo-order", 
-                        commitHash, '--format=format:' + uuid_item.join(["%H %P","%ct", "%B", "%an"]) + uuid_line]
+                        commitHash, '--format=format:' + uuid_item.join(["%H %P","%ct", "%B", "%an", "%ae"]) + uuid_line]
                     )
 
                 for data in commandResult.split(uuid_line):
                     if data.strip():
-                        commits, timestamp, message, author = data.split(uuid_item)
+                        commits, timestamp, message, author, authorEmail = data.split(uuid_item)
                         commits = [c.strip() for c in commits.split(" ") if c.strip()]
 
-                        result.append((commits[0], commits[1:], timestamp, message.strip(), author))
+                        result.append((commits[0], commits[1:], timestamp, message.strip(), author, authorEmail))
 
                 return result
             except:
