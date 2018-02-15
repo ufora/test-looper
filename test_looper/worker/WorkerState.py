@@ -200,6 +200,19 @@ class WorkerState(object):
                 except:
                     logging.error("Failure clearing directory %s:\n%s", a, traceback.format_exc())
 
+    def mapInternalToExternalPath(self, path, usingDocker):
+        """Given a path within docker, return the path in the host. Returns none if we can't
+        find it (because it was part of the docker container's file system)."""
+
+        if not usingDocker:
+            return path
+
+        for k,v in self.volumesToExpose().items():
+            if path.startswith(v + "/"):
+                return k + "/" + path[len(v)+1:]
+
+        return None
+
     def volumesToExpose(self):
         return {
             self.directories.scratch_dir: "/test_looper/scratch",
@@ -940,6 +953,9 @@ class WorkerState(object):
         return environment, all_dependencies, test_definition
 
     def _run_task(self, testId, repoName, commitHash, test_definition, log_function, workerCallback, isDeploy, extraPorts):
+        def logWithTime(msg):
+            log_function(time.asctime() + " TestLooper> " + msg + ("\n" if msg[-1] != "\n" else ""))
+
         try:
             environment, all_dependencies, test_definition = \
                 self.getEnvironmentAndDependencies(testId, repoName, commitHash, test_definition, log_function, workerCallback)
@@ -986,7 +1002,7 @@ class WorkerState(object):
                 self._run_deployment(command, test_definition.variables, workerCallback, image, extraPorts=extraPorts)
                 return False, {}
             else:
-                log_function(time.asctime() + " TestLooper> Starting Test Run\n")
+                logWithTime("Starting Test Run")
 
                 is_success = self._run_test_command(
                     command,
@@ -1033,10 +1049,43 @@ class WorkerState(object):
 
             if os.path.exists(testSummaryJsonPath):
                 try:
-                    individualTestSuccesses = json.loads(open(testSummaryJsonPath,"r").read())
+                    contents = open(testSummaryJsonPath,"r").read()
+                    individualTestSuccesses = json.loads(contents)
+
                     if not isinstance(individualTestSuccesses, dict):
                         raise Exception("testSummary.json should be a dict from str to bool")
-                    individualTestSuccesses = {str(k): bool(v) for k,v in individualTestSuccesses.iteritems()}
+
+                    pathsToUpload = {}
+
+                    def processTestSuccess(keyname, entry):
+                        if isinstance(entry, bool):
+                            return (entry, False)
+                        elif (isinstance(entry, dict) and
+                                'success' in entry and
+                                isinstance(entry['success'], bool) and
+                                'logs' in entry and
+                                not [x for x in entry['logs'] if not isinstance(x, (str, unicode))]
+                                ):
+                            
+                            for path in entry['logs']:
+                                pathVisibleToWorker = self.mapInternalToExternalPath(path, image is not NAKED_MACHINE)
+
+                                if not pathVisibleToWorker:
+                                    logWithTime("Test output path %s not visible outside of the docker container!" % path)
+                                    return {'success': False, 'logs': False}
+
+                                pathsToUpload[keyname] = pathsToUpload.get(keyname,()) + (pathVisibleToWorker,)
+
+                            return (entry['success'], True)
+                        else:
+                            logWithTime("testSummary.json entries should be bools or {'success': Bool, 'logs': ['str']}, not %s" % entry)
+                            return (False, False)
+
+                    individualTestSuccesses = {str(k): processTestSuccess(k, v) for k,v in individualTestSuccesses.iteritems()}
+
+                    if pathsToUpload:
+                        self.artifactStorage.uploadIndividualTestArtifacts(repoName, commitHash, testId, pathsToUpload)
+
                 except Exception as e:
                     individualTestSuccesses = {}
                     log_function("Failed to pull in testSummary.json: " + str(e))

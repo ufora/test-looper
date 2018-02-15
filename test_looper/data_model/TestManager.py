@@ -645,6 +645,13 @@ class TestManager(object):
 
         self._triggerTestPriorityUpdate(testRun.test)
 
+    @staticmethod
+    def configurationForTest(test):
+        if test.testDefinition.configuration:
+            return test.testDefinition.configuration
+        else:
+            return test.testDefinition.environment_name
+
     def recordTestResults(self, success, testId, testSuccesses, curTimestamp):
         with self.transaction_and_lock():
             testRun = self.database.TestRun(str(testId))
@@ -663,9 +670,10 @@ class TestManager(object):
 
             names = sorted(testSuccesses.keys())
             testRun.testNames = self._testNameSet(names)
-            testRun.testFailures = Bitstring.Bitstring.fromBools([testSuccesses[n] for n in names])
+            testRun.testFailures = Bitstring.Bitstring.fromBools([testSuccesses[n][0] for n in names])
+            testRun.testHasLogs = Bitstring.Bitstring.fromBools([testSuccesses[n][1] for n in names])
             testRun.totalTestCount = len(names)
-            testRun.totalFailedTestCount = len([n for n in names if not testSuccesses[n]])
+            testRun.totalFailedTestCount = len([n for n in names if not testSuccesses[n][0]])
 
             testRun.test.totalTestCount = testRun.test.totalTestCount + testRun.totalTestCount
             testRun.test.totalFailedTestCount = testRun.test.totalFailedTestCount + testRun.totalFailedTestCount

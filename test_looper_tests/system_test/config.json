@@ -1,7 +1,7 @@
 {
     "server": {
         "path_to_local_repos": "$TEST_LOOPER_INSTALL/server/repos",
-        "database": "InMemory"
+        "database": {"port": 1115}
         },
     "server_ports": {
         "server_address": "localhost",

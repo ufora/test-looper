@@ -35,6 +35,48 @@ class ArtifactStorage(object):
             return ("text/plain", key, False)
         return ("application/octet-stream", key, False)
 
+    def sanitizeName(self, name):
+        return name.replace("/", "_").replace("\\", "_").replace(":","_").replace(" ","_")
+
+    def testResultKeysAndSizesForIndividualTest(self, repoName, commitHash, testId, testName):
+        subPrefix = "individual_test_logs/" + self.sanitizeName(testName)
+
+        res = []
+
+        for key,sz in self.testResultKeysForWithSizes(repoName, commitHash, testId, subPrefix):
+            res.append((subPrefix + "/" + key, sz))
+        
+        return res
+
+    def uploadIndividualTestArtifacts(self, repoName, commitHash, testId, pathsToUpload):
+        def uploadArtifact(testName, path, semaphore):
+            try:
+                testName = self.sanitizeName(testName)
+                filename = os.path.basename(path)
+
+                self.uploadSingleTestArtifact(
+                    repoName, 
+                    commitHash, 
+                    testId, 
+                    "individual_test_logs/" + testName + "/" + filename, 
+                    path
+                    )
+            except:
+                logging.error("Failed to upload %s:\n%s", path, traceback.format_exc())
+            finally:
+                semaphore.release()
+
+        sem = threading.Semaphore(0)
+        counts = 0
+
+        for testName, paths in pathsToUpload.iteritems():
+            for path in paths:
+                timerQueue.enqueueWorkItem(uploadArtifact, (testName, path, sem))
+                counts += 1
+
+        for _ in xrange(counts):
+            sem.acquire()
+
     def uploadTestArtifacts(self, reponame, commitHash, testId, testOutputDir, reserved_names):
         """Upload all the files in 'testOutputDir'.
 
@@ -135,8 +177,11 @@ class AwsArtifactStorage(ArtifactStorage):
     def _bucket(self):
         return self._session.resource('s3').Bucket(self.bucket_name)
 
-    def testResultKeysForWithSizes(self, repoName, commitHash, testId):
+    def testResultKeysForWithSizes(self, repoName, commitHash, testId, subPrefix=None):
         prefix = self.test_artifact_key_prefix + "/" + repoName + "/" + commitHash + "/" + testId + "/"
+
+        if subPrefix:
+            prefix = prefix + subPrefix + "/"
 
         keys = list(self._bucket.objects.filter(Prefix=prefix))
 
@@ -295,8 +340,11 @@ class LocalArtifactStorage(ArtifactStorage):
     def testResultKeysFor(self, repoName, commitHash, testId):
         return [x[0] for x in self.testResultKeysForWithSizes(repoName, commitHash, testId)]
 
-    def testResultKeysForWithSizes(self, repoName, commitHash, testId):
+    def testResultKeysForWithSizes(self, repoName, commitHash, testId, subprefix=None):
         path = os.path.join(self.test_artifacts_storage_path, repoName, commitHash, testId)
+
+        if subprefix:
+            path = os.path.join(path, subprefix)
         
         if not os.path.exists(path):
             return []

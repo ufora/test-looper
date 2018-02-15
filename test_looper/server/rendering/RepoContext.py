@@ -1,6 +1,9 @@
 import test_looper.server.rendering.Context as Context
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.server.rendering.TestGridRenderer as TestGridRenderer
+import test_looper.server.rendering.ComboContexts as ComboContexts
+
+octicon = HtmlGeneration.octicon
 
 class RepoContext(Context.Context):
     def __init__(self, renderer, repo, options):
@@ -62,7 +65,10 @@ class RepoContext(Context.Context):
 
             test_rows[b] = self.renderer.allTestsForCommit(best_commit[b]) if best_commit[b] else []
 
-        gridRenderer = TestGridRenderer.TestGridRenderer(branches, lambda b: test_rows.get(b, []))
+        gridRenderer = TestGridRenderer.TestGridRenderer(
+            branches, 
+            lambda b: test_rows.get(b, [])
+            )
 
         grid_headers = [gridRenderer.headers()]
 
@@ -97,6 +103,28 @@ class RepoContext(Context.Context):
             else:
                 row.append("")
 
-            row.extend(gridRenderer.gridRow(branch))
+            row.extend(
+                gridRenderer.gridRow(
+                    branch, 
+                    lambda group, row: 
+                        self.contextFor(ComboContexts.CommitAndConfiguration(best_commit[row], group)).urlString() 
+                            if best_commit[row] else ""
+                    )
+                )
 
         return grid_headers, grid
+
+    def childContexts(self, currentChild):
+        children = []
+
+        for b in sorted(self.testManager.database.Branch.lookupAll(repo=self.repo),key=lambda b:b.branchname):
+            if self.renderer.branchHasTests(b) or b == currentChild:
+                children.append(b)
+
+        return [self.contextFor(x) for x in children]
+
+    def parentContext(self):
+        return self.contextFor("repos")
+
+    def renderMenuItemText(self, isHeader):
+        return (octicon("repo") if isHeader else "") + self.repo.name

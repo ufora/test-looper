@@ -296,7 +296,7 @@ def elementTextLength(e):
     logging.info("Text length: %d, Element: %s", text_length, e)
     return text_length
 
-def grid(rows, header_rows=1, rowHeightOverride=None):
+def grid(rows, header_rows=1, rowHeightOverride=None, fitWidth=True):
     """Given a list-of-lists (e.g. row of column values), format as a grid.
 
     We compute the width of each column (assuming null values if a column
@@ -324,9 +324,11 @@ def grid(rows, header_rows=1, rowHeightOverride=None):
             if 'colspan' in c:
                 extras += ' colspan="%d"' % c['colspan']
 
-            return '<%s class="fit"%s>%s</%s>' % (which, extras, makeHtmlElement(c['content']).render(), which)
+            class_elt = c.get('class','')
+
+            return '<%s class="%s %s"%s>%s</%s>' % (which, "fit" if fitWidth else "", class_elt, extras, makeHtmlElement(c['content']).render(), which)
         else:
-            return '<%s class="fit">%s</%s>' % (which, makeHtmlElement(c).render(), which)
+            return '<%s class="%s">%s</%s>' % (which, "fit" if fitWidth else "", makeHtmlElement(c).render(), which)
 
     table_headers = "\n".join(
         "<tr%s>%s</tr>" % (override_text, "\n".join(format_cell(h, "th")
@@ -351,6 +353,7 @@ def grid(rows, header_rows=1, rowHeightOverride=None):
     format_str = ('<table class="table table-hscroll table-sm table-striped">'
                   '{headers}\n{rows}'
                   '</table>')
+
     return format_str.format(
         headers=table_headers,
         rows=table_rows

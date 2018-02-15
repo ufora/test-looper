@@ -4,11 +4,61 @@
     width: 1%;
 }
 
+.table td.fit.nopadding {
+    padding: 0;
+    border: 0;
+}
+
 .btn-xs {
 	padding-top: 0;
 	padding-bottom: 0;
 	padding-left: 6px;
 	padding-right: 6px;
+}
+
+.clickable-div {
+    cursor:pointer;
+}
+
+.clickable-div:hover {
+    text-decoration: underline;
+}
+
+.test-result-header {
+    width: 20px; 
+    height: 100%;
+    display: inline-block;
+}
+
+.test-result-cell {
+    height:36px;
+    width: 20px; 
+    display: inline-block;
+}
+
+.test-result-cell-success {
+    background-color: #eef;
+}
+.test-result-cell-partial {
+    background-color: #0ff;
+}
+.test-result-cell-fail {
+    background-color: #f00;
+}
+.test-result-cell-notrun {
+    background-color: #fff;
+}
+
+.test-result-cell-sm {
+    height:36px;
+    width: 5px; 
+    display: inline-block;
+}
+
+.vertical-text {
+    transform: rotate(-90deg);
+    transform-origin: left top 0;
+    float: left;
 }
 
 .popover{
@@ -37,11 +87,14 @@ display: inline-block;
 }
 
 .table-hscroll {
-width: 100%;
 margin-bottom: 15px;
 overflow-y: hidden;
 -ms-overflow-style: -ms-autohiding-scrollbar;
 border: 1px solid #ddd;
+}
+
+.table {
+    border-spacing: 0;
 }
 
 .table-hscroll > .table {

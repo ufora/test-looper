@@ -127,7 +127,8 @@ def setup_types(database):
         machine=database.Machine,
         canceled=bool,
         testNames=database.IndividualTestNameSet,
-        testFailures=Bitstring.Bitstring, #encoded as an 8-bit bitstring
+        testFailures=Bitstring.Bitstring, #encoded as an 8-bit bitstring, True if successful, False if failed
+        testHasLogs=Bitstring.Bitstring, #True if there are individual test logs for this test
         totalTestCount=int,
         totalFailedTestCount=int
         )

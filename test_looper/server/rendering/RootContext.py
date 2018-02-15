@@ -20,3 +20,8 @@ class RootContext(Context.Context):
     def urlBase(self):
         return "repos/" + self.reponame
 
+    def childContexts(self, currentChild):
+        return [self.contextFor(x) for x in ["repos", "deployments", "machines"]]
+
+    def parentContext(self):
+        return None

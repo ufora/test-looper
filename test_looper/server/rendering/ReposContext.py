@@ -1,5 +1,6 @@
 import test_looper.server.rendering.Context as Context
 import test_looper.server.rendering.TestGridRenderer as TestGridRenderer
+import test_looper.server.rendering.ComboContexts as ComboContexts
 import test_looper.server.HtmlGeneration as HtmlGeneration
 
 class ReposContext(Context.Context):
@@ -81,7 +82,11 @@ class ReposContext(Context.Context):
             branches = self.database.Branch.lookupAll(repo=repo)
 
             if best_commit[repo] and best_commit[repo].userPriority:
-                testRow = gridRenderer.gridRow(repo)
+                testRow = gridRenderer.gridRow(
+                    repo,
+                    lambda group, row: self.contextFor(ComboContexts.BranchAndConfiguration(best_branch[row], group)).urlString()
+                        if best_branch[row] else ""
+                    )
             else:
                 testRow = [""] * len(gridRenderer.groups)
 
@@ -106,4 +111,21 @@ class ReposContext(Context.Context):
             if master:
                 return master
 
-    
+    def childContexts(self, currentChild):
+        children = []
+
+        for r in sorted(self.database.Repo.lookupAll(isActive=True),key=lambda r:r.name):
+            if r.commitsWithTests or r == currentChild:
+                children.append(r)
+
+        return [self.contextFor(x) for x in children]
+
+    def parentContext(self):
+        return self.contextFor("root")
+        
+    def renderMenuItemText(self, isHeader):
+        return "Repos"
+
+
+
+

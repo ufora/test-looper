@@ -19,6 +19,7 @@ function rebuild {
 rm -rf $TEST_LOOPER_INSTALL
 mkdir $TEST_LOOPER_INSTALL
 
+mkdir -p $TEST_LOOPER_INSTALL/redis
 mkdir -p $TEST_LOOPER_INSTALL/repos/simple_project
 mkdir -p $TEST_LOOPER_INSTALL/repos/simple_project_2
 mkdir $TEST_LOOPER_INSTALL/logs
@@ -86,15 +87,25 @@ git add .
 git commit -m "commit that has no test file"
 }
 
-(
+if [ "$1" != "--norebuild" ]; then
 	rebuild;
-)
+
+	(
+		sleep 4
+		echo "TOGGLING BRANCH ENABLE"
+		curl "http://localhost:9081/toggleBranchUnderTest?repo=simple_project&redirect=%2Fbranches%3FrepoName%3Dsimple_project&branchname=master"
+	)&
+
+fi
+
+REDIS_PORT=1115
 
 (
-	sleep 4
-	echo "TOGGLING BRANCH ENABLE"
-	curl "http://localhost:9081/toggleBranchUnderTest?repo=simple_project&redirect=%2Fbranches%3FrepoName%3Dsimple_project&branchname=master"
+	/usr/bin/redis-server --port $REDIS_PORT \
+		--logfile $TEST_LOOPER_INSTALL/redis/log.txt --dbfilename db.rdb \
+		--dir $TEST_LOOPER_INSTALL/redis --save 900 1 --save 300 10 --save 60 10000
 )&
+
 
 echo "BOOTING SERVER"
 python -u $PROJ_ROOT/test_looper/server/test-looper-server.py $PROJ_ROOT/test_looper_tests/system_test/config.json

@@ -38,7 +38,7 @@ WorkerState = algebraic.Alternative("WorkerState")
 WorkerState.Waiting = {}
 WorkerState.WorkingOnDeployment = {'deploymentId': str, 'logs_so_far': str}
 WorkerState.WorkingOnTest = {'testId': str, 'logs_so_far': str}
-WorkerState.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,bool)}
+WorkerState.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,(bool, bool))} #testSuccess: name->(success,hasLogs)
 
 ClientToServerMsg.CurrentState = {'machineId': str, 'state': WorkerState}
 ClientToServerMsg.WaitingHeartbeat = {}
@@ -47,7 +47,7 @@ ClientToServerMsg.TestLogOutput = {'testId': str, 'log': str}
 ClientToServerMsg.DeploymentHeartbeat = {'deploymentId': str}
 ClientToServerMsg.DeploymentExited = {'deploymentId': str}
 ClientToServerMsg.DeploymentTerminalOutput = {'deploymentId': str, 'data': str}
-ClientToServerMsg.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,bool)}
+ClientToServerMsg.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,(bool, bool))} #testSuccess: name->(success,hasLogs)
 ClientToServerMsg.RequestPermissionToHitGitRepo = {'requestUniqueId': str, 'curTestOrDeployId': str}
 ClientToServerMsg.GitRepoPullCompleted = {'requestUniqueId': str}
 

@@ -43,7 +43,7 @@ DefineDeployment = algebraic.Alternative("DefineDeployment")
 DefineBuild.Build = {
     'command': str,
     'environment': str,
-    'displayGroup': str,
+    'configuration': str,
     'cleanup': str, #command to run to copy test outputs to relevant directories...
     'dependencies': algebraic.Dict(str,str),
     'variables': VariableDict,
@@ -59,7 +59,7 @@ DefineBuild.Build = {
 DefineTest.Test = {
     'command': str,
     'environment': str,
-    'displayGroup': str,
+    'configuration': str,
     'cleanup': str, #command to run to copy test outputs to relevant directories...
     'dependencies': algebraic.Dict(str,str),
     'variables': VariableDict,
@@ -73,7 +73,7 @@ DefineTest.Test = {
 DefineDeployment.Deployment = {
     'command': str,
     'environment': str,
-    'displayGroup': str,
+    'configuration': str,
     'dependencies': algebraic.Dict(str,str),
     'variables': VariableDict,
     'portExpose': algebraic.Dict(str,int),
@@ -293,7 +293,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
             return TestDefinition.TestDefinition.Build(
                 buildCommand=d.command,
                 cleanupCommand=d.cleanup,
-                displayGroup=d.displayGroup,
+                configuration=d.configuration,
                 name=name,
                 variables=d.variables,
                 dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},
@@ -311,7 +311,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
             return TestDefinition.TestDefinition.Test(
                 testCommand=d.command,
                 cleanupCommand=d.cleanup,
-                displayGroup=d.displayGroup,
+                configuration=d.configuration,
                 name=name,
                 variables=d.variables,
                 dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},
@@ -326,7 +326,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
         if d.matches.Deployment:
             return TestDefinition.TestDefinition.Deployment(
                 deployCommand=d.command,
-                displayGroup=d.displayGroup,
+                configuration=d.configuration,
                 name=name,
                 variables=d.variables,
                 dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},

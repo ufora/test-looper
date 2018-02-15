@@ -8,12 +8,12 @@ import test_looper_tests.common as common
 import test_looper_tests.TestYamlFiles as TestYamlFiles
 import test_looper_tests.TestManagerTestHarness as TestManagerTestHarness
 import test_looper.server.TestLooperHtmlRendering as TestLooperHtmlRendering
+import test_looper.server.rendering.ComboContexts as ComboContexts
 import test_looper.data_model.ImportExport as ImportExport
 import test_looper.core.ArtifactStorage as ArtifactStorage
 import test_looper.core.Config as Config
 
 common.configureLogging()
-
 
 class MockHttpServer:
     def __init__(self, testManager):
@@ -64,8 +64,13 @@ class HtmlRenderingTest(unittest.TestCase):
             objects.append(r)
             for b in self.database.Branch.lookupAll(repo=r):
                 objects.append(b)
+                
+                objects.append(ComboContexts.BranchAndConfiguration(b,"linux"))
+
                 for c in self.testManager.commitsToDisplayForBranch(b,100):
                     objects.append(c)
+
+                    objects.append(ComboContexts.CommitAndConfiguration(c,"linux"))
 
                     for t in self.database.Test.lookupAll(commitData=c.data):
                         objects.append(t)
@@ -79,22 +84,33 @@ class HtmlRenderingTest(unittest.TestCase):
         #validate that the "Context" objects can encode/decode their states in 
         #urls correctly
 
+        def objectAndChildren(o):
+            yield o
+            context = self.renderer.contextFor(o, {})
+            parentContext = context.parentContext()
+
+            for child in parentContext.childContexts(context):
+                yield child.primaryObject()
+
         with self.database.view():
-            for object in self.getSomeObjects():
-                objContext = self.renderer.contextFor(object, {})
+            for o in self.getSomeObjects():
+                for object in objectAndChildren(o):
+                    objContext = self.renderer.contextFor(object, {})
 
-                self.assertEqual(objContext.primaryObject(), object)
+                    self.assertEqual(objContext.primaryObject(), object)
 
-                parsed = urlparse.urlparse(objContext.urlString())
-                path = [x for x in parsed.path.split("/") if x]
+                    parsed = urlparse.urlparse(objContext.urlString())
+                    path = [x for x in parsed.path.split("/") if x]
 
-                kwargs = urlparse.parse_qs(parsed.query)
+                    kwargs = urlparse.parse_qs(parsed.query)
 
-                parsedContext = self.renderer.getFromEncoding(path, kwargs)
+                    parsedContext = self.renderer.getFromEncoding(path, kwargs)
 
-                self.assertTrue(parsedContext, (path,kwargs))
+                    self.assertTrue(parsedContext, (path,kwargs))
 
-                self.assertEqual(parsedContext.primaryObject(), object)
+                    self.assertEqual(parsedContext.primaryObject(), object)
+
+                    parsedContext.parentContext().childContexts(parsedContext)
 
     def testRendering(self):
         #render all reachable objects in a few different scenarios

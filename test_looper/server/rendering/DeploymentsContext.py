@@ -74,3 +74,12 @@ class DeploymentsContext(Context.Context):
             new_tab=True,
             button_style=self.disable_if_cant_write('btn-primary btn-xs')
             )
+    
+    def childContexts(self, currentChild):
+        return []
+    
+    def parentContext(self):
+        return self.contextFor("root")
+
+    def renderMenuItemText(self, isHeader):
+        return "Deployments"

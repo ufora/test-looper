@@ -1,6 +1,9 @@
 import test_looper.server.rendering.Context as Context
+import test_looper.server.rendering.ComboContexts as ComboContexts
 import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
+import test_looper.server.rendering.TestGridRenderer as TestGridRenderer
 import test_looper.server.HtmlGeneration as HtmlGeneration
+import test_looper.server.rendering.IndividualTestGridRenderer as IndividualTestGridRenderer
 import urllib
 import cgi
 import time
@@ -30,8 +33,18 @@ class CommitContext(Context.Context):
 
 
     def consumePath(self, path):
-        if path:
-            testpath, remainder = self.popToDash(path)
+        if path and path[0] == "configurations":
+            groupPath, remainder = self.popToDash(path[1:])
+
+            if not path:
+                return None, path
+
+            configurationName = "/".join(groupPath)
+
+            return self.contextFor(ComboContexts.CommitAndConfiguration(self.commit, configurationName)), remainder
+
+        if path and path[0] == "tests":
+            testpath, remainder = self.popToDash(path[1:])
 
             fullname = self.commit.repo.name + "/" + self.commit.hash + "/" + "/".join(testpath)
 
@@ -67,6 +80,9 @@ class CommitContext(Context.Context):
         return HtmlGeneration.link(octicon("diff"), url, hover_text="View diff")
 
     
+    def renderNavbarLink(self):
+        return octicon("git-commit") + self.renderLink(includeBranch=False, includeRepo=False)
+
     def recency(self):
         return '<span class="text-muted">%s</span>' % (HtmlGeneration.secondsUpToString(time.time() - self.commit.data.timestamp) + " ago")
 
@@ -141,7 +157,10 @@ class CommitContext(Context.Context):
             res += self.contextFor(self.branch).renderLink(includeRepo=False)
 
         name = self.nameInBranch
-        if not name:
+
+        if not includeRepo and not includeBranch:
+            name = "HEAD" + name
+        elif not name:
             name = "/HEAD"
         else:
             if len(name) < 5:
@@ -156,17 +175,100 @@ class CommitContext(Context.Context):
         return "repos/" + self.reponame + "/-/commits/" + self.commitHash
 
     def renderPageBody(self):
+        view = self.currentView()
+
+        if view == "commit_data":
+            return self.renderCommitDataView()
+        if view == "test_definitions":
+            return self.renderCommitTestDefinitionsInfo()
+        if view == "test_suites":
+            return self.renderTestSuitesSummary()
+        if view == "test_builds":
+            return self.renderTestSuitesSummary(builds=True)
+        if view == "configurations":
+            return self.renderTestResultsGrid()
+
+    def contextViews(self):
+        return ["configurations", "test_builds", "test_suites", "commit_data", "test_definitions"]
+
+    def renderViewMenuItem(self, view):
+        if view == "commit_data":
+            return "Commit Summary"
+        if view == "test_definitions":
+            return "Test Definitions"
+        if view == "configurations":
+            return "Configurations"
+        if view == "test_suites":
+            return "Suites"
+        if view == "test_builds":
+            return "Builds"
+        return view
+
+    def renderViewMenuMouseoverText(self, view):
+        if view == "commit_data":
+            return "Commit message and author information"
+        if view == "test_definitions":
+            return "A view of the actual test definitions file used by the looper"
+        if view == "configurations":
+            return "Test results by configuration"
+        if view == "test_suites":
+            return "Individual test suites defined by the test definitions"
+        if view == "test_builds":
+            return "Individual builds defined by the test definitions"
+        return view
+
+
+    def renderCommitDataView(self):
         if not self.commit.data:
             return card("Commit hasn't been imported yet")
 
-        commitTestGrid = self.commitTestGrid()
+        parentCommitUrls = ['<span class="mx-2">%s</span>' % self.contextFor(x).renderLinkWithSubject().render() for x in self.commit.data.parents]
 
-        return HtmlGeneration.tabs("commit", [
-            ("Tests", commitTestGrid, "commit_tests"),
-            ("Test Definitions", self.commitTestDefinitionsInfo(), "commit_test_defs")
-            ])
+        if not parentCommitUrls:
+            parent_commits = "None"
+        else:
+            parent_commits = '<ul style="list-style:none">%s</ul>' % ("".join("<li>%s</li>" % c for c in parentCommitUrls))
 
-    def commitTestDefinitionsInfo(self):
+        return card("""
+            <div>Commit: <span class="font-weight-bold">{hash}</span></div>
+            <div>Author: {author} &lt;{author_email}&gt;</div>
+            <div>Date: {timestamp}</div>
+            <div>Parent Commits: {parent_commits}</div>
+            <div class="mb-5"></div>
+            <pre>{msg}</pre>
+            """.format(
+                hash=self.commit.hash,
+                parent_commits=parent_commits,
+                msg=cgi.escape(self.commit.data.commitMessage),
+                author=self.commit.data.author, 
+                author_email=self.commit.data.authorEmail,
+                timestamp=time.asctime(time.gmtime(self.commit.data.timestamp))
+                )
+            )
+
+
+    def renderTestResultsGrid(self):
+        groupToTests = {}
+        for t in self.database.Test.lookupAll(commitData=self.commit.data):
+            g = self.testManager.configurationForTest(t)
+
+            groupToTests[g] = groupToTests.get(g,()) + (t,)
+
+        renderer = IndividualTestGridRenderer.IndividualTestGridRenderer(sorted(groupToTests), self, lambda row: groupToTests[row])
+
+        grid = [["Configuration"] + renderer.headers()]
+
+        for g in sorted(groupToTests):
+            url = self.contextFor(ComboContexts.CommitAndConfiguration(commit=self.commit, configurationName=g)).urlString()
+
+            grid.append([
+                HtmlGeneration.link(g, url)
+                ] + renderer.gridRow(g)
+                )
+
+        return HtmlGeneration.grid(grid, fitWidth=False)
+
+    def renderCommitTestDefinitionsInfo(self):
         raw_text, extension = self.testManager.getRawTestFileForCommit(self.commit)
 
         if raw_text:
@@ -174,10 +276,15 @@ class CommitContext(Context.Context):
         else:
             return card("No test definitions found")
 
-    def commitTestGrid(self):
+    def renderTestSuitesSummary(self, builds=False):
         commit = self.commit
 
         tests = self.testManager.database.Test.lookupAll(commitData=commit.data)
+
+        if builds:
+            tests = [t for t in tests if t.testDefinition.matches.Build]
+        else:
+            tests = [t for t in tests if t.testDefinition.matches.Test]
         
         if not tests:
             if commit.data.noTestsFound:
@@ -186,12 +293,14 @@ class CommitContext(Context.Context):
             raw_text, extension = self.testManager.getRawTestFileForCommit(commit)
             if not raw_text:
                 return card("Commit defined no tests because the test-definitions file is empty.")
+            elif commit.data.testDefinitionsError:
+                return card("<div>Commit defined no tests or builds. Maybe look at the test definitions? Error was</div><pre><code>%s</code></pre>" % commit.data.testDefinitionsError)
             else:
-                return card("<div>Commit defined no tests. Maybe look at the test definitions? Error was</div><pre><code>%s</code></pre>" % commit.data.testDefinitionsError)
+                return card("Commit defined no %s." % ("builds" if builds else "tests") )
 
         tests = sorted(tests, key=lambda test: test.fullname)
         
-        grid = [["TEST", "", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "FAILED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", "", "TEST_DEPS"]]
+        grid = [["BUILD" if builds else "SUITE", "", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "FAILED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", "", "TEST_DEPS"]]
 
         for t in tests:
             row = []
@@ -281,3 +390,46 @@ class CommitContext(Context.Context):
             ""
             ).renderSummary()
 
+
+    def childContexts(self, currentChild):
+        if isinstance(currentChild.primaryObject(), ComboContexts.CommitAndConfiguration):
+            return [self.contextFor(
+                ComboContexts.CommitAndConfiguration(commit=self.commit, configurationName=g)
+                )
+                    for g in sorted(set([self.testManager.configurationForTest(t)
+                            for t in self.database.Test.lookupAll(commitData=self.commit.data)
+                        ]))
+                ]
+        if isinstance(currentChild.primaryObject(), self.database.Test):
+            if currentChild.primaryObject().testDefinition.matches.Build:
+                return [self.contextFor(t)
+                        for t in sorted(
+                            self.database.Test.lookupAll(commitData=self.commit.data),
+                            key=lambda t:t.testDefinition.name
+                            ) if t.testDefinition.matches.Build
+                        ]
+            if currentChild.primaryObject().testDefinition.matches.Test:
+                return [self.contextFor(t)
+                        for t in sorted(
+                            self.database.Test.lookupAll(commitData=self.commit.data),
+                            key=lambda t:t.testDefinition.name
+                            ) if t.testDefinition.matches.Test
+                        ]
+        
+        return []
+
+    def parentContext(self):
+        branch, name = self.testManager.bestCommitBranchAndName(self.commit)
+
+        if branch:
+            return self.contextFor(branch)
+
+        return self.contextFor(self.commit.repo)
+
+    def renderMenuItemText(self, isHeader):
+        if self.branch:
+            name = "HEAD" + self.nameInBranch
+
+            return (octicon("git-commit") if isHeader else "") + name
+
+        return (octicon("git-commit") if isHeader else "") + self.commit.hash[:10]

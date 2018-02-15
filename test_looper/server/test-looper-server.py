@@ -42,6 +42,10 @@ def createArgumentParser():
                         action='store_true',
                         help="Print the set of known repos and exit")
 
+    parser.add_argument("--flush_tasks",
+                        action='store_true',
+                        help="Flush all tasks before starting the server.")
+
     parser.add_argument("--export",
                         default=None,
                         help="Export the state of the server to a file in this directory in the background."
@@ -157,10 +161,10 @@ def main():
 
             sys.exit(0)
     
-
-    print "Before booting, cleaning up old tasks..."
-    while testManager.performBackgroundWorkSynchronously(time.time(), 100):
-        pass
+    if parsedArgs.flush_tasks:
+        print "Before booting, cleaning up old tasks..."
+        while testManager.performBackgroundWorkSynchronously(time.time(), 100):
+            pass
 
     
     httpServer = TestLooperHttpServer.TestLooperHttpServer(
