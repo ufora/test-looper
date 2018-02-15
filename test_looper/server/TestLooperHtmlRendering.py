@@ -25,16 +25,19 @@ import test_looper.core.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.core.algebraic_to_json as algebraic_to_json
 
+import test_looper.server.rendering.ComboContexts as ComboContexts
 import test_looper.server.rendering.RootContext as RootContext
 import test_looper.server.rendering.ReposContext as ReposContext
 import test_looper.server.rendering.MachinesContext as MachinesContext
 import test_looper.server.rendering.DeploymentsContext as DeploymentsContext
 import test_looper.server.rendering.BranchContext as BranchContext
+import test_looper.server.rendering.BranchAndConfigurationContext as BranchAndConfigurationContext
+import test_looper.server.rendering.CommitAndConfigurationContext as CommitAndConfigurationContext
+import test_looper.server.rendering.IndividualTestContext as IndividualTestContext
 import test_looper.server.rendering.CommitContext as CommitContext
 import test_looper.server.rendering.RepoContext as RepoContext
 import test_looper.server.rendering.TestContext as TestContext
 import test_looper.server.rendering.TestRunContext as TestRunContext
-import test_looper.server.rendering.TestRunsContext as TestRunsContext
 
 import re
 
@@ -47,6 +50,8 @@ class Renderer:
         self.src_ctrl = httpServer.src_ctrl
 
     def contextFor(self, entity, options):
+        if entity == "root":
+            return RootContext.RootContext(self, options)
         if entity == "repos":
             return ReposContext.ReposContext(self, options)
         if entity == "machines":
@@ -57,6 +62,9 @@ class Renderer:
         mapping = {
             self.testManager.database.Repo: RepoContext.RepoContext,
             self.testManager.database.Branch: BranchContext.BranchContext,
+            ComboContexts.BranchAndConfiguration: BranchAndConfigurationContext.BranchAndConfigurationContext,
+            ComboContexts.CommitAndConfiguration: CommitAndConfigurationContext.CommitAndConfigurationContext,
+            ComboContexts.IndividualTest: IndividualTestContext.IndividualTestContext,
             self.testManager.database.Commit: CommitContext.CommitContext,
             self.testManager.database.Test: TestContext.TestContext,
             self.testManager.database.TestRun: TestRunContext.TestRunContext
@@ -417,86 +425,3 @@ class Renderer:
 
         return context
 
-
-
-
-        argDict = dict(argDict)
-        if path and path[0] == "machines":
-            if len(path) == 1:
-                return MachinesContext(self, argDict)
-            return None
-
-        if path and path[0] == "deployments":
-            if len(path) == 1:
-                return DeploymentsContext(self, argDict)
-            return None
-        
-        if path and path[0] == "repos":
-            if len(path) == 1:
-                return ReposContext(self, argDict)
-            
-            reponame, path = popToDash(path[1:])
-
-            if not path:
-                return RepoContext(self, "/".join(reponame), argDict)
-
-            branchname = None
-
-            if path[0] == "branches":
-                branchname, path = popToDash(path[1:])
-
-                if not path:
-                    return BranchContext(self, "/".join(reponame), "/".join(branchname), argDict)
-
-            if path[0] == "commits":
-                path = path[1:]
-            else:
-                return None
-
-            if not path:
-                return None
-
-            commitId,path = path[0],path[1:]
-
-            if not path:
-                return CommitContext(self, "/".join(reponame), "/".join(branchname) if branchname else None, commitId, argDict)
-
-            testName, path = popToDash(path)
-
-            if not path:
-                return TestContext(self, 
-                    "/".join(reponame), 
-                    "/".join(branchname) if branchname else None, 
-                    commitId, 
-                    "/".join(testName),
-                    argDict
-                    )
-
-            if path[0] == "runs":
-                path = path[1:]
-            else:
-                return None
-            if not path:
-                return TestRunsContext(self, 
-                    "/".join(reponame), 
-                    "/".join(branchname) if branchname else None, 
-                    commitId, 
-                    "/".join(testName),
-                    argDict
-                    )
-
-            identity,path = path[0], path[1:]
-
-            if not path:
-                return TestRunContext(self, 
-                    "/".join(reponame), 
-                    "/".join(branchname) if branchname else None, 
-                    commitId, 
-                    "/".join(testName),
-                    identity,
-                    argDict
-                    )
-
-            return None
-
-        return None

@@ -3,6 +3,14 @@ import cgi
 
 octicon = HtmlGeneration.octicon
 
+
+def convertToIntIfClose(x):
+    if abs(x - round(x, 0)) < .01:
+        return int(round(x, 0))
+    return x
+
+
+
 def cached(f):
     def function(self):
         cname = '_cache' + f.__name__
@@ -16,7 +24,7 @@ def cached(f):
 
 class TestSummaryRenderer:
     """Class for rendering a specific set of tests."""
-    def __init__(self, tests, testSummaryUrl):
+    def __init__(self, tests, testSummaryUrl=None):
         self.tests = tests
         self.url = testSummaryUrl
 
@@ -62,7 +70,7 @@ class TestSummaryRenderer:
         if summary:
             if self.url:
                 button_text = (
-                    '<a href="{url}" data-toggle="tooltip" title="{summary}" data-html="true">{text}</a>'
+                    '<div onclick="location.href=\'{url}\';" class="clickable-div" data-toggle="tooltip" title="{summary}" data-html="true">{text}</div>'
                         .format(summary=cgi.escape(summary), text=button_text,url=self.url)
                     )
             else:
@@ -73,7 +81,7 @@ class TestSummaryRenderer:
 
         elif self.url:
             button_text = (
-                '<a href="{url}" title="{summary}" data-html="true">{text}</a>'
+                '<div onclick="location.href=\'{url}\';" class="clickable-div" title="{summary}" data-html="true">{text}</div>'
                     .format(summary=cgi.escape(summary), text=button_text,url=self.url)
                 )
         
@@ -107,7 +115,7 @@ class TestSummaryRenderer:
         if waitingBuilds:
             if (waitingBuilds[0].commitData.commit.userPriority == 0 and 
                     waitingBuilds[0].commitData.commit.calculatedPriority == 0):
-                return "Waiting on a build that's not prioritized"
+                return "Not prioritized"
             else:
                 return 'Waiting on builds'
 
@@ -137,7 +145,7 @@ class TestSummaryRenderer:
                 suitesFailed += 1
             else:
                 totalTests += t.totalTestCount / t.totalRuns if t.totalRuns != 1 else t.totalTestCount
-                totalFailedTestCount += t.totalFailedTestCount / t.totalRuns if t.totalRuns != else t.totalFailedTestCount
+                totalFailedTestCount += t.totalFailedTestCount / t.totalRuns if t.totalRuns != 1 else t.totalFailedTestCount
 
         if suitesNotRun:
             return "Waiting on %s / %s test suites to finish" % (
@@ -149,6 +157,9 @@ class TestSummaryRenderer:
                 return "%s suites successed" % len(tests)
             else:
                 return "%s / %s suites failed" % (suitesFailed, len(tests))
+
+        totalTests = convertToIntIfClose(totalTests)
+        totalFailedTestCount = convertToIntIfClose(totalFailedTestCount)
 
         if suitesFailed:
             return "%s / %s tests failed.  %s / %s suites failed outright (producing no individual test summaries)" % (

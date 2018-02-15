@@ -1,4 +1,5 @@
 import test_looper.server.rendering.Context as Context
+import test_looper.server.rendering.ComboContexts as ComboContexts
 import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import logging
@@ -20,27 +21,62 @@ class TestRunContext(Context.Context):
         return self.testRun
 
     def urlBase(self):
-        prefix = "repos/" + self.reponame + "/-/commits/"
-        return prefix + self.commit.hash + "/" + self.test.testDefinition.name + "/-/runs/" + self.test._identity
+        prefix = "repos/" + self.repo.name + "/-/commits/"
 
-    def renderLink(self, includeCommit=True):
+        return prefix + self.commit.hash + "/tests/" + self.test.testDefinition.name + "/-/" + self.testRun._identity
+
+    def renderNavbarLink(self):
+        return self.renderLink(includeCommit=False, includeTest=False)
+
+    def renderLink(self, includeCommit=True, includeTest=True):
+        res = ""
+
         if includeCommit:
-            res = self.contextFor(self.commit).renderLink() + "/"
-        else:
-            res = ''
+            res = self.contextFor(self.commit).renderLink()
+        
+        if includeTest:
+            if res:
+                res = res + "/"
 
-        return res + HtmlGeneration.link(self.testName, self.urlString())
+            res = res + HtmlGeneration.link(self.test.testDefinition.name, self.contextFor(self.test).urlString())
+
+        if res:
+            res = res + "/"
+
+        return res + HtmlGeneration.link(self.testRun._identity[:8], self.urlString())
+
+    def renderBreadcrumbPrefixes(self):
+        return ["Runs"]
+
+    def contextViews(self):
+        if self.test.testDefinition.matches.Build:
+            return []
+        else:
+            return ["artifacts", "tests"]
+
+    def renderViewMenuItem(self, view):
+        if view == "artifacts":
+            return "Artifacts"
+        if view == "tests":
+            return "Test Results"
+        return view
+
+    def renderViewMenuMouseoverText(self, view):
+        if view == "artifacts":
+            return "All test artifacts"
+        if view == "tests":
+            return "Individual test results"
+        return ""
 
     def renderPageBody(self):
-        artifacts = self.artifactsForTestRunGrid()
+        if self.test.testDefinition.matches.Build:
+            return self.artifactsForTestRunGrid()
 
-        individualTestReport = self.individualTestReport()
-
-        return HtmlGeneration.tabs("test_tab", [
-                ("Artifacts", artifacts, "artifacts"),
-                ("Individual Tests", individualTestReport, "tests_individual")
-                ])
-
+        if self.currentView() == "artifacts":
+            return self.artifactsForTestRunGrid()
+        if self.currentView() == "tests":
+            return self.individualTestReport()
+        
     def individualTestReport(self):
         testRun = self.testRun
 
@@ -89,4 +125,10 @@ class TestRunContext(Context.Context):
             return card("No Test Artifacts produced")
 
         return HtmlGeneration.grid(grid)
+
+    def childContexts(self, currentChild):
+        return []
+
+    def parentContext(self):
+        return self.contextFor(self.test)
 

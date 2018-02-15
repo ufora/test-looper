@@ -4,6 +4,10 @@ environments:
     platform: linux
     image:
       dockerfile: "Dockerfile.txt"
+  linux2:
+    platform: linux
+    image:
+      dockerfile: "Dockerfile.txt"
 builds:
   build/linux:
     command: "cp $TEST_SRC_DIR/build_file $TEST_BUILD_OUTPUT_DIR/build_file"
@@ -26,4 +30,14 @@ tests:
       spiffy: build/linux
   test_with_individual_failures/linux:
     command: |
-      echo '{"Test1": true, "Test2": false}' > $TEST_OUTPUT_DIR/testSummary.json
+      ./produce_test_failures.py Group1 > $TEST_OUTPUT_DIR/testSummary.json
+  test_with_individual_failures_2/linux:
+    command: |
+      ./produce_test_failures.py Group2WithAVeryLongGroupName > $TEST_OUTPUT_DIR/testSummary.json
+  test_with_individual_failures/linux2:
+    command: |
+      ./produce_test_failures.py Group1 > $TEST_OUTPUT_DIR/testSummary.json
+  test_with_individual_failures_2/linux2:
+    command: |
+      ./produce_test_failures.py Group2WithAVeryLongGroupName > $TEST_OUTPUT_DIR/testSummary.json
+

@@ -418,9 +418,39 @@ class WorkerStateTests(unittest.TestCase):
                 WorkerState.DummyWorkerCallbacks(), 
                 isDeploy=False
                 )[1],
-            {"Test1": True, "Test2": False}
+            {"Test1": (True, False), "Test2": (False, False)}
             )
+
+    def test_individual_test_results(self):
+        repo, repoName, commitHash, worker = self.get_worker("simple_project")
         
+        success, results = self.runWorkerTest(worker, 
+                "testId1", 
+                repoName, commitHash, 
+                "test_with_individual_failures/linux", 
+                WorkerState.DummyWorkerCallbacks(), 
+                isDeploy=False
+                )
+
+        self.assertTrue(success)
+
+        testsWithLogs = [t for t in results if results[t][1]]
+        self.assertTrue(
+            testsWithLogs,
+            worker.artifactStorage.get_failure_log(repoName, commitHash, "testId1")
+            )
+
+        for t in testsWithLogs:
+            keysAndSizes = worker.artifactStorage.testResultKeysAndSizesForIndividualTest(repoName, commitHash, "testId1", t)
+            self.assertTrue(keysAndSizes)
+
+            for k,s in keysAndSizes:
+                self.assertTrue(
+                    worker.artifactStorage.testContentsHtml(repoName, commitHash, "testId1", k)
+                    )
+
+
+
 
     def test_commit_messages(self):
         repo, repoName, commitHash, worker = self.get_worker("simple_project")

@@ -1,7 +1,9 @@
 import test_looper.server.rendering.Context as Context
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.server.rendering.TestGridRenderer as TestGridRenderer
-
+import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
+import test_looper.server.rendering.ComboContexts as ComboContexts
+import cgi
 octicon = HtmlGeneration.octicon
 card = HtmlGeneration.card
 
@@ -13,6 +15,9 @@ class BranchContext(Context.Context):
         self.reponame = branch.repo.name
         self.branchname = branch.branchname
         self.options = options
+
+    def renderNavbarLink(self):
+        return octicon("git-branch") + self.renderLink(includeRepo=False)
 
     def renderLink(self, includeRepo=True):
         return HtmlGeneration.link(self.branchname, self.urlString())
@@ -27,22 +32,33 @@ class BranchContext(Context.Context):
         return int(self.options.get("max_commit_count", 100))
 
     def renderPageBody(self):
-        branch = self.branch
+        view = self.options.get("view", "commits")
 
-        pinGrid = self.pinGridWithUpdateButtons(branch)
-
-        if len(pinGrid) > 1:
-            pinContents = (
-                HtmlGeneration.grid(pinGrid)
+        if view == "commits":
+            return self.testDisplayForCommits(
+                self.testManager.commitsToDisplayForBranch(self.branch, self.maxCommitCount())
                 )
-        else:
-            pinContents = card("Branch has no pins.")
+        elif view == "pins":
+            pinGrid = self.pinGridWithUpdateButtons(self.branch)
 
-        commitContents = self.testDisplayForCommits(
-            self.testManager.commitsToDisplayForBranch(branch, self.maxCommitCount())
-            )
+            if len(pinGrid) > 1:
+                pinContents = (
+                    HtmlGeneration.grid(pinGrid)
+                    )
+            else:
+                pinContents = card("Branch has no pins.")
 
-        return HtmlGeneration.tabs("branchtab", [("Commits", commitContents, 'commit'), ("Branch Pins", pinContents, 'pins')])
+            return pinContents
+
+    def contextViews(self):
+        return ["commits", "pins"]
+
+    def renderViewMenuItem(self, view):
+        if view == "commits":
+            return "Commits"
+        if view == "pins":
+            return octicon("pin") + "Branch Pins"
+        return view
 
     def testDisplayForCommits(self, commits):
         commit_string = ""
@@ -139,12 +155,7 @@ class BranchContext(Context.Context):
 
                     branches[(c.hash, other_child)] = branchname
 
-        gridRenderer = TestGridRenderer.TestGridRenderer(commits, 
-            lambda c: [
-                t for t in self.testManager.database.Test.lookupAll(commitData=c.data)
-                    if not t.testDefinition.matches.Deployment
-                ] if c.data else []
-            )
+        gridRenderer = self.getGridRenderer(commits)
 
         grid = [["COMMIT"] + gridRenderer.headers() + ["", ""]]
 
@@ -159,6 +170,15 @@ class BranchContext(Context.Context):
 
         return detail_divs + canvas
 
+    def getGridRenderer(self, commits):
+        return TestGridRenderer.TestGridRenderer(commits, 
+            lambda c: [
+                t for t in self.testManager.database.Test.lookupAll(commitData=c.data)
+                    if not t.testDefinition.matches.Deployment
+                ] if c.data else [],
+            lambda group: self.contextFor(ComboContexts.BranchAndConfiguration(self.branch, group)).renderLink()
+            )
+
     def getBranchCommitRow(self, commit, renderer):
         row = [self.contextFor(commit).renderLinkWithShaHash()]
 
@@ -167,7 +187,11 @@ class BranchContext(Context.Context):
         if all_tests:
             row[-1] += "&nbsp;" + self.contextFor(commit).toggleCommitUnderTestLink()
         
-        row.extend(renderer.gridRow(commit))
+        row.extend(
+            renderer.gridRow(commit,
+                lambda group, row: self.contextFor(ComboContexts.CommitAndConfiguration(row, group)).urlString()
+                )
+            )
         
         row.append(
             HtmlGeneration.lightGrey("waiting to load commit") 
@@ -189,8 +213,6 @@ class BranchContext(Context.Context):
         if name.endswith("/" + env):
             name = name[:-1-len(env)]
         return name
-
-
 
     def pinGridWithUpdateButtons(self, branch):
         lines = [["status", "refname", "Pinned to"]]
@@ -257,3 +279,46 @@ class BranchContext(Context.Context):
             return preamble + self.contextFor(commit).renderLink()
 
         return preamble + self.contextFor(commit).renderLink()
+
+    def consumePath(self, path):
+        if path and path[0] == "configurations":
+            groupPath, remainder = self.popToDash(path[1:])
+
+            if not path:
+                return None, path
+
+            configurationName = "/".join(groupPath)
+
+            return self.contextFor(ComboContexts.BranchAndConfiguration(self.branch, configurationName)), remainder
+
+        return None, path
+
+    def childContexts(self, currentChild):
+        if isinstance(currentChild.primaryObject(), self.database.Commit):
+            commit = currentChild.primaryObject()
+
+            children = []
+
+            #show 10 commits above and below
+            return [self.contextFor(x) for x in 
+                list(reversed(self.testManager.getNCommits(commit, 10, "above"))) + [commit] + 
+                    self.testManager.getNCommits(commit, 10, "below")
+                ]
+
+        if isinstance(currentChild.primaryObject(), ComboContexts.BranchAndConfiguration):
+            return [self.contextFor(
+                ComboContexts.BranchAndConfiguration(branch=self.branch, configurationName=g)
+                )
+                    for g in sorted(set([self.testManager.configurationForTest(t)
+                            for commit in self.testManager.commitsToDisplayForBranch(self.branch, self.maxCommitCount())
+                            for t in self.database.Test.lookupAll(commitData=commit.data)
+                        ]))
+                ]
+        else:
+            return []
+
+    def parentContext(self):
+        return self.contextFor(self.branch.repo)
+
+    def renderMenuItemText(self, isHeader):
+        return (octicon("git-branch") if isHeader else "") + self.branch.branchname

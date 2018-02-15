@@ -86,3 +86,13 @@ class MachinesContext(Context.Context):
             grid.append(row)
             
         return HtmlGeneration.grid(grid)
+
+    def childContexts(self, currentChild):
+        return []
+
+    def parentContext(self):
+        return self.contextFor("root")
+        
+    def renderMenuItemText(self, isHeader):
+        return "Machines"
+
