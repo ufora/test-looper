@@ -276,5 +276,8 @@ class CommitContext(Context.Context):
     
     def testDependencySummary(self, t):
         """Return a single cell displaying all the builds this test depends on"""
-        return TestSummaryRenderer.TestSummaryRenderer(self.testManager.allTestsDependedOnByTest(t)).renderSummary()
+        return TestSummaryRenderer.TestSummaryRenderer(
+            self.testManager.allTestsDependedOnByTest(t),
+            ""
+            ).renderSummary()
 
