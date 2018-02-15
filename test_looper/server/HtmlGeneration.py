@@ -352,3 +352,74 @@ def selectBox(name, items, default=None):
                for v, t in items]
 
     return '<select class="form-control" name=%s>%s</select>' % (name, '\n'.join(options))
+
+def secondsUpToString(up_for):
+    if up_for < 60:
+        return ("%d seconds" % up_for)
+    elif up_for < 60 * 60 * 2:
+        return ("%.1f minutes" % (up_for / 60))
+    elif up_for < 24 * 60 * 60 * 2:
+        return ("%.1f hours" % (up_for / 60 / 60))
+    else:
+        return ("%.1f days" % (up_for / 60 / 60 / 24))
+
+
+
+def octicon(text, extra=""):
+    return '<span class="octicon octicon-%s %s" aria-hidden="true"/>' % (text,extra)
+
+def bytesToHumanSize(bytes):
+    if bytes is None:
+        return ""
+
+    if bytes < 1024 * 2:
+        return "%s bytes" % bytes
+
+    if bytes < 1024 * 2 * 1024:
+        return "%.1f Kb" % (bytes / 1024.0)
+
+    if bytes < 1024 * 2 * 1024 * 1024:
+        return "%.1f Mb" % (bytes / 1024.0 / 1024.0)
+
+    return "%.1f Gb" % (bytes / 1024.0 / 1024.0 / 1024.0)
+
+def card(text):
+    return """<div class="card">
+                  <div class="card-body">
+                    {text}
+                  </div>
+                </div>""".format(text=text)
+
+def tabs(name, tabSeq):
+    pils = []
+    bodies = []
+
+    for ix in xrange(len(tabSeq)):
+        header, contents, selector = tabSeq[ix]
+
+        active = "active" if ix == 0 else ""
+        pils.append(
+            """
+            <li class="nav-item">
+                <a class="nav-link {active}" id="{selector}-tab" data-toggle="tab" href="#{selector}" role="tab" aria-controls="{selector}" aria-selected="{selected}">
+                    {header}
+                </a>
+              </li>
+            """.format(active=active, selector=selector, header=header, selected=ix==0)
+            )
+
+        bodies.append(
+            """
+            <div class="tab-pane fade {show} {active}" id="{selector}" role="tabpanel" aria-labelledby="{selector}-tab">{contents}</div>
+            """.format(selector=selector,contents=contents, active=active, show="show" if ix == 0 else "")
+            )
+
+    return ("""<div class="container-fluid mb-3">
+                     <ul class="nav nav-pills" id="{name}" role="tablist">
+                      {pils}
+                    </ul>
+                    <div class="tab-content" id="{name}Content">
+                      {body}
+                    </div>
+                </div>
+                """.format(pils="".join(pils), body="".join(bodies),name=name))
