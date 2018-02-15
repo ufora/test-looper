@@ -39,8 +39,7 @@ class TestRunContext(Context.Context):
         return HtmlGeneration.tabs("test_tab", [
                 ("Artifacts", artifacts, "artifacts"),
                 ("Individual Tests", individualTestReport, "tests_individual")
-                ]
-                )
+                ])
 
     def individualTestReport(self):
         testRun = self.testRun
@@ -72,7 +71,7 @@ class TestRunContext(Context.Context):
             if self.renderer.artifactStorage.build_exists(commit.repo.name, commit.hash, build_key):
                 grid.append([
                     HtmlGeneration.link(build_key, self.renderer.buildDownloadUrl(commit.repo.name, commit.hash, build_key)),
-                    bytesToHumanSize(self.renderer.artifactStorage.build_size(commit.repo.name, commit.hash, build_key))
+                    HtmlGeneration.bytesToHumanSize(self.renderer.artifactStorage.build_size(commit.repo.name, commit.hash, build_key))
                     ])
             else:
                 logging.info("No build found at %s", build_key)
@@ -83,7 +82,7 @@ class TestRunContext(Context.Context):
                     artifactName,
                     self.renderer.testResultDownloadUrl(testRun._identity, artifactName)
                     ),
-                bytesToHumanSize(sizeInBytes)
+                HtmlGeneration.bytesToHumanSize(sizeInBytes)
                 ])
 
         if not grid:

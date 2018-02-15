@@ -20,14 +20,14 @@ class TestGridRenderer:
     def grid(self):
         return [self.gridRow(r) for r in self.rows]
 
-    def gridRow(self, row):
+    def gridRow(self, row, urlFun = lambda group,row: ""):
         groupMap = {g:[] for g in self.groups}
 
         for t in self.testsForRowFun(row):
             groupMap[self.groupForTest(t)].append(t)
 
         return [
-            TestSummaryRenderer.TestSummaryRenderer(groupMap[g]).renderSummary()
+            TestSummaryRenderer.TestSummaryRenderer(groupMap[g],testSummaryUrl=urlFun(group=g,row=row)).renderSummary()
                 if groupMap[g] else "" for g in sorted(self.groups)
             ]
 
