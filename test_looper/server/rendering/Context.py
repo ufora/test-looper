@@ -70,19 +70,21 @@ class Context(object):
         def addRepo(repo, isActive):
             dds = []
 
-            dds.append((self.contextFor(repo).urlString(),repo.name))
-            dds.append('<div class="dropdown-divider"></div>')
+            link = self.contextFor(repo).urlString()
 
             for r in sorted(self.testManager.database.Repo.lookupAll(isActive=True),key=lambda r:r.name):
-                if r.commitsWithTests and r != repo:
-                    dds.append((self.contextFor(r).urlString(), r.name))
+                if r.commitsWithTests or r == repo:
+                    dds.append((self.contextFor(r).urlString(), r.name, r == repo))
+
+            if len(dds) <= 1:
+                dds = []
 
             nav_links.append(
-                    (octicon('repo') + repo.name, "", isActive, dds)
+                    (octicon('repo') + repo.name, link, isActive, dds)
                     )
 
         def addSpacer():
-            nav_links.append(("/", "",False,[]))
+            nav_links.append(("&#x2F", "",False,[]))
 
         def addBranch(branch, isActive):
             addRepo(branch.repo, False)
@@ -90,27 +92,40 @@ class Context(object):
 
             dds = []
 
-            dds.append((self.contextFor(branch).urlString(),branch.branchname))
-            dds.append('<div class="dropdown-divider"></div>')
-
             for b in sorted(self.testManager.database.Branch.lookupAll(repo=branch.repo),key=lambda b:b.branchname):
-                if self.renderer.branchHasTests(b) and b != branch:
-                    dds.append((self.contextFor(b).urlString(),b.branchname))
+                if self.renderer.branchHasTests(b):
+                    dds.append((self.contextFor(b).urlString(),b.branchname, b == branch))
 
-            if len(dds) == 2:
+            if len(dds) <= 1:
                 dds = []
 
-            if not dds:
-                link = self.contextFor(branch).urlString()
-            else:
-                link = ""
-
+            link = self.contextFor(branch).urlString()
+            
             nav_links.append(
                     ('<span class="octicon octicon-git-branch" aria-hidden="true"/>' + branch.branchname, link, isActive, dds)
                     )
 
         def addCommit(commit, isActive):
             branch, name = self.testManager.bestCommitBranchAndName(commit)
+            dd = []
+
+            #show 10 commits below
+            def dd_link(c):
+                branch, name = self.testManager.bestCommitBranchAndName(c)
+                if branch:
+                    if name == "":
+                        name = "/HEAD"
+
+                    return (self.contextFor(c).urlString(), branch.branchname + name, c == commit)
+                else:
+                    return (self.contextFor(c).urlString(), octicon("git-commit") + c.hash[:10], c == commit)
+
+            for c in (
+                    list(reversed(self.testManager.getNCommits(commit, 10, "above"))) + [commit] + 
+                    self.testManager.getNCommits(commit, 10, "below")
+                    ):
+                dd.append(dd_link(c))
+
             if branch:
                 addBranch(branch, False)
             else:
@@ -119,10 +134,12 @@ class Context(object):
             addSpacer()
 
             nav_links.append(
-                    ('Commit&nbsp;<span class="octicon octicon-git-commit" aria-hidden="true"/>' + "HEAD"+name, 
-                        self.contextFor(commit).urlString(), 
-                        isActive, [])
+                ('Commit&nbsp;<span class="octicon octicon-git-commit" aria-hidden="true"/>' + "HEAD"+name,
+                    self.contextFor(commit).urlString(),
+                    False, 
+                    dd
                     )
+                )
 
         def addTest(test, isActive):
             commit = test.commitData.commit
@@ -198,20 +215,31 @@ class Context(object):
                     elt = '<div class="navbar-text">{elt}</div>'.format(elt=elt)
 
             if dropdowns:
+                active = False
+
                 dd_items = []
                 for item in dropdowns:
                     if isinstance(item,str):
                         dd_items += [item]
                     else:
-                        href, contents = item
+                        if len(item) == 3:
+                            href, contents, dd_active = item
+                        else:
+                            href, contents = item
+                            dd_active=False
+
                         dd_items += [
-                            '<a class="dropdown-item" href="{link}">{contents}</a>'.format(link=href,contents=contents)
+                            '<a class="dropdown-item {active}" href="{link}">{contents}</a>'.format(
+                                active="active" if dd_active else "", 
+                                link=href,
+                                contents=contents
+                                )
                             ]
 
                 elt = """
                     <div class="btn-group">
-                      <button class="btn {btnstyle} dropdown-toggle" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-                        {elt}
+                      <button class="btn btn-sm {btnstyle}">{elt}</button>
+                      <button class="btn btn-sm {btnstyle} dropdown-toggle dropdown-toggle-split" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
                       </button>
                       <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
                         {dd_items}

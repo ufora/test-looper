@@ -273,7 +273,7 @@ class TestManager(object):
 
                 ix = child.data.parents.index(c)
 
-                toCheck[child] = "^" + str(ix+1) if ix > 1 else "~"
+                toCheck[child] = "^" + str(ix+1) if ix > 0 else "~"
 
             return toCheck
 
@@ -357,6 +357,33 @@ class TestManager(object):
                     result.append(dep.test.commitData.commit)
 
         return sorted(set(result), key=lambda k: k.repo.name + "/" + k.hash)
+
+    def getNCommits(self, commit, N, direction="below"):
+        """Do a breadth-first search around 'commit'"""
+
+        assert direction in ("above", "below")
+
+        commits = []
+        seen = set()
+        frontier = [commit]
+
+        while frontier and len(commits) < N:
+            c = frontier.pop(0)
+            if c not in seen:
+                seen.add(c)
+                commits.append(c)
+                if direction == "below":
+                    if c.data:
+                        frontier.extend(c.data.parents)
+                else:
+                    frontier.extend([
+                        r.child for r in self.database.CommitRelationship.lookupAll(parent=c)
+                        ])
+
+        print [c.hash for c in commits]
+
+        return commits[1:]
+
 
     def commitsToDisplayForBranch(self, branch, max_commits):
         commits = set()
