@@ -357,7 +357,7 @@ class TestLooperCtl:
             return os.path.abspath(os.path.join(*((self.root_path, "src") + tuple(reponame.split("/")))))
 
         if Git.isShaHash(hashOrCommitName):
-            hashOrCommitName = self.cur_checkouts[reponame][hashOrCommitName]
+            hashOrCommitName = self.cur_checkouts[reponame].get(hashOrCommitName, hashOrCommitName)
 
         return os.path.abspath(os.path.join(*((self.root_path, "src") + tuple(reponame.split("/")) + (self.sanitize(hashOrCommitName),))))
     
@@ -656,10 +656,14 @@ class TestLooperCtl:
         def printer(reponame, committish):
             root = self.checkout_root_path(reponame, committish)
             git = Git.Git(root)
-            print self.repoShortname(reponame), self.cur_checkouts[reponame][committish]
-            diffstat = git.currentFileNumStat()
-            for path in diffstat:
-                print "\t++ %-5d  -- %-5d   %s" % (diffstat[path][0], diffstat[path][1], path)
+            print self.repoShortname(reponame), self.cur_checkouts[reponame].get(committish, committish[:10])
+            
+            if git.isInitialized():
+                diffstat = git.currentFileNumStat()
+                for path in diffstat:
+                    print "\t++ %-5d  -- %-5d   %s" % (diffstat[path][0], diffstat[path][1], path)
+            else:
+                print "\tNOT INITIALIZED"
 
         self.walkCheckedOutRepos(printer)
         

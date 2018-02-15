@@ -53,10 +53,9 @@ class HtmlRenderingTest(unittest.TestCase):
         self.harness.enableBranchTesting("repo1", "master")
         self.harness.enableBranchTesting("repo2", "master")
 
-        self.context = TestLooperHtmlRendering.Context(self.renderer, {})
-        
+
     def getSomeContexts(self):
-        return [self.context.contextFor(x) for x in self.getSomeObjects()]
+        return [self.renderer.contextFor(x, {}) for x in self.getSomeObjects()]
 
     def getSomeObjects(self):
         objects = ["repos", "machines", "deployments"]
@@ -82,7 +81,7 @@ class HtmlRenderingTest(unittest.TestCase):
 
         with self.database.view():
             for object in self.getSomeObjects():
-                objContext = self.context.contextFor(object)
+                objContext = self.renderer.contextFor(object, {})
 
                 self.assertEqual(objContext.primaryObject(), object)
 
@@ -91,7 +90,7 @@ class HtmlRenderingTest(unittest.TestCase):
 
                 kwargs = urlparse.parse_qs(parsed.query)
 
-                parsedContext = self.context.getFromEncoding(self.renderer, path, kwargs)
+                parsedContext = self.renderer.getFromEncoding(path, kwargs)
 
                 self.assertTrue(parsedContext, (path,kwargs))
 
