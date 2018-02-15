@@ -51,6 +51,7 @@ git add .
 git commit -m "fourth commit"
 
 git merge HEAD@{3} -m 'this is a merge'
+git checkout -B master2 HEAD
 git checkout -B master HEAD
 
 for m in 4 5 6 7 8;
