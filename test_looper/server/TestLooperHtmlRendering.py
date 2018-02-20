@@ -377,7 +377,8 @@ class Renderer:
         for test in tests:
             if not test.testDefinition.matches.Deployment:
                 if test.totalRuns == 0 or test.priority.matches.WaitingToRetry:
-                    return False
+                    if not test.priority.matches.DependencyFailed:
+                        return False
 
         return True
 
