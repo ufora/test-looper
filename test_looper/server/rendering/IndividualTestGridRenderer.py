@@ -44,16 +44,20 @@ class IndividualTestGridRenderer:
         for t in self.testsForRowFun(row):
             for run in self.database.TestRun.lookupAll(test=t):
                 if run.testNames:
-                    for i in xrange(len(run.testNames.test_names)):
-                        cur_runs, cur_successes, url = res.get(run.testNames.test_names[i], (0,0,""))
+                    testNames = run.testNames.test_names
+                    testFailures = run.testFailures
+                    testHasLogs = run.testHasLogs
+                    
+                    for i in xrange(len(testNames)):
+                        cur_runs, cur_successes, url = res.get(testNames[i], (0,0,""))
 
                         cur_runs += 1
-                        cur_successes += 1 if run.testFailures[i] else 0
+                        cur_successes += 1 if testFailures[i] else 0
 
-                        if run.testHasLogs[i] and not url:
-                            url = self.parentContext.contextFor(ComboContexts.IndividualTest(t, run.testNames.test_names[i])).urlString()
+                        if testHasLogs and testHasLogs[i] and not url:
+                            url = self.parentContext.contextFor(ComboContexts.IndividualTest(t, testNames[i])).urlString()
 
-                        res[run.testNames.test_names[i]] = (cur_runs, cur_successes, url)
+                        res[testNames[i]] = (cur_runs, cur_successes, url)
         return res
 
     @property

@@ -94,7 +94,7 @@ class ReposContext(Context.Context):
                 self.contextFor(repo).renderLink(),
                 str(len(branches)),
                 str(repo.commits),
-                self.contextFor(best_commit[repo]).renderLink(includeRepo=False)
+                self.contextFor(best_commit[repo]).renderLink(includeRepo=False) if best_commit[repo] else ""
                 ] + testRow)
 
         return grid_headers, grid
