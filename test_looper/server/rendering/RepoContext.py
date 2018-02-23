@@ -67,7 +67,10 @@ class RepoContext(Context.Context):
 
         gridRenderer = TestGridRenderer.TestGridRenderer(
             branches, 
-            lambda b: test_rows.get(b, [])
+            lambda b: test_rows.get(b, []),
+            lambda group: "",
+            lambda group, row: 
+                self.contextFor(ComboContexts.BranchAndConfiguration(row, group)).urlString()
             )
 
         grid_headers = [gridRenderer.headers()]
@@ -103,14 +106,7 @@ class RepoContext(Context.Context):
             else:
                 row.append("")
 
-            row.extend(
-                gridRenderer.gridRow(
-                    branch, 
-                    lambda group, row: 
-                        self.contextFor(ComboContexts.CommitAndConfiguration(best_commit[row], group)).urlString() 
-                            if best_commit[row] else ""
-                    )
-                )
+            row.extend(gridRenderer.gridRow(branch))
 
         return grid_headers, grid
 

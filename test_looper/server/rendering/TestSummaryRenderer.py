@@ -50,9 +50,9 @@ class TestSummaryRenderer:
     def renderSummary(self):
         #first, see whether we have any tests
         if not self.tests or not self.allEnvironments():
-            return ""
-
-        button_text = self.renderSingleEnvironment()
+            button_text = '<span class="text-muted">%s</span>' % octicon("circle-slash")
+        else:
+            button_text = self.renderSingleEnvironment()
 
         active = sum(t.activeRuns for t in self.tests)
         if active:
@@ -122,6 +122,8 @@ class TestSummaryRenderer:
         tests = self.allTests()
 
         if not tests:
+            if not self.allBuilds():
+                return "No tests or builds defined."
             return "All builds passed."
 
         for t in tests:
@@ -236,7 +238,8 @@ class TestSummaryRenderer:
 
         return self.renderFailureCount(totalFailedTestCount, totalTests)
 
-    def renderFailureCount(self, totalFailedTestCount, totalTests, verbose=False):
+    @staticmethod
+    def renderFailureCount(totalFailedTestCount, totalTests, verbose=False):
         if not verbose:
             if totalTests == 0:
                 return '<span class="text-muted">%s</span>' % octicon("check")

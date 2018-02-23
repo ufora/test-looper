@@ -81,6 +81,9 @@ class Context(object):
 
             children = parent.childContexts(curContext)
 
+            if curContext == self:
+                children = [c.withOptions(**self.options) for c in children]
+
             if children:
                 dd_items = [
                     '<a class="dropdown-item{active}" href="{link}" title="{title}">{contents}</a>'.format(
@@ -102,7 +105,7 @@ class Context(object):
                   
                 </div>
                 """.format(
-                    url=curContext.urlString(),
+                    url=curContext.withOptionsReset(view=curContext.options.get("view")).urlString(),
                     elt=curContext.renderMenuItemText(isHeader=True),
                     title=curContext.renderMenuItemTitle(isHeader=True),
                     dd_items = "".join(dd_items),
@@ -121,25 +124,29 @@ class Context(object):
 
             curContext = parent
 
-        if self.contextViews():
-            headers = headers + ['<span class="px-4">::</span>']
-            buttons = []
-            curView = self.options.get("view", self.defaultView())
-                
-            for view in self.contextViews():
-                buttons.append(
-                    '<a role="button" href="{url}" title="{title}" class="btn btn-xs {btnstyle}">{elt}</a>'.format(
-                        url=self.contextFor(self.primaryObject(), view=view).urlString(),
-                        elt=self.renderViewMenuItem(view),
-                        title=self.renderMenuItemTitle(view),
-                        btnstyle="btn-primary" if view == curView else "btn-outline-secondary"
+        if self.options.get("testGroup"):
+            headers += ['<span class="px-1">&#x2F</span>'] + [octicon("beaker") + self.options.get("testGroup")]
+        else:
+            if self.contextViews():
+                headers = headers + ['<span class="px-4">::</span>']
+                buttons = []
+                curView = self.options.get("view", self.defaultView())
+                    
+                for view in self.contextViews():
+                    buttons.append(
+                        '<a role="button" href="{url}" title="{title}" class="btn btn-xs {btnstyle}">{elt}</a>'.format(
+                            url=self.contextFor(self.primaryObject(), view=view).urlString(),
+                            elt=self.renderViewMenuItem(view),
+                            title=self.renderMenuItemTitle(view),
+                            btnstyle="btn-primary" if view == curView else "btn-outline-secondary"
+                            )
                         )
-                    )
 
-            headers = headers + [
-                """<div class="btn-group" role="group">{buttons}</div>"""
-                    .format(buttons="".join(buttons))
-                ]
+                headers = headers + [
+                    """<div class="btn-group" role="group">{buttons}</div>"""
+                        .format(buttons="".join(buttons))
+                    ]
+
 
         return '<div class="p-2 bg-light mr-auto">%s</div>' % "".join(headers)
 
@@ -158,3 +165,15 @@ class Context(object):
 
     def contextFor(self, entity, **kwargs):
         return self.renderer.contextFor(entity, kwargs)
+
+    def withOptionsReset(self, **options):
+        options = {k:v for k,v in options.iteritems() if v is not None}
+        return self.renderer.contextFor(self.primaryObject(), options)
+
+    def withOptions(self, **kwargs):
+        options = dict(self.options)
+        options.update(kwargs)
+
+        options = {k:v for k,v in options.iteritems() if v is not None}
+
+        return self.renderer.contextFor(self.primaryObject(), options)

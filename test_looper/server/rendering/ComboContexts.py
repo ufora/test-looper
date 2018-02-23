@@ -16,6 +16,15 @@ class BranchAndConfiguration(ComboContext):
     def toTuple(self):
         return (self.branch, self.configurationName)
 
+class BranchAndConfigurationAndGroup(ComboContext):
+    def __init__(self, branch, configurationName, testGroupName):
+        self.branch = branch
+        self.configurationName = configurationName
+        self.testGroupName = testGroupName
+
+    def toTuple(self):
+        return (self.branch, self.configurationName, self.testGroupName)
+
 class CommitAndConfiguration(ComboContext):
     def __init__(self, commit, configurationName):
         self.commit = commit

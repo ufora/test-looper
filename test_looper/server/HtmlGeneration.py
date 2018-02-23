@@ -318,7 +318,7 @@ def grid(rows, header_rows=1, rowHeightOverride=None, fitWidth=True):
 
     col_count = row_colcount(rows[0])
 
-    def format_cell(c, which='td'):
+    def format_cell(c, which='td',extra_classes="pr-5"):
         if isinstance(c, dict):
             extras = ""
             if 'colspan' in c:
@@ -326,9 +326,9 @@ def grid(rows, header_rows=1, rowHeightOverride=None, fitWidth=True):
 
             class_elt = c.get('class','')
 
-            return '<%s class="%s %s"%s>%s</%s>' % (which, "fit" if fitWidth else "", class_elt, extras, makeHtmlElement(c['content']).render(), which)
+            return '<%s class="%s %s %s"%s>%s</%s>' % (which, "fit" if fitWidth else "", extra_classes, class_elt, extras, makeHtmlElement(c['content']).render(), which)
         else:
-            return '<%s class="%s">%s</%s>' % (which, "fit" if fitWidth else "", makeHtmlElement(c).render(), which)
+            return '<%s class="%s %s">%s</%s>' % (which, "fit" if fitWidth else "", extra_classes, makeHtmlElement(c).render(), which)
 
     table_headers = "\n".join(
         "<tr%s>%s</tr>" % (override_text, "\n".join(format_cell(h, "th")
@@ -350,7 +350,7 @@ def grid(rows, header_rows=1, rowHeightOverride=None, fitWidth=True):
 
     table_rows = "\n".join(format_row(row) for row in rows[header_rows:])
 
-    format_str = ('<table class="table table-hscroll table-sm table-striped">'
+    format_str = ('<table class="table-hscroll table-sm table-striped">'
                   '{headers}\n{rows}'
                   '</table>')
 

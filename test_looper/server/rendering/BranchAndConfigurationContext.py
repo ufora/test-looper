@@ -27,6 +27,11 @@ class BranchAndConfigurationContext(BranchContext.BranchContext):
     def urlBase(self):
         return "repos/" + self.reponame + "/-/branches/" + self.branchname + "/-/configurations/" + self.configurationName
 
+    def getContextForCommit(self, commit):
+        return self.contextFor(
+            ComboContexts.CommitAndConfiguration(commit, self.configurationName)
+            ).withOptions(testGroup=self.options.get("testGroup"))
+
     def renderBreadcrumbPrefixes(self):
         return ["Configurations"]
 
@@ -36,7 +41,15 @@ class BranchAndConfigurationContext(BranchContext.BranchContext):
                 if self.configurationName == self.testManager.configurationForTest(t):
                     yield t
 
-        return IndividualTestGridRenderer.IndividualTestGridRenderer(commits, self, testFun)
+        return IndividualTestGridRenderer.IndividualTestGridRenderer(
+            commits, 
+            self, 
+            testFun,
+            lambda testGroup, commit: 
+                self.contextFor(
+                    ComboContexts.CommitAndConfiguration(commit, self.configurationName)
+                    ).withOptions(testGroup=testGroup).urlString()
+            )
 
     def childContexts(self, currentChild):
         return []

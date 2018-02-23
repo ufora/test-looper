@@ -157,7 +157,7 @@ class BranchContext(Context.Context):
 
         gridRenderer = self.getGridRenderer(commits)
 
-        grid = [["COMMIT"] + gridRenderer.headers() + ["", ""]]
+        grid = [["COMMIT"] + gridRenderer.headers() + [""]]
 
         for c in reversed(commits):
             gridrow = self.getBranchCommitRow(c, gridRenderer)
@@ -176,32 +176,33 @@ class BranchContext(Context.Context):
                 t for t in self.testManager.database.Test.lookupAll(commitData=c.data)
                     if not t.testDefinition.matches.Deployment
                 ] if c.data else [],
-            lambda group: self.contextFor(ComboContexts.BranchAndConfiguration(self.branch, group)).renderLink()
+            lambda group: self.contextFor(ComboContexts.BranchAndConfiguration(self.branch, group)).renderLink(),
+            lambda group, row: self.contextFor(ComboContexts.CommitAndConfiguration(row, group)).urlString()
             )
 
+    def getContextForCommit(self, commit):
+        return self.contextFor(commit).withOptions(testGroup=self.options.get("testGroup"))
+
     def getBranchCommitRow(self, commit, renderer):
-        row = [self.contextFor(commit).renderLinkWithShaHash()]
+        row = [self.getContextForCommit(commit).renderLinkWithShaHash()]
 
         all_tests = self.testManager.database.Test.lookupAll(commitData=commit.data)
 
         if all_tests:
             row[-1] += "&nbsp;" + self.contextFor(commit).toggleCommitUnderTestLink()
         
-        row.extend(
-            renderer.gridRow(commit,
-                lambda group, row: self.contextFor(ComboContexts.CommitAndConfiguration(row, group)).urlString()
-                )
-            )
+        row.extend(renderer.gridRow(commit))
         
-        row.append(
-            HtmlGeneration.lightGrey("waiting to load commit") 
-                    if not commit.data
-            else HtmlGeneration.lightGrey("no test file") 
-                    if commit.data.noTestsFound
-            else HtmlGeneration.lightGrey("invalid test file") 
-                    if commit.data.testDefinitionsError
-            else ""
-            )
+        if False:
+            row.append(
+                HtmlGeneration.lightGrey("waiting to load commit") 
+                        if not commit.data
+                else HtmlGeneration.lightGrey("no test file") 
+                        if commit.data.noTestsFound
+                else HtmlGeneration.lightGrey("invalid test file") 
+                        if commit.data.testDefinitionsError
+                else ""
+                )
 
         row.append(self.contextFor(commit).renderSubjectAndAuthor())
 

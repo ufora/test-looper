@@ -416,12 +416,12 @@ class Renderer:
         return self.errorPage("Invalid URL provided")
 
     def getFromEncoding(self, path, argDict):
-        context = RootContext.RootContext(self, argDict)
+        context = RootContext.RootContext(self, {})
 
         while path:
             context, path = context.consumePath(path)
             if not context:
                 return None
 
-        return context
+        return context.withOptions(**argDict)
 

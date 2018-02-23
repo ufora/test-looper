@@ -1,12 +1,23 @@
+td {
+    white-space: nowrap
+}
+th {
+    white-space: nowrap
+}
+
 .table td.fit,
 .table th.fit {
     white-space: nowrap;
     width: 1%;
 }
 
-.table td.fit.nopadding {
+.table-sm .nopadding {
     padding: 0;
-    border: 0;
+    border: 1;
+}
+.table-sm .nopadding {
+    padding: 0;
+    border: 1;
 }
 
 .btn-xs {
@@ -24,6 +35,14 @@
     text-decoration: underline;
 }
 
+.clickable-div:hover {
+    cursor:pointer;
+}
+.clickable-div-background:hover {
+    border-radius: .25rem;
+    background-color: #ddd;
+}
+
 .test-result-header {
     width: 20px; 
     height: 100%;
@@ -31,8 +50,8 @@
 }
 
 .test-result-cell {
-    height:36px;
-    width: 20px; 
+    height:35px;
+    width: 10px; 
     display: inline-block;
 }
 
@@ -49,11 +68,6 @@
     background-color: #fff;
 }
 
-.test-result-cell-sm {
-    height:36px;
-    width: 5px; 
-    display: inline-block;
-}
 
 .vertical-text {
     transform: rotate(-90deg);

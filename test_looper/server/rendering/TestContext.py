@@ -109,7 +109,7 @@ class TestContext(Context.Context):
         return grid
 
     def gridForTestList_(self, sortedTests):
-        grid = [["TEST", "TYPE", "STATUS", "LOGS", "CLEAR", "STARTED", "ELAPSED (MIN)",
+        grid = [["TEST RUN", "TYPE", "STATUS", "LOGS", "CLEAR", "STARTED", "ELAPSED (MIN)",
                  "SINCE LAST HEARTBEAT (SEC)", "TOTAL TESTS", "FAILING TESTS"]]
 
         sortedTests = [x for x in sortedTests if not x.canceled]

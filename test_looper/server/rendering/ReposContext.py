@@ -64,7 +64,16 @@ class ReposContext(Context.Context):
 
             test_rows[r] = self.renderer.allTestsForCommit(best_commit[r]) if best_commit[r] else []
 
-        gridRenderer = TestGridRenderer.TestGridRenderer(repos, lambda r: test_rows.get(r, []))
+        gridRenderer = TestGridRenderer.TestGridRenderer(
+            repos, 
+            lambda r: test_rows.get(r, []),
+            lambda group: "",
+            lambda group, row: 
+                self.contextFor(
+                    ComboContexts.BranchAndConfiguration(best_branch[row], group)
+                    ).urlString()
+                if best_branch[row] else ""
+            )
 
         grid_headers = [gridRenderer.headers()]
 
@@ -82,11 +91,7 @@ class ReposContext(Context.Context):
             branches = self.database.Branch.lookupAll(repo=repo)
 
             if best_commit[repo] and best_commit[repo].userPriority:
-                testRow = gridRenderer.gridRow(
-                    repo,
-                    lambda group, row: self.contextFor(ComboContexts.BranchAndConfiguration(best_branch[row], group)).urlString()
-                        if best_branch[row] else ""
-                    )
+                testRow = gridRenderer.gridRow(repo)
             else:
                 testRow = [""] * len(gridRenderer.groups)
 

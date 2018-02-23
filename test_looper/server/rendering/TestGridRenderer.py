@@ -5,11 +5,11 @@ import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
 
 
 class TestGridRenderer:
-    def __init__(self, rows, testsForRowFun, headerLinkFun = lambda group: None):
+    def __init__(self, rows, testsForRowFun, headerLinkFun = lambda group: "", cellLinkFun = lambda group, row: ''):
         self.rows = rows
         self.headerLinkFun = headerLinkFun
         self.testsForRowFun = testsForRowFun
-
+        self.cellLinkFun = cellLinkFun
         self.groups = set()
 
         for r in rows:
@@ -33,13 +33,16 @@ class TestGridRenderer:
     def grid(self):
         return [self.gridRow(r) for r in self.rows]
 
-    def gridRow(self, row, urlFun = lambda group,row: ""):
+    def gridRow(self, row):
         groupMap = {g:[] for g in self.groups}
 
         for t in self.testsForRowFun(row):
             groupMap[TestManager.TestManager.configurationForTest(t)].append(t)
 
         return [
-            TestSummaryRenderer.TestSummaryRenderer(groupMap[g],testSummaryUrl=urlFun(group=g,row=row)).renderSummary()
-                if groupMap[g] else "" for g in sorted(self.groups)
+            TestSummaryRenderer.TestSummaryRenderer(
+                    groupMap.get(g,[]),
+                    testSummaryUrl=self.cellLinkFun(group=g,row=row) if groupMap.get(g,[]) else ""
+                    ).renderSummary()
+                for g in sorted(self.groups)
             ]

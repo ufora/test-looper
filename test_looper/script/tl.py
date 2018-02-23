@@ -411,10 +411,10 @@ class TestLooperCtl:
 
     def createNewBranchAndPush(self, repo, branchname, from_name):
         if from_name:
-            repo.pushCommit("origin/" + from_name, branchname, force=False, create=True)
-        else:
-            hash = repo.createInitialCommit()
-            repo.pushCommit(hash, branchname, force=False, createBranch=True)
+            hash = repo.gitCommitData("origin/" + from_name)[0]
+
+        hash = repo.createInitialCommit()
+        repo.pushCommit(hash, branchname, force=False, createBranch=True)
 
     def checkout(self, args):
         reponame = self.bestRepo(args.repo)
@@ -547,7 +547,6 @@ class TestLooperCtl:
             else:
                 self.infoForRepo(args.repo)
             return
-
 
         raise UserWarning("Nothing specified.")
 
