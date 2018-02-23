@@ -22,7 +22,7 @@ try {
 log("Running bootstrap script - installing python")
 
 #download and intall python2.7.14
-$python_msi_url = "http://www.python.org/ftp/python/2.7.14/python-2.7.14.amd64.msi"
+$python_msi_url = "https://__testlooper_server_and_port__/python-2.7.14.amd64.msi"
 $python_msi_file = "C:\ProgramData\TestLooper\python-2.7.14.amd64.msi"
 
 $client.DownloadFile($python_msi_url, $python_msi_file)
@@ -38,7 +38,7 @@ pip install simplejson==3.13.2 requests==2.18.4 pyyaml==3.12 boto3==1.5.8 pyodbc
 log("Running bootstrap script - installing git")
 
 #download and install git 2.15.1
-$git_for_windows_url = "https://github.com/git-for-windows/git/releases/download/v2.15.1.windows.2/Git-2.15.1.2-64-bit.exe"
+$git_for_windows_url = "https://__testlooper_server_and_port__/Git-2.15.1.2-64-bit.exe"
 $git_for_windows_file = "C:/ProgramData/TestLooper/git_installer.exe"
 $client.DownloadFile($git_for_windows_url, $git_for_windows_file)
 
@@ -46,12 +46,6 @@ Start-Process $git_for_windows_file -ArgumentList @("/silent", "/suppressmsgboxe
 $env:Path += ";C:\Program Files\Git\bin"
 
 log("Running bootstrap script - getting the looper source")
-
-#get 7zip
-$zip_url="http://www.7-zip.org/a/7z1604-x64.exe"
-$zip_installer="C:\ProgramData\TestLooper\7z.exe"
-$client.DownloadFile($zip_url, $zip_installer)
-Start-Process $zip_installer -ArgumentList @("/S") -Wait
 
 #get the test-looper source
 $testlooper_src_url = "https://__testlooper_server_and_port__/test_looper.zip"

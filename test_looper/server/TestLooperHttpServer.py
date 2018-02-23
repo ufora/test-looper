@@ -673,6 +673,8 @@ class TestLooperHttpServer(object):
 
         temp_dir_for_tarball = tempfile.mkdtemp()
 
+        logging.info("Serving test-looper tarball and related downloads from %s", temp_dir_for_tarball)
+
         SubprocessRunner.callAndAssertSuccess(
             ["tar", "cvfz", os.path.join(temp_dir_for_tarball, "test_looper.tar.gz"), 
                 "--directory", path_to_source_root, "test_looper"
@@ -685,9 +687,22 @@ class TestLooperHttpServer(object):
 
         with DirectoryScope.DirectoryScope(temp_dir_for_tarball):
             SubprocessRunner.callAndReturnOutput(
-                ["curl", "https://bootstrap.pypa.io/get-pip.py", "-O", os.path.join(temp_dir_for_tarball, "get-pip.py")]
+                ["curl", "-L", "https://bootstrap.pypa.io/get-pip.py", "-O", os.path.join(temp_dir_for_tarball, "get-pip.py")]
                 )
             assert os.path.exists(os.path.join(temp_dir_for_tarball, "get-pip.py"))
+
+        with DirectoryScope.DirectoryScope(temp_dir_for_tarball):
+            SubprocessRunner.callAndReturnOutput(
+                ["curl", "-L", "http://www.python.org/ftp/python/2.7.14/python-2.7.14.amd64.msi", "-O", os.path.join(temp_dir_for_tarball, "python-2.7.14.amd64.msi")]
+                )
+            assert os.path.exists(os.path.join(temp_dir_for_tarball, "python-2.7.14.amd64.msi"))
+
+        with DirectoryScope.DirectoryScope(temp_dir_for_tarball):
+            SubprocessRunner.callAndReturnOutput(
+                ["curl", "-L", "https://github.com/git-for-windows/git/releases/download/v2.15.1.windows.2/Git-2.15.1.2-64-bit.exe", "-O", os.path.join(temp_dir_for_tarball, "Git-2.15.1.2-64-bit.exe")]
+                )
+            assert os.path.exists(os.path.join(temp_dir_for_tarball, "Git-2.15.1.2-64-bit.exe"))
+            
 
         cherrypy.tree.mount(self, '/', {
             '/favicon.ico': {
@@ -710,6 +725,21 @@ class TestLooperHttpServer(object):
                 'tools.staticfile.on': True,
                 'tools.staticfile.filename': os.path.join(temp_dir_for_tarball,
                                                           'test_looper.zip')
+                },
+            '/test_looper.zip': {
+                'tools.staticfile.on': True,
+                'tools.staticfile.filename': os.path.join(temp_dir_for_tarball,
+                                                          'test_looper.zip')
+                },
+            '/python-2.7.14.amd64.msi': {
+                'tools.staticfile.on': True,
+                'tools.staticfile.filename': os.path.join(temp_dir_for_tarball,
+                                                          'python-2.7.14.amd64.msi')
+                },
+            '/Git-2.15.1.2-64-bit.exe': {
+                'tools.staticfile.on': True,
+                'tools.staticfile.filename': os.path.join(temp_dir_for_tarball,
+                                                          'Git-2.15.1.2-64-bit.exe')
                 },
             '/css': {
                 'tools.staticdir.on': True,
