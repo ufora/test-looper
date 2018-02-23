@@ -157,7 +157,7 @@ class BranchContext(Context.Context):
 
         gridRenderer = self.getGridRenderer(commits)
 
-        grid = [["COMMIT"] + gridRenderer.headers() + ["", ""]]
+        grid = [["COMMIT"] + gridRenderer.headers() + [""]]
 
         for c in reversed(commits):
             gridrow = self.getBranchCommitRow(c, gridRenderer)
@@ -193,15 +193,16 @@ class BranchContext(Context.Context):
                 )
             )
         
-        row.append(
-            HtmlGeneration.lightGrey("waiting to load commit") 
-                    if not commit.data
-            else HtmlGeneration.lightGrey("no test file") 
-                    if commit.data.noTestsFound
-            else HtmlGeneration.lightGrey("invalid test file") 
-                    if commit.data.testDefinitionsError
-            else ""
-            )
+        if False:
+            row.append(
+                HtmlGeneration.lightGrey("waiting to load commit") 
+                        if not commit.data
+                else HtmlGeneration.lightGrey("no test file") 
+                        if commit.data.noTestsFound
+                else HtmlGeneration.lightGrey("invalid test file") 
+                        if commit.data.testDefinitionsError
+                else ""
+                )
 
         row.append(self.contextFor(commit).renderSubjectAndAuthor())
 

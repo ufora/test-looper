@@ -6,7 +6,11 @@
 
 .table td.fit.nopadding {
     padding: 0;
-    border: 0;
+    border: 1;
+}
+.table th.fit.nopadding {
+    padding: 0;
+    border: 1;
 }
 
 .btn-xs {
@@ -30,9 +34,19 @@
     display: inline-block;
 }
 
+.test-result-cell-lg {
+    height:35px;
+    width: 100px; 
+    display: inline-block;
+}
 .test-result-cell {
-    height:36px;
-    width: 20px; 
+    height:35px;
+    width: 40px; 
+    display: inline-block;
+}
+.test-result-cell-sm {
+    height:35px;
+    width: 10px; 
     display: inline-block;
 }
 
@@ -46,14 +60,8 @@
     background-color: #f00;
 }
 .test-result-cell-notrun {
-    background-color: #fff;
 }
 
-.test-result-cell-sm {
-    height:36px;
-    width: 5px; 
-    display: inline-block;
-}
 
 .vertical-text {
     transform: rotate(-90deg);
