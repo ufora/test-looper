@@ -77,7 +77,7 @@ class ReposContext(Context.Context):
 
         grid_headers = [gridRenderer.headers()]
 
-        for additionalHeader in reversed(["REPO NAME", "BRANCH COUNT", "COMMITS", "TOP TESTED COMMIT"]):
+        for additionalHeader in reversed(["REPO NAME", "TOP TESTED COMMIT"]):
             grid_headers = [[""] + g for g in grid_headers]
             grid_headers[-1][0] = additionalHeader
 
@@ -97,8 +97,6 @@ class ReposContext(Context.Context):
 
             grid.append([
                 self.contextFor(repo).renderLink(),
-                str(len(branches)),
-                str(repo.commits),
                 self.contextFor(best_commit[repo]).renderLink(includeRepo=False) if best_commit[repo] else ""
                 ] + testRow)
 

@@ -73,14 +73,22 @@ class RepoContext(Context.Context):
                 self.contextFor(ComboContexts.BranchAndConfiguration(row, group)).urlString()
             )
 
+        def interlace(h):
+            return [
+                [{"content": x, "colspan": 2} for x in h[::2]],
+                [""] + [{"content": x, "colspan": 2} for x in h[1::2]]
+                ]
+
         grid_headers = [gridRenderer.headers()]
+        if sum([len(x) for x in grid_headers[0]]) > 40:
+            grid_headers = interlace(grid_headers[0])
 
         if grid_headers:
-            for additionalHeader in reversed(["TEST", "BRANCH NAME", "TOP COMMIT", "TOP TESTED COMMIT"]):
+            for additionalHeader in reversed(["TEST", "BRANCH NAME", "TOP TESTED COMMIT"]):
                 grid_headers = [[""] + g for g in grid_headers]
                 grid_headers[-1][0] = additionalHeader
         else:
-            grid_headers = [["TEST", "BRANCH NAME", "TOP COMMIT", "TOP TESTED COMMIT"]]
+            grid_headers = [["TEST", "BRANCH NAME", "TOP TESTED COMMIT"]]
 
         grid = []
 
@@ -96,13 +104,8 @@ class RepoContext(Context.Context):
             row.append(self.renderer.toggleBranchUnderTestLink(branch))
             row.append(self.contextFor(branch).renderLink(includeRepo=False))
 
-            if branch.head and branch.head.data:
-                row.append(self.contextFor(branch.head).renderLinkWithSubject())
-            else:
-                row.append(HtmlGeneration.lightGrey("loading"))
-
             if best_commit[branch]:
-                row.append(self.contextFor(best_commit[branch]).renderLink(includeRepo=False))
+                row.append(self.contextFor(best_commit[branch]).renderLink(includeRepo=False, includeBranch=False))
             else:
                 row.append("")
 
