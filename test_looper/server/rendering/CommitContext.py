@@ -21,17 +21,21 @@ class CommitContext(Context.Context):
 
         self.repo = commit.repo
         self.commit = commit        
-        self.nameInBranch = None
+        self._nameInBranch = None
+        self._branch = None
 
-        if self.commit:
-            self.branch, self.nameInBranch = self.testManager.bestCommitBranchAndName(self.commit)
+    @property
+    def branch(self):
+        if self._branch is None:
+            self._branch, self._nameInBranch = self.testManager.bestCommitBranchAndName(self.commit)
+        return self._branch
 
-            if self.nameInBranch is None:
-                self.nameInBranch = commitHash[:10]
-        else:
-            self.branch = None
-
-
+    @property
+    def nameInBranch(self):
+        if self._branch is None:
+            self._branch, self._nameInBranch = self.testManager.bestCommitBranchAndName(self.commit)
+        return self._nameInBranch
+    
     def consumePath(self, path):
         if path and path[0] == "configurations":
             groupPath, remainder = self.popToDash(path[1:])
