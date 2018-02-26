@@ -3,7 +3,6 @@ import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.server.rendering.TestGridRenderer as TestGridRenderer
 import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
 import test_looper.server.rendering.ComboContexts as ComboContexts
-import test_looper.core.PrefixTree as PrefixTree
 import cgi
 import os
 
@@ -39,6 +38,29 @@ def groupBy(things, groupFun):
 
 CELL_WIDTH = 10
 
+class IndividualTest:
+    def __init__(self, testSuite, testName):
+        self.testSuite = testSuite
+        self.testName = testName
+
+    def group(self):
+        if "::" in self.testName:
+            return self.testName[:self.testName.find("::")]
+        else:
+            return "/".join(self.testSuite.testDefinition.name.split("/")[:-1])
+
+    def name(self):
+        if "::" in self.testName:
+            return self.testName[self.testName.find("::")+2:]
+        else:
+            return self.testName
+
+    def __cmp__(self, other):
+        return cmp((self.group(), self.name()), (other.group(), other.name()))
+
+    def __hash__(self):
+        return hash((self.name(), self.group()))
+
 class IndividualTestGridRenderer:
     def __init__(self, rows, parentContext, testsForRowFun, cellUrlFun=lambda group, row: ""):
         self.rows = rows
@@ -47,12 +69,6 @@ class IndividualTestGridRenderer:
         self.database = parentContext.database
         self.testsForRowFun = testsForRowFun
         
-        self.testsByName = set()
-
-        for r in rows:
-            for t in self.individualTestsForRowFun(r):
-                self.testsByName.add(t)
-
         self.groupsToTests = self.placeTestsIntoGroups()
 
         if parentContext.options.get("testGroup"):
@@ -67,14 +83,13 @@ class IndividualTestGridRenderer:
             self.breakOutIndividualTests = False
 
     def placeTestsIntoGroups(self):
-        testsWithColonSeparators = [t for t in self.testsByName if "::" in t]
+        self.testsByName = set()
 
-        if len(testsWithColonSeparators) == len(self.testsByName):
-            return groupBy(self.testsByName, lambda t: t[:t.find("::")])
+        for r in self.rows:
+            for t in self.individualTestsForRowFun(r):
+                self.testsByName.add(t)
 
-        prefixTree = PrefixTree.PrefixTree(self.testsByName)
-        prefixTree.balance(40)
-        return prefixTree.stringsAndPrefixes()
+        return groupBy(self.testsByName, lambda t: t.group())
 
     def headers(self):
         headers = []
@@ -113,14 +128,12 @@ class IndividualTestGridRenderer:
                         if testHasLogs and testHasLogs[i] and not url:
                             url = self.parentContext.contextFor(ComboContexts.IndividualTest(t, testNames[i])).urlString()
 
-                        res[testNames[i]] = (cur_runs, cur_successes, url)
+                        res[IndividualTest(run.test, testNames[i])] = (cur_runs, cur_successes, url)
+        
         return res
 
     def grid(self):
         return [self.gridRow(r) for r in self.rows]
-
-    def subgroupForIndividualTestName(self, testName):
-        return testName.split("::",1)[0]
 
     def gridRow(self, row):
         testResults = self.individualTestsForRowFun(row)
@@ -130,11 +143,11 @@ class IndividualTestGridRenderer:
         def aggregatedResultsForGroup(group):
             bad_count, flakey_count, good_count, not_running_count = 0,0,0,0
 
-            for testName in self.groupsToTests[group]:
-                if testName not in testResults:
+            for individualTest in self.groupsToTests[group]:
+                if individualTest not in testResults:
                     not_running_count += 1
                 else:
-                    this_runs, this_successes, this_url = testResults[testName]
+                    this_runs, this_successes, this_url = testResults[individualTest]
                     
                     if this_runs == this_successes:
                         good_count += 1
@@ -148,27 +161,27 @@ class IndividualTestGridRenderer:
         for group in sorted(self.groupsToTests):
             if self.breakOutIndividualTests:
                 res = []
-                for testName in self.groupsToTests[group]:
-                    if testName in testResults:
-                        run_count, success_count, url = testResults[testName]
+                for individualTest in self.groupsToTests[group]:
+                    if individualTest in testResults:
+                        run_count, success_count, url = testResults[individualTest]
 
                         if run_count == success_count:
                             type = "test-result-cell-success"
-                            tooltip = "Test %s succeeded" % testName
+                            tooltip = "Test %s succeeded" % individualTest.name()
                             if run_count > 1:
                                 tooltip += " over %s runs" % run_count
                         elif success_count:
                             type = "test-result-cell-partial"
-                            tooltip = "Test %s succeeded %s / %s times" % (testName, success_count, run_count)
+                            tooltip = "Test %s succeeded %s / %s times" % (individualTest.name(), success_count, run_count)
                         else:
                             type = "test-result-cell-fail"
-                            tooltip = "Test %s failed" % testName
+                            tooltip = "Test %s failed" % individualTest.name()
                             if run_count > 1:
                                 tooltip += " over %s runs" % run_count
                     else:
                         url = ""
                         type = "test-result-cell-notrun"
-                        tooltip = "Test %s didn't run" % testName
+                        tooltip = "Test %s didn't run" % individualTest.name()
 
                     res.append('<div {onclick} class="{celltype} {type}" data-toggle="tooltip" title="{text}">{contents}</div>'.format(
                         type=type,
