@@ -63,8 +63,20 @@ class Session(object):
         self.currentDeploymentId = None
         self.socketLock = threading.Lock()
         self.machineId = None
+        self.lastMessageTimestamp = time.time()
 
         logging.info("Incoming Server Connection initialized.")
+
+    def stillLooksAlive(self):
+        """Close socket if no traffic in a long time. Returns whether to keep polling..."""
+        try:
+            if time.time() - self.lastMessageTimestamp > 360:
+                self.socket.close()
+                return False
+            return True
+        except:
+            logging.error("Exception clearing old socket: %s", traceback.format_exc())
+            return False
 
     def __call__(self):
         try:
@@ -75,6 +87,7 @@ class Session(object):
                     json.loads(self.readString()),
                     ClientToServerMsg
                     )
+                self.lastMessageTimestamp = time.time()
                 self.processMsg(msg)
 
         except socket_util.SocketException as e:
@@ -220,6 +233,7 @@ class TestLooperServer(SimpleServer.SimpleServer):
         self.machine_management = machine_management
         self.workerThread = threading.Thread(target=self.executeManagerWork)
         self.workerThread.daemon=True
+        self.sessions = []
 
     def executeManagerWork(self):
         try:
@@ -292,8 +306,18 @@ class TestLooperServer(SimpleServer.SimpleServer):
 
     def _onConnect(self, socket, address):
         logging.debug("Accepting connection from %s", address)
-        threading.Thread(target=Session(self,
-                                        self.testManager,
-                                        self.machine_management,
-                                        socket,
-                                        address)).start()
+        newSession = Session(
+            self,
+            self.testManager,
+            self.machine_management,
+            socket,
+            address
+            )
+        
+        self.sessions.append(newSession)
+
+        self.sessions = [
+            x for x in self.sessions if x.stillLooksAlive()
+            ]
+
+        threading.Thread(target=newSession).start()

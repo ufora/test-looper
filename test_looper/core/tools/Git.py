@@ -252,6 +252,30 @@ class Git(object):
 
             return [l for l in output if l and self.isValidBranchName_(l)]
     
+    def closestBranchFor(self, hash, remoteName="origin", maxSearchDepth=100):
+        """Find the branch closest to a given commit"""
+        branches = []
+
+        for b in self.listCurrentlyKnownBranchesForRemote(remoteName):
+            hashes = [x[0] for x in self.gitCommitDataMulti("origin/" + b, maxSearchDepth)]
+
+            if hash in hashes:
+                ix = hashes.index(hash)
+                branches.append((ix,b))
+
+        if branches:
+            branches = sorted(branches)
+            ix, branch = branches[0]
+            
+            return branch
+
+    def distanceForCommitInBranch(self, hash, branch):
+        hashes = [x[0] for x in self.gitCommitDataMulti("origin/" + branch, maxSearchDepth)]
+        if hash not in hashes:
+            return None
+        return hashes.find(hash)
+
+            
     def branchnameForCommitSloppy(self, hash, remoteName="origin", maxSearchDepth=100):
         """Try to return a name for the commit relative to a branch.
 

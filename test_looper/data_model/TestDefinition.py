@@ -47,9 +47,15 @@ def RepoReference_reponame(ref):
     return "/".join(ref.reference.split("/")[:-1])
 def RepoReference_commitHash(ref):
     return ref.reference.split("/")[-1]
+def RepoReference_branchname(ref):
+    if ref.matches.Pin:
+        return ref.branch
+    else:
+        return None
 
 RepoReference.reponame = RepoReference_reponame
 RepoReference.commitHash = RepoReference_commitHash
+RepoReference.branchname = RepoReference_branchname
 
 
 TestEnvironment = algebraic.Alternative("TestEnvironment")
