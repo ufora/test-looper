@@ -117,15 +117,15 @@ class Context(object):
             if not isinstance(item, str):
                 item = item.render()
 
-            headers = [item] + ['<span class="px-1">&#x2F</span>' if headers else ""] + headers
+            headers = [item] + ['<span class="px-1">&#x2F;</span>' if headers else ""] + headers
 
             for preItem in reversed(curContext.renderBreadcrumbPrefixes()):
-                headers = [preItem, '<span class="px-1">&#x2F</span>'] + headers
+                headers = [preItem, '<span class="px-1">&#x2F;</span>'] + headers
 
             curContext = parent
 
         if self.options.get("testGroup"):
-            headers += ['<span class="px-1">&#x2F</span>'] + [octicon("beaker") + self.options.get("testGroup")]
+            headers += ['<span class="px-1">&#x2F;</span>'] + [octicon("beaker") + self.options.get("testGroup")]
         else:
             if self.contextViews():
                 headers = headers + ['<span class="px-4">::</span>']

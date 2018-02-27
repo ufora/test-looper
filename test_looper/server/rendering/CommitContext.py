@@ -319,6 +319,10 @@ class CommitContext(Context.Context):
             configurationToIndividualTests[config] = self.individualTests(configurationToTests[config])
 
         configs = sorted(configurationToTests)
+
+        if not configs:
+            return card("No tests defined.")
+
         testNames = set()
         for config in configs:
             for testName in configurationToIndividualTests[config]:

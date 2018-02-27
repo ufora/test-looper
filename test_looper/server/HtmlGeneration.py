@@ -46,8 +46,8 @@ footers = """
 $(function () {
   $('[data-toggle="tooltip"]').tooltip()
 })
-const getChildProp = (el, child) => {
-  return $(`.data-${child}`, $(el).attr('data-bind')).html();
+const getChildProp = function(el, child) {
+  return $('.data-' + child, $(el).attr('data-bind')).html();
 };
 $('.popover-dismiss').popover({
   trigger: 'focus'
