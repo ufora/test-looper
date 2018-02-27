@@ -5,7 +5,7 @@ import logging
 import test_looper_tests.common as common
 import test_looper_tests.TestYamlFiles as TestYamlFiles
 import test_looper_tests.TestManagerTestHarness as TestManagerTestHarness
-
+import test_looper.data_model.BranchPinning as BranchPinning
 import test_looper.data_model.ImportExport as ImportExport
 
 common.configureLogging()
@@ -160,6 +160,11 @@ class TestManagerTests(unittest.TestCase):
         with harness.database.view():
             top_commit = harness.getCommit(harness.manager.source_control.getBranch("repo5/master"))
             self.assertEqual(top_commit.data.repos["child"].reference, "repo2/c5")
+
+            repo,branch,hash = BranchPinning.unpackCommitPinUpdateMessage(top_commit.data.commitMessage)
+            self.assertEqual(repo, "repo2")
+            self.assertEqual(branch, "master")
+            self.assertEqual(hash, "c5")
 
             top_commit = top_commit.data.parents[0]
             self.assertEqual(top_commit.data.repos["child"].reference, "repo2/c4")
@@ -721,5 +726,3 @@ class TestManagerTests(unittest.TestCase):
             self.assertEqual(test0.testDefinition.environment.variables['ENV'], "repo0")
             self.assertEqual(test1.testDefinition.environment.variables['ENV_VAR'], "LINUX")
             self.assertEqual(test2.testDefinition.environment.variables['ENV_VAR_2'], "LINUX_2")
-
-TestYamlFiles.repo9_import_child_refs

@@ -1,4 +1,9 @@
 looper_version: 2
+repos:
+  simple_2: 
+    reference: simple_project_2/__replace_this_hash__
+    branch: master
+    auto: true
 environments:
   linux:
     platform: linux

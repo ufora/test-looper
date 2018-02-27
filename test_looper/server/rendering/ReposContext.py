@@ -62,7 +62,7 @@ class ReposContext(Context.Context):
 
             best_commit[r],best_commit_name[r] = self.renderer.bestCommitForBranch(best_branch[r])
 
-            test_rows[r] = self.renderer.allTestsForCommit(best_commit[r]) if best_commit[r] else []
+            test_rows[r] = self.renderer.allTestsForCommit(best_commit[r]) if best_commit[r] and best_commit[r].userPriority else []
 
         gridRenderer = TestGridRenderer.TestGridRenderer(
             repos, 

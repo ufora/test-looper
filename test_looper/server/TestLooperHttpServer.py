@@ -639,7 +639,7 @@ class TestLooperHttpServer(object):
                 "--directory", path_to_source_root, "test_looper"
             ])
 
-        if True:
+        if not os.getenv("TESTLOOPER_LINUXONLY"):
             with DirectoryScope.DirectoryScope(path_to_source_root):
                 SubprocessRunner.callAndAssertSuccess(
                     ["zip", "-r", os.path.join(temp_dir_for_tarball, "test_looper.zip"), "test_looper", "-x", "*.pyc", "*.js"]

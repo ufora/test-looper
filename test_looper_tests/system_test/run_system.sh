@@ -22,6 +22,7 @@ mkdir $TEST_LOOPER_INSTALL
 mkdir -p $TEST_LOOPER_INSTALL/redis
 mkdir -p $TEST_LOOPER_INSTALL/repos/simple_project
 mkdir -p $TEST_LOOPER_INSTALL/repos/simple_project_2
+mkdir -p $TEST_LOOPER_INSTALL/repos/simple_project_3
 mkdir $TEST_LOOPER_INSTALL/logs
 
 export GIT_AUTHOR_DATE="1509599720 -0500"
@@ -55,6 +56,8 @@ git merge HEAD@{3} -m 'this is a merge'
 git checkout -B master2 HEAD
 git checkout -B master HEAD
 
+PROJ_1_COMMIT_POSTMERGE=`git rev-parse HEAD`
+
 for m in 4 5 6 7 8;
 do
 echo "this is a file $m" > a_file_$m.txt
@@ -65,6 +68,8 @@ done
 rm build_file
 git add .
 git commit -m "commit that breaks the build"
+
+git checkout HEAD --detach
 
 cd $TEST_LOOPER_INSTALL/repos/simple_project_2
 git init .
@@ -85,6 +90,25 @@ git commit -m "commit that produces a bad dependency"
 rm testDefinitions.yml
 git add .
 git commit -m "commit that has no test file"
+
+git checkout HEAD^^ -- .
+
+sed -i -e "s/$PROJ_1_COMMIT/$PROJ_1_COMMIT_POSTMERGE/g" testDefinitions.yml
+git commit -a -m "replacing the state to a good one"
+
+PROJ_2_COMMIT_POSTMERGE=`git rev-parse HEAD`
+
+git checkout HEAD --detach
+
+cd $TEST_LOOPER_INSTALL/repos/simple_project_3
+git init .
+cp $PROJ_ROOT/test_looper_tests/test_projects/simple_project_3/* -r .
+sed -i -e "s/__replace_this_hash__/$PROJ_2_COMMIT_POSTMERGE/g" testDefinitions.yml
+git add .
+git commit -m "initial commit in simple_project_3"
+
+git checkout HEAD --detach
+
 }
 
 if [ "$1" != "--norebuild" ]; then

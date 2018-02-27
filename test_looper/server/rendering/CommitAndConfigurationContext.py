@@ -60,7 +60,7 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
 
 
     def renderBreadcrumbPrefixes(self):
-        return ["Configurations"]
+        return []
 
     def renderPageBody(self):
         gridForBuilds = self.gridForTests([t for t in self.tests() if t.testDefinition.matches.Build])

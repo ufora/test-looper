@@ -33,7 +33,7 @@ class BranchAndConfigurationContext(BranchContext.BranchContext):
             ).withOptions(testGroup=self.options.get("testGroup"))
 
     def renderBreadcrumbPrefixes(self):
-        return ["Configurations"]
+        return []
 
     def getGridRenderer(self, commits):
         def testFun(c):

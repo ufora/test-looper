@@ -50,7 +50,7 @@ class TestSummaryRenderer:
     def renderSummary(self):
         #first, see whether we have any tests
         if not self.tests or not self.allEnvironments():
-            button_text = '<span class="text-muted">%s</span>' % octicon("circle-slash")
+            button_text = '<div class="text-muted" style="width:30px">&nbsp;</div>' 
         else:
             button_text = self.renderSingleEnvironment()
 

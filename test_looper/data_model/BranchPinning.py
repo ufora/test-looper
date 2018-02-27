@@ -2,6 +2,38 @@ import test_looper.core.GraphUtil as GraphUtil
 import logging
 import re
 
+def unpackCommitPinUpdateMessage(msg):
+    """if 'msg' is a commit-pin update message, return the repo, branch, and sha-hash of the updated pin."""
+    lines = msg.split("\n")
+
+    if len(lines) < 4:
+        return None
+
+    firstline = "Updating pin"
+    secondline = "New commit in pinned branch "
+    thirdline = "    commit "
+
+    if not lines[0].startswith(firstline):
+        return None
+
+    if lines[1].strip():
+        return None
+
+    if not lines[2].startswith(secondline):
+        return None
+    
+    if not lines[3].startswith(thirdline):
+        return None
+    
+    hash = lines[3][len(thirdline):].strip()
+    #there's a : at the end of the message
+    repoAndBranch = lines[2][len(secondline):].strip()[:-1]
+    repo = "/".join(repoAndBranch.split("/")[:-1])
+    branch = repoAndBranch.split("/")[-1]
+
+    return repo, branch, hash
+
+
 class BranchPinning:
     def __init__(self, database, source_control):
         self.database = database

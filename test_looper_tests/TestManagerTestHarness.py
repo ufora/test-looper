@@ -17,6 +17,7 @@ class MockSourceControl(SourceControl.SourceControl):
         self.repos = set()
         self.commit_test_defs = {}
         self.commit_parents = {}
+        self.commit_message = {}
         self.branch_to_commitId = {}
         self.created_commits = 0
         self.prepushHooks = {}
@@ -25,6 +26,7 @@ class MockSourceControl(SourceControl.SourceControl):
         self.repos = set()
         self.commit_test_defs = {}
         self.commit_parents = {}
+        self.commit_message = {}
         self.branch_to_commitId = {}
         self.created_commits = 0
         self.prepushHooks = {}
@@ -52,6 +54,7 @@ class MockSourceControl(SourceControl.SourceControl):
 
         self.commit_test_defs[commitId] = testDefs
         self.commit_parents[commitId] = tuple(parents)
+        self.commit_message[commitId] = "title"
 
     def getBranch(self, repoAndBranch):
         return self.branch_to_commitId[repoAndBranch]
@@ -103,7 +106,7 @@ class MockGitRepo:
     def standardCommitMessageFor(self, hash):
         assert self.repo.commitExists(hash)
 
-        return "Commit %s by whomever.\n\nThis is a message." % hash
+        return "commit %s\nauthor whomever <whomever@somewhere.com>\n\nThis is a message." % hash
 
     def getTestDefinitionsPath(self, hash):
         return "testDefinitions.yml"
@@ -127,6 +130,8 @@ class MockGitRepo:
 
         newCommitHash = "created_" + str(self.repo.source_control.created_commits)
         newCommitId = self.repo.repoName + "/" + newCommitHash
+
+        self.repo.source_control.commit_message[newCommitId] = commit_message
 
         self.repo.source_control.commit_parents[newCommitId] = [self.repo.repoName + "/" + commitHash]
         self.repo.source_control.commit_test_defs[newCommitId] = fileContents['testDefinitions.yml']
@@ -188,7 +193,10 @@ class MockRepo:
         if commitId not in self.source_control.commit_parents:
             raise Exception("Can't find %s in %s" % (commitId, self.source_control.commit_parents.keys()))
 
-        return commitId.split("/")[1], [p.split("/")[1] for p in self.source_control.commit_parents[commitId]], 1516486261, "title", "author", "author@company"
+        return (
+            commitId.split("/")[1], [p.split("/")[1] for p in self.source_control.commit_parents[commitId]], 1516486261, 
+                self.source_control.commit_message[commitId], "author", "author@company"
+            )
 
     def commitExists(self, branchOrHash):
         branchOrHash = self.repoName + "/" + branchOrHash

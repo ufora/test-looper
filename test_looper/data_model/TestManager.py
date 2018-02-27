@@ -2164,7 +2164,7 @@ class TestManager(object):
 
         return r
 
-    def _lookupCommitByHash(self, repo, commitHash):
+    def _lookupCommitByHash(self, repo, commitHash, create=True):
         if isinstance(repo, str):
             repoName = repo
             repo = self.database.Repo.lookupAny(name=repo)
@@ -2175,6 +2175,9 @@ class TestManager(object):
         commit = self.database.Commit.lookupAny(repo_and_hash=(repo, commitHash))
 
         if not commit:
+            if not create:
+                return None
+            
             commit = self.database.Commit.New(repo=repo, hash=commitHash)
             repo.commits = repo.commits + 1
 

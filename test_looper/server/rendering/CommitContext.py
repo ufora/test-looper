@@ -3,11 +3,14 @@ import test_looper.server.rendering.ComboContexts as ComboContexts
 import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
 import test_looper.server.rendering.TestGridRenderer as TestGridRenderer
 import test_looper.server.HtmlGeneration as HtmlGeneration
+import test_looper.data_model.BranchPinning as BranchPinning
 import test_looper.server.rendering.IndividualTestGridRenderer as IndividualTestGridRenderer
+import logging
 import urllib
 import cgi
 import time
 import uuid
+import textwrap
 
 octicon = HtmlGeneration.octicon
 card = HtmlGeneration.card
@@ -35,6 +38,10 @@ class CommitContext(Context.Context):
         if self._branch is None:
             self._branch, self._nameInBranch = self.testManager.bestCommitBranchAndName(self.commit)
         return self._nameInBranch
+
+    def isPinUpdateCommit(self):
+        if not self.commit.data.commitMessage.startwith("Updating pin"):
+            return False
     
     def consumePath(self, path):
         if path and path[0] == "configurations":
@@ -90,11 +97,11 @@ class CommitContext(Context.Context):
     def recency(self):
         return '<span class="text-muted">%s</span>' % (HtmlGeneration.secondsUpToString(time.time() - self.commit.data.timestamp) + " ago")
 
-    def renderLinkWithShaHash(self):
+    def renderLinkWithShaHash(self, noIcon=False):
         if not self.commit.data:
             return ''
 
-        return octicon("git-commit") + HtmlGeneration.link(
+        return (octicon("git-commit") if not noIcon else "") + HtmlGeneration.link(
                 "<code>" + self.commit.hash[:8] + "</code>",
                 self.urlString(),
                 hover_text=("commit " + self.commit.hash[:10] + " : " + ("" if not self.commit.data else self.commit.data.commitMessage))
@@ -103,6 +110,31 @@ class CommitContext(Context.Context):
     def renderSubjectAndAuthor(self, maxChars=40):
         if not self.commit.data:
             return ""
+
+        pinUpdate = BranchPinning.unpackCommitPinUpdateMessage(self.commit.data.commitMessage)
+
+        if pinUpdate:
+            repo, branch, hash = pinUpdate
+            underlying_commit = self.testManager._lookupCommitByHash(repo, hash, create=False)
+            if underlying_commit:
+                underlyingCtx = self.contextFor(underlying_commit)
+                underRepo = self.contextFor(underlying_commit.repo)
+                underName = underlyingCtx.nameInBranch
+                if not underName:
+                    underName = "/HEAD"
+
+                return (
+                    underlyingCtx.renderSubjectAndAuthor() +
+                    '&nbsp;<a class="badge badge-info" data-toggle="tooltip" title="{title}" href="{url}">{icon}</a>&nbsp;'
+                        .format(
+                            url=underlyingCtx.urlString(), 
+                            icon=octicon("pin"),
+                            title="This commit is a pin update. The message shown here is from " + 
+                                "commit %s which is underlying commit %s/%s%s" % (hash[:10], repo, branch, underName)
+                            ) 
+                    )
+            else:
+                logging.warn("Couldn't find pinned commit %s/%s/%s", repo, branch, hash)
 
         text = self.commit.data.subject
         text = text if len(text) <= maxChars else text[:maxChars] + '...'
@@ -116,12 +148,12 @@ class CommitContext(Context.Context):
             self.renderLinkToSCM()
             )
 
-    def renderLinkWithSubject(self, maxChars=40):
+    def renderLinkWithSubject(self, maxChars=40, noIcon=False):
         if not self.commit.data:
             return ""
 
         return (
-            self.renderLinkWithShaHash() + 
+            self.renderLinkWithShaHash(noIcon=noIcon) + 
             "&nbsp;" +
             self.renderSubjectAndAuthor(maxChars)
             )
