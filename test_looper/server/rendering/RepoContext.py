@@ -80,7 +80,7 @@ class RepoContext(Context.Context):
                 ]
 
         grid_headers = [gridRenderer.headers()]
-        if sum([len(x) for x in grid_headers[0]]) > 40:
+        if sum([len(x) for x in grid_headers[0]]) > 100:
             grid_headers = interlace(grid_headers[0])
 
         if grid_headers:

@@ -1,3 +1,8 @@
+body {
+    font-family: initial;
+    font-size: .9rem;
+}
+
 td {
     white-space: nowrap
 }
@@ -19,6 +24,8 @@ th {
     padding: 0;
     border: 1;
 }
+
+.btn { font-size: .9rem; }
 
 .btn-xs {
 	padding-top: 0;
