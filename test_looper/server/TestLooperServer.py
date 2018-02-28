@@ -71,6 +71,9 @@ class Session(object):
         """Close socket if no traffic in a long time. Returns whether to keep polling..."""
         try:
             if time.time() - self.lastMessageTimestamp > 360:
+                logging.info("Clearing out socket for machine %s as we have not heard from it in 360 seconds.", self.machineId)
+
+                self.socket.shutdown()
                 self.socket.close()
                 return False
             return True
@@ -319,5 +322,7 @@ class TestLooperServer(SimpleServer.SimpleServer):
         self.sessions = [
             x for x in self.sessions if x.stillLooksAlive()
             ]
+
+        logging.info("Creating new session with %s sessions alive", len(self.sessions))
 
         threading.Thread(target=newSession).start()
