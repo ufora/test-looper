@@ -370,7 +370,7 @@ class Git(object):
                 commandResult = self.subprocessCheckOutput(
                     ["git", "--no-pager", "log", "-n", "1", '--format=format:%H']
                     )
-                return commandResult.split()
+                return commandResult.strip()
             except:
                 return None
 

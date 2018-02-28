@@ -142,6 +142,9 @@ class DummyArtifactStorage(object):
     def uploadSingleTestArtifact(self, repoName, commitHash, testId, artifact_name, path):
         pass
 
+    def uploadIndividualTestArtifacts(self, repoName, commitHash, testId, pathsToUpload):
+        pass
+
     def uploadTestArtifacts(self, *args, **kwargs):
         pass
 
@@ -467,9 +470,9 @@ class TestLooperCtl:
         repo_and_branch_to_commit = {}
         repo_and_naked_hash = set()
 
-        def resolve(reponame, branch, committish):
+        def resolve(reponame, branchname, committish):
             #now find all the dependent repos and make sure we have them as well
-            _,_,repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, committish)
+            tests,envs,repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, committish)
 
             for v in repos.values():
                 import_repo_ref(v.reponame(), v.branchname(), v.commitHash())
@@ -494,15 +497,15 @@ class TestLooperCtl:
             else:
                 repo_and_naked_hash.add((reponame, commitHash))
 
-            resolve(reponame, branch, commitHash)
+            resolve(reponame, branchname, commitHash)
 
         import_repo_ref(reponame, branch, commitHash)
 
         for (reponame, branchname), commitHash in repo_and_branch_to_commit.iteritems():
             self.repo_and_hash_to_branch[(reponame, commitHash)] = branchname
 
-        for reponame, branch in sorted(repo_and_branch_to_commit):
-            self._checkoutRepoName(reponame, branch, repo_and_branch_to_commit[reponame, branch], args.hard)
+        for reponame, branchname in sorted(repo_and_branch_to_commit):
+            self._checkoutRepoName(reponame, branchname, repo_and_branch_to_commit[reponame, branchname], args.hard)
 
         for reponame, hash in repo_and_naked_hash:
             self._checkoutRepoName(reponame, None, hash, args.hard)
@@ -513,26 +516,27 @@ class TestLooperCtl:
             for reponame in self.allRepoNames:
                 rootPath = self.checkout_root_path(reponame, None)
                 if reponame not in allRepos:
-                    print "pruning entire repo reference ", self.repoShortname(reponame)
-
-                    self.clearDirectoryAsRoot(rootPath)
-                    shutil.rmtree(rootPath)
+                    if os.path.exists(rootPath):
+                        print "pruning entire repo reference ", self.repoShortname(reponame)
+                        self.clearDirectoryAsRoot(rootPath)
+                        shutil.rmtree(rootPath)
                 else:
                     if os.path.exists(rootPath):
-                        for item in os.path.listdir(rootPath):
+                        for item in os.listdir(rootPath):
                             if (reponame, item) not in repo_and_branch_to_commit and (reponame, item) not in repo_and_naked_hash:
-                                print "pruning checkout ", self.repoShortname(reponame), item
+                                if os.path.exists(os.path.join(reponame, item)):
+                                    print "pruning checkout ", self.repoShortname(reponame), item
 
-                                self.clearDirectoryAsRoot(os.path.join(reponame, item))
-                                shutil.rmtree(os.path.join(reponame, item))
+                                    self.clearDirectoryAsRoot(os.path.join(reponame, item))
+                                    shutil.rmtree(os.path.join(reponame, item))
 
-        for reponame, branch in sorted(repo_and_branch_to_commit):
-            commit = repo_and_branch_to_commit[reponame, branch]
+        for reponame, branchname in sorted(repo_and_branch_to_commit):
+            commit = repo_and_branch_to_commit[reponame, branchname]
 
             _,_,repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, commit)
 
             if repos:
-                print "%s/%s (%s)" % (self.repoShortname(reponame), branch, commit)
+                print "%s/%s (%s)" % (self.repoShortname(reponame), branchname, commit)
 
                 for refname, ref in repos.iteritems():
                     if self.repoIsNotIgnored(ref.reponame()):
@@ -542,18 +546,15 @@ class TestLooperCtl:
         path = self.checkout_root_path(reponame, branch or hash)
 
         if not Git.Git(path).isInitialized():
-            print "Checkout commit ", hash, " to ", path, " for first time."
             self.getGitRepo(reponame).resetToCommitInDirectory(hash, path)
         else:
             if hash != Git.Git(path).currentCheckedOutCommit() or hard:
                 if hard:
                     Git.Git(path).resetHard()
 
-                print "Checkout checkout commit ", hash, " to ", path
+                print "Checkout commit ", hash, " to ", path
 
                 Git.Git(path).checkoutCommit(hash)
-            else:
-                print "Already have checkout commit ", hash, " to ", path
 
     def branchesCheckedOutForRepo(self, reponame):
         res = []
