@@ -149,7 +149,9 @@ class WorkerStateOverride(WorkerState.WorkerState):
     def __init__(self, name_prefix, worker_directory, looperCtl, cores):
         hwConfig = Config.HardwareConfig(cores=cores, ram_gb=8)
 
-        WorkerState.WorkerState.__init__(self, name_prefix, worker_directory, None, DummyArtifactStorage(), "machine", hwConfig)
+        image_repo = os.getenv("TESTLOOPER_DOCKER_IMAGE_REPO") or None
+
+        WorkerState.WorkerState.__init__(self, name_prefix, worker_directory, None, DummyArtifactStorage(), "machine", hwConfig, docker_image_repo=image_repo)
         
         self.looperCtl = looperCtl
         self.extra_mappings = {}
@@ -540,16 +542,20 @@ class TestLooperCtl:
         path = self.checkout_root_path(reponame, branch or hash)
 
         if not Git.Git(path).isInitialized():
-            print "Checkout commit ", hash, " to ", path
+            print "Checkout commit ", hash, " to ", path, " for first time."
             self.getGitRepo(reponame).resetToCommitInDirectory(hash, path)
         else:
             if hash != Git.Git(path).currentCheckedOutCommit() or hard:
                 if hard:
                     Git.Git(path).resetHard()
 
-                Git.Git(path).checkoutCommit(hash)
+                print "Checkout checkout commit ", hash, " to ", path
 
-    def commitsForRepo(self, reponame):
+                Git.Git(path).checkoutCommit(hash)
+            else:
+                print "Already have checkout commit ", hash, " to ", path
+
+    def branchesCheckedOutForRepo(self, reponame):
         res = []
 
         for rn, hash in self.repo_and_hash_to_branch:
@@ -590,20 +596,21 @@ class TestLooperCtl:
             if dep.matches.Source:
                 print "\tsource:", self.repoShortname(dep.repo) + "/" + dep.commitHash
 
-    def infoForRepo(self, repo):
-        repo = self.bestRepo(repo)
+    def infoForRepo(self, reponame):
+        reponame = self.bestRepo(reponame)
 
-        print "repo: ", self.repoShortname(repo)
+        print "repo: ", self.repoShortname(reponame)
 
-        git_repo = self.getGitRepo(repo)
+        git_repo = self.getGitRepo(reponame)
         
         for branchname, sha_hash in git_repo.listBranchesForRemote("origin").iteritems():
             print "\t", branchname, " -> ", sha_hash
 
-        for commit in self.commitsForRepo(repo):
-            tests, environments, repos = self.resolver.fullyResolvedTestEnvironmentAndRepoDefinitionsFor(repo, commit)
+        for branchname in self.branchesCheckedOutForRepo(reponame):
+            print reponame, branchname
+            tests, environments, repos = self.resolver.fullyResolvedTestEnvironmentAndRepoDefinitionsFor(reponame, branchname)
 
-            print self.repo_and_hash_to_branch[repo,commit], " -> ", commit
+            print branchname
 
             print "\tbuilds: "
             for test, testDef in tests.iteritems():
@@ -701,7 +708,7 @@ class TestLooperCtl:
     def bestTest(self, reponame, test):
         possible = []
 
-        for commit in self.commitsForRepo(reponame):
+        for commit in self.branchesCheckedOutForRepo(reponame):
             tests = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, commit)[0]
             res = self._pickOne(test, tests, "test")
             if res:
@@ -713,7 +720,7 @@ class TestLooperCtl:
         if len(possible) > 1:
             raise UserWarning(
                 "Found multiple tests: " + 
-                    ", ".join([self.repo_and_hash_to_branch[reponame][commit] + "/" + test 
+                    ", ".join([self.repo_and_hash_to_branch[reponame,commit] + "/" + test 
                             for commit,test in possible])
                 )
 

@@ -380,8 +380,6 @@ class TestManager(object):
                         r.child for r in self.database.CommitRelationship.lookupAll(parent=c)
                         ])
 
-        print [c.hash for c in commits]
-
         return commits[1:]
 
 

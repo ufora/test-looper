@@ -155,10 +155,11 @@ class DockerImage(object):
 
         if not docker.image_exists():
             if create_missing:
-                logging.info("Building docker image %s from source...", docker_image)
+                print "Building docker image %s from source..." % docker_image
 
                 docker.buildFromString(dockerfile_as_string, env_keys_to_passthrough=env_keys_to_passthrough)
                 if docker_repo is not None:
+                    print "pushing docker iamge"
                     docker.push()
             else:
                 raise MissingImageError(docker_image)
@@ -234,9 +235,7 @@ class DockerImage(object):
                 raise Exception("Failed to build dockerfile:\n%s" % ("\n".join(output)))
 
     def push(self):
-        assert self.docker_repo is not None
-
-        SubprocessRunner.callAndReturnResultWithoutOutput(
+        print "push returned: ", SubprocessRunner.callAndReturnResultWithoutOutput(
             "{docker} push {image}"
                 .format(docker=self.binary, image=self.image),
             shell=True

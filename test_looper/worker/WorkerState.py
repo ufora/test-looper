@@ -89,7 +89,7 @@ class TestLooperDirectories:
                 self.build_cache_dir, self.ccache_dir, self.test_output_dir, self.build_output_dir, self.repo_cache]
 
 class WorkerState(object):
-    def __init__(self, name_prefix, worker_directory, source_control, artifactStorage, machineId, hardwareConfig, verbose=False):
+    def __init__(self, name_prefix, worker_directory, source_control, artifactStorage, machineId, hardwareConfig, verbose=False, docker_image_repo=None):
         import test_looper.worker.TestLooperWorker
 
         self.name_prefix = name_prefix
@@ -117,6 +117,8 @@ class WorkerState(object):
         self.artifactStorage = artifactStorage
 
         self.source_control = source_control
+
+        self.docker_image_repo = docker_image_repo
 
         self.cleanup()
 
@@ -709,7 +711,7 @@ class WorkerState(object):
         if source is None:
             raise Exception("No file found at %s in commit %s" % (pathToDockerfile, commitHash))
 
-        return Docker.DockerImage.from_dockerfile_as_string(None, source, create_missing=True, env_keys_to_passthrough=PASSTHROUGH_KEYS)
+        return Docker.DockerImage.from_dockerfile_as_string(self.docker_image_repo, source, create_missing=True, env_keys_to_passthrough=PASSTHROUGH_KEYS)
 
     def getDockerImage(self, testEnvironment, log_function):
         assert testEnvironment.matches.Environment
@@ -726,7 +728,7 @@ class WorkerState(object):
                 return self.getDockerImageFromRepo(git_repo, commitHash, testEnvironment.image)
             else:
                 return Docker.DockerImage.from_dockerfile_as_string(
-                    None, 
+                    self.docker_image_repo, 
                     testEnvironment.image.dockerfile_contents, 
                     create_missing=True, 
                     env_keys_to_passthrough=PASSTHROUGH_KEYS
