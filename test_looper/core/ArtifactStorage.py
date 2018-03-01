@@ -363,7 +363,9 @@ class LocalArtifactStorage(ArtifactStorage):
 
     def clear_build(self, repoName, commitHash, key_name):
         """Clear a build"""
-        os.remove(os.path.join(self.build_storage_path, repoName, commitHash, key_name))
+        path = os.path.join(self.build_storage_path, repoName, commitHash, key_name)
+        if os.path.exists(path):
+            os.remove(path)
 
     def build_exists(self, repoName, commitHash, key_name):
         return os.path.exists(os.path.join(self.build_storage_path, repoName, commitHash, key_name))

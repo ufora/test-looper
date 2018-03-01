@@ -701,7 +701,7 @@ class WorkerState(object):
         os.remove(cached_builds[0][1])
 
     @staticmethod
-    def getDockerImageFromRepo(git_repo, commitHash, image):
+    def getDockerImageFromRepo(docker_image_repo, git_repo, commitHash, image):
         assert image.matches.Dockerfile
 
         pathToDockerfile = image.dockerfile
@@ -711,7 +711,7 @@ class WorkerState(object):
         if source is None:
             raise Exception("No file found at %s in commit %s" % (pathToDockerfile, commitHash))
 
-        return Docker.DockerImage.from_dockerfile_as_string(self.docker_image_repo, source, create_missing=True, env_keys_to_passthrough=PASSTHROUGH_KEYS)
+        return Docker.DockerImage.from_dockerfile_as_string(docker_image_repo, source, create_missing=True, env_keys_to_passthrough=PASSTHROUGH_KEYS)
 
     def getDockerImage(self, testEnvironment, log_function):
         assert testEnvironment.matches.Environment
@@ -725,7 +725,7 @@ class WorkerState(object):
 
                 git_repo = self.getRepoCacheByName(repoName)
 
-                return self.getDockerImageFromRepo(git_repo, commitHash, testEnvironment.image)
+                return self.getDockerImageFromRepo(self.docker_image_repo, git_repo, commitHash, testEnvironment.image)
             else:
                 return Docker.DockerImage.from_dockerfile_as_string(
                     self.docker_image_repo, 
@@ -1065,10 +1065,11 @@ class WorkerState(object):
                         elif (isinstance(entry, dict) and
                                 'success' in entry and
                                 isinstance(entry['success'], bool) and
-                                not [x for x in entry.get('logs',[]) if not isinstance(x, (str, unicode))]
+                                'logs' in entry and
+                                not [x for x in entry['logs'] if not isinstance(x, (str, unicode))]
                                 ):
                             
-                            for path in entry.get('logs',[]):
+                            for path in entry['logs']:
                                 pathVisibleToWorker = self.mapInternalToExternalPath(path, image is not NAKED_MACHINE)
 
                                 if not pathVisibleToWorker:
