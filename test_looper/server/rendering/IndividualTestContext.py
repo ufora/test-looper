@@ -49,23 +49,39 @@ class IndividualTestContext(Context.Context):
         return res + HtmlGeneration.link(self.individualTestName, self.urlString())
 
     def renderPageBody(self):
-        grid = [["Test Run", "File", "Size"]]
+        if self.options.get("context","") == "dropdown-menu":
+            items = []
+            for testRun in self.database.TestRun.lookupAll(test=self.test):
+                commit = testRun.test.commitData.commit
+                for path, sz in self.renderer.artifactStorage.testResultKeysAndSizesForIndividualTest(
+                        commit.repo.name, commit.hash, testRun._identity, self.individualTestName
+                        ):
+                    items.append(
+                        '<a class="dropdown-item" href="{link}" title="{title}">{contents}</a>'.format(
+                            link=self.renderer.testResultDownloadUrl(testRun._identity, path),
+                            title=os.path.basename(path),
+                            contents=os.path.basename(path) + " (" + HtmlGeneration.bytesToHumanSize(sz) + ")",
+                            )
+                        )
+            return "".join(items)
+        else:
+            grid = [["Test Run", "File", "Size"]]
 
-        for testRun in self.database.TestRun.lookupAll(test=self.test):
-            commit = testRun.test.commitData.commit
-            for path, sz in self.renderer.artifactStorage.testResultKeysAndSizesForIndividualTest(
-                    commit.repo.name, commit.hash, testRun._identity, self.individualTestName
-                    ):
-                grid.append([
-                    self.contextFor(testRun).renderLink(False, False),
-                    HtmlGeneration.link(
-                        os.path.basename(path), 
-                        self.renderer.testResultDownloadUrl(testRun._identity, path)
-                        ),
-                    HtmlGeneration.bytesToHumanSize(sz)
-                    ])
+            for testRun in self.database.TestRun.lookupAll(test=self.test):
+                commit = testRun.test.commitData.commit
+                for path, sz in self.renderer.artifactStorage.testResultKeysAndSizesForIndividualTest(
+                        commit.repo.name, commit.hash, testRun._identity, self.individualTestName
+                        ):
+                    grid.append([
+                        self.contextFor(testRun).renderLink(False, False),
+                        HtmlGeneration.link(
+                            os.path.basename(path), 
+                            self.renderer.testResultDownloadUrl(testRun._identity, path)
+                            ),
+                        HtmlGeneration.bytesToHumanSize(sz)
+                        ])
 
-        return HtmlGeneration.grid(grid)
+            return HtmlGeneration.grid(grid)
 
     def childContexts(self, currentChild):
         return []

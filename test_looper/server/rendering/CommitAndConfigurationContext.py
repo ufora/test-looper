@@ -4,6 +4,7 @@ import test_looper.server.rendering.TestGridRenderer as TestGridRenderer
 import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
 import test_looper.server.rendering.ComboContexts as ComboContexts
 import test_looper.server.rendering.CommitContext as CommitContext
+import uuid
 import cgi
 
 octicon = HtmlGeneration.octicon
@@ -46,15 +47,18 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
         for run in self.database.TestRun.lookupAll(test=test):
             if run.testNames:
                 testNames = run.testNames.test_names
+                testHasLogs = run.testHasLogs
 
                 for i in xrange(len(run.testNames.test_names)):
                     if testNames[i].startswith(prefix):
-                        cur_runs, cur_successes = res.get(testNames[i], (0,0))
+                        cur_runs, cur_successes, hasLogs = res.get(testNames[i], (0,0,False))
 
                         cur_runs += 1
                         cur_successes += 1 if run.testFailures[i] else 0
+                        if testHasLogs[i]:
+                            hasLogs = True
 
-                        res[run.testNames.test_names[i]] = (cur_runs, cur_successes)
+                        res[run.testNames.test_names[i]] = (cur_runs, cur_successes, hasLogs)
         
         return res
 
@@ -69,7 +73,7 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
         if not gridForBuilds and not gridForTests:
             return card("No Test Runs")
 
-        headers = ["Suite", "Test", "Status", "Runs"]
+        headers = ["Suite", "Test", "Status", "Runs", ""]
 
         return HtmlGeneration.grid([headers] + gridForBuilds + gridForTests)
 
@@ -85,7 +89,7 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
                 for testName in sorted(individualTests):
                     row = []
 
-                    run_ct, success_ct = individualTests[testName]
+                    run_ct, success_ct, hasLogs = individualTests[testName]
 
                     row.append(self.contextFor(test).renderLink(includeCommit=False) if firstRow else "")
                     row.append(self.contextFor(ComboContexts.IndividualTest(test=test,individualTestName=testName)).renderLink(False, False))
@@ -100,6 +104,19 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
                         row.append(octicon("alert"))
 
                     row.append(str(run_ct))
+
+                    if hasLogs:
+                        row.append(HtmlGeneration.urlDropdown(
+                            contents="Logs",
+                            url=self.contextFor(
+                                ComboContexts.IndividualTest(test=test,individualTestName=testName),
+                                bodyOnly="true",
+                                context="dropdown-menu"
+                                ).urlString()
+                            ))
+                    else:
+                        row.append('<span class="text-muted">no logs</span>')
+                  
 
                     firstRow = False
 

@@ -153,6 +153,9 @@ class Context(object):
         # + (self.renderer.logout_link() if self.renderer.is_authenticated() else self.renderer.login_link())
 
     def renderWholePage(self):
+        if self.options.get("bodyOnly"):
+            return self.renderPageBody()
+        
         return (
             HtmlGeneration.headers + 
             self.renderPageHeader() + 

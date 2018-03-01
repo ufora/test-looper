@@ -66,6 +66,14 @@ $('[data-toggle="popover"]').popover({
     return getChildProp(this, 'placement');
   }
 });
+$('[data-poload]').on('show.bs.dropdown', function (arg) {
+  var target = arg.currentTarget;
+
+  var ref=$(target).attr("data-poload");
+  var tgt=$($(target).attr("data-poload-target"))[0];
+
+  $(tgt).load(ref)
+})
 </script>
 </body>
 <html>
@@ -465,3 +473,18 @@ def tabs(name, tabSeq):
                     </div>
                 </div>
                 """.format(pils="".join(pils), body="".join(bodies),name=name))
+
+def urlDropdown(contents, url):
+    return '''
+        <div class="btn-group" data-poload="{url}" data-poload-target="#{guid}">
+        <button class="btn btn-xs dropdown-toggle" type="button"
+            data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+            {contents}
+        </button>
+        <div class="dropdown-menu" aria-labelledby="dropdownMenuButton" id="{guid}"></div>
+        </div>
+        '''.format(
+            guid=str(uuid.uuid4()).replace("-",""),
+            contents=contents,
+            url=url
+            )
