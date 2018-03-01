@@ -223,6 +223,7 @@ class TestLooperHttpServer(object):
         self.dev_renderer = TestLooperHtmlRenderingDev.Renderer(self)
         self.dev_filename = TestLooperHtmlRenderingDev.__file__.replace(".pyc",".py")
         self.dev_modtime = os.path.getmtime(self.dev_filename)
+        self.linuxOnly = serverConfig.linuxOnly
 
     @property
     def renderer(self):
@@ -639,7 +640,7 @@ class TestLooperHttpServer(object):
                 "--directory", path_to_source_root, "test_looper"
             ])
 
-        if not os.getenv("TESTLOOPER_LINUXONLY"):
+        if not self.linuxOnly:
             with DirectoryScope.DirectoryScope(path_to_source_root):
                 SubprocessRunner.callAndAssertSuccess(
                     ["zip", "-r", os.path.join(temp_dir_for_tarball, "test_looper.zip"), "test_looper", "-x", "*.pyc", "*.js"]

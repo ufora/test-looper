@@ -6,6 +6,7 @@ import traceback
 import base64
 import time
 import random
+import socket
 
 import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.core.SimpleServer as SimpleServer
@@ -73,7 +74,7 @@ class Session(object):
             if time.time() - self.lastMessageTimestamp > 360:
                 logging.info("Clearing out socket for machine %s as we have not heard from it in 360 seconds.", self.machineId)
 
-                self.socket.shutdown()
+                self.socket.shutdown(socket.SHUT_RDWR)
                 self.socket.close()
                 return False
             return True

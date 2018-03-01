@@ -158,28 +158,47 @@ class CommitContext(Context.Context):
             self.renderSubjectAndAuthor(maxChars)
             )
 
-    def renderContentCallout(self):
-        detail_header = "Commit Info"
+    def commitMessageDetail(self, renderParents=False):
+        if renderParents:
+            parentCommitUrls = ['<span class="mx-2">%s</span>' % self.contextFor(x).renderLinkWithSubject().render() for x in self.commit.data.parents]
 
-        header,body = (self.commit.data.commitMessage + "\n").split("\n",1)
+            if not parentCommitUrls:
+                parent_commits = "None"
+            else:
+                parent_commits = '<ul style="list-style:none">%s</ul>' % ("".join("<li>%s</li>" % c for c in parentCommitUrls))
 
-        header = header.strip()
-        body = body.strip()
+            parents = "\n" + "Parent Commits: </pre>" + parent_commits + '<pre style="white-space:pre-wrap">'
+        else:
+            parents = ""
 
-        detail = """
-            <div>Author: {author} &lt;{author_email}&gt;</div>
-            <div>Date: {timestamp}</div>
-            <h3>{header}</h3>
-            <pre>{body}</pre>
-            """.format(
-                header=cgi.escape(header),
-                body=cgi.escape(body), 
+        return textwrap.dedent("""
+            <pre style="white-space: pre-wrap; margin-bottom:0px">commit <b>{commit_hash}</b>
+            Author: {author} &lt;{author_email}&gt;
+            Date:   {timestamp}{parents}
+
+            {body}
+            </pre>
+            """).format(
+                commit_hash=self.commit.hash,
+                body="\n".join(["    " + x for x in cgi.escape(self.commit.data.commitMessage).split("\n")]),
+                parents=parents,
                 author=self.commit.data.author, 
                 author_email=self.commit.data.authorEmail,
                 timestamp=time.asctime(time.gmtime(self.commit.data.timestamp))
                 )
 
-        return HtmlGeneration.popover(contents=octicon("comment"), detail_title=detail_header, detail_view=detail, width=400, data_placement="right") 
+    def renderContentCallout(self):
+        detail_header = "Commit Info"
+
+        detail = self.commitMessageDetail()
+
+        return HtmlGeneration.popover(
+            contents=octicon("comment"), 
+            detail_title=detail_header, 
+            detail_view=detail, width=600, 
+            data_placement="right"
+            )
+
 
     def renderLink(self, includeRepo=True, includeBranch=True):
         res = ""
@@ -260,29 +279,7 @@ class CommitContext(Context.Context):
         if not self.commit.data:
             return card("Commit hasn't been imported yet")
 
-        parentCommitUrls = ['<span class="mx-2">%s</span>' % self.contextFor(x).renderLinkWithSubject().render() for x in self.commit.data.parents]
-
-        if not parentCommitUrls:
-            parent_commits = "None"
-        else:
-            parent_commits = '<ul style="list-style:none">%s</ul>' % ("".join("<li>%s</li>" % c for c in parentCommitUrls))
-
-        return card("""
-            <div>Commit: <span class="font-weight-bold">{hash}</span></div>
-            <div>Author: {author} &lt;{author_email}&gt;</div>
-            <div>Date: {timestamp}</div>
-            <div>Parent Commits: {parent_commits}</div>
-            <div class="mb-5"></div>
-            <pre>{msg}</pre>
-            """.format(
-                hash=self.commit.hash,
-                parent_commits=parent_commits,
-                msg=cgi.escape(self.commit.data.commitMessage),
-                author=self.commit.data.author, 
-                author_email=self.commit.data.authorEmail,
-                timestamp=time.asctime(time.gmtime(self.commit.data.timestamp))
-                )
-            )
+        return card(self.commitMessageDetail(renderParents=True))
 
 
     def individualTests(self, tests):

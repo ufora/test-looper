@@ -1,7 +1,8 @@
 {
     "server": {
         "path_to_local_repos": "$TEST_LOOPER_INSTALL/server/repos",
-        "database": {"port": 1115}
+        "database": {"port": 1115},
+        "linuxOnly": true
         },
     "server_ports": {
         "server_address": "localhost",

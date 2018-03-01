@@ -67,7 +67,17 @@ done
 
 rm build_file
 git add .
-git commit -m "commit that breaks the build"
+
+LONG_COMMIT_MESSAGE=$(cat <<-END
+    Commit that breaks the build.
+
+    This is a very long commit message. It's intended to help us see in the UI how we will render commit messages that are extremely long and don't have newlines. Some codebases have this in abundance.
+
+    blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah blah
+END
+)
+
+git commit -m "$LONG_COMMIT_MESSAGE"
 
 git checkout HEAD --detach
 

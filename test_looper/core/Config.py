@@ -66,7 +66,8 @@ ServerConfig.Config = {
     "path_to_certs": algebraic.Nullable(CertsPath),
     "path_to_local_repos": str,
     "database": DatabaseConfig,
-    "path_to_keys": str         #path to ssh key to use to access repos
+    "path_to_keys": str,        #path to ssh key to use to access repos
+    "linuxOnly": bool
     }
 
 ServerPortConfig = algebraic.Alternative("ServerPortConfig")

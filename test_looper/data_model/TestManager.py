@@ -30,6 +30,7 @@ IDLE_TIME_BEFORE_SHUTDOWN = 180
 MAX_LOG_MESSAGES_PER_TEST = 100000
 MACHINE_TIMEOUT_SECONDS = 600
 DISABLE_MACHINE_TERMINATION = False
+DEAD_WORKER_PRUNE_INTERVAL = 600
 
 OLDEST_TIMESTAMP_WITH_TESTS = 1500000000
 MAX_GIT_CONNECTIONS = 4
@@ -185,6 +186,7 @@ version_pattern = re.compile(".*([0-9-._]+).*")
 class TestManager(object):
     def __init__(self, server_port_config, source_control, machine_management, kv_store, initialTimestamp=None):
         self.initialTimestamp = initialTimestamp or time.time()
+        self.lastWorkerPruneOperation = self.initialTimestamp
 
         self.server_port_config = server_port_config
         self.source_control = source_control
@@ -1000,6 +1002,9 @@ class TestManager(object):
             self._scheduleBootCheck()
             self._shutdownMachinesIfNecessary(curTimestamp)
             self._checkRetryTests(curTimestamp)
+
+            if curTimestamp - self.lastWorkerPruneOperation > DEAD_WORKER_PRUNE_INTERVAL:
+                self._pruneDeadWorkers(curTimestamp)
             
     def _checkRetryTests(self, curTimestamp):
         for test in self.database.Test.lookupAll(waiting_to_retry=True):
@@ -1138,16 +1143,21 @@ class TestManager(object):
 
     def pruneDeadWorkers(self, curTimestamp):
         with self.transaction_and_lock():
-            self._checkMachineCategoryCounts()
-                
-            known_workers = {x.machineId: (x.hardware, x.os) for x in self.database.Machine.lookupAll(isAlive=True)}
+            self._pruneDeadWorkers(curTimestamp)
 
-            to_kill = self.machine_management.synchronize_workers(known_workers)
+    def _pruneDeadWorkers(self, curTimestamp):
+        self.lastWorkerPruneOperation = curTimestamp
 
-            for machineId in to_kill:
-                if machineId in known_workers:
-                    logging.info("Worker %s is unknown to machine management. Removing it.", machineId)
-                    self._machineTerminated(machineId, curTimestamp)
+        self._checkMachineCategoryCounts()
+            
+        known_workers = {x.machineId: (x.hardware, x.os) for x in self.database.Machine.lookupAll(isAlive=True)}
+
+        to_kill = self.machine_management.synchronize_workers(known_workers)
+
+        for machineId in to_kill:
+            if machineId in known_workers:
+                logging.info("Worker %s is unknown to machine management. Removing it.", machineId)
+                self._machineTerminated(machineId, curTimestamp)
 
     def getRawTestFileForCommit(self, commit):
         if not commit.data:
