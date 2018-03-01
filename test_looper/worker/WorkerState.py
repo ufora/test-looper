@@ -1065,11 +1065,10 @@ class WorkerState(object):
                         elif (isinstance(entry, dict) and
                                 'success' in entry and
                                 isinstance(entry['success'], bool) and
-                                'logs' in entry and
-                                not [x for x in entry['logs'] if not isinstance(x, (str, unicode))]
+                                not [x for x in entry.get('logs',[]) if not isinstance(x, (str, unicode))]
                                 ):
                             
-                            for path in entry['logs']:
+                            for path in entry.get('logs',[]):
                                 pathVisibleToWorker = self.mapInternalToExternalPath(path, image is not NAKED_MACHINE)
 
                                 if not pathVisibleToWorker:
