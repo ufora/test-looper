@@ -481,7 +481,9 @@ def urlDropdown(contents, url):
             data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
             {contents}
         </button>
-        <div class="dropdown-menu" aria-labelledby="dropdownMenuButton" id="{guid}"></div>
+        <div class="dropdown-menu" aria-labelledby="dropdownMenuButton" id="{guid}">
+            ... loading ...
+        </div>
         </div>
         '''.format(
             guid=str(uuid.uuid4()).replace("-",""),

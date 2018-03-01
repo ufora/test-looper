@@ -1002,9 +1002,6 @@ class TestManager(object):
             self._scheduleBootCheck()
             self._shutdownMachinesIfNecessary(curTimestamp)
             self._checkRetryTests(curTimestamp)
-
-            if curTimestamp - self.lastWorkerPruneOperation > DEAD_WORKER_PRUNE_INTERVAL:
-                self._pruneDeadWorkers(curTimestamp)
             
     def _checkRetryTests(self, curTimestamp):
         for test in self.database.Test.lookupAll(waiting_to_retry=True):
