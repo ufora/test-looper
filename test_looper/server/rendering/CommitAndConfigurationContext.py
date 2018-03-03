@@ -4,6 +4,7 @@ import test_looper.server.rendering.TestGridRenderer as TestGridRenderer
 import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
 import test_looper.server.rendering.ComboContexts as ComboContexts
 import test_looper.server.rendering.CommitContext as CommitContext
+import test_looper.server.rendering.IndividualTestGridRenderer as IndividualTestGridRenderer
 import uuid
 import cgi
 
@@ -19,12 +20,20 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
     def renderNavbarLink(self):
         return self.renderLink()
 
-    def renderLink(self):
+    def renderLink(self, nameIsNameInBranch=False):
         return HtmlGeneration.link(
-            octicon("server") + self.configurationName, 
+                octicon("git-commit") + "HEAD" + self.nameInBranch
+            if nameIsNameInBranch else 
+                octicon("server") + self.configurationName, 
             self.urlString(), "See individual test results for test configuration %s" % self.configurationName
             )
+    
+    def allTests(self):
+        return [x for x in 
+            self.testManager.database.Test.lookupAll(commitData=self.commit.data)
+                if self.testManager.configurationForTest(x) == self.configurationName]
 
+    
     def primaryObject(self):
         return ComboContexts.CommitAndConfiguration(self.commit, self.configurationName)
 
@@ -39,116 +48,40 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
 
         return sorted(res, key=lambda t: (0 if t.testDefinition.matches.Build else 1, t.fullname))
 
-    def individualTests(self, test):
-        res = {}    
-
-        prefix = self.options.get("testGroup","")
-
-        for run in self.database.TestRun.lookupAll(test=test):
-            if run.testNames:
-                testNames = run.testNames.test_names
-                testHasLogs = run.testHasLogs
-
-                for i in xrange(len(run.testNames.test_names)):
-                    if testNames[i].startswith(prefix):
-                        cur_runs, cur_successes, hasLogs = res.get(testNames[i], (0,0,False))
-
-                        cur_runs += 1
-                        cur_successes += 1 if run.testFailures[i] else 0
-                        if testHasLogs[i]:
-                            hasLogs = True
-
-                        res[run.testNames.test_names[i]] = (cur_runs, cur_successes, hasLogs)
-        
-        return res
-
-
     def renderBreadcrumbPrefixes(self):
         return []
 
-    def renderPageBody(self):
-        gridForBuilds = self.gridForTests([t for t in self.tests() if t.testDefinition.matches.Build])
-        gridForTests = self.gridForTests([t for t in self.tests() if t.testDefinition.matches.Test])
+    def renderTestResultsGridByGroup(self):
+        def testFun(commit):
+            for t in self.testManager.database.Test.lookupAll(commitData=commit.data):
+                if self.configurationName == self.testManager.configurationForTest(t) and t.testDefinition.matches.Test:
+                    yield t
 
-        if not gridForBuilds and not gridForTests:
-            return card("No Test Runs")
+        rows = (self.commit,) + self.commit.data.parents
 
-        headers = ["Suite", "Test", "Status", "Runs", ""]
+        renderer = IndividualTestGridRenderer.IndividualTestGridRenderer(
+            rows,
+            self, 
+            testFun,
+            lambda testGroup, row:
+                self.contextFor(
+                    ComboContexts.CommitAndConfiguration(row, self.configurationName)
+                    ).withOptions(testGroup=testGroup).urlString(),
+            displayIndividualTestsGraphically=False,
+            breakOutIndividualTests=self.options.get("testGroup","") != ""
+            )
 
-        return HtmlGeneration.grid([headers] + gridForBuilds + gridForTests)
+        grid = [[""] + renderer.headers()]
 
-    def gridForTests(self, tests):
-        grid = []
+        for commit in rows:
+            link = self.contextFor(
+                ComboContexts.CommitAndConfiguration(commit, self.configurationName)
+                ).withOptions(**self.options).renderLink(nameIsNameInBranch=True)
 
-        for test in tests:
-            individualTests = self.individualTests(test)
+            grid.append([link] + renderer.gridRow(commit))
 
-            if individualTests:
-                firstRow = True
 
-                for testName in sorted(individualTests):
-                    row = []
-
-                    run_ct, success_ct, hasLogs = individualTests[testName]
-
-                    row.append(self.contextFor(test).renderLink(includeCommit=False) if firstRow else "")
-                    row.append(self.contextFor(ComboContexts.IndividualTest(test=test,individualTestName=testName)).renderLink(False, False))
-
-                    if run_ct == 0:
-                        row.append("")
-                    elif run_ct == success_ct:
-                        row.append(octicon("check"))
-                    elif success_ct == 0:
-                        row.append(octicon("x"))
-                    else:
-                        row.append(octicon("alert"))
-
-                    row.append(str(run_ct))
-
-                    if hasLogs:
-                        row.append(HtmlGeneration.urlDropdown(
-                            contents="Logs",
-                            url=self.contextFor(
-                                ComboContexts.IndividualTest(test=test,individualTestName=testName),
-                                bodyOnly="true",
-                                context="dropdown-menu"
-                                ).urlString()
-                            ))
-                    else:
-                        row.append('<span class="text-muted">no logs</span>')
-                  
-
-                    firstRow = False
-
-                    grid.append(row)
-            elif not self.options.get("testGroup",""):
-                row = []
-
-                row.append(self.contextFor(test).renderLink(includeCommit=False))
-                row.append('<span class="text-muted">no individual test data</span>')
-
-                run_ct = 0
-                success_ct = 0
-
-                for run in self.database.TestRun.lookupAll(test=test):
-                    run_ct += 1
-                    if run.success:
-                        success_ct += 1
-
-                if run_ct == 0:
-                    row.append("")
-                elif run_ct == success_ct:
-                    row.append(octicon("check"))
-                elif success_ct == 0:
-                    row.append(octicon("x"))
-                else:
-                    row.append(octicon("alert"))
-
-                row.append(str(run_ct))
-
-                grid.append(row)
-
-        return grid
+        return HtmlGeneration.transposeGrid(grid)
 
     def childContexts(self, currentChild):
         if isinstance(currentChild.primaryObject(), self.database.Test):
@@ -181,6 +114,5 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
         return "Configuration " + self.configurationName
 
     def contextViews(self):
-        return []
-
+        return ["test_results", "test_builds", "test_suites"]
     

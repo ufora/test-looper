@@ -34,7 +34,7 @@ def groupBy(things, groupFun):
         if g not in result:
             result[g] = []
         result[g].append(t)
-    return result
+    return {g: sorted(result[g]) for g in result}
 
 CELL_WIDTH = 10
 
@@ -60,7 +60,10 @@ class IndividualTest:
         return hash((self.name, self.group))
 
 class IndividualTestGridRenderer:
-    def __init__(self, rows, parentContext, testsForRowFun, cellUrlFun=lambda group, row: ""):
+    def __init__(self, rows, parentContext, testsForRowFun, cellUrlFun=lambda group, row: "", 
+            displayIndividualTestsGraphically=True, 
+            breakOutIndividualTests=None
+            ):
         self.rows = rows
         self.cellUrlFun = cellUrlFun
         self.parentContext = parentContext
@@ -75,7 +78,11 @@ class IndividualTestGridRenderer:
         
         self.totalTestsToDisplay = sum([len(x) for x in self.groupsToTests.values()])
 
-        if self.totalTestsToDisplay < 200 and len(self.groupsToTests) == 1:
+        self.displayIndividualTestsGraphically = displayIndividualTestsGraphically
+        
+        if breakOutIndividualTests is not None:
+            self.breakOutIndividualTests = breakOutIndividualTests
+        elif self.totalTestsToDisplay < 200 and len(self.groupsToTests) == 1:
             self.breakOutIndividualTests = True
         else:
             self.breakOutIndividualTests = False
@@ -91,8 +98,12 @@ class IndividualTestGridRenderer:
 
     def headers(self):
         headers = []
-        if self.parentContext.options.get("testGroup"):
-            headers.append("")
+        if self.breakOutIndividualTests:
+            if self.displayIndividualTestsGraphically:
+                headers.append("")
+            else:
+                for test in sorted(sum(self.groupsToTests.values(), [])):
+                    headers.append(test.testName)
         else:
             for group in sorted(self.groupsToTests):
                 headers.append(
@@ -103,7 +114,7 @@ class IndividualTestGridRenderer:
                         )
                     )
 
-        return ["Builds", "Tests"] + headers
+        return headers
 
     def groupTitle(self, group):
         return "Results for %s tests in group %s" % (len(self.groupsToTests[group]), group)
@@ -176,27 +187,43 @@ class IndividualTestGridRenderer:
                             tooltip = "Test %s succeeded" % individualTest.name
                             if run_count > 1:
                                 tooltip += " over %s runs" % run_count
+                            contentsDetail=octicon("check")
+
                         elif success_count:
                             type = "test-result-cell-partial"
                             tooltip = "Test %s succeeded %s / %s times" % (individualTest.name, success_count, run_count)
+                            contentsDetail=octicon("alert")
                         else:
                             type = "test-result-cell-fail"
                             tooltip = "Test %s failed" % individualTest.name
                             if run_count > 1:
                                 tooltip += " over %s runs" % run_count
+                            contentsDetail=octicon("x")
                     else:
                         url = ""
                         type = "test-result-cell-notrun"
                         tooltip = "Test %s didn't run" % individualTest.name
+                        contentsDetail = ""
 
-                    res.append('<div {onclick} class="{celltype} {type}" data-toggle="tooltip" title="{text}">{contents}</div>'.format(
-                        type=type,
-                        celltype="test-result-cell",
-                        contents="&nbsp;",
-                        text=cgi.escape(tooltip),
-                        onclick='onclick="location.href=\'{url}\'"'.format(url=url) if url else ''
-                        ))
-                gridRow.append({"content": "".join(res), "class": "nopadding"})
+                    if self.displayIndividualTestsGraphically:
+                        res.append('<div {onclick} class="{celltype} {type}" data-toggle="tooltip" title="{text}">{contents}</div>'.format(
+                            type=type,
+                            celltype="test-result-cell",
+                            contents="&nbsp;",
+                            text=cgi.escape(tooltip),
+                            onclick='onclick="location.href=\'{url}\'"'.format(url=url) if url else ''
+                            ))
+                    else:
+                        gridRow.append(
+                            '<div {onclick} data-toggle="tooltip" title="{text}">{contents}</div>'.format(
+                                contents=contentsDetail,
+                                text=cgi.escape(tooltip),
+                                onclick='onclick="location.href=\'{url}\'"'.format(url=url) if url else ''
+                                )
+                            )
+
+                if self.displayIndividualTestsGraphically:
+                    gridRow.append({"content": "".join(res), "class": "nopadding"})
             else:
                 bad,flakey,good,not_running = aggregatedResultsForGroup(group)
 
@@ -212,13 +239,7 @@ class IndividualTestGridRenderer:
                 else:
                     gridRow.append(interior)
 
-        builds = [x for x in self.testsForRowFun(row) if x.testDefinition.matches.Build]
-        tests = [x for x in self.testsForRowFun(row) if x.testDefinition.matches.Test]
-        
-        return [
-            TestSummaryRenderer.TestSummaryRenderer(builds).renderSummary(),
-            TestSummaryRenderer.TestSummaryRenderer(tests).renderSummary()
-            ] + gridRow
+        return gridRow
 
 
 

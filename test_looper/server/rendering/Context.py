@@ -53,6 +53,9 @@ class Context(object):
     def childContexts(self, curContext):
         return None
 
+    def renderPostViewSelector(self):
+        return ""
+
     def contextViews(self):
         return []
 
@@ -147,10 +150,29 @@ class Context(object):
                         .format(buttons="".join(buttons))
                     ]
 
+        postfix = self.renderPostViewSelector()
+        
+        headers = ["<span class='tl-navbar-item'>%s</span>" % h for h in headers]
 
-        return '<div class="p-2 bg-light mr-auto">%s</div>' % "".join(headers)
+        headers.append("""
+            <span class="tl-navbar-fill">
+                <span class="tl-navbar tl-navbar-fromright">
+                    <span class="tl-navbar-item">
+                        <span class="tl-navbar tl-navbar">
+                            <span class="tl-navbar-item">{rightside}</span>
+                        </span>
+                    </span>
+                    <span class="tl-navbar-fill">
+                        <span class="tl-navbar tl-navbar-centered">
+                            <span class="tl-navbar-item">{postfix}</span>
+                        </span>
+                    </span>
+                </span>
+            </span>"""
+                .format(postfix=postfix, rightside="")
+            )
 
-        # + (self.renderer.logout_link() if self.renderer.is_authenticated() else self.renderer.login_link())
+        return '<div class="p-2 bg-light mr-auto tl-navbar">%s</div>' % "".join(headers)
 
     def renderWholePage(self):
         if self.options.get("bodyOnly"):
@@ -180,3 +202,5 @@ class Context(object):
         options = {k:v for k,v in options.iteritems() if v is not None}
 
         return self.renderer.contextFor(self.primaryObject(), options)
+
+    

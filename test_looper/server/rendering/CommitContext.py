@@ -281,106 +281,68 @@ class CommitContext(Context.Context):
 
         return card(self.commitMessageDetail(renderParents=True))
 
+    def individualTests(self, test):
+        res = {}    
 
-    def individualTests(self, tests):
-        res = {}
+        prefix = self.options.get("testGroup","")
 
-        for t in tests:
-            for run in self.database.TestRun.lookupAll(test=t):
-                if run.testNames:
-                    testNames = run.testNames.test_names
-                    testFailures = run.testFailures
-                    testHasLogs = run.testHasLogs
-                    
-                    for i in xrange(len(testNames)):
-                        cur_runs, cur_successes, url = res.get(testNames[i], (0,0,""))
+        for run in self.database.TestRun.lookupAll(test=test):
+            if run.testNames:
+                testNames = run.testNames.test_names
+                testHasLogs = run.testHasLogs
+
+                for i in xrange(len(run.testNames.test_names)):
+                    if testNames[i].startswith(prefix):
+                        cur_runs, cur_successes, hasLogs = res.get(testNames[i], (0,0,False))
 
                         cur_runs += 1
-                        cur_successes += 1 if testFailures[i] else 0
+                        cur_successes += 1 if run.testFailures[i] else 0
+                        if testHasLogs[i]:
+                            hasLogs = True
 
-                        if testHasLogs and testHasLogs[i] and not url:
-                            url = self.contextFor(ComboContexts.IndividualTest(t, testNames[i])).urlString()
-
-                        res[testNames[i]] = (cur_runs, cur_successes, url)
+                        res[run.testNames.test_names[i]] = (cur_runs, cur_successes, hasLogs)
+        
         return res
 
+    def allTests(self):
+        return self.testManager.database.Test.lookupAll(commitData=self.commit.data)
+
     def renderTestResultsGrid(self):
-        configurationToTests = {}
+        def testFun(c):
+            for t in self.testManager.database.Test.lookupAll(commitData=self.commit.data):
+                if c == self.testManager.configurationForTest(t) and t.testDefinition.matches.Test:
+                    yield t
+
+        configs = set()
         for t in self.database.Test.lookupAll(commitData=self.commit.data):
-            g = self.testManager.configurationForTest(t)
-
-            configurationToTests[g] = configurationToTests.get(g,()) + (t,)
-
-        configurationToIndividualTests = {}
-        for config, tests in configurationToTests.iteritems():
-            configurationToIndividualTests[config] = self.individualTests(configurationToTests[config])
-
-        configs = sorted(configurationToTests)
+            if t.testDefinition.matches.Test:
+                configs.add(self.testManager.configurationForTest(t))
 
         if not configs:
             return card("No tests defined.")
 
-        testNames = set()
-        for config in configs:
-            for testName in configurationToIndividualTests[config]:
-                testNames.add(testName)
-        testNames = sorted(testNames)
+        renderer = IndividualTestGridRenderer.IndividualTestGridRenderer(
+            sorted(configs),
+            self, 
+            testFun,
+            lambda testGroup, row:
+                self.contextFor(
+                    ComboContexts.CommitAndConfiguration(self.commit, row)
+                    ).withOptions(testGroup=testGroup).urlString(),
+            displayIndividualTestsGraphically=False,
+            breakOutIndividualTests=self.options.get("testGroup","") != ""
+            )
 
-        grid = [["Test"] + [
-            self.contextFor(ComboContexts.CommitAndConfiguration(self.commit, config)).renderLink()
-                for config in configs
-            ]]
+        grid = [[""] + renderer.headers()]
 
-        build_row = ["All Builds"]
-        tests_row = ["All Tests"]
+        for configuration in sorted(configs):
+            grid.append([
+                self.contextFor(
+                    ComboContexts.CommitAndConfiguration(self.commit, configuration)
+                    ).withOptions(**self.options).renderLink()
+                ] + renderer.gridRow(configuration))
 
-        for config in configs:
-            builds = [x for x in configurationToTests[config] if x.testDefinition.matches.Build]
-            tests = [x for x in configurationToTests[config] if x.testDefinition.matches.Test]
-            
-            build_row.append(TestSummaryRenderer.TestSummaryRenderer(builds).renderSummary())
-            tests_row.append(TestSummaryRenderer.TestSummaryRenderer(tests).renderSummary())
-
-        grid.append(build_row)
-        grid.append(tests_row)
-        grid.append([])
-
-        for testName in testNames:
-            row = [testName]
-
-            for config in configs:
-                run_count, success_count, url = configurationToIndividualTests[config].get(testName, (0,0,""))
-
-                if run_count == 0:
-                    url = ""
-                    type = "test-result-cell-notrun"
-                    tooltip = "Test %s didn't run" % testName
-                    contents = "&nbsp;"
-                elif run_count == success_count:
-                    type = "test-result-cell-success"
-                    tooltip = "Test %s succeeded" % testName
-                    if run_count > 1:
-                        tooltip += " over %s runs" % run_count
-                    contents = octicon("check")
-                elif success_count:
-                    type = "test-result-cell-partial"
-                    tooltip = "Test %s succeeded %s / %s times" % (testName, success_count, run_count)
-                    contents = octicon("alert")
-                else:
-                    type = "test-result-cell-fail"
-                    tooltip = "Test %s failed" % testName
-                    if run_count > 1:
-                        tooltip += " over %s runs" % run_count
-                    contents = octicon("x")
-
-                row.append('<div {onclick} class="clickable-div-background" data-toggle="tooltip" title="{text}">{contents}</div>'.format(
-                    type=type,
-                    contents=contents,
-                    text=cgi.escape(tooltip),
-                    onclick='onclick="location.href=\'{url}\'"'.format(url=url) if url else ''
-                    ))
-
-            grid.append(row)
+        grid = HtmlGeneration.transposeGrid(grid)
 
         return HtmlGeneration.grid(grid, rowHeightOverride=36)
 
@@ -395,7 +357,7 @@ class CommitContext(Context.Context):
     def renderTestSuitesSummary(self, builds=False):
         commit = self.commit
 
-        tests = self.testManager.database.Test.lookupAll(commitData=commit.data)
+        tests = self.allTests()
 
         if builds:
             tests = [t for t in tests if t.testDefinition.matches.Build]
@@ -549,3 +511,17 @@ class CommitContext(Context.Context):
             return (octicon("git-commit") if isHeader else "") + name
 
         return (octicon("git-commit") if isHeader else "") + self.commit.hash[:10]
+
+    def renderPostViewSelector(self):
+        tests = self.testManager.database.Test.lookupAll(commitData=self.commit.data)
+        all_tests = [x for x in tests if x.testDefinition.matches.Test]
+        all_builds = [x for x in tests if x.testDefinition.matches.Build]
+
+        return (
+            "Testing:&nbsp;" +
+            self.toggleCommitUnderTestLink().render() + 
+            "&nbsp;&nbsp;Builds:&nbsp;&nbsp;" + 
+            TestSummaryRenderer.TestSummaryRenderer(all_builds, "").renderSummary() +
+            "&nbsp;&nbsp;Tests:&nbsp;" +
+            TestSummaryRenderer.TestSummaryRenderer(all_tests, "").renderSummary() 
+            )

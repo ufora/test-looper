@@ -10,6 +10,24 @@ th {
     white-space: nowrap
 }
 
+.tl-navbar {
+    display: flex;
+    flex-wrap: nowrap;
+}
+.tl-navbar-centered {
+    justify-content: center;
+}
+.tl-navbar-fromright {
+    flex-direction: row-reverse;
+}
+.tl-navbar-item {
+    flex-basis: 0;
+    white-space: nowrap;
+}
+.tl-navbar-fill {
+    flex-basis: 100%;
+}
+
 .table td.fit,
 .table th.fit {
     white-space: nowrap;

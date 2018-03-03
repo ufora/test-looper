@@ -308,12 +308,20 @@ def elementTextLength(e):
     logging.info("Text length: %d, Element: %s", text_length, e)
     return text_length
 
-def grid(rows, header_rows=1, rowHeightOverride=None, fitWidth=True):
+def transposeGrid(grid):
+    colcount = max([len(x) for x in grid])
+    rowcount = len(grid)
+    return [[grid[y][x] if x < len(grid[y]) else "" for y in xrange(rowcount)] for x in xrange(colcount)]
+
+def grid(rows, header_rows=1, rowHeightOverride=None, fitWidth=True, transpose=False):
     """Given a list-of-lists (e.g. row of column values), format as a grid.
 
     We compute the width of each column (assuming null values if a column
     is not entirely populated).
     """
+    if transpose:
+        rows=transposeGrid(rows)
+
     if rowHeightOverride is not None:
         override_text = ' style="height:%spx"' % rowHeightOverride
     else:

@@ -56,8 +56,7 @@ class TestSummaryRenderer:
 
         active = sum(t.activeRuns for t in self.tests)
         if active:
-            button_text = '<span class="pr-1">%s</span>' % button_text
-            button_text += '<span class="badge badge-info pl-1">{workers}{icon}</span>'.format(workers=max(active,0), icon=octicon("pulse"))
+            button_text = '<span class="badge badge-info pl-1">{workers}{icon}</span>'.format(workers=max(active,0), icon=octicon("pulse"))
 
         summary = self.tooltipSummary()
 
@@ -204,7 +203,7 @@ class TestSummaryRenderer:
             if (waitingBuilds[0].commitData.commit.userPriority == 0 and 
                     waitingBuilds[0].commitData.commit.calculatedPriority == 0):
                 return '<span class="text-muted">%s</span>' % "..."
-            return "..."
+            return octicon("watch")
 
         tests = self.allTests()
 
@@ -231,7 +230,7 @@ class TestSummaryRenderer:
         if suitesNotRun:
             if tests[0].commitData.commit.userPriority == 0:
                 return '<span class="text-muted">%s</span>' % "..."
-            return "..."
+            return octicon("watch")
             
         if totalTests == 0:
             return '<span class="text-muted">%s</span>' % octicon("check")

@@ -44,10 +44,10 @@ tests:
   test_with_individual_failures_2/linux2:
     command: |
       ./produce_test_failures.py Group2WithAVeryLongGroupName > $TEST_OUTPUT_DIR/testSummary.json
-  test_with_individual_failures_2/linux_with_a_long_name:
+  test_with_individual_failures_3/linux_with_a_long_name:
     command: |
       ./produce_test_failures.py > $TEST_OUTPUT_DIR/testSummary.json
-  test_with_individual_failures_2/linux:
+  test_with_individual_failures_3/linux:
     command: |
       ./produce_test_failures.py > $TEST_OUTPUT_DIR/testSummary.json
 

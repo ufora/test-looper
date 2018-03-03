@@ -282,7 +282,7 @@ class Renderer:
 
     def logout_link(self):
         return ('<a href="/logout">'
-                'Logout [<span class="octicon octicon-person" aria-hidden="true"/>%s]'
+                'Logout [<span class="octicon octicon-person" aria-hidden="true"></span>%s]'
                 '</a>') % self.getCurrentLogin()
 
 
