@@ -56,13 +56,17 @@ class IndividualTestContext(Context.Context):
                 for path, sz in self.renderer.artifactStorage.testResultKeysAndSizesForIndividualTest(
                         commit.repo.name, commit.hash, testRun._identity, self.individualTestName
                         ):
-                    items.append(
-                        '<a class="dropdown-item" href="{link}" title="{title}">{contents}</a>'.format(
-                            link=self.renderer.testResultDownloadUrl(testRun._identity, path),
-                            title=os.path.basename(path),
-                            contents=os.path.basename(path) + " (" + HtmlGeneration.bytesToHumanSize(sz) + ")",
+                    contents = os.path.basename(path) + " (" + HtmlGeneration.bytesToHumanSize(sz) + ")"
+                    if sz:
+                        items.append(
+                            '<a class="dropdown-item" href="{link}" title="{title}">{contents}</a>'.format(
+                                link=self.renderer.testResultDownloadUrl(testRun._identity, path),
+                                title=os.path.basename(path),
+                                contents=contents
+                                )
                             )
-                        )
+                    else:
+                        items.append('<span class="dropdown-item disabled text-muted">{contents}</span>'.format(contents=contents))
             return "".join(items)
         else:
             grid = [["Test Run", "File", "Size"]]
