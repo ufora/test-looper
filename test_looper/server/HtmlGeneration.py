@@ -483,7 +483,7 @@ def urlDropdown(contents, url):
             {contents}
         </button>
         <div class="dropdown-menu" aria-labelledby="dropdownMenuButton" id="{guid}">
-            ... loading ...
+            <div style="width:30px;margin-top:20px;margin-bottom:20px;margin:auto"><div class="loader"></div></div>
         </div>
         </div>
         '''.format(
