@@ -50,7 +50,7 @@ class TestSummaryRenderer:
     def renderSummary(self):
         #first, see whether we have any tests
         if not self.tests or not self.allEnvironments():
-            button_text = '<div class="text-muted" style="width:30px">&nbsp;</div>' 
+            button_text = '<span class="text-muted" style="width:30px">&nbsp;</span>' 
         else:
             button_text = self.renderSingleEnvironment()
 
@@ -61,10 +61,10 @@ class TestSummaryRenderer:
         summary = self.tooltipSummary()
 
         if summary:
-            summary = "<div>%s</div>" % summary
+            summary = "<span>%s</span>" % summary
 
         if active:
-            summary += "<div>%s active jobs</div>" % active
+            summary += "<span>%s active jobs</span>" % active
 
         if summary:
             if self.url:
