@@ -18,7 +18,7 @@ import json
 import yaml
 import re
 
-def setupYamlDumper():
+def setupYamlLoadersAndDumpers():
     try:
         # Use the native code backends, if available.   
         from yaml import CSafeLoader as Loader, CDumper as Dumper
@@ -47,8 +47,22 @@ def setupYamlDumper():
     Dumper.add_representer(type(None), lambda dumper, value : \
         dumper.represent_scalar(u'tag:yaml.org,2002:null', u"~"))
 
+    def construct_tuple(loader, node):
+        return tuple(Loader.construct_sequence(loader, node))
+    Loader.add_constructor(u'tag:yaml.org,2002:seq', construct_tuple)
+    
+setupYamlLoadersAndDumpers()
 
-setupYamlDumper()
+def flattenListsAndTuples(toFlatten):
+    if not isinstance(toFlatten, (tuple, list)):
+        return toFlatten
+    res = []
+    for item in toFlatten:
+        if isinstance(item, (tuple, list)):
+            res.extend(flattenListsAndTuples(item))
+        else:
+            res.append(item)
+    return res
 
 class Encoder(object):
     """An algebraic <---> json encoder.
@@ -132,10 +146,18 @@ class Encoder(object):
             if isinstance(algebraic_type, algebraic.Dict):
                 if isinstance(value, dict):
                     return {self.from_json(k, algebraic_type.keytype):self.from_json(v, algebraic_type.valtype) for k,v in value.iteritems()}
-                else:
-                    return {self.from_json(k, algebraic_type.keytype):self.from_json(v, algebraic_type.valtype) for k,v in value}
+
+                res = {}
+                for subitem in value:
+                    for k,v in self.from_json(subitem, algebraic_type).iteritems():
+                        res[k] = v
+                return res
 
             if isinstance(algebraic_type, algebraic.List):
+                #first, perform implicit flattening of lists and tuples if the sub-item is not itself a list
+                if not isinstance(algebraic_type.subtype, algebraic.List):
+                    value = flattenListsAndTuples(value)
+
                 #allow objects to be treated as lists of tuples
                 if isinstance(value, dict):
                     value = value.items()

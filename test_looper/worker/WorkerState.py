@@ -33,10 +33,6 @@ else:
     Docker = None
     DockerWatcher = None
 
-class SOURCE_DIR:
-    """Singleton to indicate this is the 'src' dependency"""
-    pass
-
 import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper
@@ -83,6 +79,7 @@ class TestLooperDirectories:
         self.test_data_dir = os.path.join(worker_directory, "test_data")
         self.build_cache_dir = os.path.join(worker_directory, "build_cache")
         self.ccache_dir = os.path.join(worker_directory, "ccache")
+        self.worker_directory = worker_directory
 
     def all(self):
         return [self.repo_copy_dir, self.scratch_dir, self.command_dir, self.test_inputs_dir, self.test_data_dir, 
@@ -226,10 +223,10 @@ class WorkerState(object):
             self.directories.command_dir: "/test_looper/command"
             }
 
-    def _run_deployment(self, command, env, workerCallback, docker_image, extraPorts=None):
+    def _run_deployment(self, command, env, workerCallback, docker_image, working_directory, extraPorts=None):
         build_log = StringIO.StringIO()
 
-        self.dumpPreambleLog(build_log, env, docker_image, command)
+        self.dumpPreambleLog(build_log, env, docker_image, command, working_directory)
 
         workerCallback.terminalOutput(build_log.getvalue().replace("\n","\r\n"))
 
@@ -247,7 +244,7 @@ class WorkerState(object):
             invoker_path = os.path.join(self.directories.command_dir,"command_invoker.ps1")
             command_path = os.path.join(self.directories.command_dir,"command.ps1")
             with open(command_path,"w") as cmd_file:
-                print >> cmd_file, "cd '" + self.directories.repo_copy_dir + "'"
+                print >> cmd_file, "cd '" + working_directory + "'"
                 print >> cmd_file, "echo 'Welcome to TestLooper on Windows. Here is the current environment:'"
                 print >> cmd_file, "gci env:* | sort-object name"
                 print >> cmd_file, "echo '********************************'"
@@ -358,7 +355,7 @@ class WorkerState(object):
                         privileged=True,
                         shm_size="1G",
                         environment=env,
-                        working_dir="/test_looper/src",
+                        working_dir=working_directory,
                         tty=True,
                         stdin_open=True,
                         start=False,
@@ -380,7 +377,7 @@ class WorkerState(object):
                         privileged=True,
                         shm_size="1G",
                         environment=env,
-                        working_dir="/test_looper/src",
+                        working_dir=working_directory,
                         tty=True,
                         stdin_open=True
                         )
@@ -443,7 +440,7 @@ class WorkerState(object):
                         readthreadStop.set()
                         readthread.join()
                         
-    def dumpPreambleLog(self, build_log, env, docker_image, command):
+    def dumpPreambleLog(self, build_log, env, docker_image, command, working_directory):
         print >> build_log, "********************************************"
 
         print >> build_log, "TestLooper Environment Variables:"
@@ -455,7 +452,7 @@ class WorkerState(object):
             print >> build_log, "DockerImage is ", docker_image.image
         build_log.flush()
 
-        print >> build_log, "Working Directory: /test_looper/src"
+        print >> build_log, "Working Directory: " + working_directory
         build_log.flush()
 
         print >> build_log, "TestLooper Running command:"
@@ -467,13 +464,13 @@ class WorkerState(object):
         build_log.flush()
 
 
-    def _run_test_command(self, command, timeout, env, log_function, docker_image, dumpPreambleLog=True):
+    def _run_test_command(self, command, timeout, env, log_function, docker_image, working_directory, dumpPreambleLog=True):
         if sys.platform == "win32":
-            return self._run_test_command_windows(command, timeout, env, log_function, docker_image, dumpPreambleLog)
+            return self._run_test_command_windows(command, timeout, env, log_function, docker_image, working_directory, dumpPreambleLog)
         else:
-            return self._run_test_command_linux(command, timeout, env, log_function, docker_image, dumpPreambleLog)
+            return self._run_test_command_linux(command, timeout, env, log_function, docker_image, working_directory, dumpPreambleLog)
 
-    def _run_test_command_windows(self, command, timeout, env, log_function, docker_image, dumpPreambleLog):
+    def _run_test_command_windows(self, command, timeout, env, log_function, docker_image, working_directory, dumpPreambleLog):
         assert docker_image is NAKED_MACHINE
 
         env_to_pass = dict(os.environ)
@@ -483,7 +480,7 @@ class WorkerState(object):
 
         command_path = os.path.join(self.directories.command_dir,"command.ps1")
         with open(command_path,"w") as cmd_file:
-            print >> cmd_file, "cd '" + self.directories.repo_copy_dir + "'"
+            print >> cmd_file, "cd '" + working_directory + "'"
             if dumpPreambleLog:
                 print >> cmd_file, "echo 'Welcome to TestLooper on Windows. Here is the current environment:'"
                 print >> cmd_file, "gci env:* | sort-object name"
@@ -552,7 +549,7 @@ class WorkerState(object):
 
         return ret_code == 0
 
-    def _run_test_command_linux(self, command, timeout, env, log_function, docker_image, dumpPreambleLog):
+    def _run_test_command_linux(self, command, timeout, env, log_function, docker_image, working_directory, dumpPreambleLog):
         tail_proc = None
         
         try:
@@ -563,7 +560,7 @@ class WorkerState(object):
                 tail_proc.start()
 
                 if dumpPreambleLog:
-                    self.dumpPreambleLog(build_log, env, docker_image, command)
+                    self.dumpPreambleLog(build_log, env, docker_image, command, working_directory)
                 else:
                     print >> build_log, "TestLooper Running command"
                     print >> build_log, command
@@ -599,7 +596,7 @@ class WorkerState(object):
                     privileged=True,
                     shm_size="1G",
                     environment=env,
-                    working_dir="/test_looper/src"
+                    working_dir=working_directory
                     )
 
                 t0 = time.time()
@@ -817,10 +814,7 @@ class WorkerState(object):
             tar.extractall(target_dir)
 
     def grabDependency(self, log_function, expose_as, dep, repoName, commitHash, worker_callback):
-        if expose_as is SOURCE_DIR:
-            target_dir = self.directories.repo_copy_dir
-        else:
-            target_dir = os.path.join(self.directories.test_inputs_dir, expose_as)
+        target_dir = os.path.join(self.directories.worker_directory, expose_as)
 
         if dep.matches.InternalBuild or dep.matches.ExternalBuild:
             if dep.matches.ExternalBuild:
@@ -896,7 +890,6 @@ class WorkerState(object):
         test_definition = TestDefinition.apply_test_substitutions(test_definition, environment, env_overrides)
 
         all_dependencies = {}
-        all_dependencies[SOURCE_DIR] = TestDefinition.TestDependency.Source(repo=repoName, commitHash=commitHash)
         all_dependencies.update(environment.dependencies)
         all_dependencies.update(test_definition.dependencies)
 
@@ -1000,8 +993,19 @@ class WorkerState(object):
                          commitHash,
                          command)
 
+            if 'src' in test_definition.dependencies:
+                if image is NAKED_MACHINE:
+                    working_directory = self.directories.repo_copy_dir
+                else:
+                    working_directory = "/test_looper/src"
+            else:
+                if image is NAKED_MACHINE:
+                    working_directory = self.directories.test_inputs_dir
+                else:
+                    working_directory = "/test_looper/test_inputs"
+
             if isDeploy:
-                self._run_deployment(command, test_definition.variables, workerCallback, image, extraPorts=extraPorts)
+                self._run_deployment(command, test_definition.variables, workerCallback, image, working_directory, extraPorts=extraPorts)
                 return False, {}
             else:
                 logWithTime("Starting Test Run")
@@ -1012,6 +1016,7 @@ class WorkerState(object):
                     test_definition.variables,
                     log_function,
                     image,
+                    working_directory, 
                     dumpPreambleLog=True
                     )
 
@@ -1022,6 +1027,7 @@ class WorkerState(object):
                         test_definition.variables,
                         log_function,
                         image,
+                        working_directory, 
                         dumpPreambleLog=False
                         ):
                     is_success = False
@@ -1152,9 +1158,15 @@ class WorkerState(object):
             'HOSTNAME': "testlooperworker"
             })
 
+        has_implicit_src_dep = "src" in test_definition.dependencies
+        if has_implicit_src_dep:
+            if environment.image.matches.AMI:
+                res["TEST_SRC_DIR"] = self.directories.repo_copy_dir
+            else:
+                res["TEST_SRC_DIR"] = "/test_looper/src"
+
         if environment.image.matches.AMI:
             res.update({
-                'TEST_SRC_DIR': self.directories.repo_copy_dir,
                 'TEST_INPUTS': self.directories.test_inputs_dir,
                 'TEST_SCRATCH_DIR': self.directories.scratch_dir,
                 'TEST_OUTPUT_DIR': self.directories.test_output_dir,
@@ -1163,7 +1175,6 @@ class WorkerState(object):
                 })
         else:
             res.update({
-                'TEST_SRC_DIR': "/test_looper/src",
                 'TEST_INPUTS': "/test_looper/test_inputs",
                 'TEST_SCRATCH_DIR': "/test_looper/scratch",
                 'TEST_OUTPUT_DIR': "/test_looper/output",

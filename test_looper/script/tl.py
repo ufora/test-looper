@@ -202,30 +202,26 @@ class WorkerStateOverride(WorkerState.WorkerState):
         return True
 
     def grabDependency(self, log_function, expose_as, dep, repoName, commitHash, worker_callback):
-        if expose_as is WorkerState.SOURCE_DIR:
-            self.extra_mappings[self.looperCtl.checkout_root_path(repoName, commitHash)] = \
-                "/test_looper/src"
-        else:
-            target_dir = os.path.join(self.directories.test_inputs_dir, expose_as)
+        target_dir = os.path.join(self.directories.test_inputs_dir, expose_as)
 
-            if dep.matches.InternalBuild or dep.matches.ExternalBuild:
-                if dep.matches.ExternalBuild:
-                    repoName, commitHash = dep.repo, dep.commitHash
+        if dep.matches.InternalBuild or dep.matches.ExternalBuild:
+            if dep.matches.ExternalBuild:
+                repoName, commitHash = dep.repo, dep.commitHash
 
-                self.extra_mappings[
-                    os.path.join(self.looperCtl.build_path(repoName, commitHash, dep.name), "build_output")
-                    ] = os.path.join("/test_looper/test_inputs", expose_as)
+            self.extra_mappings[
+                os.path.join(self.looperCtl.build_path(repoName, commitHash, dep.name), "build_output")
+                ] = os.path.join("/test_looper", expose_as)
 
-                return None
+            return None
 
-            if dep.matches.Source:
-                self.extra_mappings[
-                    self.looperCtl.checkout_root_path(dep.repo, dep.commitHash)
-                    ] = os.path.join("/test_looper/test_inputs", expose_as)
+        if dep.matches.Source:
+            self.extra_mappings[
+                self.looperCtl.checkout_root_path(dep.repo, dep.commitHash)
+                ] = os.path.join("/test_looper", expose_as)
 
-                return None
+            return None
 
-            return "Unknown dependency type: %s" % dep
+        return "Unknown dependency type: %s" % dep
 
 
 class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolver):

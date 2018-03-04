@@ -87,16 +87,15 @@ environments:
     variables:
       ENV_VAR: ENV_VAL
 builds:
-  merge:
-    - foreach: {env: [linux, test_linux, windows]}
-      repeat:
-        build/${env}:
-          command: "build.sh $TEST_LOOPER_IMPORTS/child"
-          dependencies:
-            child: child/build/${env}
-    - build_without_deps/linux:
-        command: "build.sh"
-        disabled: true
+  - foreach: {env: [linux, test_linux, windows]}
+    repeat:
+      build/${env}:
+        command: "build.sh $TEST_LOOPER_IMPORTS/child"
+        dependencies:
+          child: child/build/${env}
+  - build_without_deps/linux:
+      command: "build.sh"
+      disabled: true
 tests:
   foreach: {env: [linux, test_linux, windows]}
   repeat:

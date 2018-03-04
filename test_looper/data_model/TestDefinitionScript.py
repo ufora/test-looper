@@ -12,6 +12,8 @@ import json
 import simplejson 
 import logging
 
+VALID_VERSIONS = [2,3]
+
 Platform = TestDefinition.Platform
 
 VariableDict = algebraic.Dict(str, str)
@@ -116,7 +118,7 @@ def map_image(reponame, commitHash, image_def):
     else:
         assert False, "Can't convert this kind of image: %s" % image_def
 
-def extract_tests(curRepoName, curCommitHash, testScript):
+def extract_tests(curRepoName, curCommitHash, testScript, version):
     for repoVarName, repoPin in testScript.repos.iteritems():
         if repoVarName in reservedNames:
             raise Exception("%s is a reserved name and can't be used as a reponame." % repoVarName)
@@ -221,7 +223,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 setup_script_contents=envDef.setup_script_contents,
                 variables=envDef.variables,
                 dependencies={
-                    name: map_dep(dep) for name, dep in envDef.dependencies.iteritems()
+                    "test_inputs/" + name: map_dep(dep) for name, dep in envDef.dependencies.iteritems()
                     }
                 )
 
@@ -235,7 +237,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 image=map_image(curRepoName, curCommitHash, envDef.image),
                 variables=envDef.variables,
                 dependencies={
-                    name: map_dep(dep) for name, dep in envDef.dependencies.iteritems()
+                    "test_inputs/" + name: map_dep(dep) for name, dep in envDef.dependencies.iteritems()
                     }
                 )  
 
@@ -289,6 +291,11 @@ def extract_tests(curRepoName, curCommitHash, testScript):
         if curEnv not in environments:
             raise Exception("Test %s refers to unknown environment %s" % (name, curEnv))
 
+        deps = {"test_inputs/" + depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()}
+
+        if version == 2:
+            deps["src"] = TestDefinition.TestDependency.Source(repo=curRepoName, commitHash=curCommitHash)
+
         if d.matches.Build:
             return TestDefinition.TestDefinition.Build(
                 buildCommand=d.command,
@@ -296,7 +303,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 configuration=d.configuration,
                 name=name,
                 variables=d.variables,
-                dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},
+                dependencies=deps,
                 environment_name=curEnv,
                 environment=environments[curEnv],
                 timeout=d.timeout,
@@ -314,7 +321,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 configuration=d.configuration,
                 name=name,
                 variables=d.variables,
-                dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},
+                dependencies=deps,
                 disabled=d.disabled,
                 environment_name=curEnv,
                 environment=environments[curEnv],
@@ -329,7 +336,7 @@ def extract_tests(curRepoName, curCommitHash, testScript):
                 configuration=d.configuration,
                 name=name,
                 variables=d.variables,
-                dependencies={depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()},
+                dependencies=deps,
                 portExpose=d.portExpose,
                 environment_name=curEnv,
                 environment=environments[curEnv],
@@ -547,7 +554,7 @@ def extract_tests_from_str(repoName, commitHash, extension, text):
     version = test_defs_json['looper_version']
     del test_defs_json['looper_version']
 
-    if version != 2:
+    if version not in VALID_VERSIONS:
         raise Exception("Can't handle looper version %s" % version)
 
-    return extract_tests(repoName, commitHash, encoder.from_json(test_defs_json, TestDefinitionScript))
+    return extract_tests(repoName, commitHash, encoder.from_json(test_defs_json, TestDefinitionScript), version)
