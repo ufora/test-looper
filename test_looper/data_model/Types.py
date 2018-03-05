@@ -75,14 +75,18 @@ def setup_types(database):
         noTestsFound=bool
         )
 
+    database.CommitTestDependency.define(
+        commit=database.Commit,
+        test=database.Test
+        )
+
     database.CommitRelationship.define(
         child=database.Commit,
         parent=database.Commit
         )
 
     database.Test.define(
-        commitData=database.CommitData,
-        fullname=str,
+        hash=str,
         testDefinition=TestDefinition.TestDefinition,
         machineCategory=database.MachineCategory,
         successes=int,
@@ -99,7 +103,7 @@ def setup_types(database):
 
     database.UnresolvedTestDependency.define(
         test=database.Test,
-        dependsOnName=str
+        dependsOnHash=str
         )
 
     database.UnresolvedCommitSourceDependency.define(
@@ -191,13 +195,23 @@ def setup_types(database):
     database.AllocatedGitRepoLocks.define(
         requestUniqueId=str,
         testOrDeployId=str,
-        commitHash=str
+        testHash=str
         )
 
     database.addIndex(database.IndividualTestNameSet, 'shaHash')
 
     database.addIndex(database.DataTask, 'status', lambda d: d.status if d.isHead else None)
     database.addIndex(database.DataTask, 'pending_boot_machine_check', lambda d: True if d.status.matches.Pending and d.task.matches.BootMachineCheck else None)
+    database.addIndex(database.DataTask, 'update_commit_priority', lambda d: 
+        d.task.commit if d.task.matches.UpdateCommitPriority else None
+        )
+    database.addIndex(database.DataTask, 'update_test_priority', lambda d: 
+        d.task.test if d.task.matches.UpdateTestPriority else None
+        )
+
+    database.addIndex(database.CommitTestDependency, 'test')
+    database.addIndex(database.CommitTestDependency, 'commit')
+
     database.addIndex(database.Machine, 'machineId')
 
     #don't index the dead ones
@@ -208,14 +222,14 @@ def setup_types(database):
     database.addIndex(database.MachineCategory, 'want_more', lambda m: True if (m.desired > m.booted) else None)
     database.addIndex(database.MachineCategory, 'want_less', lambda m: True if (m.desired < m.booted) else None)
 
-    database.addIndex(database.UnresolvedTestDependency, 'dependsOnName')
+    database.addIndex(database.UnresolvedTestDependency, 'dependsOnHash')
     database.addIndex(database.UnresolvedTestDependency, 'test')
-    database.addIndex(database.UnresolvedTestDependency, 'test_and_depends', lambda o:(o.test, o.dependsOnName))
+    database.addIndex(database.UnresolvedTestDependency, 'test_and_depends', lambda o:(o.test, o.dependsOnHash))
 
     database.addIndex(database.AllocatedGitRepoLocks, "alive", lambda o: True)
     database.addIndex(database.AllocatedGitRepoLocks, "requestUniqueId")
     database.addIndex(database.AllocatedGitRepoLocks, "testOrDeployId")
-    database.addIndex(database.AllocatedGitRepoLocks, "commitHash")
+    database.addIndex(database.AllocatedGitRepoLocks, "testHash")
 
     database.addIndex(database.UnresolvedCommitRepoDependency, 'commit')
     database.addIndex(database.UnresolvedCommitRepoDependency, 'reponame')
@@ -240,8 +254,7 @@ def setup_types(database):
     database.addIndex(database.Deployment, 'isAlive', lambda d: d.isAlive or None)
     database.addIndex(database.Deployment, 'isAliveAndPending', lambda d: d.isAlive and not d.machine or None)
     database.addIndex(database.Deployment, 'runningOnMachine', lambda d: d.machine if d.isAlive else None)
-    database.addIndex(database.Test, 'fullname')
-    database.addIndex(database.Test, 'commitData')
+    database.addIndex(database.Test, 'hash')
     database.addIndex(database.Test, 'machineCategoryAndPrioritized',
             lambda o: o.machineCategory if (
                     not o.priority.matches.NoMoreTests 

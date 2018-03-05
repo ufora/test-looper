@@ -162,13 +162,13 @@ class TestLooperClient(object):
                     self._curTestId = msg.testId
                     self._curOutputs = []
                     logging.info("New TestID is %s", self._curTestId)
-                    return msg.repoName, msg.commitHash, msg.testName, msg.testId, msg.testDefinition, False
+                    return msg.testId, msg.testDefinition, False
 
                 if msg.matches.DeploymentAssignment:
                     self._curDeploymentId = msg.deploymentId
                     self._curOutputs = []
                     logging.info("New deploymentId is %s", self._curDeploymentId)
-                    return msg.repoName, msg.commitHash, msg.testName, msg.deploymentId, msg.testDefinition, True
+                    return msg.deploymentId, msg.testDefinition, True
 
     def consumeMessages(self):
         try:

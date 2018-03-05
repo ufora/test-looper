@@ -16,7 +16,7 @@ class IndividualTestContext(Context.Context):
         self.test = individualTest.test
         self.individualTestName = individualTest.individualTestName
 
-        self.commit = self.test.commitData.commit
+        self.commit = self.testManager.oldestCommitForTest(self.test)
         self.repo = self.commit.repo
         self.testName = self.test.testDefinition.name
         
@@ -52,7 +52,7 @@ class IndividualTestContext(Context.Context):
         if self.options.get("context","") == "dropdown-menu":
             items = []
             for testRun in self.database.TestRun.lookupAll(test=self.test):
-                commit = testRun.test.commitData.commit
+                commit = self.testManager.oldestCommitForTest(testRun.test)
                 for path, sz in self.renderer.artifactStorage.testResultKeysAndSizesForIndividualTest(
                         commit.repo.name, commit.hash, testRun._identity, self.individualTestName
                         ):
@@ -72,7 +72,7 @@ class IndividualTestContext(Context.Context):
             grid = [["Test Run", "File", "Size"]]
 
             for testRun in self.database.TestRun.lookupAll(test=self.test):
-                commit = testRun.test.commitData.commit
+                commit = self.testManager.oldestCommitForTest(testRun.test)
                 for path, sz in self.renderer.artifactStorage.testResultKeysAndSizesForIndividualTest(
                         commit.repo.name, commit.hash, testRun._identity, self.individualTestName
                         ):

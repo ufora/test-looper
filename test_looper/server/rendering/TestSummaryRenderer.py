@@ -112,8 +112,7 @@ class TestSummaryRenderer:
             return "Builds failed: " + ", ".join([b.testDefinition.name for b in badBuilds])
 
         if waitingBuilds:
-            if (waitingBuilds[0].commitData.commit.userPriority == 0 and 
-                    waitingBuilds[0].commitData.commit.calculatedPriority == 0):
+            if waitingBuilds[0].calculatedPriority == 0:
                 return "Not prioritized"
             else:
                 return 'Waiting on builds'
@@ -139,8 +138,7 @@ class TestSummaryRenderer:
         for t in tests:
             if t.totalRuns == 0:
                 suitesNotRun += 1
-                if (t.commitData.commit.userPriority == 0 and 
-                        t.commitData.commit.calculatedPriority == 0):
+                if t.calculatedPriority == 0:
                     return "Tests are not prioritized"
             elif t.successes == 0:
                 suitesFailed += 1
@@ -200,8 +198,7 @@ class TestSummaryRenderer:
             return """<span class="text-danger">%s</span>""" % octicon("x")
 
         if len(waitingBuilds):
-            if (waitingBuilds[0].commitData.commit.userPriority == 0 and 
-                    waitingBuilds[0].commitData.commit.calculatedPriority == 0):
+            if waitingBuilds[0].calculatedPriority == 0:
                 return '<span class="text-muted">%s</span>' % "..."
             return octicon("watch")
 
@@ -228,7 +225,7 @@ class TestSummaryRenderer:
             return '<span class="text-muted">%s</span>' % octicon("x")
 
         if suitesNotRun:
-            if tests[0].commitData.commit.userPriority == 0:
+            if tests[0].calculatedPriority == 0:
                 return '<span class="text-muted">%s</span>' % "..."
             return octicon("watch")
             

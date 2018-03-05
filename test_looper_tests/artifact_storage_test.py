@@ -23,8 +23,8 @@ def put_into(dir, things):
                 f.write(item)
 
 class Mixin:
-    def contentsOfTestArtifact(self, repoName, commitHash, testId, artifactName):
-        contents = self.artifactStorage.testContentsHtml(repoName, commitHash, testId, artifactName)
+    def contentsOfTestArtifact(self, testHash, testId, artifactName):
+        contents = self.artifactStorage.testContentsHtml(testHash, testId, artifactName)
 
         if contents.matches.Redirect:
             r = requests.get(contents.url)
@@ -42,10 +42,10 @@ class Mixin:
     def test_upload_build(self):
         put_into(self.scratchdir, {"worker": {"out.tar.gz": "some_tarball"}})
 
-        self.assertFalse(self.artifactStorage.build_exists("repo", "commit", "build_key"))
-        self.artifactStorage.upload_build("repo", "commit", "build_key", os.path.join(self.scratchdir, "worker", "out.tar.gz"))
-        self.assertTrue(self.artifactStorage.build_exists("repo", "commit", "build_key"))
-        self.artifactStorage.download_build("repo", "commit", "build_key", os.path.join(self.scratchdir, "worker", "out2.tar.gz"))
+        self.assertFalse(self.artifactStorage.build_exists("testhash", "build_key"))
+        self.artifactStorage.upload_build("testhash", "build_key", os.path.join(self.scratchdir, "worker", "out.tar.gz"))
+        self.assertTrue(self.artifactStorage.build_exists("testhash", "build_key"))
+        self.artifactStorage.download_build("testhash", "build_key", os.path.join(self.scratchdir, "worker", "out2.tar.gz"))
 
         self.assertEqual(open(os.path.join(self.scratchdir, "worker", "out2.tar.gz"), "rb").read(), "some_tarball")
 
@@ -62,14 +62,14 @@ class Mixin:
                 "0_f4.tar.gz": "a"
             }})
 
-        self.assertEqual(self.artifactStorage.testResultKeysFor("reponame", "commitHash", "testid"), [])
-        self.artifactStorage.uploadTestArtifacts("reponame", "commitHash", "testid", os.path.join(self.scratchdir, "worker"), ["f4.tar.gz"])
+        self.assertEqual(self.artifactStorage.testResultKeysFor("testhash", "testid"), [])
+        self.artifactStorage.uploadTestArtifacts("testhash", "testid", os.path.join(self.scratchdir, "worker"), ["f4.tar.gz"])
         self.assertEqual(
-            set(self.artifactStorage.testResultKeysFor("reponame", "commitHash", "testid")), 
+            set(self.artifactStorage.testResultKeysFor("testhash", "testid")), 
             set(["f1", "f2", "f3.log.gz", "1_f4.tar.gz", "0_f4.tar.gz"])
             )
 
-        tarball_contents = self.contentsOfTestArtifact("reponame", "commitHash", "testid", "1_f4.tar.gz")
+        tarball_contents = self.contentsOfTestArtifact("testhash", "testid", "1_f4.tar.gz")
 
         self.assertEqual(tarball_contents.content_type, "application/octet-stream")
 

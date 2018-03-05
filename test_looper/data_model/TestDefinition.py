@@ -20,15 +20,19 @@ Image.Dockerfile = {"repo": str, "commitHash": str, "dockerfile": str}
 Image.AMI = {"base_ami": str, "setup_script_contents": str}
 
 TestDependency = algebraic.Alternative("TestDependency")
+TestDependency.Build = {"repo": str, "name": str, "buildHash": str}
+TestDependency.Source = {"repo": str, "commitHash": str, "path": str}
+
+#these are intermediate parse states. Resolved builds won't have them.
 TestDependency.InternalBuild = {"name": str}
 TestDependency.ExternalBuild = {"repo": str, "commitHash": str, "name": str}
-TestDependency.Source = {"repo": str, "commitHash": str}
 
-#'repo_name' refers to the original name of the repo in the test definitions
+#'repo_name' refers to the name of the repo variable the test definitions (not the git repo). This
+#is an intermediate state that's only used mid-parsing while we're resolving references in external
+#repos
 TestDependency.UnresolvedExternalBuild = {"repo_name": str, "name": str}
-TestDependency.UnresolvedSource = {"repo_name": str}
+TestDependency.UnresolvedSource = {"repo_name": str, "path": str}
 
-#'repo_name' refers to the original name of the repo in the test definitions
 EnvironmentReference = algebraic.Alternative("EnvironmentReference")
 EnvironmentReference.Reference = {"repo": str, "commitHash": str, "name": str}
 EnvironmentReference.UnresolvedReference = {"repo_name": str, "name": str}
@@ -82,6 +86,7 @@ TestDefinition.Build = {
     "buildCommand": str,
     "cleanupCommand": str,
     'configuration': str,
+    'hash': str,
     "name": str,
     "environment_name": str,
     "environment": TestEnvironment,
@@ -99,6 +104,7 @@ TestDefinition.Test = {
     "testCommand": str,
     "cleanupCommand": str,
     'configuration': str,
+    'hash': str,
     "name": str,
     "environment_name": str,
     "environment": TestEnvironment,
@@ -113,6 +119,7 @@ TestDefinition.Test = {
 TestDefinition.Deployment = {
     "deployCommand": str,
     'configuration': str,
+    'hash': str,
     "name": str,
     "environment_name": str,
     "environment": TestEnvironment,
@@ -274,6 +281,18 @@ def apply_substitutions_to_dependency(dep, vardefs):
             )
     elif dep.matches.Source:
         return dep
+    elif dep.matches.Build:
+        return dep
+    elif dep.matches.UnresolvedSource:
+        return TestDependency.UnresolvedSource(
+            repo_name=dep.repo_name,
+            path=VariableSubstitution.substitute_variables(dep.path, vardefs)
+            )
+    elif dep.matches.UnresolvedExternalBuild:
+        return TestDependency.UnresolvedExternalBuild(
+            repo_name=dep.repo_name,
+            name=VariableSubstitution.substitute_variables(dep.name, vardefs)
+            )
     else:
         assert False, "Unknown dep type: %s" % dep
 
@@ -343,6 +362,7 @@ def apply_test_substitutions(test, env, input_var_defs):
             min_cores=test.min_cores,
             max_cores=test.max_cores,
             min_ram_gb=test.min_ram_gb,
+            hash=test.hash,
             **kwargs
             )
 

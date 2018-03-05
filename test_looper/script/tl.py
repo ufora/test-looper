@@ -133,16 +133,16 @@ class DummyArtifactStorage(object):
     def __init__(self):
         object.__init__(self)
 
-    def upload_build(self, repoName, commitHash, key_name, file_name):
+    def upload_build(self, testHash, key_name, file_name):
         pass
 
-    def build_exists(self, repoName, commitHash, key_name):
+    def build_exists(self, testHash, key_name):
         pass
 
-    def uploadSingleTestArtifact(self, repoName, commitHash, testId, artifact_name, path):
+    def uploadSingleTestArtifact(self, testHash, testId, artifact_name, path):
         pass
 
-    def uploadIndividualTestArtifacts(self, repoName, commitHash, testId, pathsToUpload):
+    def uploadIndividualTestArtifacts(self, testHash, testId, pathsToUpload):
         pass
 
     def uploadTestArtifacts(self, *args, **kwargs):
@@ -630,7 +630,7 @@ class TestLooperCtl:
 
         for branchname in self.branchesCheckedOutForRepo(reponame):
             print reponame, branchname
-            tests, environments, repos = self.resolver.fullyResolvedTestEnvironmentAndRepoDefinitionsFor(reponame, branchname)
+            tests, environments, repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, branchname)
 
             print branchname
 
@@ -687,7 +687,7 @@ class TestLooperCtl:
             if self.repoIsNotIgnored(reponame):
                 f(reponame, committish)
 
-            _,_,repos = self.resolver.fullyResolvedTestEnvironmentAndRepoDefinitionsFor(reponame, committish)
+            _,_,repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, committish)
 
             for v in repos.values():
                 walk(v.reponame(), v.commitHash())
@@ -832,7 +832,7 @@ class TestLooperCtl:
 
         testDef = testDef._withReplacement(environment=self.resolver.resolveEnvironment(testDef.environment))
 
-        if not worker_state.runTest("interactive", reponame, commit, testname, callbacks, testDef, interactive)[0]:
+        if not worker_state.runTest("interactive", callbacks, testDef, interactive)[0]:
             print "Build failed. Exiting."
             return False
         return True

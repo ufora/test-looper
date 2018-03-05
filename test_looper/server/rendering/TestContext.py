@@ -13,7 +13,7 @@ class TestContext(Context.Context):
     def __init__(self, renderer, test, options):
         Context.Context.__init__(self, renderer, options)
         self.test = test
-        self.commit = test.commitData.commit
+        self.commit = self.testManager.oldestCommitForTest(test)
         self.repo = self.commit.repo
         self.testName = test.testDefinition.name
         
@@ -101,7 +101,7 @@ class TestContext(Context.Context):
 
         for subtest in self.testManager.allTestsDependedOnByTest(self.test):
             grid.append([
-                self.contextFor(subtest.commitData.commit).renderLink(),
+                self.contextFor(self.testManager.oldestCommitForTest(subtest)).renderLink(),
                 self.contextFor(subtest).renderLink(),
                 TestSummaryRenderer.TestSummaryRenderer([self.test], testSummaryUrl="").renderSummary()
                 ])

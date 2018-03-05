@@ -375,15 +375,17 @@ class TestManagerTests(unittest.TestCase):
         harness.consumeBackgroundTasks()
 
         with harness.database.view():
-            test1 = harness.database.Test.lookupOne(fullname=("repo4/c0/build/windows_good"))
-            test2 = harness.database.Test.lookupOne(fullname=("repo4/c0/build/windows_bad"))
+            test1 = harness.lookupTestByFullname(("repo4/c0/build/windows_good"))
+            test2 = harness.lookupTestByFullname(("repo4/c0/build/windows_bad"))
 
             self.assertTrue(test1.priority.matches.FirstBuild)
             self.assertTrue(test2.priority.matches.HardwareComboUnbootable)
 
 
     def test_manager_env_imports(self):
-        manager = TestManagerTestHarness.getHarness().manager
+        harness = TestManagerTestHarness.getHarness()
+
+        manager = harness.manager
 
         manager.source_control.addCommit("repo0/c0", [], TestYamlFiles.repo0)
         manager.source_control.addCommit("repo0/c1", ["repo0/c0"], TestYamlFiles.repo0)
@@ -400,7 +402,7 @@ class TestManagerTests(unittest.TestCase):
         with manager.database.view():
             repo3 = manager.database.Repo.lookupOne(name="repo3")
             commit3 = manager.database.Commit.lookupOne(repo_and_hash=(repo3, "c0"))
-            test3 = manager.database.Test.lookupAny(fullname=("repo3/c0/build/linux"))
+            test3 = harness.lookupTestByFullname("repo3/c0/build/linux")
 
             #test doesn't exist yet
             assert test3 is None
@@ -417,7 +419,7 @@ class TestManagerTests(unittest.TestCase):
             repo2 = manager.database.Repo.lookupOne(name="repo2")
             commit2 = manager.database.Commit.lookupOne(repo_and_hash=(repo2, "c0"))
 
-            test2 = manager.database.Test.lookupAny(fullname=("repo2/c0/build/linux"))
+            test2 = harness.lookupTestByFullname(("repo2/c0/build/linux"))
 
             assert test2 is None
             
@@ -438,14 +440,14 @@ class TestManagerTests(unittest.TestCase):
         with manager.database.view():
             repo1 = manager.database.Repo.lookupOne(name="repo1")
             commit1 = manager.database.Commit.lookupOne(repo_and_hash=(repo1, "c0"))
-            test1 = manager.database.Test.lookupOne(fullname=("repo1/c0/build/linux"))
+            test1 = harness.lookupTestByFullname(("repo1/c0/build/linux"))
 
             self.assertFalse(manager.database.UnresolvedCommitRepoDependency.lookupAll(commit=commit1))
             self.assertFalse(manager.database.UnresolvedCommitRepoDependency.lookupAll(commit=commit2))
             self.assertFalse(manager.database.UnresolvedCommitRepoDependency.lookupAll(commit=commit3))
 
-            test2 = manager.database.Test.lookupAny(fullname=("repo2/c0/build/linux"))
-            test3 = manager.database.Test.lookupAny(fullname=("repo3/c0/build/linux"))
+            test2 = harness.lookupTestByFullname("repo2/c0/build/linux")
+            test3 = harness.lookupTestByFullname("repo3/c0/build/linux")
             
             assert test1 is not None
             assert test2 is not None
@@ -467,7 +469,7 @@ class TestManagerTests(unittest.TestCase):
 
         self.assertEqual(len(harness.manager.machine_management.runningMachines), 4)
 
-        commitNameAndTest = harness.manager.startNewTest(harness.getUnusedMachineId(), harness.timestamp)
+        harness.manager.startNewTest(harness.getUnusedMachineId(), harness.timestamp)
 
         with harness.database.view():
             runs = harness.database.TestRun.lookupAll(isRunning=True)
@@ -508,14 +510,14 @@ class TestManagerTests(unittest.TestCase):
         self.assertEqual(len(harness.manager.machine_management.runningMachines), 0)
         
         for f in harness.fullnamesThatRan():
-            if f.startswith("repo1/build/linux"):
+            if f.startswith("build/linux"):
                 m = harness.machinesThatRan(f)[0]
                 hardware,os = harness.machineConfig(m)
 
                 self.assertTrue(os.matches.LinuxWithDocker)
                 self.assertEqual(hardware.cores, 1)
 
-            if f.startswith("repo1/test/linux"):
+            if f.startswith("test/linux"):
                 m = harness.machinesThatRan(f)[0]
                 hardware,os = harness.machineConfig(m)
 
@@ -541,10 +543,14 @@ class TestManagerTests(unittest.TestCase):
         
         harness.startAllNewTests()
 
+        def namefor(x):
+            return x.testDefinition.name + "/" + x.hash
+
         with harness.database.view():
             self.assertEqual(
-                sorted([t.test.fullname for t in harness.database.TestRun.lookupAll(isRunning=True)]), 
-                sorted(["repo1/c0/build/linux","repo1/c0/test/windows"])
+                sorted([namefor(t.test) for t in harness.database.TestRun.lookupAll(isRunning=True)]), 
+                sorted([namefor(harness.lookupTestByFullname(x)) for x in 
+                    ["repo1/c0/build/linux","repo1/c0/test/windows"]])
                 )
 
         harness.manager.source_control.setBranch("repo1/master", "repo1/c1")
@@ -605,7 +611,8 @@ class TestManagerTests(unittest.TestCase):
             self.assertEqual(repo1._identity, harness.database.Repo.lookupOne(name='repo1')._identity)
 
             c0 = harness.database.Commit.lookupOne(repo_and_hash=(repo1,"c0"))
-            self.assertTrue(harness.database.Test.lookupAll(commitData=c0.data))
+            self.assertTrue(harness.manager.allTestsForCommit(c0))
+            harness.manager.allTestsForCommit(c0)[0].totalRuns
 
     def test_manager_missing_environment_refs(self):
         def add(harness, whichRepo):
@@ -642,8 +649,8 @@ class TestManagerTests(unittest.TestCase):
                 harness.consumeBackgroundTasks()
 
             with harness.database.view():
-                self.assertTrue(harness.database.Test.lookupAny(fullname=("repo2/c0/build_without_deps/linux")), ordering)
-                self.assertTrue(harness.database.Test.lookupAny(fullname=("repo3/c0/build_without_deps/linux")), ordering)
+                self.assertTrue(harness.lookupTestByFullname("repo2/c0/build_without_deps/linux"), ordering)
+                self.assertTrue(harness.lookupTestByFullname("repo3/c0/build_without_deps/linux"), ordering)
                 
 
 
@@ -657,7 +664,7 @@ class TestManagerTests(unittest.TestCase):
         harness.consumeBackgroundTasks()
 
         with harness.database.view():
-            self.assertFalse(harness.database.Test.lookupAny(fullname=("repo7/c0/build")))
+            self.assertFalse(harness.lookupTestByFullname("repo7/c0/build"))
             
     def test_circular_test_refs(self):
         harness = TestManagerTestHarness.getHarness()
@@ -670,7 +677,7 @@ class TestManagerTests(unittest.TestCase):
 
         with harness.database.view():
             c = harness.getCommit("repo8/c0")
-            self.assertFalse(harness.database.Test.lookupAny(fullname=("repo8/c0/build1/e1")))
+            self.assertFalse(harness.lookupTestByFullname("repo8/c0/build1/e1"))
 
             self.assertTrue("ircular" in c.data.testDefinitionsError, c.data.testDefinitionsError)
 
@@ -715,9 +722,9 @@ class TestManagerTests(unittest.TestCase):
 
         with harness.database.view():
             c = harness.getCommit("repo9/c0")
-            test0 = harness.database.Test.lookupAny(fullname=("repo9/c0/build/repo0_env"))
-            test1 = harness.database.Test.lookupAny(fullname=("repo9/c0/build/repo1_env"))
-            test2 = harness.database.Test.lookupAny(fullname=("repo9/c0/build/repo2_env"))
+            test0 = harness.lookupTestByFullname("repo9/c0/build/repo0_env")
+            test1 = harness.lookupTestByFullname("repo9/c0/build/repo1_env")
+            test2 = harness.lookupTestByFullname("repo9/c0/build/repo2_env")
        
             self.assertTrue(test0)
             self.assertTrue(test1)

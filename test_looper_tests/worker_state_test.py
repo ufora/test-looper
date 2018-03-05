@@ -35,6 +35,7 @@ class WorkerStateTests(unittest.TestCase):
         common.configureLogging(verbose=True)
         logging.info("WorkerStateTests set up")
         self.testdir = tempfile.mkdtemp()
+        self.testIdToTestName = {}
         self.simple_repo_hash = None
 
     def get_fds(self):
@@ -108,12 +109,7 @@ class WorkerStateTests(unittest.TestCase):
 
     def get_fully_resolved_definition(self, workerState, repoName, commitHash, testName):
         resolver = TestDefinitionResolver.TestDefinitionResolver(workerState.getRepoCacheByName)
-        test_definition = resolver.fullyResolvedTestEnvironmentAndRepoDefinitionsFor(repoName, commitHash)[0][testName]
-
-        environment = resolver.resolveEnvironment(test_definition.environment)
-        environment = TestDefinition.apply_environment_substitutions(environment)
-
-        return test_definition._withReplacement(environment=environment)
+        return resolver.testDefinitionsFor(repoName, commitHash)[testName]
 
 
     def test_git_not_leaking_fds(self):
@@ -144,7 +140,13 @@ class WorkerStateTests(unittest.TestCase):
 
     def runWorkerTest(self, worker, testId, repoName, commitHash, testName, callbacks, isDeploy):
         test_def = self.get_fully_resolved_definition(worker, repoName, commitHash, testName)
-        return worker.runTest(testId, repoName, commitHash, testName, callbacks, test_def, isDeploy)
+        self.testIdToTestName[testId] = testName
+        return worker.runTest(testId, callbacks, test_def, isDeploy)
+
+    def get_failure_log(self, worker, repoName, commitHash, testId):
+        testName = self.testIdToTestName[testId]
+        test_def = self.get_fully_resolved_definition(worker, repoName, commitHash, testName)
+        return worker.artifactStorage.get_failure_log(test_def.hash, testId)
 
     def test_worker_basic(self):
         repo, repoName, commitHash, worker = self.get_worker("simple_project")
@@ -152,8 +154,6 @@ class WorkerStateTests(unittest.TestCase):
         result = self.runWorkerTest(worker, "testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
 
         self.assertTrue(result)
-
-        self.assertTrue(len(os.listdir(worker.artifactStorage.build_storage_path)) == 1)
 
         self.assertTrue(
             self.runWorkerTest(worker, "testId2", repoName, commitHash, "good/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
@@ -163,10 +163,12 @@ class WorkerStateTests(unittest.TestCase):
             self.runWorkerTest(worker, "testId3", repoName, commitHash, "bad/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
             )
 
-        keys = worker.artifactStorage.testResultKeysFor(repoName, commitHash, "testId3")
+        testHash = self.get_fully_resolved_definition(worker, repoName, commitHash, "bad/linux").hash
+
+        keys = worker.artifactStorage.testResultKeysFor(testHash, "testId3")
         self.assertTrue(len(keys) == 2, keys)
 
-        data = worker.artifactStorage.testContents(repoName, commitHash, "testId3", keys[0])
+        data = worker.artifactStorage.testContents(testHash, "testId3", keys[0])
 
         self.assertTrue(len(data) > 0)
 
@@ -218,7 +220,7 @@ class WorkerStateTests(unittest.TestCase):
 
         self.assertTrue(
             self.runWorkerTest(worker, "testId2", repoName, commitHash, "docker/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
-            worker.artifactStorage.get_failure_log(repoName, commitHash, "testId2")
+            self.get_failure_log(worker, repoName, commitHash, "testId2")
             )
         
         self.assertEqual(container_count, len(docker_client.containers.list()))
@@ -232,7 +234,7 @@ class WorkerStateTests(unittest.TestCase):
 
         self.assertTrue(
             self.runWorkerTest(worker, "testId2", repoName, commitHash, "docker/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
-            worker.artifactStorage.get_failure_log(repoName, commitHash, "testId2")
+            self.get_failure_log(worker, repoName, commitHash, "testId2")
             )
 
     def test_cross_project_dependencies(self):
@@ -244,28 +246,28 @@ class WorkerStateTests(unittest.TestCase):
 
         self.assertTrue(
             self.runWorkerTest(worker, "testId2", commit2Name, commit2Hash, "build2/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
-            worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId2")
+            self.get_failure_log(worker, commit2Name, commit2Hash, "testId2")
             )
         self.assertTrue(
             self.runWorkerTest(worker, "testId3", commit2Name, commit2Hash, "test2/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
-            worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId3")
+            self.get_failure_log(worker, commit2Name, commit2Hash, "testId3")
             )
         
         self.assertTrue(
             self.runWorkerTest(worker, "testId6", commit2Name, commit2Hash, "test2/linux_dependent", WorkerState.DummyWorkerCallbacks(), False)[0],
-            worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId6")
+            self.get_failure_log(worker, commit2Name, commit2Hash, "testId6")
             )
 
         self.assertTrue(
             self.runWorkerTest(worker, "testId7", commit2Name, commit2Hash, "test3/linux_dependent", WorkerState.DummyWorkerCallbacks(), False)[0],
-            worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId7")
+            self.get_failure_log(worker, commit2Name, commit2Hash, "testId7")
             )
         self.assertFalse(
             self.runWorkerTest(worker, "testId4", commit2Name, commit2Hash, "test2_fails/linux", WorkerState.DummyWorkerCallbacks(), False)[0]
             )
         self.assertTrue(
             self.runWorkerTest(worker, "testId5", commit2Name, commit2Hash, "test2_dep_from_env/linux2", WorkerState.DummyWorkerCallbacks(), False)[0],
-            worker.artifactStorage.get_failure_log(commit2Name, commit2Hash, "testId5")
+            self.get_failure_log(worker, commit2Name, commit2Hash, "testId5")
             )
 
     def test_variable_expansions(self):
@@ -281,8 +283,12 @@ class WorkerStateTests(unittest.TestCase):
                 self.runWorkerTest(worker, testName, repoName, commitHash, name, callbacks, False)[0],
                 "".join(callbacks.logMessages)
                 )
+
+            resolver = TestDefinitionResolver.TestDefinitionResolver(worker.getRepoCacheByName)
+            testHash = resolver.testDefinitionsFor(repoName, commitHash)[name].hash
+
             if not name.startswith("build/"):
-                return [x.strip() for x in worker.artifactStorage.testContents(repoName, commitHash, testName, "results.txt").split("\n") if x.strip()]
+                return [x.strip() for x in worker.artifactStorage.testContents(testHash, testName, "results.txt").split("\n") if x.strip()]
 
         runTest("build/k0")
         runTest("build/k1")
@@ -384,10 +390,13 @@ class WorkerStateTests(unittest.TestCase):
         test2_extracted = "Extracting source cache" in logs2
 
         self.assertTrue(test1_uploaded and not test1_downloaded and not test1_extracted)
-        self.assertTrue(test2_extracted and not test2_downloaded and not test2_uploaded)
+        self.assertTrue(
+            test2_extracted and not test2_downloaded and not test2_uploaded, 
+            (test2_extracted, test2_downloaded, test2_uploaded)
+            )
 
         self.assertTrue(
-            worker.artifactStorage.build_exists(repoName, commitHash, "source-linux.tar.gz")
+            worker.artifactStorage.build_exists(commitHash, "source-linux.tar.gz")
             )
 
         #after purging, we should have to download the build
@@ -427,7 +436,7 @@ class WorkerStateTests(unittest.TestCase):
         success, results = self.runWorkerTest(worker, 
                 "testId1", 
                 repoName, commitHash, 
-                "test_with_individual_failures/linux", 
+                "test_with_individual_failures_1/linux", 
                 WorkerState.DummyWorkerCallbacks(), 
                 isDeploy=False
                 )
@@ -437,16 +446,19 @@ class WorkerStateTests(unittest.TestCase):
         testsWithLogs = [t for t in results if results[t][1]]
         self.assertTrue(
             testsWithLogs,
-            worker.artifactStorage.get_failure_log(repoName, commitHash, "testId1")
+            self.get_failure_log(worker, repoName, commitHash, "testId1")
             )
 
+        test_def = self.get_fully_resolved_definition(worker, repoName, commitHash, "test_with_individual_failures_1/linux")
+        
+
         for t in testsWithLogs:
-            keysAndSizes = worker.artifactStorage.testResultKeysAndSizesForIndividualTest(repoName, commitHash, "testId1", t)
+            keysAndSizes = worker.artifactStorage.testResultKeysAndSizesForIndividualTest(test_def.hash, "testId1", t)
             self.assertTrue(keysAndSizes)
 
             for k,s in keysAndSizes:
                 self.assertTrue(
-                    worker.artifactStorage.testContentsHtml(repoName, commitHash, "testId1", k)
+                    worker.artifactStorage.testContentsHtml(test_def.hash, "testId1", k)
                     )
 
 

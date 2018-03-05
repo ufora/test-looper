@@ -30,7 +30,7 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
     
     def allTests(self):
         return [x for x in 
-            self.testManager.database.Test.lookupAll(commitData=self.commit.data)
+            self.testManager.allTestsForCommit(self.commit)
                 if self.testManager.configurationForTest(x) == self.configurationName]
 
     
@@ -42,18 +42,18 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
 
     def tests(self):
         res = []
-        for t in self.testManager.database.Test.lookupAll(commitData=self.commit.data):
+        for t in self.testManager.allTestsForCommit(self.commit):
             if self.configurationName == self.testManager.configurationForTest(t):
                 res.append(t)
 
-        return sorted(res, key=lambda t: (0 if t.testDefinition.matches.Build else 1, t.fullname))
+        return sorted(res, key=lambda t: (0 if t.testDefinition.matches.Build else 1, t.name))
 
     def renderBreadcrumbPrefixes(self):
         return []
 
     def renderTestResultsGridByGroup(self):
         def testFun(commit):
-            for t in self.testManager.database.Test.lookupAll(commitData=commit.data):
+            for t in self.testManager.allTestsForCommit(commit):
                 if self.configurationName == self.testManager.configurationForTest(t) and t.testDefinition.matches.Test:
                     yield t
 
@@ -88,7 +88,7 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
             if currentChild.primaryObject().testDefinition.matches.Build:
                 return [self.contextFor(t)
                         for t in sorted(
-                            self.database.Test.lookupAll(commitData=self.commit.data),
+                            self.testManager.allTestsForCommit(self.commit),
                             key=lambda t:t.testDefinition.name
                             ) if t.testDefinition.matches.Build
                         and self.testManager.configurationForTest(t) == self.configurationName
@@ -96,7 +96,7 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
             if currentChild.primaryObject().testDefinition.matches.Test:
                 return [self.contextFor(t)
                         for t in sorted(
-                            self.database.Test.lookupAll(commitData=self.commit.data),
+                            self.testManager.allTestsForCommit(self.commit),
                             key=lambda t:t.testDefinition.name
                             ) if t.testDefinition.matches.Test
                         and self.testManager.configurationForTest(t) == self.configurationName

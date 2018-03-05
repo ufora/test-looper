@@ -17,7 +17,7 @@ def configureLogging(verbose=False):
 
 def mirror_into(src_dir, dest_dir):
     for p in os.listdir(src_dir):
-        if os.path.isdir(p):
+        if os.path.isdir(os.path.join(src_dir, p)):
             if os.path.exists(os.path.join(dest_dir, p)):
                 shutil.rmtree(os.path.join(dest_dir, p))
             shutil.copytree(os.path.join(src_dir, p), os.path.join(dest_dir, p), symlinks=True)

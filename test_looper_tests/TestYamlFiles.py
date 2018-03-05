@@ -87,7 +87,7 @@ environments:
     variables:
       ENV_VAR: ENV_VAL
 builds:
-  - foreach: {env: [linux, test_linux, windows]}
+  - foreach: {env: [linux]}
     repeat:
       build/${env}:
         command: "build.sh $TEST_LOOPER_IMPORTS/child"
@@ -97,7 +97,7 @@ builds:
       command: "build.sh"
       disabled: true
 tests:
-  foreach: {env: [linux, test_linux, windows]}
+  foreach: {env: [linux]}
   repeat:
       test/${env}:
         command: "test.sh $TEST_LOOPER_IMPORTS/build"
@@ -242,7 +242,7 @@ builds:
     command: hi
   build/repo1_env:
     dependencies:
-     input: repo1_ref/build/linux
+     input: repo1c0_ref/build/linux
   build/repo2_env:
     dependencies:
      input: repo2_ref/build_without_deps/linux

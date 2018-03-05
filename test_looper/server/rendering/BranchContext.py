@@ -173,7 +173,7 @@ class BranchContext(Context.Context):
     def getGridRenderer(self, commits):
         return TestGridRenderer.TestGridRenderer(commits, 
             lambda c: [
-                t for t in self.testManager.database.Test.lookupAll(commitData=c.data)
+                t for t in self.testManager.allTestsForCommit(c)
                     if not t.testDefinition.matches.Deployment
                 ] if c.data else [],
             lambda group: self.contextFor(ComboContexts.BranchAndConfiguration(self.branch, group)).renderLink(),
@@ -186,7 +186,7 @@ class BranchContext(Context.Context):
     def getBranchCommitRow(self, commit, renderer):
         row = [self.getContextForCommit(commit).renderLinkWithShaHash()]
 
-        all_tests = self.testManager.database.Test.lookupAll(commitData=commit.data)
+        all_tests = self.testManager.allTestsForCommit(commit)
 
         if all_tests:
             row[-1] += "&nbsp;" + self.contextFor(commit).toggleCommitUnderTestLink()
@@ -312,7 +312,7 @@ class BranchContext(Context.Context):
                 )
                     for g in sorted(set([self.testManager.configurationForTest(t)
                             for commit in self.testManager.commitsToDisplayForBranch(self.branch, self.maxCommitCount())
-                            for t in self.database.Test.lookupAll(commitData=commit.data)
+                            for t in self.testManager.allTestsForCommit(commit)
                         ]))
                 ]
         else:

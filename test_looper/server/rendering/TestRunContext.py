@@ -11,7 +11,7 @@ class TestRunContext(Context.Context):
         Context.Context.__init__(self, renderer, options)
         self.testRun = testRun
         self.test = self.testRun.test
-        self.commit = self.test.commitData.commit
+        self.commit = self.testManager.oldestCommitForTest(self.test)
         self.repo = self.commit.repo
 
     def consumePath(self, path):
@@ -99,20 +99,18 @@ class TestRunContext(Context.Context):
 
         grid = [["Artifact", "Size"]]
 
-        commit = testRun.test.commitData.commit
-
         if testRun.test.testDefinition.matches.Build:
             build_key = testRun.test.testDefinition.name.replace("/","_") + ".tar.gz"
 
-            if self.renderer.artifactStorage.build_exists(commit.repo.name, commit.hash, build_key):
+            if self.renderer.artifactStorage.build_exists(testRun.test.hash, build_key):
                 grid.append([
-                    HtmlGeneration.link(build_key, self.renderer.buildDownloadUrl(commit.repo.name, commit.hash, build_key)),
-                    HtmlGeneration.bytesToHumanSize(self.renderer.artifactStorage.build_size(commit.repo.name, commit.hash, build_key))
+                    HtmlGeneration.link(build_key, self.renderer.buildDownloadUrl(testRun.test.hash, build_key)),
+                    HtmlGeneration.bytesToHumanSize(self.renderer.artifactStorage.build_size(testRun.test.hash, build_key))
                     ])
             else:
                 logging.info("No build found at %s", build_key)
 
-        for artifactName, sizeInBytes in self.renderer.artifactStorage.testResultKeysForWithSizes(commit.repo.name, commit.hash, testRun._identity):
+        for artifactName, sizeInBytes in self.renderer.artifactStorage.testResultKeysForWithSizes(testRun.test.hash, testRun._identity):
             grid.append([
                 HtmlGeneration.link(
                     artifactName,

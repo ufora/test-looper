@@ -29,7 +29,7 @@ class DeploymentsContext(Context.Context):
         for d in deployments:
             row = []
 
-            commit = d.test.commitData.commit
+            commit = self.testManager.oldestCommitForTest(d.test)
             repo = commit.repo
 
             row.append(self.contextFor(commit).renderLink())

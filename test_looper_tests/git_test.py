@@ -64,4 +64,36 @@ class GitTests(unittest.TestCase):
         self.assertEqual(h2_info[0], h2)
         self.assertEqual(h2_info[1], [h1])
         self.assertEqual(h2_info[3], "message2")
+
+    def test_most_recent_hash_for(self):
+        base_repo = Git.Git(os.path.join(self.testdir, "base_repo"))
+        base_repo.init()
+
+        h1 = base_repo.commit("message1")
+        h2 = base_repo.createCommit(h1, {'file1': "hi", "dir1/file2": "contents", "dir2/file3": "contents"}, "message2")
+        h3 = base_repo.createCommit(h2, {"dir1/file2": "contents_2", }, "message3")
+        h4 = base_repo.createCommit(h3, {"dir2/file2": "contents_2", }, "message4")
+        h5 = base_repo.createCommit(h4, {"dir2/file2": "contents_2", "dir2": None}, "message4")
+
+        self.assertEqual(base_repo.mostRecentHashForSubpath(h1, "dir1"), None)
+        self.assertEqual(base_repo.mostRecentHashForSubpath(h1, "dir2"), None)
+
+        self.assertEqual(base_repo.mostRecentHashForSubpath(h2, "dir1"), h2)
+        self.assertEqual(base_repo.mostRecentHashForSubpath(h2, "dir2"), h2)
+
+        self.assertEqual(base_repo.mostRecentHashForSubpath(h4, "dir1"), h3)
+        self.assertEqual(base_repo.mostRecentHashForSubpath(h4, "dir2"), h4)
+
+        self.assertEqual(base_repo.mostRecentHashForSubpath(h5, "dir2"), h5)
+
+        #what happens if 'dir1/file2' changes but becomes the same thing in two different pathways?
+        h6_left = base_repo.createCommit(h5, {"dir1/file2": "contents_left"}, "message")
+        h6_left_2 = base_repo.createCommit(h6_left, {"dir1/file2": "contents_final"}, "message")
+
+        h6_right = base_repo.createCommit(h5, {"dir1/file2": "contents_right"}, "message")
+        h6_right_2 = base_repo.createCommit(h6_right, {"dir1/file2": "contents_final"}, "message")
+
+        h7 = base_repo.createMerge(h6_left_2, [h6_right_2], "merge commit")
+        self.assertEqual(base_repo.mostRecentHashForSubpath(h7, "dir1"), h6_left_2)
         
+

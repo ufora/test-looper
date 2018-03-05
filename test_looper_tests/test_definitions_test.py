@@ -141,8 +141,8 @@ class TestDefinitionScriptTests(unittest.TestCase):
         
         env = TestDefinition.merge_environments(env, deps)
         
-        self.assertEqual(env.environment_name, "repo/hash/diamond")
-        self.assertEqual(env.inheritance, tuple(["repo/hash/" + x for x in ["child1", "child2", "env_dep", "env_root"]]))
+        self.assertEqual(env.environment_name, "diamond")
+        self.assertEqual(env.inheritance, ("child1", "child2", "env_dep", "env_root"))
         self.assertEqual(env.image.setup_script_contents, "\nTestFileContents\n\nChildContents\n")
 
     def test_expansion(self):

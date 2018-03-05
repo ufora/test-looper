@@ -201,18 +201,26 @@ class TestManager(object):
 
         self.deploymentStreams = {}
 
+    def allTestsForCommit(self, commit):
+        if not commit.data:
+            return []
+
+        res = []
+
+        for testDef in commit.data.testDefinitions.values():
+            test = self.database.Test.lookupAny(hash=testDef.hash)
+            if test:
+                res.append(test)
+
+        return res
+
     def allTestsDependedOnByTest(self, test):
         res = []
 
         for dep in test.testDefinition.dependencies.values():
-            if dep.matches.InternalBuild:
+            if dep.matches.Build:
                 for subtest in self.database.Test.lookupAll(
-                        fullname=test.commitData.commit.repo.name + "/" + test.commitData.commit.hash + "/" + dep.name
-                        ):
-                    res.append(subtest)
-            elif dep.matches.ExternalBuild:
-                for subtest in self.database.Test.lookupAll(
-                        fullname=dep.repo + "/" + dep.commitHash + "/" + dep.name
+                        hash=dep.buildHash
                         ):
                     res.append(subtest)
 
@@ -336,30 +344,6 @@ class TestManager(object):
 
         return Scope()
 
-    def upstreamCommits(self, commit):
-        if not commit.data:
-            return []
-        result = []
-
-        for test in self.database.Test.lookupAll(commitData=commit.data):
-            for dep in self.database.TestDependency.lookupAll(test=test):
-                if commit != dep.dependsOn.commitData.commit:
-                    result.append(dep.dependsOn.commitData.commit)
-
-        return sorted(set(result), key=lambda k: k.repo.name + "/" + k.hash)
-
-    def downstreamCommits(self, commit):
-        if not commit.data:
-            return []
-        result = []
-
-        for test in self.database.Test.lookupAll(commitData=commit.data):
-            for dep in self.database.TestDependency.lookupAll(dependsOn=test):
-                if commit != dep.test.commitData.commit:
-                    result.append(dep.test.commitData.commit)
-
-        return sorted(set(result), key=lambda k: k.repo.name + "/" + k.hash)
-
     def getNCommits(self, commit, N, direction="below"):
         """Do a breadth-first search around 'commit'"""
 
@@ -446,14 +430,14 @@ class TestManager(object):
         self._scheduleBootCheck()
         self._shutdownMachinesIfNecessary(timestamp)
 
-    def createDeployment(self, fullname, timestamp):
+    def createDeployment(self, hash, timestamp):
         with self.transaction_and_lock():
-            logging.info("Trying to boot a deployment for %s", fullname)
-
-            test = self.database.Test.lookupAny(fullname=fullname)
+            test = self.database.Test.lookupAny(hash=hash)
 
             if not test:
-                raise Exception("Can't find test %s" % fullname)
+                raise Exception("Can't find test %s" % hash)
+
+            logging.info("Trying to boot a deployment for %s", test.hash + "/" + test.name)
 
             cat = self._machineCategoryForTest(test)
             assert cat
@@ -470,7 +454,7 @@ class TestManager(object):
             cat.desired = cat.desired + 1
 
             self.streamForDeployment(deploymentId).addMessageFromDeployment(
-                time.asctime() + " TestLooper> Deployment for %s waiting for hardware.\n\r" % fullname
+                time.asctime() + " TestLooper> Deployment for %s waiting for hardware.\n\r" % (test.hash + "/" + test.name)
                 )
 
             self._scheduleBootCheck()
@@ -495,8 +479,10 @@ class TestManager(object):
             return 0
 
         res = 0
-        for test in self.database.Test.lookupAll(commitData=commit.data):
-            res += max(0, test.activeRuns)
+        for testDef in commit.data.testDefinitions.values():
+            test = self.database.Test.lookupAny(hash=testDef.hash)
+            if test:
+                res += max(0, test.activeRuns)
 
         return res
 
@@ -529,14 +515,6 @@ class TestManager(object):
         t = self.database.TestRun(testIdentity)
         if t.exists():
             return t
-
-    def priority_for_test(self, fullname):
-        with self.database.view() as v:
-            test = self.database.Test.lookupAny(fullname=fullname)
-            if test:
-                return test.priority
-            else:
-                return None
 
     def machineInitialized(self, machineId, curTimestamp):
         with self.transaction_and_lock():
@@ -782,7 +760,7 @@ class TestManager(object):
             commitsWithTests = self._allCommitsWithPossibilityOfTests()
 
             for c in commitsWithTests:
-                for test in self.database.Test.lookupAll(commitData=c.data):
+                for test in self.allTestsForCommit(c):
                     test.activeRuns = 0
 
             for runningTest in self.database.TestRun.lookupAll(isRunning=True):
@@ -820,7 +798,7 @@ class TestManager(object):
                         return test
 
     def startNewDeployment(self, machineId, timestamp):
-        """Allocates a new test and returns (repoName, commitHash, testName, deploymentId) or (None,None,None, None) if no work."""
+        """Allocates a new test and returns (deploymentId, testDefinition) or (None,None) if no work."""
         with self.transaction_and_lock():
             machine = self.database.Machine.lookupAny(machineId=machineId)
 
@@ -841,10 +819,9 @@ class TestManager(object):
                     
                     test = deployment.test
 
-                    return (test.commitData.commit.repo.name, test.commitData.commit.hash, 
-                            test.testDefinition.name, deployment._identity, test.testDefinition)
+                    return (deployment._identity, test.testDefinition)
 
-            return None, None, None, None, None
+            return None, None
 
     def _cleanupGitRepoLocks(self):
         cleaned = 0
@@ -887,9 +864,9 @@ class TestManager(object):
                 return True
 
             if self.database.TestRun(testOrDeployId).exists():
-                commitHash = self.database.TestRun(testOrDeployId).test.commitData.commit.hash
+                testHash = self.database.TestRun(testOrDeployId).test.hash
             elif self.database.Deployment(testOrDeployId).exists():
-                commitHash = self.database.Deployment(testOrDeployId).test.commitData.commit.hash
+                testHash = self.database.Deployment(testOrDeployId).test.hash
             else:
                 return False
 
@@ -897,10 +874,11 @@ class TestManager(object):
                 return False
             if len(self.database.AllocatedGitRepoLocks.lookupAll(testOrDeployId=testOrDeployId)) > 1:
                 return False
-            if len(self.database.AllocatedGitRepoLocks.lookupAll(commitHash=commitHash)) > 1:
+            if len(self.database.AllocatedGitRepoLocks.lookupAll(testHash=testHash)) > 1:
                 return False
 
-            self.database.AllocatedGitRepoLocks.New(requestUniqueId=requestId,testOrDeployId=testOrDeployId, commitHash=commitHash)
+            self.database.AllocatedGitRepoLocks.New(requestUniqueId=requestId,testOrDeployId=testOrDeployId, testHash=testHash)
+
             logging.info(
                 "Allocating a git repo lock to test/deploy %s. There are now %s",
                 testOrDeployId,
@@ -947,12 +925,12 @@ class TestManager(object):
         return True
 
     def startNewTest(self, machineId, timestamp):
-        """Allocates a new test and returns (repoName, commitHash, testName, testId, testDefinition) or (None,None,None,None,None) if no work."""
+        """Allocates a new test and returns (testId, testDefinition) or (None,None) if no work."""
         with self.transaction_and_lock():
             machine = self.database.Machine.lookupAny(machineId=machineId)
 
             if not machine or not machine.isAlive:
-                return None, None, None, None, None
+                return None, None
 
             self._machineHeartbeat(machine, timestamp)
 
@@ -963,7 +941,7 @@ class TestManager(object):
                 logging.warn("Took %s to get priority", time.time() - t0)
 
             if not test:
-                return None, None, None, None, None
+                return None, None
 
             test.activeRuns = test.activeRuns + 1
 
@@ -978,7 +956,7 @@ class TestManager(object):
 
             self._updateTestPriority(test, timestamp)
 
-            return (test.commitData.commit.repo.name, test.commitData.commit.hash, test.testDefinition.name, runningTest._identity, test.testDefinition)
+            return (runningTest._identity, test.testDefinition)
 
     def performCleanupTasks(self, curTimestamp):
         #check all tests to see if we've exceeded the timeout and the test is dead
@@ -1409,7 +1387,7 @@ class TestManager(object):
 
             try:
                 all_tests, all_environments, all_repo_defs = \
-                    resolver.fullyResolvedTestEnvironmentAndRepoDefinitionsFor(
+                    resolver.testEnvironmentAndRepoDefinitionsFor(
                         commit.repo.name, 
                         commit.hash
                         )
@@ -1423,11 +1401,8 @@ class TestManager(object):
             commit.data.repos = all_repo_defs
             
             for e in all_tests.values():
-                fullname=commit.repo.name + "/" + commit.hash + "/" + e.name
-
                 self._createTest(
-                    commitData=commit.data,
-                    fullname=fullname,
+                    commit=commit,
                     testDefinition=e
                     )
 
@@ -1533,12 +1508,9 @@ class TestManager(object):
                 self._triggerCommitPriorityUpdate(p)
 
             #trigger priority updates of all builds in other commits
-            for test in self.database.Test.lookupAll(commitData=commit.data):
+            for test in self.allTestsForCommit(commit):
                 for dep in self.database.TestDependency.lookupAll(test=test):
-                    if commit != dep.dependsOn.commitData.commit:
-                        self._triggerTestPriorityUpdate(dep.dependsOn)
-            
-            for test in self.database.Test.lookupAll(commitData=commit.data):
+                    self._triggerTestPriorityUpdate(dep.dependsOn)
                 self._triggerTestPriorityUpdate(test)
 
     def _calcCommitAnybranch(self, commit):
@@ -1734,14 +1706,25 @@ class TestManager(object):
             commit.userPriority = priority
             self._triggerCommitPriorityUpdate(commit)
 
+    def oldestCommitForTest(self, test):
+        commits = self.commitsReferencingTest(test)
+        if not commits:
+            return None
+        return sorted(commits, key=lambda c: c.data.timestamp)[0]
+
+    def commitsReferencingTest(self, test):
+        return [dep.commit for dep in self.database.CommitTestDependency.lookupAll(test=test)]
+
     def _updateTestPriority(self, test, curTimestamp):
         self._checkAllTestDependencies(test)
 
-        test.calculatedPriority = test.commitData.commit.calculatedPriority
+        test.calculatedPriority = max(
+            commit.calculatedPriority for commit in self.commitsReferencingTest(test)
+            )
 
         #now check all tests that depend on us
         for dep in self.database.TestDependency.lookupAll(dependsOn=test):
-            test.calculatedPriority = max(dep.test.commitData.commit.calculatedPriority, test.calculatedPriority)
+            test.calculatedPriority = max(dep.test.calculatedPriority, test.calculatedPriority)
 
         #cancel any runs already going if this gets deprioritized
         if test.calculatedPriority == 0:
@@ -1798,7 +1781,7 @@ class TestManager(object):
                 self._scheduleBootCheck()
 
         if test.priority != oldPriority:
-            logging.info("test priority for test %s changed to %s", test.fullname, test.priority)
+            logging.info("test priority for test %s changed to %s", test.testDefinition.hash, test.priority)
         
             for dep in self.database.TestDependency.lookupAll(test=test):
                 self._triggerTestPriorityUpdate(dep.dependsOn)
@@ -1829,16 +1812,16 @@ class TestManager(object):
         def checkTestCategory(test):
             real_cat = self._machineCategoryForTest(test)
             if not real_cat:
-                logging.warn("Test %s has no machine category!", test.fullname)
+                logging.warn("Test %s/%s has no machine category!", test.hash, test.name)
                 self._checkAllTestDependencies(test)
                 real_cat = self._machineCategoryForTest(test)
                 if not real_cat:
-                    logging.warn("Test %s STILL has no machine category!", test.fullname)
+                    logging.warn("Test %s/%s STILL has no machine category!", test.hash, test.name)
 
 
             if real_cat != test.machineCategory:
                 logging.warn("test %s had incorrect desired machine category %s != %s", 
-                    test.fullname, 
+                    test.hash + "/" + test.name, 
                     "<none>" if not test.machineCategory else
                         str(test.machineCategory.hardware) + "/" + str(test.machineCategory.os),
                     "<none>" if not real_cat else
@@ -1931,7 +1914,7 @@ class TestManager(object):
             elif env.image.matches.AMI:
                 os = MachineManagement.OsConfig.LinuxVM(env.image.base_ami)
             else:
-                logging.warn("Test %s has an invalid image %s for linux", test.fullname, env.image)
+                logging.warn("Test %s has an invalid image %s for linux", test.hash + "/" + test.name, env.image)
                 return None
 
         if env.platform.matches.windows:
@@ -1940,7 +1923,7 @@ class TestManager(object):
             elif env.image.matches.AMI:
                 os = MachineManagement.OsConfig.WindowsVM(env.image.base_ami)
             else:
-                logging.warn("Test %s has an invalid image %s for windows", test.fullname, env.image)
+                logging.warn("Test %s has an invalid image %s for windows", test.hash + "/" + test.name, env.image)
                 return None
 
         min_cores = test.testDefinition.min_cores
@@ -1954,7 +1937,7 @@ class TestManager(object):
                 viable.append(hardware)
 
         if not viable:
-            logging.warn("Test %s has no viable hardware configurations", test.fullname)
+            logging.warn("Test %s has no viable hardware configurations", test.hash + "/" + test.name)
             return None
 
         if max_cores:
@@ -2041,24 +2024,24 @@ class TestManager(object):
 
         return False
 
-    def _createTest(self, commitData, fullname, testDefinition):
+    def _createTest(self, commit, testDefinition):
         #make sure it's new
-        assert not self.database.Test.lookupAll(fullname=fullname)
+        test = self.database.Test.lookupAny(hash=testDefinition.hash)
         
-        test = self.database.Test.New(
-            commitData=commitData, 
-            fullname=fullname, 
-            testDefinition=testDefinition, 
-            priority=self.database.TestPriority.NoMoreTests()
-            )
+        if not test:
+            test = self.database.Test.New(
+                hash=testDefinition.hash,
+                testDefinition=testDefinition, 
+                priority=self.database.TestPriority.NoMoreTests()
+                )
 
-        self._checkAllTestDependencies(test)
-        self._markTestFullnameCreated(fullname, test)
-        self._triggerTestPriorityUpdate(test)
+            self._checkAllTestDependencies(test)
+            self._markTestCreated(test)
+            self._triggerTestPriorityUpdate(test)
+
+        self.database.CommitTestDependency.New(commit=commit,test=test)
 
     def _checkAllTestDependencies(self, test):
-        commitData = test.commitData
-
         env = test.testDefinition.environment
 
         #here we should have a fully populated environment, with all dependencies
@@ -2067,20 +2050,17 @@ class TestManager(object):
 
         test.machineCategory = self._machineCategoryForTest(test)
 
-        #now we can resolve the test definition, so that we get reasonable dependencies
-        dependencies = TestDefinition.apply_test_substitutions(test.testDefinition, env, {}).dependencies
-
         all_dependencies = dict(env.dependencies)
         all_dependencies.update(test.testDefinition.dependencies)
 
         #now first check whether this test has any unresolved dependencies
         for depname, dep in all_dependencies.iteritems():
             if dep.matches.ExternalBuild:
-                fullname_dep = "/".join([dep.repo, dep.commitHash, dep.name])
-                self._createTestDep(test, fullname_dep)
+                assert False
             elif dep.matches.InternalBuild:
-                fullname_dep = "/".join([commitData.commit.repo.name, commitData.commit.hash, dep.name])
-                self._createTestDep(test, fullname_dep)
+                assert False
+            elif dep.matches.Build:
+                self._createTestDep(test, dep.buildHash)
             elif dep.matches.Source:
                 pass
 
@@ -2102,47 +2082,44 @@ class TestManager(object):
 
         return False
 
-    def _createTestDep(self, test, fullname_dep):
-        dep_test = self.database.Test.lookupAny(fullname=fullname_dep)
+    def _createTestDep(self, test, childHash):
+        dep_test = self.database.Test.lookupAny(hash=childHash)
 
         assert dep_test != test
 
         if not dep_test:
-            if self.database.UnresolvedTestDependency.lookupAny(test_and_depends=(test, fullname_dep)) is None:
-                self.database.UnresolvedTestDependency.New(test=test, dependsOnName=fullname_dep)
+            if self.database.UnresolvedTestDependency.lookupAny(test_and_depends=(test, childHash)) is None:
+                self.database.UnresolvedTestDependency.New(test=test, dependsOnHash=childHash)
         else:
             if self.database.TestDependency.lookupAny(test_and_depends=(test, dep_test)) is None:
                 self.database.TestDependency.New(test=test, dependsOn=dep_test)
 
-    def _markTestFullnameCreated(self, fullname, test_for_name=None):
-        for dep in self.database.UnresolvedTestDependency.lookupAll(dependsOnName=fullname):
-            test = dep.test
-            if test_for_name is not None:
-                #this is a real test. If we depended on a commit, this would have been
-                #None
-                self.database.TestDependency.New(test=test, dependsOn=test_for_name)
-
+    def _markTestCreated(self, test):
+        for dep in self.database.UnresolvedTestDependency.lookupAll(dependsOnHash=test.hash):
+            self.database.TestDependency.New(test=dep.test, dependsOn=test)
+            self._triggerTestPriorityUpdate(dep.test)
             dep.delete()
-            self._triggerTestPriorityUpdate(test)
                 
     def _triggerCommitPriorityUpdate(self, commit):
-        self._queueTask(
-            self.database.DataTask.New(
-                task=self.database.BackgroundTask.UpdateCommitPriority(commit=commit),
-                status=pendingMedium
+        if not self.database.DataTask.lookupAny(update_commit_priority=commit):
+            self._queueTask(
+                self.database.DataTask.New(
+                    task=self.database.BackgroundTask.UpdateCommitPriority(commit=commit),
+                    status=pendingMedium
+                    )
                 )
-            )
 
     def _triggerTestPriorityUpdate(self, test):
         #test priority updates are always 'low' because we want to ensure
         #that all commit updates have triggered first. This way we know that
         #we're not accidentally going to cancel a test
-        self._queueTask(
-            self.database.DataTask.New(
-                task=self.database.BackgroundTask.UpdateTestPriority(test=test),
-                status=pendingLow
+        if not self.database.DataTask.lookupAny(update_test_priority=test):
+            self._queueTask(
+                self.database.DataTask.New(
+                    task=self.database.BackgroundTask.UpdateTestPriority(test=test),
+                    status=pendingLow
+                    )
                 )
-            )
 
     def _triggerCommitTestParse(self, commit):
         if not (self.database.UnresolvedCommitRepoDependency.lookupAll(commit=commit) +

@@ -394,8 +394,8 @@ class TestLooperHttpServer(object):
         return self.renderer.cancelTestRun(testRunId, redirect)
 
     @cherrypy.expose
-    def bootDeployment(self, fullname):
-        return self.renderer.bootDeployment(fullname)
+    def bootDeployment(self, testHash):
+        return self.renderer.bootDeployment(testHash)
 
     @cherrypy.expose
     def testEnvironment(self, repoName, commitHash, environmentName):

@@ -53,7 +53,7 @@ ImportError.UnknownRepo = makeDict(repo=str)
 ImportError.UnknownBranch = makeDict(repo=str, name=str)
 ImportError.UnknownCommit = makeDict(repo=str, hash=str)
 ImportError.UnknownTest = makeDict(repo=str, hash=str, test=str)
-ImportError.TestAlreadyExists = makeDict(repo=str, hash=str, test=str, identity=str)
+ImportError.TestAlreadyExists = makeDict(identity=str)
 
 class ImportExport(object):
     """
@@ -69,6 +69,8 @@ class ImportExport(object):
         with self.database.view():
             repos = {}
             testNameSets = {}
+
+            testIsAlreadyDumped = set()
 
             def walkTest(t, testDict):
                 runList = []
@@ -118,8 +120,10 @@ class ImportExport(object):
                     testDict = {}
 
                     if self.testManager._commitMightHaveTests(c):
-                        for test in self.database.Test.lookupAll(commitData=c.data):
-                            walkTest(test, testDict)
+                        for test in self.testManager.allTestsForCommit(c):
+                            if test not in testIsAlreadyDumped:
+                                walkTest(test, testDict)
+                                testIsAlreadyDumped.add(test)
 
                     for parent in c.data.parents:
                         commitsToCheck.add(parent)
@@ -189,7 +193,10 @@ class ImportExport(object):
                     commit.userPriority=commitdef.priority
 
                     for testname, testdef in commitdef.tests.iteritems():
-                        test = self.database.Test.lookupAny(fullname=commit.repo.name +"/" + commit.hash + "/" + testname)
+                        testHash = commit.data.testDefinitions[testname].hash
+
+                        test = self.database.Test.lookupAny(hash=testHash)
+
                         if not test:
                             errors.append(
                                 ImportError.UnknownTest(
@@ -211,9 +218,6 @@ class ImportExport(object):
     def _importTestRun(self, test, run, testNameSets):
         if self.database.TestRun(run.identity).exists():
             return [ImportError.TestAlreadyExists(
-                repo=test.commitData.commit.repo.name, 
-                hash=test.commitData.commit.hash,
-                test=test.testDefinition.name,
                 identity=run.identity
                 )]
 

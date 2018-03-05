@@ -124,10 +124,29 @@ class Git(object):
             if e.errno != errno.EEXIST:
                 raise
 
+    def createMerge(self, commitHash, otherCommits, commit_message, timestamp_override=None):
+        with self.git_repo_lock:
+            self.resetToCommit(commitHash)
+
+            env = dict(os.environ)
+
+            if timestamp_override:
+                timestamp_override_options = ["--date", str(timestamp_override) + " -0500"]
+                env["GIT_COMMITTER_DATE"] = str(timestamp_override) + " -0500"
+            else:
+                timestamp_override_options = []
+
+            cmds = ["git", "merge"] + otherCommits + ["-m", commit_message] + timestamp_override_options
+
+            assert self.subprocessCheckCall(cmds, env=env) == 0
+
+            return self.subprocessCheckOutput(["git", "log", "-n", "1", '--format=format:%H']).strip()
+
     def createCommit(self, commitHash, fileContents, commit_message, timestamp_override=None, author="test_looper <test_looper@test_looper.com>"):
         """Create a new commit.
 
-        fileContents - a dictionary from path to string or None. None means delete.
+        fileContents - a dictionary of modifications to make. Keys are paths.
+            Values are strings of file contents, or None which means to delete the file.
         """
         with self.git_repo_lock:
             self.resetToCommit(commitHash)
@@ -328,6 +347,12 @@ class Git(object):
             return self.subprocessCheckOutput(
                     ["git", "log", "-n", "1", commitHash]
                     )
+
+    def mostRecentHashForSubpath(self, commitHash, subpath):
+        with self.git_repo_lock:
+            return self.subprocessCheckOutput(
+                    ["git", "log", "--format=format:%H", "-n", "1", commitHash, "--", subpath]
+                    ) or None
 
     def gitCommitData(self, commitHash):
         return self.gitCommitDataMulti(commitHash, depth=1)[0]

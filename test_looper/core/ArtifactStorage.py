@@ -35,28 +35,28 @@ class ArtifactStorage(object):
             return ("text/plain", key, False)
         return ("application/octet-stream", key, False)
 
-    def sanitizeName(self, name):
-        return name.replace("/", "_").replace("\\", "_").replace(":","_").replace(" ","_")
+    @staticmethod
+    def sanitizeName(name):
+        return name.replace("_", "_u_").replace("/","_s_").replace("\\", "_bs_").replace(":","_c_").replace(" ","_sp_")
 
-    def testResultKeysAndSizesForIndividualTest(self, repoName, commitHash, testId, testName):
+    def testResultKeysAndSizesForIndividualTest(self, testHash, testId, testName):
         subPrefix = "individual_test_logs/" + self.sanitizeName(testName)
 
         res = []
 
-        for key,sz in self.testResultKeysForWithSizes(repoName, commitHash, testId, subPrefix):
+        for key,sz in self.testResultKeysForWithSizes(testHash, testId, subPrefix):
             res.append((subPrefix + "/" + key, sz))
         
         return res
 
-    def uploadIndividualTestArtifacts(self, repoName, commitHash, testId, pathsToUpload):
+    def uploadIndividualTestArtifacts(self, testHash, testId, pathsToUpload):
         def uploadArtifact(testName, path, semaphore):
             try:
                 testName = self.sanitizeName(testName)
                 filename = os.path.basename(path)
 
                 self.uploadSingleTestArtifact(
-                    repoName, 
-                    commitHash, 
+                    testHash, 
                     testId, 
                     "individual_test_logs/" + testName + "/" + filename, 
                     path
@@ -77,7 +77,7 @@ class ArtifactStorage(object):
         for _ in xrange(counts):
             sem.acquire()
 
-    def uploadTestArtifacts(self, reponame, commitHash, testId, testOutputDir, reserved_names):
+    def uploadTestArtifacts(self, testHash, testId, testOutputDir, reserved_names):
         """Upload all the files in 'testOutputDir'.
 
         reserved_names - set of reserved filenames used to ensure we don't 
@@ -109,7 +109,7 @@ class ArtifactStorage(object):
                         prefix = str(int(prefix[:-1])+1) + "_"
                     path = prefix + path
 
-                self.uploadSingleTestArtifact(reponame, commitHash, testId, path, full_path)
+                self.uploadSingleTestArtifact(testHash, testId, path, full_path)
             except:
                 logging.error("Failed to upload %s:\n%s", path, traceback.format_exc())
             finally:
@@ -124,7 +124,7 @@ class ArtifactStorage(object):
         for _ in xrange(counts):
             sem.acquire()
 
-    def testResultKeysFor(self, repoName, commitHash, testId):
+    def testResultKeysFor(self, testHash, testId):
         """Return a list of test results for a given testId.
 
         testId: str
@@ -132,31 +132,31 @@ class ArtifactStorage(object):
         """
         assert False, "Subclasses implement"
 
-    def testContentsHtml(self, repoName, commitHash, testId, key):
+    def testContentsHtml(self, testHash, testId, key):
         """Get a FileContents for a given testId and key"""
         assert False, "Subclasses implement"
 
-    def uploadSingleTestArtifact(self, reponame, commitHash, testId, artifact_name, path):
+    def uploadSingleTestArtifact(self, testHash, testId, artifact_name, path):
         """Upload a single file as a test artifact for 'testId'"""
         assert False, "Subclasses implement"
 
-    def buildContentsHtml(self, repoName, commitHash, key):
+    def buildContentsHtml(self, testHash, key):
         """Get a FileContents for a given build key"""
         assert False, "Subclasses implement"
 
-    def upload_build(self, repoName, commitHash, key_name, file_name):
+    def upload_build(self, testHash, key_name, file_name):
         """Upload a build in 'file_name' to build key 'key_name'"""
         assert False, "Subclasses implement"
 
-    def download_build(self, repoName, commitHash, key_name, dest):
+    def download_build(self, testHash, key_name, dest):
         """Download a build in 'key_name' to 'dest'"""
         assert False, "Subclasses implement"
 
-    def clear_build(self, repoName, commitHash, key_name):
+    def clear_build(self, testHash, key_name):
         """Clear a build"""
         assert False, "Subclasses implement"
 
-    def build_exists(self, repoName, commitHash, key_name):
+    def build_exists(self, testHash, key_name):
         """Returns true if a build with 'key_name' exists. False otherwise."""
         assert False, "Subclasses implement"
 
@@ -177,8 +177,8 @@ class AwsArtifactStorage(ArtifactStorage):
     def _bucket(self):
         return self._session.resource('s3').Bucket(self.bucket_name)
 
-    def testResultKeysForWithSizes(self, repoName, commitHash, testId, subPrefix=None):
-        prefix = self.test_artifact_key_prefix + "/" + repoName + "/" + commitHash + "/" + testId + "/"
+    def testResultKeysForWithSizes(self, testHash, testId, subPrefix=None):
+        prefix = self.test_artifact_key_prefix + "/" + testHash + "/" + testId + "/"
 
         if subPrefix:
             prefix = prefix + subPrefix + "/"
@@ -194,10 +194,10 @@ class AwsArtifactStorage(ArtifactStorage):
         return result
 
     
-    def testResultKeysFor(self, repoName, commitHash, testId):
-        return [x[0] for x in self.testResultKeysForWithSizes(repoName, commitHash, testId)]
+    def testResultKeysFor(self, testHash, testId):
+        return [x[0] for x in self.testResultKeysForWithSizes(testHash, testId)]
 
-    def uploadSingleTestArtifact(self, repoName, commitHash, testId, key, full_path):
+    def uploadSingleTestArtifact(self, testHash, testId, key, full_path):
         content_type, keyname, is_gzipped = ArtifactStorage.keyname_to_encoding(key)
 
         with open(full_path, "rb") as f:
@@ -211,14 +211,14 @@ class AwsArtifactStorage(ArtifactStorage):
             self._bucket.put_object(
                 Body=f,
                 ContentType=content_type,
-                Key=self.test_artifact_key_prefix + "/" + repoName + "/" + commitHash + "/" + testId + "/" + key,
+                Key=self.test_artifact_key_prefix + "/" + testHash + "/" + testId + "/" + key,
                 **kwargs
                 )
 
-    def testContentsHtml(self, repoName, commitHash, testId, key):
+    def testContentsHtml(self, testHash, testId, key):
         content_type, keyname, is_gzipped = ArtifactStorage.keyname_to_encoding(key)
             
-        Params = {'Bucket': self.bucket_name, 'Key': self.test_artifact_key_prefix + "/" + repoName + "/" + commitHash + "/" + testId + "/" + key}
+        Params = {'Bucket': self.bucket_name, 'Key': self.test_artifact_key_prefix + "/" + testHash + "/" + testId + "/" + key}
         if is_gzipped:
             Params["ResponseContentEncoding"] = "gzip"
         Params["ResponseContentType"] = content_type
@@ -235,10 +235,10 @@ class AwsArtifactStorage(ArtifactStorage):
                 )
             )
 
-    def buildContentsHtml(self, repoName, commitHash, key):
+    def buildContentsHtml(self, testHash, key):
         content_type, keyname, is_gzipped = ArtifactStorage.keyname_to_encoding(key)
             
-        Params = {'Bucket': self.bucket_name, 'Key': self.build_artifact_key_prefix + "/" + repoName + "/" + commitHash + "/" + key}
+        Params = {'Bucket': self.bucket_name, 'Key': self.build_artifact_key_prefix + "/" + testHash + "/" + key}
         if is_gzipped:
             Params["ResponseContentEncoding"] = "gzip"
         Params["ResponseContentType"] = content_type
@@ -255,26 +255,26 @@ class AwsArtifactStorage(ArtifactStorage):
                 )
             )
 
-    def upload_build(self, repoName, commitHash, key_name, path):
-        self._bucket.upload_file(path, self.build_artifact_key_prefix + "/" + repoName + "/" + commitHash + "/" + key_name)
+    def upload_build(self, testHash, key_name, path):
+        self._bucket.upload_file(path, self.build_artifact_key_prefix + "/" + testHash + "/" + key_name)
 
-    def download_build(self, repoName, commitHash, key_name, dest):
-        self._bucket.download_file(self.build_artifact_key_prefix + "/" + repoName + "/" + commitHash + "/" + key_name, dest)
+    def download_build(self, testHash, key_name, dest):
+        self._bucket.download_file(self.build_artifact_key_prefix + "/" + testHash + "/" + key_name, dest)
 
-    def clear_build(self, repoName, commitHash, key_name):
+    def clear_build(self, testHash, key_name):
         """Clear a build"""
-        self._bucket.Object(self.build_artifact_key_prefix + "/" + repoName + "/" + commitHash + "/" + key_name).delete()
+        self._bucket.Object(self.build_artifact_key_prefix + "/" + testHash + "/" + key_name).delete()
 
-    def build_exists(self, repoName, commitHash, key_name):
+    def build_exists(self, testHash, key_name):
         try:
-            self._bucket.Object(self.build_artifact_key_prefix + "/" + repoName + "/" + commitHash + "/" + key_name).load()
+            self._bucket.Object(self.build_artifact_key_prefix + "/" + testHash + "/" + key_name).load()
             return True
         except botocore.exceptions.ClientError as e:
             return False
 
-    def build_size(self, repoName, commitHash, key_name):
+    def build_size(self, testHash, key_name):
         try:
-            key = self._bucket.Object(self.build_artifact_key_prefix + "/" + repoName + "/" + commitHash + "/" + key_name).load()
+            key = self._bucket.Object(self.build_artifact_key_prefix + "/" + testHash + "/" + key_name).load()
             return None if not key else key.size
         except botocore.exceptions.ClientError as e:
             return False
@@ -286,26 +286,26 @@ class LocalArtifactStorage(ArtifactStorage):
         self.build_storage_path = config.path_to_build_artifacts
         self.test_artifacts_storage_path = config.path_to_test_artifacts
 
-    def _buildContents(self, repoName, commitHash, key):  
-        with open(os.path.join(self.build_storage_path, repoName, commitHash, key), "r") as f:
+    def _buildContents(self, testHash, key):  
+        with open(os.path.join(self.build_storage_path, testHash, key), "r") as f:
             return f.read()
 
-    def buildContentsHtml(self, repoName, commitHash, key):
+    def buildContentsHtml(self, testHash, key):
         content_type, keyname, is_gzipped = ArtifactStorage.keyname_to_encoding(key)
 
         return FileContents.Inline(
             content_type=content_type,
             content_disposition="attachment; filename=\"" + keyname + "\";",
-            content=self._buildContents(repoName, commitHash, key),
+            content=self._buildContents(testHash, key),
             content_encoding="gzip" if is_gzipped else ""
             )
     
-    def testContents(self, repoName, commitHash, testId, key):  
-        with open(os.path.join(self.test_artifacts_storage_path, repoName, commitHash, testId, key), "r") as f:
+    def testContents(self, testHash, testId, key):  
+        with open(os.path.join(self.test_artifacts_storage_path, testHash, testId, key), "r") as f:
             return f.read()
 
-    def testContentsHtml(self, repoName, commitHash, testId, key):
-        contents = self.testContents(repoName, commitHash, testId, key)
+    def testContentsHtml(self, testHash, testId, key):
+        contents = self.testContents(testHash, testId, key)
 
         content_type, keyname, is_gzipped = ArtifactStorage.keyname_to_encoding(key)
 
@@ -316,8 +316,8 @@ class LocalArtifactStorage(ArtifactStorage):
             content_encoding="gzip" if is_gzipped else ""
             )
 
-    def get_failure_log(self, repoName, commitHash, testId):
-        return self.testContents(repoName, commitHash, testId, "test_looper_log.txt")
+    def get_failure_log(self, testHash, testId):
+        return self.testContents(testHash, testId, "test_looper_log.txt")
 
     def filecopy(self, dest_path, src_path):
         assert not os.path.exists(dest_path), dest_path
@@ -337,11 +337,11 @@ class LocalArtifactStorage(ArtifactStorage):
                 os.unlink(dest_path)
             raise
 
-    def testResultKeysFor(self, repoName, commitHash, testId):
-        return [x[0] for x in self.testResultKeysForWithSizes(repoName, commitHash, testId)]
+    def testResultKeysFor(self, testHash, testId):
+        return [x[0] for x in self.testResultKeysForWithSizes(testHash, testId)]
 
-    def testResultKeysForWithSizes(self, repoName, commitHash, testId, subprefix=None):
-        path = os.path.join(self.test_artifacts_storage_path, repoName, commitHash, testId)
+    def testResultKeysForWithSizes(self, testHash, testId, subprefix=None):
+        path = os.path.join(self.test_artifacts_storage_path, testHash, testId)
 
         if subprefix:
             path = os.path.join(path, subprefix)
@@ -351,27 +351,27 @@ class LocalArtifactStorage(ArtifactStorage):
 
         return [(x,os.stat(os.path.join(path,x)).st_size) for x in os.listdir(path)]
 
-    def upload_build(self, repoName, commitHash, key_name, file_name):
-        tgt = os.path.join(self.build_storage_path, repoName, commitHash, key_name)
+    def upload_build(self, testHash, key_name, file_name):
+        tgt = os.path.join(self.build_storage_path, testHash, key_name)
         self.filecopy(tgt, file_name)
 
-    def download_build(self, repoName, commitHash, key_name, dest):
-        self.filecopy(dest, os.path.join(self.build_storage_path, repoName, commitHash, key_name))
+    def download_build(self, testHash, key_name, dest):
+        self.filecopy(dest, os.path.join(self.build_storage_path, testHash, key_name))
 
-    def uploadSingleTestArtifact(self, repoName, commitHash, testId, artifact_name, path):
-        self.filecopy(os.path.join(self.test_artifacts_storage_path, repoName, commitHash, testId, artifact_name), path)
+    def uploadSingleTestArtifact(self, testHash, testId, artifact_name, path):
+        self.filecopy(os.path.join(self.test_artifacts_storage_path, testHash, testId, artifact_name), path)
 
-    def clear_build(self, repoName, commitHash, key_name):
+    def clear_build(self, testHash, key_name):
         """Clear a build"""
-        path = os.path.join(self.build_storage_path, repoName, commitHash, key_name)
+        path = os.path.join(self.build_storage_path, testHash, key_name)
         if os.path.exists(path):
             os.remove(path)
 
-    def build_exists(self, repoName, commitHash, key_name):
-        return os.path.exists(os.path.join(self.build_storage_path, repoName, commitHash, key_name))
+    def build_exists(self, testHash, key_name):
+        return os.path.exists(os.path.join(self.build_storage_path, testHash, key_name))
 
-    def build_size(self, repoName, commitHash, key_name):
-        path = os.path.join(self.build_storage_path, repoName, commitHash, key_name)
+    def build_size(self, testHash, key_name):
+        path = os.path.join(self.build_storage_path, testHash, key_name)
         if os.path.exists(path):
             return os.stat(path).st_size
         return None

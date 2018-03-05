@@ -37,7 +37,7 @@ class BranchAndConfigurationContext(BranchContext.BranchContext):
 
     def getGridRenderer(self, commits):
         def testFun(c):
-            for t in self.testManager.database.Test.lookupAll(commitData=c.data):
+            for t in self.testManager.allTestsForCommit(c):
                 if self.configurationName == self.testManager.configurationForTest(t):
                     yield t
 

@@ -72,7 +72,7 @@ class HtmlRenderingTest(unittest.TestCase):
 
                     objects.append(ComboContexts.CommitAndConfiguration(c,"linux"))
 
-                    for t in self.database.Test.lookupAll(commitData=c.data):
+                    for t in self.testManager.allTestsForCommit(c):
                         objects.append(t)
 
                         for r in self.database.TestRun.lookupAll(test=t):

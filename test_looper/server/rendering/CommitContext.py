@@ -57,11 +57,11 @@ class CommitContext(Context.Context):
         if path and path[0] == "tests":
             testpath, remainder = self.popToDash(path[1:])
 
-            fullname = self.commit.repo.name + "/" + self.commit.hash + "/" + "/".join(testpath)
+            testname = "/".join(testpath)
 
-            test = self.database.Test.lookupAny(fullname=fullname)
-
-            if not test:
+            if testname in self.commit.data.testDefinitions:
+                test = self.database.Test.lookupAny(hash=self.commit.data.testDefinitions[testname].hash)
+            else:
                 return None, path
 
             return self.renderer.contextFor(test, self.options), remainder
@@ -305,16 +305,16 @@ class CommitContext(Context.Context):
         return res
 
     def allTests(self):
-        return self.testManager.database.Test.lookupAll(commitData=self.commit.data)
+        return self.testManager.allTestsForCommit(self.commit)
 
     def renderTestResultsGrid(self):
         def testFun(c):
-            for t in self.testManager.database.Test.lookupAll(commitData=self.commit.data):
+            for t in self.allTests():
                 if c == self.testManager.configurationForTest(t) and t.testDefinition.matches.Test:
                     yield t
 
         configs = set()
-        for t in self.database.Test.lookupAll(commitData=self.commit.data):
+        for t in self.allTests():
             if t.testDefinition.matches.Test:
                 configs.add(self.testManager.configurationForTest(t))
 
@@ -376,9 +376,9 @@ class CommitContext(Context.Context):
             else:
                 return card("Commit defined no %s." % ("builds" if builds else "tests") )
 
-        tests = sorted(tests, key=lambda test: test.fullname)
+        tests = sorted(tests, key=lambda test: test.testDefinition.name)
         
-        grid = [["BUILD" if builds else "SUITE", "", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "FAILED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", "", "TEST_DEPS"]]
+        grid = [["BUILD" if builds else "SUITE", "HASH", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "FAILED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", "", "TEST_DEPS"]]
 
         for t in tests:
             row = []
@@ -386,7 +386,7 @@ class CommitContext(Context.Context):
             row.append(
                 self.contextFor(t).renderLink(includeCommit=False)
                 )
-            row.append("") #self.clearTestLink(t.fullname))
+            row.append(t.hash[:8])
             row.append(
                 HtmlGeneration.Link(self.contextFor(t).bootTestOrEnvUrl(),
                    "BOOT",
@@ -475,21 +475,21 @@ class CommitContext(Context.Context):
                 ComboContexts.CommitAndConfiguration(commit=self.commit, configurationName=g)
                 )
                     for g in sorted(set([self.testManager.configurationForTest(t)
-                            for t in self.database.Test.lookupAll(commitData=self.commit.data)
+                            for t in self.allTests()
                         ]))
                 ]
         if isinstance(currentChild.primaryObject(), self.database.Test):
             if currentChild.primaryObject().testDefinition.matches.Build:
                 return [self.contextFor(t)
                         for t in sorted(
-                            self.database.Test.lookupAll(commitData=self.commit.data),
+                            self.allTests(),
                             key=lambda t:t.testDefinition.name
                             ) if t.testDefinition.matches.Build
                         ]
             if currentChild.primaryObject().testDefinition.matches.Test:
                 return [self.contextFor(t)
                         for t in sorted(
-                            self.database.Test.lookupAll(commitData=self.commit.data),
+                            self.allTests(),
                             key=lambda t:t.testDefinition.name
                             ) if t.testDefinition.matches.Test
                         ]
@@ -513,7 +513,7 @@ class CommitContext(Context.Context):
         return (octicon("git-commit") if isHeader else "") + self.commit.hash[:10]
 
     def renderPostViewSelector(self):
-        tests = self.testManager.database.Test.lookupAll(commitData=self.commit.data)
+        tests = self.allTests()
         all_tests = [x for x in tests if x.testDefinition.matches.Test]
         all_builds = [x for x in tests if x.testDefinition.matches.Build]
 

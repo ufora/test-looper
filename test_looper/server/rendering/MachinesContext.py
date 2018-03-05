@@ -61,7 +61,7 @@ class MachinesContext(Context.Context):
             if len(tests) + len(deployments) > 1:
                 row.append("ERROR: multiple test runs/deployments")
             elif tests:
-                commit = tests[0].test.commitData.commit
+                commit = self.testManager.oldestCommitForTest(tests[0].test)
                 try:
                     row.append(self.contextFor(commit).renderLink())
                 except:
@@ -72,7 +72,7 @@ class MachinesContext(Context.Context):
                 row.append(self.renderer.cancelTestRunButton(tests[0]._identity))
                 
             elif deployments:
-                commit = deployments[0].test.commitData.commit
+                commit = self.testManager.oldestCommitForTest(deployments[0].test)
                 try:
                     row.append(self.contextFor(commit).renderLink())
                 except:

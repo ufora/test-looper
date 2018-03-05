@@ -86,8 +86,8 @@ class TestLooperWorker(object):
             while not self.stopEvent.is_set():
                 work = self.testLooperClient.checkoutWork(self.timeToSleepWhenThereIsNoWork)
                 if work is not None:
-                    repoName, commitHash, testName, testOrDeployId, testDefinition, isDeploy = work
-                    self.run_task(repoName, commitHash, testOrDeployId, testName, testDefinition, isDeploy)
+                    testOrDeployId, testDefinition, isDeploy = work
+                    self.run_task(testOrDeployId, testDefinition, isDeploy)
         except:
             logging.critical("Unhandled error in TestLooperWorker socket loop:\n%s", traceback.format_exc())
         finally:
@@ -98,19 +98,18 @@ class TestLooperWorker(object):
             else:
                 logging.info("Machine %s is exiting the TestLooperWorker but not the process.", self.machineId)
 
-    def run_task(self, repoName, commitHash, testId, testName, testDefinition, isDeploy):
-        logging.info("Machine %s is working on %s %s, test %s/%s, for commit %s",
+    def run_task(self, testId, testDefinition, isDeploy):
+        logging.info("Machine %s is working on %s %s, which is %s with hash %s",
                      self.machineId,
                      "test" if not isDeploy else "deployment",
                      testId,
-                     testName,
-                     repoName, 
-                     commitHash
+                     testDefinition.name,
+                     testDefinition.hash
                      )
 
         self.workerState.purge_build_cache()
 
-        result = self.workerState.runTest(testId, repoName, commitHash, testName, self.testLooperClient, testDefinition, isDeploy)
+        result = self.workerState.runTest(testId, self.testLooperClient, testDefinition, isDeploy)
         
         if not self.stopEvent.is_set():
             if isDeploy:

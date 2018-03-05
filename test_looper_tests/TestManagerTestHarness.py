@@ -112,6 +112,8 @@ class MockGitRepo:
         return "testDefinitions.yml"
 
     def getFileContents(self, commit, path):
+        if path == "test_looper/Dockerfile.txt":
+            return "fake dockerfile contents"
         if path != "testDefinitions.yml":
             return None
 
@@ -278,9 +280,6 @@ class TestManagerTestHarness:
     def getBranch(self, repo, branch):
         return self.database.Branch.lookupAny(reponame_and_branchname=(repo,branch))
 
-    def getTestByFullname(self, name):
-        return self.database.Test.lookupAny(fullname=name)
-
     def getCommit(self, commitId):
         reponame = "/".join(commitId.split("/")[:-1])
         commitHash = commitId.split("/")[-1]
@@ -315,6 +314,23 @@ class TestManagerTestHarness:
     def fullnamesThatRan(self):
         return sorted(self.test_record)
 
+    def lookupTestByFullname(self, name):
+        repo, commit, testName = name.split("/",2)
+
+        repo=self.manager.database.Repo.lookupAny(name=repo)
+        if not repo:
+            return None
+        
+        commit=self.manager.database.Commit.lookupAny(repo_and_hash=(repo,commit))
+        if not commit:
+            return None
+
+        testDef = commit.data.testDefinitions.get(testName)
+        if not testDef:
+            return None
+
+        return self.manager.database.Test.lookupAny(hash=testDef.hash)
+
     def assertOneshotMachinesDoOneTest(self):
         for m in self.machine_record:
             os = self.machineConfig(m)[1]
@@ -329,18 +345,17 @@ class TestManagerTestHarness:
             if machineId is None:
                 return tests
 
-            commitNameAndTest = self.manager.startNewTest(machineId, self.timestamp)
+            testId, testDefinition = self.manager.startNewTest(machineId, self.timestamp)
 
-            if commitNameAndTest[0]:
-                fullname, testId = ("%s/%s/%s" % commitNameAndTest[:3], commitNameAndTest[3])
-                if fullname not in self.test_record:
-                    self.test_record[fullname] = []
-                self.test_record[fullname].append((machineId, testId))
+            if testId:
+                if testDefinition.hash not in self.test_record:
+                    self.test_record[testDefinition.hash] = []
+                self.test_record[testDefinition.hash].append((machineId, testId))
                 if machineId not in self.machine_record:
                     self.machine_record[machineId] = []
-                self.machine_record[machineId].append((fullname, testId))
+                self.machine_record[machineId].append((testDefinition.hash, testId))
 
-                tests.append(commitNameAndTest)
+                tests.append((testId, testDefinition))
             else:
                 return tests
 
@@ -358,13 +373,23 @@ class TestManagerTestHarness:
             if not tests:
                 return counts
 
-            counts.append([x[0] + "/" + x[1] + "/" + x[2] for x in tests])
+            tail = []
 
-            for _,_,_,testId,_ in tests:
+            for testId, testDef in tests:
+                with self.manager.database.view():
+                    commits = self.manager.commitsReferencingTest(self.manager.database.Test.lookupAny(hash=testDef.hash))
+                    if len(commits) == 1:
+                        tail.append(commits[0].repo.name + "/" + commits[0].hash + "/" + testDef.name)
+                    else:
+                        tail.append(testDef.name + "/" + testDef.hash)
+            
+            counts.append(tail)
+
+            for testId,_ in tests:
                 self.manager.testHeartbeat(testId, self.timestamp)
                 self.timestamp += .1
 
-            for _,_,_,testId,_ in tests:
+            for testId,_ in tests:
                 self.manager.recordTestResults(True, testId, {"ATest": (True,False), "AnotherTest": (False, False)}, self.timestamp)
                 self.timestamp += .1
 

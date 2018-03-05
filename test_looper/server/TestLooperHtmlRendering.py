@@ -92,10 +92,8 @@ class Renderer:
 
             assert testRun
 
-            commit = testRun.test.commitData.commit
-
             return self.processFileContents(
-                self.artifactStorage.testContentsHtml(commit.repo.name, commit.hash, testId, key)
+                self.artifactStorage.testContentsHtml(testRun.test.hash, testId, key)
                 )
 
     def processFileContents(self, contents):
@@ -135,11 +133,9 @@ class Renderer:
             testRun = self.testManager.getTestRunById(testId)
 
             if testRun.test.testDefinition.matches.Build:
-                commit = testRun.test.commitData.commit
-
                 build_key = testRun.test.testDefinition.name.replace("/","_") + ".tar.gz"
 
-                self.artifactStorage.clear_build(commit.repo.name, commit.hash, build_key)
+                self.artifactStorage.clear_build(testRun.test.hash, build_key)
 
         raise cherrypy.HTTPRedirect(redirect)
 
@@ -237,23 +233,16 @@ class Renderer:
             button_style=self.disable_if_cant_write('btn-primary btn-xs')
             )        
 
-    def bootDeployment(self, fullname):
+    def bootDeployment(self, testHash):
         try:
-            deploymentId = self.testManager.createDeployment(fullname, time.time())
+            deploymentId = self.testManager.createDeployment(testHash, time.time())
         except Exception as e:
             logging.error("Failed to boot a deployment:\n%s", traceback.format_exc())
-            return self.errorPage("Couldn't boot a deployment for %s: %s" % (fullname, str(e)))
+            return self.errorPage("Couldn't boot a deployment for %s: %s" % (testHash, str(e)))
 
-        logging.info("Redirecting for %s", fullname)
+        logging.info("Redirecting for %s", testHash)
         
         raise cherrypy.HTTPRedirect(self.address + "/terminalForDeployment?deploymentId=" + deploymentId)
-
-    def environmentLink(self, test, environmentName):
-        return HtmlGeneration.link(environmentName, "/testEnvironment?" + urllib.urlencode(
-            {"repoName": test.commitData.commit.repo.name,
-             "commitHash": test.commitData.commit.hash,
-             "environmentName": environmentName}
-            ))
 
     def testEnvironment(self, repoName, commitHash, environmentName):
         with self.testManager.database.view():
@@ -345,7 +334,7 @@ class Renderer:
     def allTestsForCommit(self, commit):
         if not commit.data:
             return []
-        return self.testManager.database.Test.lookupAll(commitData=commit.data)
+        return self.testManager.allTestsForCommit(commit)
 
     def bestCommitForBranch(self, branch):
         if not branch or not branch.head or not branch.head.data:
@@ -378,7 +367,7 @@ class Renderer:
         if not commit.data:
             return False
 
-        tests = self.testManager.database.Test.lookupAll(commitData=commit.data)
+        tests = self.testManager.allTestsForCommit(commit)
         if not tests:
             return False
 

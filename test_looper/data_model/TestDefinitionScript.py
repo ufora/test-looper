@@ -140,7 +140,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
 
     environments = {}
 
-    def map_dep(dep):
+    def map_environment_dep(dep):
         deps = dep.split("/")
 
         if "$" in deps[0]:
@@ -149,9 +149,13 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
                     "Use 'HEAD' as a prefix if you need to refer to a build in the current commit.")
 
         if deps and deps[0] == "HEAD":
-            if len(deps) == 1:
+            if len(deps) == 1 or deps[1] == "source":
                 #this is a source dependency
-                return TestDefinition.TestDependency.Source(repo=curRepoName, commitHash=curCommitHash)
+                return TestDefinition.TestDependency.Source(
+                    repo=curRepoName, 
+                    commitHash=curCommitHash,
+                    path="/".join(deps[2:])
+                    )
 
             if len(deps) < 3:
                 raise Exception("Malformed repo dependency: should be of form 'repoReference/buildName/environment'")
@@ -163,10 +167,11 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
             if deps[0] not in testScript.repos:
                 raise Exception("Environment dependencies must reference a named repo. Can't find %s for %s" % (deps[0], dep))
 
-            if len(deps) == 1:
+            if len(deps) == 1 or deps[1] == "source":
                 #this is a source dependency
                 return TestDefinition.TestDependency.UnresolvedSource(
-                    repo_name=deps[0]
+                    repo_name=deps[0],
+                    path="/".join(deps[2:])
                     )
 
             if len(deps) < 3:
@@ -217,13 +222,13 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
                         )
 
             import_env = TestDefinition.TestEnvironment.Import(
-                environment_name=curRepoName + "/" + curCommitHash + "/" + envName,
+                environment_name=envName,
                 inheritance=(),
                 imports=tuple(imports),
                 setup_script_contents=envDef.setup_script_contents,
                 variables=envDef.variables,
                 dependencies={
-                    "test_inputs/" + name: map_dep(dep) for name, dep in envDef.dependencies.iteritems()
+                    "test_inputs/" + name: map_environment_dep(dep) for name, dep in envDef.dependencies.iteritems()
                     }
                 )
 
@@ -231,13 +236,13 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
                     
         elif envDef.matches.Environment:
             environments[envName] = TestDefinition.TestEnvironment.Environment(
-                environment_name=curRepoName + "/" + curCommitHash + "/" + envName,
+                environment_name=envName,
                 inheritance=(),
                 platform=envDef.platform,
                 image=map_image(curRepoName, curCommitHash, envDef.image),
                 variables=envDef.variables,
                 dependencies={
-                    "test_inputs/" + name: map_dep(dep) for name, dep in envDef.dependencies.iteritems()
+                    "test_inputs/" + name: map_environment_dep(dep) for name, dep in envDef.dependencies.iteritems()
                     }
                 )  
 
@@ -256,18 +261,23 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
                     ". First part of dependencies can't have a substitution. " + 
                     "Use 'HEAD' as a prefix if you need to refer to a build in the current commit.")
         if deps and deps[0] == "HEAD":
-            if len(deps) > 1:
+            if len(deps) == 1 or deps[1] == "source":
+                return TestDefinition.TestDependency.Source(
+                    repo=curRepoName, 
+                    commitHash=curCommitHash,
+                    path="/".join(deps[2:])
+                    )
+            else:
                 return TestDefinition.TestDependency.InternalBuild(
                     name="/".join(deps[1:])
                     )
-            else:
-                return TestDefinition.TestDefinition.Source(repo=curRepoName, commitHash=curCommitHash)
         else:
             if deps[0] in testScript.repos:
-                if len(deps) == 1:
+                if len(deps) == 1 or deps[1] == "source":
                     #this is a source dependency
                     return TestDefinition.TestDependency.UnresolvedSource(
-                        repo_name=deps[0]
+                        repo_name=deps[0],
+                        path="/".join(deps[2:])
                         )
 
                 #this is a remote dependency: repoRef/buildName/environment
@@ -294,7 +304,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
         deps = {"test_inputs/" + depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()}
 
         if version == 2:
-            deps["src"] = TestDefinition.TestDependency.Source(repo=curRepoName, commitHash=curCommitHash)
+            deps["src"] = TestDefinition.TestDependency.Source(repo=curRepoName, commitHash=curCommitHash, path="")
 
         if d.matches.Build:
             return TestDefinition.TestDefinition.Build(
@@ -312,7 +322,8 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
                 max_cores=d.max_cores,
                 min_ram_gb=d.min_ram_gb,
                 max_retries=d.max_retries,
-                retry_wait_seconds=d.retry_wait_seconds
+                retry_wait_seconds=d.retry_wait_seconds,
+                hash=""
                 )
         if d.matches.Test:
             return TestDefinition.TestDefinition.Test(
@@ -328,7 +339,8 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
                 timeout=d.timeout,
                 min_cores=d.min_cores,
                 max_cores=d.max_cores,
-                min_ram_gb=d.min_ram_gb
+                min_ram_gb=d.min_ram_gb,
+                hash=""
                 )
         if d.matches.Deployment:
             return TestDefinition.TestDefinition.Deployment(
@@ -343,7 +355,8 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
                 timeout=d.timeout,
                 min_cores=d.min_cores,
                 max_cores=d.max_cores,
-                min_ram_gb=d.min_ram_gb
+                min_ram_gb=d.min_ram_gb,
+                hash=""
                 )
 
     #a list of things we can actually depend on
@@ -387,7 +400,6 @@ def dictionary_cross_product(kv_pairs):
             result.append(s)
 
     return result
-
 
 def expand_macros(json, variables):
     if isinstance(json, unicode):
