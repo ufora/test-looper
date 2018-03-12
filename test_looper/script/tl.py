@@ -238,6 +238,7 @@ class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolv
             root_path = self.looperCtl.checkout_root_path(repoName, commitHash)
 
         if os.path.exists(root_path):
+            #we have this checked out already, and want to use the local version of it
             path = Git.Git.getTestDefinitionsPathFromDir(root_path)
 
             if not path:
@@ -246,6 +247,12 @@ class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolv
             text = open(os.path.join(root_path, path), "r").read()
 
             return text, os.path.splitext(path)[1]
+
+        repo = self.looperCtl.getGitRepo(repoName)
+
+        if not repo.commitExists(commitHash):
+            print "Can't find ", commitHash, " in ", repoName, ", so fetching origin..."
+            repo.fetchOrigin()
 
         return TestDefinitionResolver.TestDefinitionResolver.testDefinitionTextAndExtensionFor(self, repoName, commitHash)
 
@@ -439,20 +446,38 @@ class TestLooperCtl:
         
         committish = args.committish
 
+        if not Git.isShaHash(committish) or not repo.commitExists(committish):
+            #make sure we have up-to-date branch info
+            repo.fetchOrigin()
+
         if args.from_name:
             self.createNewBranchAndPush(repo, committish, args.from_name)
         elif args.orphan:
             self.createNewBranchAndPush(repo, committish, None)
 
-        commitHash = repo.gitCommitData("origin/" + committish)[0]
-
-        if committish in repo.listCurrentlyKnownBranchesForRemote("origin"):
-            branch = committish
-        elif "^" in committish or "~" in committish:
-            branch = committish.split("^")[0]
-            branch = committish.split("~")[0]
-        else:
+        if Git.isShaHash(committish):
+            commitHash = committish
             branch = repo.closestBranchFor(committish)
+        else:
+            branches = repo.listCurrentlyKnownBranchesForRemote("origin")
+
+            if committish in branches:
+                branch = committish
+                commitHash = repo.gitCommitData("origin/" + committish)[0]
+            elif "^" in committish or "~" in committish:
+                branch = committish.split("^")[0]
+                branch = committish.split("~")[0]
+
+                if branch not in branches:
+                    raise UserWarning("Can't find branch %s in repo %s" % (branch, reponame))
+
+                try:
+                    commitHash = repo.gitCommitData("origin/" + committish)[0]
+                except:
+                    raise UserWarning("Invalid committish %s" % committish)
+            else:
+                raise UserWarning("Can't find branch %s in repo %s. Available branches:\n%s" % 
+                        (committish, reponame, "\n".join(["    " + x for x in branches])))
 
         if branch not in repo.listCurrentlyKnownBranchesForRemote("origin"):
             print "couldn't identify a branch for %s in repo %s" % (commitHash, reponame)
