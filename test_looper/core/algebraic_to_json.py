@@ -76,10 +76,15 @@ class Encoder(object):
             alternative.
         * Lists are encoded as arrays
         * Nullables are encoded as None or the object.
-    """    
-    def __init__(self):
-        object.__init__(self)
 
+    if mergeListsIntoDicts is true, then when parsing a dict, we iterate over json elements
+        that are not dicts and parsed them as if they are collections of dicts. This can
+        be useful when parsing large yaml files. If false, then we insist that the json
+        representation of a dict is a dict or a list of tuples.
+    """    
+    def __init__(self, mergeListsIntoDicts=True):
+        object.__init__(self)
+        self.mergeListsIntoDicts = mergeListsIntoDicts
         self.overrides = {}
 
     def to_json(self, value):
@@ -147,11 +152,14 @@ class Encoder(object):
                 if isinstance(value, dict):
                     return {self.from_json(k, algebraic_type.keytype):self.from_json(v, algebraic_type.valtype) for k,v in value.iteritems()}
 
-                res = {}
-                for subitem in value:
-                    for k,v in self.from_json(subitem, algebraic_type).iteritems():
-                        res[k] = v
-                return res
+                if self.mergeListsIntoDicts:
+                    res = {}
+                    for subitem in value:
+                        for k,v in self.from_json(subitem, algebraic_type).iteritems():
+                            res[k] = v
+                    return res
+                else:
+                    return {self.from_json(k, algebraic_type.keytype):self.from_json(v, algebraic_type.valtype) for k,v in value}
 
             if isinstance(algebraic_type, algebraic.List):
                 #first, perform implicit flattening of lists and tuples if the sub-item is not itself a list

@@ -105,7 +105,7 @@ def main():
     config = loadConfiguration(parsedArgs.config)
     configureLogging(verbose=parsedArgs.verbose)
 
-    config = algebraic_to_json.Encoder().from_json(config, Config.Config)
+    config = algebraic_to_json.Encoder(mergeListsIntoDicts=False).from_json(config, Config.Config)
 
     if config.server.database.matches.InMemory:
         jsonStore = InMemoryJsonStore()
