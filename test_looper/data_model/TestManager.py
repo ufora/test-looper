@@ -1253,7 +1253,10 @@ class TestManager(object):
                 logging.error("Error scheduling branch commit lookup:\n\n%s", traceback.format_exc())
 
     def _updateCommitData(self, commit):
-        logging.info("Updating commit data for %s/%s", commit.repo.name, commit.hash)
+        commitCount = sum([repo.commits for repo in self.database.Repo.lookupAll(isActive=True)])
+
+        logging.info("Updating commit data for %s/%s. We have %s commits total.", commit.repo.name, commit.hash, commitCount)
+        
         source_control_repo = self.source_control.getRepo(commit.repo.name)
 
         if commit.data is self.database.CommitData.Null:
