@@ -302,4 +302,43 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         
         self.assertEqual(sorted(resolver.testDefinitionsFor("repo0", "c0")), ["t1/e", "t2/e"])
         
+    def test_includes_use_correct_repo(self):
+        envdef = textwrap.dedent("""
+            looper_version: 2
+            environments:
+              e: 
+                platform: linux
+                image:
+                  dockerfile_contents: hi
+            tests:
+              t1/e:
+                command: "./script.py 1"
+            """)
+
+        envdef2 = textwrap.dedent("""
+            looper_version: 2
+            tests:
+              t2/e:
+                command: "./script.py 1"
+            """)
+
+        repo = textwrap.dedent("""
+            looper_version: 2
+            includes:
+              - ./envdef.yml
+              - ./envdef2.yml
+            """
+            )
+
+        harness = TestManagerTestHarness.getHarness()
+
+        harness.manager.source_control.addCommit("repo0/base", [], None)
+        harness.manager.source_control.addCommit("repo0/base2", [], None)
+
+        harness.manager.source_control.addCommit("repo0/c0", [], repo, {"envdef.yml": envdef, "envdef2.yml": envdef2})
+
+        resolver = harness.resolver()
+        
+        self.assertEqual(sorted(resolver.testDefinitionsFor("repo0", "c0")), ["t1/e", "t2/e"])
+        
 

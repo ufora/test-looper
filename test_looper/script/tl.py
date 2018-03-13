@@ -132,6 +132,10 @@ class DummyArtifactStorage(object):
     def __init__(self):
         object.__init__(self)
 
+    @staticmethod
+    def sanitizeName(name):
+        return name.replace("_", "_u_").replace("/","_s_").replace("\\", "_bs_").replace(":","_c_").replace(" ","_sp_")
+
     def upload_build(self, testHash, key_name, file_name):
         pass
 
@@ -200,15 +204,12 @@ class WorkerStateOverride(WorkerState.WorkerState):
 
         return True
 
-    def grabDependency(self, log_function, expose_as, dep, repoName, commitHash, worker_callback):
+    def grabDependency(self, log_function, expose_as, dep, worker_callback):
         target_dir = os.path.join(self.directories.test_inputs_dir, expose_as)
 
-        if dep.matches.InternalBuild or dep.matches.ExternalBuild:
-            if dep.matches.ExternalBuild:
-                repoName, commitHash = dep.repo, dep.commitHash
-
+        if dep.matches.Build:
             self.extra_mappings[
-                os.path.join(self.looperCtl.build_path(repoName, commitHash, dep.name), "build_output")
+                os.path.join(self.looperCtl.build_path(dep.repo, dep.commitHash, dep.buildHash), "build_output")
                 ] = os.path.join("/test_looper", expose_as)
 
             return None
@@ -227,6 +228,24 @@ class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolv
     def __init__(self, looperCtl):
         TestDefinitionResolver.TestDefinitionResolver.__init__(self, looperCtl.getGitRepo)
         self.looperCtl = looperCtl
+
+    def getRepoContentsAtPath(self, repoName, commitHash, path):
+        branchname = self.looperCtl.repo_and_hash_to_branch.get((repoName, commitHash))
+
+        if branchname:
+            root_path = self.looperCtl.checkout_root_path(repoName, branchname)
+        else:
+            root_path = self.looperCtl.checkout_root_path(repoName, commitHash)
+
+        if os.path.exists(root_path):
+            final_path = os.path.join(root_path, path)
+            if not os.path.exists(final_path):
+                return None
+            else:
+                return open(final_path, "r").read()
+
+        git_repo = self.git_repo_lookup(repoName)
+        return git_repo.getFileContents(commitHash, path)
 
     def testDefinitionTextAndExtensionFor(self, repoName, commitHash):
         branchname = self.looperCtl.repo_and_hash_to_branch.get((repoName, commitHash))
@@ -357,10 +376,10 @@ class TestLooperCtl:
     def sanitize(self, name):
         return name.replace("/","_").replace(":","_").replace("~", "--")
 
-    def build_path(self, reponame, commit, testname):
+    def build_path(self, reponame, commit, buildHash):
         buildname = self.repo_and_hash_to_branch.get((reponame,commit),commit)
 
-        return os.path.abspath(os.path.join(self.root_path, "builds", self.sanitizeReponame(reponame), self.sanitize(buildname), self.sanitize(testname)))
+        return os.path.abspath(os.path.join(self.root_path, "builds", self.sanitizeReponame(reponame), self.sanitize(buildname), self.sanitize(buildHash)))
 
     def sanitizeReponame(self, reponame):
         return self.sanitize(reponame)
@@ -593,6 +612,10 @@ class TestLooperCtl:
                 self.infoForRepo(args.repo)
             return
 
+        if self.checkout_root and self.checkout_root[0]:
+            self.infoForRepo(self.checkout_root[0])
+            return
+
         raise UserWarning("Nothing specified.")
 
     def infoForTest(self, repo, test):
@@ -634,27 +657,27 @@ class TestLooperCtl:
             print branchname
 
             print "\tbuilds: "
-            for test, testDef in tests.iteritems():
+            for test, testDef in sorted(tests.iteritems()):
                 if testDef.matches.Build:
                     print "\t\t", test
 
             print "\ttests: "
-            for test, testDef in tests.iteritems():
+            for test, testDef in sorted(tests.iteritems()):
                 if testDef.matches.Test:
                     print "\t\t", test
 
             print "\trepos: "
-            for repo, repoDef in repos.iteritems():
+            for repo, repoDef in sorted(repos.iteritems()):
                 if repoDef.matches.Pin:
                     print "\t\t", repo, "->", "/".join(repoDef.reference.split("/")[:-1] + [repoDef.branch]), "=", repoDef.commitHash()
 
             print "\trepo imports: "
-            for repo, repoDef in repos.iteritems():
+            for repo, repoDef in sorted(repos.iteritems()):
                 if repoDef.matches.ImportedReference:
                     print "\t\t", repo, "from", repoDef.import_source, "=", repoDef.orig_reference, "=", repoDef.commitHash()
 
             print "\tenvironments: "
-            for envName, envDef in environments.iteritems():
+            for envName, envDef in sorted(environments.iteritems()):
                 print "\t\t", envName
 
     def bestRepo(self, reponame):
@@ -683,15 +706,16 @@ class TestLooperCtl:
                 return
             seen.add((reponame, committish))
 
-            if self.repoIsNotIgnored(reponame):
-                f(reponame, committish)
-
             _,_,repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, committish)
 
             for v in repos.values():
                 walk(v.reponame(), v.commitHash())
 
         walk(self.checkout_root[0], self.checkout_root[1])
+
+        for reponame, committish in sorted(seen):
+            if self.repoIsNotIgnored(reponame):
+                f(reponame, committish)
 
     def status(self, args):
         if self.checkout_root is None:
@@ -701,7 +725,7 @@ class TestLooperCtl:
         def printer(reponame, committish):
             root = self.checkout_root_path(reponame, committish)
             git = Git.Git(root)
-            print self.repoShortname(reponame), self.repo_and_hash_to_branch.get((reponame, committish), committish[:10])
+            print self.repoShortname(reponame), self.repo_and_hash_to_branch.get((reponame, committish), committish[:10] if Git.isShaHash(committish) else committish)
             
             if git.isInitialized():
                 diffstat = git.currentFileNumStat()
@@ -763,19 +787,19 @@ class TestLooperCtl:
             nologcapture = True
             nodeps = True
 
-        path = self.build_path(reponame, commit, testname)
-
-        if path in seen_already:
-            return True
-
-        seen_already.add(path)
-
         all_tests = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, commit)[0]
 
         if testname not in all_tests:
             raise UserWarning("Can't find test/build %s/%s/%s" % (reponame, commit, testname))
 
         testDef = all_tests[testname]
+
+        path = self.build_path(reponame, commit, testDef.hash)
+
+        if path in seen_already:
+            return True
+
+        seen_already.add(path)
 
         if not nodeps:
             for depname, dep in testDef.dependencies.iteritems():
@@ -828,8 +852,6 @@ class TestLooperCtl:
             callbacks = Callbacks()
         else:
             callbacks = WorkerState.DummyWorkerCallbacks(localTerminal=True)
-
-        testDef = testDef._withReplacement(environment=self.resolver.resolveEnvironment(testDef.environment))
 
         if not worker_state.runTest("interactive", callbacks, testDef, interactive)[0]:
             print "Build failed. Exiting."

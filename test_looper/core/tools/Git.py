@@ -419,7 +419,7 @@ class Git(object):
             for dirpath, directories, files in os.walk("."):
                 if not dirpath.startswith("./.git"):
                     for f in files:
-                        if f in ("testDefinitions.json" , "testDefinitions.yml") or f.endswith(".testlooper.yml"):
+                        if f in ("testDefinitions.json" , "testDefinitions.yml", "testlooper.yml") or f.endswith(".testlooper.yml"):
                             all.append(os.path.join(dirpath, f))
 
         all = sorted(all)
@@ -445,7 +445,7 @@ class Git(object):
                 self.subprocessCheckOutput(["git", "ls-tree", "--name-only", "-r", commit]).split("\n")
                 if p.endswith("/testDefinitions.json") or p == "testDefinitions.json" or 
                    p.endswith("/testDefinitions.yml") or p == "testDefinitions.yml" or
-                   p.endswith(".testlooper.yml")]
+                   p.endswith(".testlooper.yml") or p == "testlooper.yml"]
             )
 
         logging.debug("For commit %s, found testDefinitions at %s", commit, paths)

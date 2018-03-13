@@ -132,10 +132,10 @@ class TestDefinitionResolver:
             return "/".join(items)
 
         items = path.split("/")
-        if not (items[0] == "HEAD" or items[0] in repos or items[0] in (".","..")):
-            raise TestResolutionException("Invalid include %s: should start with a repo, HEAD, '.', or '..'" % i.path)
+        if not (items[0] == "" or items[0] in repos or items[0] in (".","..")):
+            raise TestResolutionException("Invalid include %s: should start with a repo, a '/' (for root of current repo), '.', or '..'" % i.path)
 
-        if items[0] == "HEAD":
+        if items[0] == "":
             return repoName, commitHash, "/".join(items[1:])
 
         if items[0] in (".", ".."):
@@ -158,14 +158,17 @@ class TestDefinitionResolver:
 
         attempts = 0
 
+        includes = [(repoName, commitHash, i) for i in includes]
+
         while includes:
-            i = includes[0]
+            includeSourceRepo, includeSourceHash, i = includes[0]
+
             includes = includes[1:]
 
             variable_defs = dict(i.variables)
             variable_defs_as_tuple = tuple(variable_defs.items())
 
-            includeRepo, includeHash, includePath = self.resolveIncludeString_(repos, repoName, commitHash, i.path)
+            includeRepo, includeHash, includePath = self.resolveIncludeString_(repos, includeSourceRepo, includeSourceHash, i.path)
 
             include_key = (includeRepo, includeHash, includePath, variable_defs_as_tuple)
 
@@ -177,8 +180,7 @@ class TestDefinitionResolver:
 
                 everIncluded.add(include_key)
 
-                git_repo = self.git_repo_lookup(includeRepo)
-                contents = git_repo.getFileContents(includeHash, includePath)
+                contents = self.getRepoContentsAtPath(includeRepo, includeHash, includePath)
 
                 if contents is None:
                     raise TestResolutionException(
@@ -190,11 +192,12 @@ class TestDefinitionResolver:
                         )
 
                 new_tests, new_envs, new_repos, new_includes = TestDefinitionScript.extract_tests_from_str(
-                    repoName, 
-                    commitHash, 
+                    includeRepo, 
+                    includeHash, 
                     os.path.splitext(includePath)[1], 
                     contents,
-                    variable_definitions=variable_defs
+                    variable_definitions=variable_defs,
+                    externally_defined_repos=repos
                     )
 
                 for reponame in new_repos:
@@ -219,7 +222,8 @@ class TestDefinitionResolver:
                             ))
                 tests.update(new_tests)
 
-                includes = new_includes + includes
+                for i in new_includes:
+                    includes.append((includeSourceRepo, includeSourceHash,i))
 
         self.postIncludeDefinitionsCache[repoName, commitHash] = (tests, envs, repos, includes)
 
@@ -418,6 +422,11 @@ class TestDefinitionResolver:
 
         return testText, os.path.splitext(path)[1], path
 
+    def getRepoContentsAtPath(self, repoName, commitHash, path):
+        git_repo = self.git_repo_lookup(repoName)
+        
+        return git_repo.getFileContents(commitHash, path)
+
     def assertTestsNoncircular_(self, tests):
         def children(t):
             return (
@@ -443,6 +452,12 @@ class TestDefinitionResolver:
         resolved_envs = self.environmentsFor(repoName, commitHash)
 
         def resolveTestEnvironmentAndApplyVars(testDef):
+            if testDef.environment_name not in resolved_envs:
+                raise TestResolutionException("Can't find environment %s (referenced by %s) in\n%s" % (
+                    testDef.environment_name,
+                    testDef.name,
+                    "\n".join(["\t" + x for x in sorted(resolved_envs)])
+                    ))
             env = resolved_envs[testDef.environment_name]
 
             testDef = testDef._withReplacement(environment=env)
@@ -534,7 +549,7 @@ class TestDefinitionResolver:
             if testName not in resolved_tests:
                 if testName not in tests:
                     raise TestResolutionException(
-                        "Can't find build %s in %s" % (testName, ", ".join(tests))
+                        "Can't find build %s in\n%s" % (testName, "\n".join(["\t" + x for x in sorted(tests)]))
                         )
                 testDef = tests[testName]
 

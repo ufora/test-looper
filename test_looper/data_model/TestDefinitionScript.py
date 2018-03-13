@@ -122,7 +122,7 @@ def map_image(reponame, commitHash, image_def):
     else:
         assert False, "Can't convert this kind of image: %s" % image_def
 
-def extract_tests(curRepoName, curCommitHash, testScript, version):
+def extract_tests(curRepoName, curCommitHash, testScript, version, externally_defined_repos=None):
     for repoVarName, repoPin in testScript.repos.iteritems():
         if repoVarName in reservedNames:
             raise Exception("%s is a reserved name and can't be used as a reponame." % repoVarName)
@@ -141,6 +141,10 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
 
             if commitHash == "":
                 raise Exception("Can't have an empty commitHash")
+
+    all_repos = set(externally_defined_repos) if externally_defined_repos else set()
+    for reponame in testScript.repos:
+        all_repos.add(reponame)
 
     environments = {}
 
@@ -168,7 +172,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
                 name="/".join(deps[1:])
                 )
         else:
-            if deps[0] not in testScript.repos:
+            if deps[0] not in all_repos:
                 raise Exception("Environment dependencies must reference a named repo. Can't find %s for %s" % (deps[0], dep))
 
             if len(deps) == 1 or deps[1] == "source":
@@ -276,7 +280,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
                     name="/".join(deps[1:])
                     )
         else:
-            if deps[0] in testScript.repos:
+            if deps[0] in all_repos:
                 if len(deps) == 1 or deps[1] == "source":
                     #this is a source dependency
                     return TestDefinition.TestDependency.UnresolvedSource(
@@ -370,7 +374,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
         )
 
     for name, definition in all_names_and_defs:
-        if name.split("/")[0] in testScript.repos:
+        if name.split("/")[0] in all_repos:
             raise Exception("Cant produce a test with name %s, because %s is already a repo name." % (name, name.split("/")[0]))
 
         allTests[name] = convert_def(name, definition)
@@ -597,7 +601,7 @@ encoder = algebraic_to_json.Encoder()
 encoder.overrides[VariableDict] = parseVariableDict
 encoder.overrides[RepoReference] = parseRepoReference
 
-def extract_tests_from_str(repoName, commitHash, extension, text, variable_definitions=None):
+def extract_tests_from_str(repoName, commitHash, extension, text, variable_definitions=None, externally_defined_repos=None):
     test_defs_json = extract_postprocessed_test_definitions(extension, text, variable_definitions)
     
     if 'looper_version' not in test_defs_json:
@@ -609,4 +613,4 @@ def extract_tests_from_str(repoName, commitHash, extension, text, variable_defin
     if version not in VALID_VERSIONS:
         raise Exception("Can't handle looper version %s" % version)
 
-    return extract_tests(repoName, commitHash, encoder.from_json(test_defs_json, TestDefinitionScript), version)
+    return extract_tests(repoName, commitHash, encoder.from_json(test_defs_json, TestDefinitionScript), version, externally_defined_repos)
