@@ -50,6 +50,24 @@ class Renderer:
         self.address = httpServer.address
         self.src_ctrl = httpServer.src_ctrl
 
+    def repoDisplayName(self, reponame):
+        for prefix in self.httpServerConfig.repo_prefixes_to_shorten:
+            if reponame.startswith(prefix):
+                return reponame[len(prefix):]
+        return reponame
+    
+    def wantsToShowRepo(self, repo):
+        if not isinstance(repo, str):
+            repo = repo.name
+
+
+        for prefixToExclude in self.httpServerConfig.repo_prefixes_to_suppress:
+            if repo.startswith(prefixToExclude):
+                return False
+
+        return True
+
+
     def contextFor(self, entity, options):
         if entity == "root":
             return RootContext.RootContext(self, options)

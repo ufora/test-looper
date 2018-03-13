@@ -42,6 +42,8 @@ class ReposContext(Context.Context):
 
     def grid(self):
         repos = self.database.Repo.lookupAll(isActive=True)
+
+        repos = [r for r in repos if self.renderer.wantsToShowRepo(r)]
             
         if not repos:
             return [], []
@@ -118,8 +120,9 @@ class ReposContext(Context.Context):
         children = []
 
         for r in sorted(self.database.Repo.lookupAll(isActive=True),key=lambda r:r.name):
-            if r.commitsWithTests or r == currentChild:
-                children.append(r)
+            if self.renderer.wantsToShowRepo(r):
+                if r.commitsWithTests or r == currentChild:
+                    children.append(r)
 
         return [self.contextFor(x) for x in children]
 

@@ -10,6 +10,7 @@ class RepoContext(Context.Context):
         Context.Context.__init__(self, renderer, options)
         self.repo = repo
         self.reponame = self.repo.name
+        self.displayName = renderer.repoDisplayName(self.repo.name)
         self.options = options
 
     def consumePath(self, path):
@@ -35,7 +36,7 @@ class RepoContext(Context.Context):
         return None, path
 
     def renderLink(self):
-        return HtmlGeneration.link(self.reponame, self.urlString())
+        return HtmlGeneration.link(self.displayName, self.urlString())
 
     def primaryObject(self):
         return self.repo
@@ -126,4 +127,4 @@ class RepoContext(Context.Context):
         return self.contextFor("repos")
 
     def renderMenuItemText(self, isHeader):
-        return (octicon("repo") if isHeader else "") + self.repo.name
+        return (octicon("repo") if isHeader else "") + self.displayName
