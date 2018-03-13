@@ -1,6 +1,5 @@
 import test_looper.core.Bitstring as Bitstring
 import test_looper.core.algebraic as algebraic
-import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.core.Config as Config
 import test_looper.core.machine_management.MachineManagement as MachineManagement

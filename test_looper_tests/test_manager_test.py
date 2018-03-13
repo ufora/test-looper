@@ -681,8 +681,6 @@ class TestManagerTests(unittest.TestCase):
 
             self.assertTrue("ircular" in c.data.testDefinitionsError, c.data.testDefinitionsError)
 
-            
-
     def test_manager_import_export(self):
         harness = TestManagerTestHarness.getHarness()
 
@@ -733,3 +731,4 @@ class TestManagerTests(unittest.TestCase):
             self.assertEqual(test0.testDefinition.environment.variables['ENV'], "repo0")
             self.assertEqual(test1.testDefinition.environment.variables['ENV_VAR'], "LINUX")
             self.assertEqual(test2.testDefinition.environment.variables['ENV_VAR_2'], "LINUX_2")
+

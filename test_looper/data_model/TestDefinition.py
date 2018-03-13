@@ -63,6 +63,7 @@ RepoReference.branchname = RepoReference_branchname
 
 
 TestEnvironment = algebraic.Alternative("TestEnvironment")
+TestEnvironment.Unresolved = {}
 TestEnvironment.Environment = {
     "environment_name": str,
     "inheritance": algebraic.List(str),

@@ -12,8 +12,6 @@ import test_looper.core.Bitstring as Bitstring
 import test_looper.core.object_database as object_database
 import test_looper.core.algebraic as algebraic
 import test_looper.data_model.Types as Types
-import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
-import test_looper.data_model.TestDefinition as TestDefinition
 
 def makeDict(**args):
     return args

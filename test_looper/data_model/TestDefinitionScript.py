@@ -87,10 +87,14 @@ DefineDeployment.Deployment = {
 
 RepoReference = TestDefinition.RepoReference
 
+DefineInclude = algebraic.Alternative("DefineInclude")
+DefineInclude.Include = {"path": str, "variables": algebraic.Dict(str, str)}
+
 TestDefinitionScript = algebraic.Alternative("TestDefinitionScript")
 TestDefinitionScript.Definition = {
     "looper_version": int,
     "repos": algebraic.Dict(str,RepoReference),
+    "includes": algebraic.List(DefineInclude),
     "environments": algebraic.Dict(str, DefineEnvironment),
     "builds": algebraic.Dict(str, DefineBuild),
     "tests": algebraic.Dict(str, DefineTest),
@@ -298,9 +302,6 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
 
         assert "$" not in curEnv, "Malformed name %s" % name
 
-        if curEnv not in environments:
-            raise Exception("Test %s refers to unknown environment %s" % (name, curEnv))
-
         deps = {"test_inputs/" + depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()}
 
         if version == 2:
@@ -315,7 +316,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
                 variables=d.variables,
                 dependencies=deps,
                 environment_name=curEnv,
-                environment=environments[curEnv],
+                environment=TestDefinition.TestEnvironment.Unresolved(),
                 timeout=d.timeout,
                 disabled=d.disabled,
                 min_cores=d.min_cores,
@@ -335,7 +336,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
                 dependencies=deps,
                 disabled=d.disabled,
                 environment_name=curEnv,
-                environment=environments[curEnv],
+                environment=TestDefinition.TestEnvironment.Unresolved(),
                 timeout=d.timeout,
                 min_cores=d.min_cores,
                 max_cores=d.max_cores,
@@ -351,7 +352,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
                 dependencies=deps,
                 portExpose=d.portExpose,
                 environment_name=curEnv,
-                environment=environments[curEnv],
+                environment=TestDefinition.TestEnvironment.Unresolved(),
                 timeout=d.timeout,
                 min_cores=d.min_cores,
                 max_cores=d.max_cores,
@@ -374,7 +375,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version):
 
         allTests[name] = convert_def(name, definition)
 
-    return allTests, environments, testScript.repos
+    return allTests, environments, testScript.repos, testScript.includes
 
 def flatten(l):
     if not isinstance(l, list):
@@ -401,129 +402,160 @@ def dictionary_cross_product(kv_pairs):
 
     return result
 
-def expand_macros(json, variables):
-    if isinstance(json, unicode):
-        json = str(json)
-    if isinstance(json, str):
-        if variables:
-            for k,v in sorted(variables.iteritems()):
-                if isinstance(v, (int, bool, float)):
-                    v = str(v)
-                if isinstance(v, str):
-                    json = json.replace("${" + k + "}", v)
-                else:
-                    if "${" + k + "}" in json:
-                        if json == "${" + k + "}":
-                            return v
-                        else:
-                            raise Exception("Can't replace in-string variable '%s' with non-string value %s" % (k,v))
-        return json
-    
-    if isinstance(json, list):
-        return [expand_macros(x, variables) for x in json]
-    
-    if isinstance(json, dict):
-        if sorted(json.keys()) == ["define", "in"]:
-            to_use = dict(variables)
-            for k,v in json["define"].iteritems():
-                if k in to_use:
-                    raise Exception("Can't redefine variable %s" % k)
-                to_use[k] = v
-            return expand_macros(json["in"], to_use)
+class MacroExpander(object):
+    def expand_macros(self, json, variables, isVarDef=False):
+        if isinstance(json, unicode):
+            json = str(json)
+        if isinstance(json, str):
+            if variables:
+                for k,v in sorted(variables.iteritems()):
+                    if isinstance(v, (int, bool, float)):
+                        v = str(v)
+                    if isinstance(v, str):
+                        json = json.replace("${" + k + "}", v)
+                    else:
+                        if "${" + k + "}" in json:
+                            if json == "${" + k + "}":
+                                return v
+                            else:
+                                raise Exception("Can't replace in-string variable '%s' with non-string value %s" % (k,v))
+            return json
         
-        if sorted(json.keys()) == ["over", "squash"]:
-            squashover = expand_macros(json["squash"], variables)
-
-            if not isinstance(squashover, dict):
-                raise Exception("Can't squash %s into subitems because its not a dict" % squashover)
-
-            def squash(child):
-                if not isinstance(child, dict):
-                    raise Exception("Can't squash %s into %s because it's not a dict" % (squashover, child))
-
-                child = dict(child)
-
-                for k,v in squashover.iteritems():
-                    if k in child:
-                        raise Exception("Can't define %s twice when squashing %s into %s" % (k, squashover, child))
-                    child[k] = v
-
-                return child
-
-            children = flatten(expand_macros(json["over"], variables))
-            if isinstance(children, dict):
-                return squash(children)
-
-            if isinstance(children, list):
-                return [squash(c) for c in children]
-
-            raise Exception("Arguments to squash need to be dicts, not %s" % children)
-
-        if sorted(json.keys()) == ["merge"]:
-            to_merge = json["merge"]
-
-            assert isinstance(to_merge, list), "Can't apply a merge operation to %s because its not a list" % to_merge
-            
-            to_merge = [expand_macros(i, variables) for i in to_merge]
-
-            assert to_merge, "Can't apply a merge operation to %s because its empty" % to_merge
-
-            if isinstance(to_merge[0], list):
-                res = []
-                for to_append in to_merge:
-                    if not isinstance(to_append, list):
-                        raise Exception("Can't apply a merge operation to %s because not all children are lists." % to_merge)
-                    res.extend(to_append)
-                return res
-            if isinstance(to_merge[0], dict):
-                res = {}
-                for to_append in to_merge:
-                    if not isinstance(to_append, dict):
-                        raise Exception("Can't apply a merge operation to %s because not all children are dictionaries." % to_merge)
-                    for k,v in to_append.iteritems():
-                        if k in res:
-                            raise Exception("merging %s produced key %s twice" % (to_merge, k))
-                        res[k] = v
-                return res
-
-            raise Exception("Can't merge %s - all children need to be either dictionaries or lists" % to_merge)
-
-        if sorted(json.keys()) == ["foreach", "repeat"]:
-            assert isinstance(json['repeat'], dict), "Can't repeat %s because it's not a dictionary" % json['repeat']
-
-            repeat_over = expand_macros(json['foreach'], variables)
-
-            if isinstance(repeat_over, dict):
-                #take the cross product of all elements of the dictionary
-                #e.g.
-                #A: [1,2,3]
-                #B: [1,2,3]
-                #will produce 9 items
-                items = dictionary_cross_product(repeat_over.items())
-            else:
-                items = flatten(repeat_over)
-
-            res = {}
-            for sub_replacements in items:
+        if isinstance(json, list):
+            return [self.expand_macros(x, variables, isVarDef) for x in json]
+        
+        if isinstance(json, dict):
+            if sorted(json.keys()) == ["define", "in"]:
                 to_use = dict(variables)
-
-                for k,v in sub_replacements.iteritems():
+                for k,v in json["define"].iteritems():
                     if k in to_use:
                         raise Exception("Can't redefine variable %s" % k)
                     to_use[k] = v
+                return self.expand_macros(json["in"], to_use, isVarDef)
+            
+            if sorted(json.keys()) == ["over", "squash"]:
+                squashover = self.expand_macros(json["squash"], variables, True)
 
-                expanded = expand_macros(json['repeat'], to_use)
+                if not isinstance(squashover, dict):
+                    raise Exception("Can't squash %s into subitems because its not a dict" % squashover)
 
-                for k,v in expanded.iteritems():
-                    if k in res:
-                        raise Exception("Can't define %s twice" % k)
-                    res[k] = v
-            return res
-        return {expand_macros(k,variables): expand_macros(v, variables) for k,v in json.iteritems()}
+                def squash(child):
+                    if not isinstance(child, dict):
+                        raise Exception("Can't squash %s into %s because it's not a dict" % (squashover, child))
 
-    return json
+                    child = dict(child)
 
-def extract_postprocessed_test_definitions(extension, text):
+                    for k,v in squashover.iteritems():
+                        if k in child:
+                            raise Exception("Can't define %s twice when squashing %s into %s" % (k, squashover, child))
+                        child[k] = v
+
+                    return child
+
+                children = flatten(self.expand_macros(json["over"], variables, isVarDef))
+                if isinstance(children, dict):
+                    return squash(children)
+
+                if isinstance(children, list):
+                    return [squash(c) for c in children]
+
+                raise Exception("Arguments to squash need to be dicts, not %s" % children)
+
+            if sorted(json.keys()) == ["merge"]:
+                to_merge = json["merge"]
+
+                assert isinstance(to_merge, list), "Can't apply a merge operation to %s because its not a list" % to_merge
+                
+                to_merge = [self.expand_macros(i, variables, isVarDef) for i in to_merge]
+
+                assert to_merge, "Can't apply a merge operation to %s because its empty" % to_merge
+
+                if isinstance(to_merge[0], list):
+                    res = []
+                    for to_append in to_merge:
+                        if not isinstance(to_append, list):
+                            raise Exception("Can't apply a merge operation to %s because not all children are lists." % to_merge)
+                        res.extend(to_append)
+                    return res
+                if isinstance(to_merge[0], dict):
+                    res = {}
+                    for to_append in to_merge:
+                        if not isinstance(to_append, dict):
+                            raise Exception("Can't apply a merge operation to %s because not all children are dictionaries." % to_merge)
+                        for k,v in to_append.iteritems():
+                            if k in res:
+                                raise Exception("merging %s produced key %s twice" % (to_merge, k))
+                            res[k] = v
+                    return res
+
+                raise Exception("Can't merge %s - all children need to be either dictionaries or lists" % to_merge)
+
+            if sorted(json.keys()) == ["foreach", "repeat"]:
+                assert isinstance(json['repeat'], (dict,list)), "Can't repeat %s because it's not a dictionary or list" % json['repeat']
+
+                repeat_over = self.expand_macros(json['foreach'], variables, True)
+
+                if isinstance(repeat_over, dict):
+                    #take the cross product of all elements of the dictionary
+                    #e.g.
+                    #A: [1,2,3]
+                    #B: [1,2,3]
+                    #will produce 9 items
+                    items = dictionary_cross_product(repeat_over.items())
+                else:
+                    items = flatten(repeat_over)
+
+                res = None
+                for sub_replacements in items:
+                    to_use = dict(variables)
+
+                    for k,v in sub_replacements.iteritems():
+                        if k in to_use:
+                            raise Exception("Can't redefine variable %s" % k)
+                        to_use[k] = v
+
+                    expanded = self.expand_macros(json['repeat'], to_use, isVarDef)
+
+                    if isinstance(expanded, dict):
+                        if res is None:
+                            res = {}
+
+                        for k,v in expanded.iteritems():
+                            if k in res:
+                                raise Exception("Can't define %s twice" % k)
+                            res[k] = v
+                    elif isinstance(expanded, list):
+                        if res is None:
+                            res = []
+
+                        res.extend(expanded)
+                return res
+            return {self.expand_macros(k,variables, isVarDef): self.expand_macros(v, variables, isVarDef) for k,v in json.iteritems()}
+
+        return json
+
+class IncludesMacroExpander(MacroExpander):
+    def expand_macros(self, json, variables, isVarDef=False):
+        if isinstance(json, unicode):
+            json = str(json)
+        if isinstance(json, str) and not isVarDef:
+            return {
+                "path": MacroExpander().expand_macros(json, variables), 
+                "variables": dict(variables)
+                }
+        if isinstance(json, dict) and sorted(json.keys()) == ["path", "variables"]:
+            user_variables = MacroExpander().expand_macros(json["variables"], variables)
+            final_variables = dict(variables)
+            final_variables.update(user_variables)
+
+            return {
+                "path": MacroExpander().expand_macros(json["path"], variables),
+                "variables": final_variables
+                }
+
+        return MacroExpander.expand_macros(self, json, variables, isVarDef)
+
+def extract_postprocessed_test_definitions(extension, text, variable_definitions=None):
     if isinstance(text, unicode):
         text = str(text)
 
@@ -534,8 +566,16 @@ def extract_postprocessed_test_definitions(extension, text):
     else:
         raise Exception("Can't load testDefinitions from file ending in '%s'. Use json or yml." % extension)
 
-    return expand_macros(test_defs_json, {})
+    def expandKey(k):
+        if k in ("environments", "builds", "tests", "deployments", "repos"):
+            return MacroExpander().expand_macros(test_defs_json[k], variable_definitions or {})
 
+        if k == "includes":
+            return IncludesMacroExpander().expand_macros(test_defs_json[k], variable_definitions or {})
+
+        return test_defs_json[k]
+
+    return { k: expandKey(k) for k in test_defs_json }
 
 def parseRepoReference(encoder, value):
     if isinstance(value, (str, unicode)):
@@ -557,11 +597,11 @@ encoder = algebraic_to_json.Encoder()
 encoder.overrides[VariableDict] = parseVariableDict
 encoder.overrides[RepoReference] = parseRepoReference
 
-def extract_tests_from_str(repoName, commitHash, extension, text):
-    test_defs_json = extract_postprocessed_test_definitions(extension, text)
+def extract_tests_from_str(repoName, commitHash, extension, text, variable_definitions=None):
+    test_defs_json = extract_postprocessed_test_definitions(extension, text, variable_definitions)
     
     if 'looper_version' not in test_defs_json:
-        raise Exception("No looper version specified. Current version is 2")
+        raise Exception("No looper version specified. Valid versions are 2 <= version <= 3")
 
     version = test_defs_json['looper_version']
     del test_defs_json['looper_version']

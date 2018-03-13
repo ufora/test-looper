@@ -18,7 +18,6 @@ import termios
 proj_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 sys.path.append(proj_root)
 
-import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.data_model.TestDefinitionResolver as TestDefinitionResolver
 import test_looper.core.tools.Git as Git
 import test_looper.core.Config as Config
@@ -246,7 +245,7 @@ class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolv
 
             text = open(os.path.join(root_path, path), "r").read()
 
-            return text, os.path.splitext(path)[1]
+            return text, os.path.splitext(path)[1], path
 
         repo = self.looperCtl.getGitRepo(repoName)
 

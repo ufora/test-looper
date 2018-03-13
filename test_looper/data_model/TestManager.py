@@ -14,8 +14,6 @@ import test_looper.core.algebraic as algebraic
 import test_looper.core.machine_management.MachineManagement as MachineManagement
 import test_looper.data_model.Types as Types
 import test_looper.data_model.BranchPinning as BranchPinning
-import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
-import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.data_model.TestDefinitionResolver as TestDefinitionResolver
 
 pendingVeryHigh = Types.BackgroundTaskStatus.PendingVeryHigh()

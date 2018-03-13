@@ -20,7 +20,6 @@ import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.source_control as Github
 import test_looper.server.HtmlGeneration as HtmlGeneration
-import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.server.TestLooperHtmlRendering as TestLooperHtmlRendering
 import test_looper.server.TestLooperHtmlRenderingDev as TestLooperHtmlRenderingDev
 

@@ -116,12 +116,26 @@ environments:
     base: [child1, child2]
 """
 
+includes_yaml_file = """
+looper_version: 2
+includes:
+  foreach:
+    v1: [v1_val1, v1_val2]
+    v2: [v2_val1, v2_val2]
+  repeat:
+    - repo1/path
+    - path: repo2/path
+      variables:
+        v3: v3_val1
+        v4: v4_val1
+"""
+
 def apply_and_merge(vars, extras=None):
     return VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(vars, extras or {})
 
 class TestDefinitionScriptTests(unittest.TestCase):
     def test_basic(self):
-        tests, environments, repos = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", basic_yaml_file)
+        tests, environments, repos, includes = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", basic_yaml_file)
 
         for name in ['build/linux', 'build/test_linux', 'test/linux', 'test/test_linux']:
             self.assertTrue(name in tests, name)
@@ -131,7 +145,7 @@ class TestDefinitionScriptTests(unittest.TestCase):
         self.assertEqual(environments["test_linux"].variables["A_BOOL_VAR"], "true")
 
     def test_environment_inheritance(self):
-        tests, environments, repos = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", environment_yaml_file)
+        tests, environments, repos, includes = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", environment_yaml_file)
 
         Ref = TestDefinition.EnvironmentReference.Reference
 
@@ -145,8 +159,25 @@ class TestDefinitionScriptTests(unittest.TestCase):
         self.assertEqual(env.inheritance, ("child1", "child2", "env_dep", "env_root"))
         self.assertEqual(env.image.setup_script_contents, "\nTestFileContents\n\nChildContents\n")
 
+    def test_includes_and_variables(self):
+        _,_,_, includes = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", includes_yaml_file)
+
+        self.assertTrue(len(includes) == 8)
+
+        res = []
+        for i in includes:
+            v = {"path": i.path}
+            v.update(i.variables)
+            res.append(v)
+
+        computedRes = []
+        for v1 in ['v1_val1', 'v1_val2']:
+          for v2 in ['v2_val1', 'v2_val2']:
+            computedRes.append({"path": "repo1/path", "v1": v1, "v2": v2})
+            computedRes.append({"path": "repo2/path", "v1": v1, "v2": v2, "v3": "v3_val1", "v4": "v4_val1"})
+
     def test_expansion(self):
-        res = TestDefinitionScript.expand_macros(
+        res = TestDefinitionScript.MacroExpander().expand_macros(
           {"foreach": [
             {"name": 10, "hello": 20}, 
             {"name": 20, "hello": 30}
@@ -167,7 +198,7 @@ class TestDefinitionScriptTests(unittest.TestCase):
           )
 
     def test_expansion_and_replacement(self):
-        res = TestDefinitionScript.expand_macros(
+        res = TestDefinitionScript.MacroExpander().expand_macros(
           {"define": {"name": [20, 30], "hello": 30},
            "in": ["a thing", "${name}"]
           }, {})
@@ -177,7 +208,7 @@ class TestDefinitionScriptTests(unittest.TestCase):
           )
 
     def test_merging(self):
-        res = TestDefinitionScript.expand_macros(
+        res = TestDefinitionScript.MacroExpander().expand_macros(
           {"define": {"name": [20, 30], "name2": [1,2]},
            "in": [
             {"merge": ["${name}", "${name2}"]},
@@ -190,7 +221,7 @@ class TestDefinitionScriptTests(unittest.TestCase):
           )
 
     def test_cross_foreach(self):
-        res = TestDefinitionScript.expand_macros(
+        res = TestDefinitionScript.MacroExpander().expand_macros(
           {"foreach": {"name": [20, 30], "name2": [1,2]},
            "repeat": {"${name}-${name2}": "hi"}
           }, {})
@@ -204,7 +235,7 @@ class TestDefinitionScriptTests(unittest.TestCase):
           )
 
     def test_squashing(self):
-        res = TestDefinitionScript.expand_macros(yaml.load(foreach_and_squash_yaml), {})
+        res = TestDefinitionScript.MacroExpander().expand_macros(yaml.load(foreach_and_squash_yaml), {})
         
         self.assertEqual(
           res, {

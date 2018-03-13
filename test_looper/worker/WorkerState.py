@@ -34,7 +34,6 @@ else:
     DockerWatcher = None
 
 import test_looper.data_model.TestDefinition as TestDefinition
-import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper
 
 class DummyWorkerCallbacks:

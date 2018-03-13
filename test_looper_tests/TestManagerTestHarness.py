@@ -5,6 +5,7 @@ import sys
 import test_looper_tests.common as common
 import test_looper_tests.TestYamlFiles as TestYamlFiles
 import test_looper.data_model.TestManager as TestManager
+import test_looper.data_model.TestDefinitionResolver as TestDefinitionResolver
 import test_looper.core.Config as Config
 import test_looper.core.machine_management.MachineManagement as MachineManagement
 import test_looper.core.InMemoryJsonStore as InMemoryJsonStore
@@ -18,6 +19,7 @@ class MockSourceControl(SourceControl.SourceControl):
         self.commit_test_defs = {}
         self.commit_parents = {}
         self.commit_message = {}
+        self.commit_files = {}
         self.branch_to_commitId = {}
         self.created_commits = 0
         self.prepushHooks = {}
@@ -40,7 +42,7 @@ class MockSourceControl(SourceControl.SourceControl):
     def addRepo(self, reponame):
         self.repos.add(reponame)
 
-    def addCommit(self, commitId, parents, testDefs):
+    def addCommit(self, commitId, parents, testDefs, files=None):
         assert len(commitId.split("/")) == 2
 
         self.repos.add(commitId.split("/")[0])
@@ -55,6 +57,7 @@ class MockSourceControl(SourceControl.SourceControl):
         self.commit_test_defs[commitId] = testDefs
         self.commit_parents[commitId] = tuple(parents)
         self.commit_message[commitId] = "title"
+        self.commit_files[commitId] = files or {}
 
     def getBranch(self, repoAndBranch):
         return self.branch_to_commitId[repoAndBranch]
@@ -114,10 +117,15 @@ class MockGitRepo:
     def getFileContents(self, commit, path):
         if path == "test_looper/Dockerfile.txt":
             return "fake dockerfile contents"
+        commitId = self.repo.repoName + "/" + commit
+
+        if commitId in self.repo.source_control.commit_files:
+            if path in self.repo.source_control.commit_files[commitId]:
+                return self.repo.source_control.commit_files[commitId][path]
+
         if path != "testDefinitions.yml":
             return None
 
-        commitId = self.repo.repoName + "/" + commit
         return self.repo.source_control.commit_test_defs.get(commitId)
 
     def gitCommitData(self, hash):
@@ -237,6 +245,11 @@ class TestManagerTestHarness:
         self.timestamp = 1.0
         self.test_record = {}
         self.machine_record = {}
+
+    def resolver(self):
+        return TestDefinitionResolver.TestDefinitionResolver(
+            lambda name: self.manager.source_control.getRepo(name).source_repo
+            )
 
     def add_content(self):
         self.manager.source_control.addCommit("repo0/c0", [], TestYamlFiles.repo0)
