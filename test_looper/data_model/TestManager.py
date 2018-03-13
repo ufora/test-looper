@@ -802,7 +802,7 @@ class TestManager(object):
 
             if machine is None or not machine.isAlive:
                 logging.warn("Can't assign work to a machine we don't know about: %s", machineId)
-                return None, None, None, None, None
+                return None, None
 
             self._machineHeartbeat(machine, timestamp)
 
