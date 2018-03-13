@@ -1311,6 +1311,10 @@ class TestManager(object):
             logging.info("Not updating commit %s because it has commit.data and doesn't want a refresh.", commit.hash)
             return
 
+        if timestamp < OLDEST_TIMESTAMP_WITH_TESTS:
+            logging.info("Not updating commit %s because it's too old.", commit.hash)
+            return
+
         parents=[self._lookupCommitByHash(commit.repo, p) for p in parentHashes]
 
         commit.data = self.database.CommitData.New(
@@ -1346,17 +1350,11 @@ class TestManager(object):
 
         if knownNoTestFile:
             commit.data.noTestsFound = True
-        #ignore commits produced before the looper existed. They won't have these files!
-        elif commit.data.timestamp > OLDEST_TIMESTAMP_WITH_TESTS:
+        else:
             logging.info("Loading data for commit %s with timestamp %s", commit.hash, time.asctime(time.gmtime(commit.data.timestamp)))
             self._triggerCommitPriorityUpdate(commit)
 
             self._parseCommitTests(commit)
-        else:
-            logging.info("Not loading data for commit %s with timestamp %s", commit.hash, time.asctime(time.gmtime(commit.data.timestamp)))
-
-            commit.data.noTestsFound = True
-            commit.data.testDefinitionsError = "Commit old enough that we won't check for test definitions."
 
         for branch in self.database.Branch.lookupAll(head=commit):
             self._recalculateBranchPins(branch)
