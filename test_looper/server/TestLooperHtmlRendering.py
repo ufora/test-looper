@@ -44,6 +44,7 @@ import re
 class Renderer:
     def __init__(self, httpServer):
         self.httpServer = httpServer
+        self.httpServerConfig = httpServer.httpServerConfig
         self.testManager = httpServer.testManager
         self.artifactStorage = httpServer.artifactStorage
         self.address = httpServer.address

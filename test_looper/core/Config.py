@@ -70,6 +70,12 @@ ServerConfig.Config = {
     "linuxOnly": bool
     }
 
+HttpServerConfig = algebraic.Alternative("HttpServerConfig")
+HttpServerConfig.Config = {
+    "repo_prefixes_to_suppress": algebraic.List(str),
+    "repo_prefixes_to_shorten": algebraic.List(str)
+    }
+
 ServerPortConfig = algebraic.Alternative("ServerPortConfig")
 ServerPortConfig.Config = {
     "server_address": str,
@@ -130,7 +136,8 @@ Config.Config = {
     "server_ports": ServerPortConfig,
     "source_control": SourceControlConfig,
     "artifacts": ArtifactsConfig,
-    "machine_management": MachineManagementConfig
+    "machine_management": MachineManagementConfig,
+    "http_server": HttpServerConfig
     }
 
 WorkerConfig = algebraic.Alternative("WorkerConfig")

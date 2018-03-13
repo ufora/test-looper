@@ -56,5 +56,7 @@
         "gitlab_login_url": "https://gitlab.COMPANYNAME.com",
         "gitlab_api_url": "https://gitlab.COMPANYNAME.com/api/v3",
         "gitlab_clone_url": "git@gitlab.COMPANYNAME.com"
+        },
+    "http_server": {
         }
 }

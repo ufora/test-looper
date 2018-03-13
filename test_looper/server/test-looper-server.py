@@ -169,6 +169,7 @@ def main():
     
     httpServer = TestLooperHttpServer.TestLooperHttpServer(
         config.server_ports,
+        config.http_server,
         config.server,
         testManager,
         machine_management,

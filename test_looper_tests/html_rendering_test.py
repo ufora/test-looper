@@ -19,6 +19,10 @@ class MockHttpServer:
     def __init__(self, testManager):
         self.testManager = testManager
         self.testdir = tempfile.mkdtemp()
+        self.httpServerConfig = Config.HttpServerConfig(
+            repo_prefixes_to_suppress=[],
+            repo_prefixes_to_shorten=[]
+            )
 
         self.artifactStorage = ArtifactStorage.LocalArtifactStorage(
             Config.ArtifactsConfig.LocalDisk(

@@ -192,6 +192,7 @@ def MakeWebsocketHandler(httpServer):
 class TestLooperHttpServer(object):
     def __init__(self,
                  portConfig,
+                 httpServerConfig,
                  serverConfig,
                  testManager,
                  machine_management,
@@ -206,6 +207,7 @@ class TestLooperHttpServer(object):
         """
         self.testManager = testManager
         self.machine_management = machine_management
+        self.httpServerConfig = httpServerConfig
         self.httpPort = portConfig.server_https_port
         self.src_ctrl = src_ctrl
         self.eventLog = event_log

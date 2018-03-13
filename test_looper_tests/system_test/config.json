@@ -21,5 +21,7 @@
         },
     "source_control": {
         "path_to_repos": "$TEST_LOOPER_INSTALL/repos"
+        },
+    "http_server": {
         }
 }
