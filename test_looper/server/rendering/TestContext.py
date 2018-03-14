@@ -103,7 +103,7 @@ class TestContext(Context.Context):
             grid.append([
                 self.contextFor(self.testManager.oldestCommitForTest(subtest)).renderLink(),
                 self.contextFor(subtest).renderLink(),
-                TestSummaryRenderer.TestSummaryRenderer([self.test], testSummaryUrl="").renderSummary()
+                TestSummaryRenderer.TestSummaryRenderer([subtest], testSummaryUrl="").renderSummary()
                 ])
 
         return grid
