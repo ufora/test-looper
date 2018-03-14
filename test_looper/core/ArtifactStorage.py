@@ -8,6 +8,7 @@ import tempfile
 import tarfile
 import shutil
 import gzip
+import re
 import test_looper.core.algebraic as algebraic
 import test_looper.core.TimerQueue as TimerQueue
 
@@ -38,6 +39,17 @@ class ArtifactStorage(object):
     @staticmethod
     def sanitizeName(name):
         return name.replace("_", "_u_").replace("/","_s_").replace("\\", "_bs_").replace(":","_c_").replace(" ","_sp_")
+
+    @staticmethod
+    def unsanitizeName(name):
+        #every single '_' should be followed by a character or two and another underscore. each of these
+        #has a single distinct mapping that describes what to do with it to invert the name
+        pat = re.compile("_(u|s|bs|c|sp)_")
+        result = pat.split(name)
+
+        lookup = {"u":"_", "s":"/", "bs": "\\", "c": ":", "sp": " "}
+        result[1::2] = [lookup[val] for val in result[1::2]]
+        return "".join(result)
 
     def testResultKeysAndSizesForIndividualTest(self, testHash, testId, testName):
         subPrefix = "individual_test_logs/" + self.sanitizeName(testName)

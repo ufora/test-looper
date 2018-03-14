@@ -385,8 +385,8 @@ class TestLooperHttpServer(object):
         return self.renderer.testLogs(testId)
 
     @cherrypy.expose
-    def build_contents(self, repoName, commitHash, key):
-        return self.renderer.build_contents(repoName, commitHash, key)
+    def build_contents(self, testHash, key):
+        return self.renderer.build_contents(testHash, key)
 
     @cherrypy.expose
     def cancelTestRun(self, testRunId, redirect):

@@ -55,7 +55,7 @@ class Renderer:
             if reponame.startswith(prefix):
                 return reponame[len(prefix):]
         return reponame
-    
+
     def wantsToShowRepo(self, repo):
         if not isinstance(repo, str):
             repo = repo.name
@@ -178,12 +178,11 @@ class Renderer:
     def testResultDownloadUrl(self, testId, key):
         return self.address + "/test_contents?" + urllib.urlencode({"testId": testId, "key": key})
 
-    def build_contents(self, repoName, commitHash, key):
-        return self.processFileContents(self.artifactStorage.buildContentsHtml(repoName, commitHash, key))
+    def build_contents(self, testHash, key):
+        return self.processFileContents(self.artifactStorage.buildContentsHtml(testHash, key))
 
-    def buildDownloadUrl(self, repoName, commitHash, key):
-        return self.address + "/build_contents?" + urllib.urlencode({"key": key, "repoName": repoName, "commitHash": commitHash})
-
+    def buildDownloadUrl(self, testHash, key):
+        return self.address + "/build_contents?" + urllib.urlencode({"testHash": testHash, "key": key})
 
     def wrapInHeader(self, contents, breadcrumb):
         return self.commonHeader(breadcrumb) + (

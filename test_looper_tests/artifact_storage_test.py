@@ -95,6 +95,14 @@ class LocalArtifactStorageTest(unittest.TestCase, Mixin):
         shutil.rmtree(self.testdir)
         shutil.rmtree(self.scratchdir)
 
+    def testNameSymmetry(self):
+        def test(x):
+            self.assertEqual(ArtifactStorage.ArtifactStorage.unsanitizeName(ArtifactStorage.ArtifactStorage.sanitizeName(x)), x)
+        test("asdf")
+        test("as\\df_")
+        test("a:  s/df_")
+        test("a:  s/df_")
+
 test_with_real_aws = True
 if test_with_real_aws:
     class AwsArtifactStorageTest(unittest.TestCase, Mixin):

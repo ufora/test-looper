@@ -100,11 +100,11 @@ class TestRunContext(Context.Context):
         grid = [["Artifact", "Size"]]
 
         if testRun.test.testDefinition.matches.Build:
-            build_key = testRun.test.testDefinition.name.replace("/","_") + ".tar.gz"
+            build_key = self.renderer.artifactStorage.sanitizeName(testRun.test.testDefinition.name) + ".tar.gz"
 
             if self.renderer.artifactStorage.build_exists(testRun.test.hash, build_key):
                 grid.append([
-                    HtmlGeneration.link(build_key, self.renderer.buildDownloadUrl(testRun.test.hash, build_key)),
+                    HtmlGeneration.link(testRun.test.testDefinition.name + ".tar.gz", self.renderer.buildDownloadUrl(testRun.test.hash, build_key)),
                     HtmlGeneration.bytesToHumanSize(self.renderer.artifactStorage.build_size(testRun.test.hash, build_key))
                     ])
             else:

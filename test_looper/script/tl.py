@@ -209,7 +209,7 @@ class WorkerStateOverride(WorkerState.WorkerState):
 
         if dep.matches.Build:
             self.extra_mappings[
-                os.path.join(self.looperCtl.build_path(dep.repo, dep.commitHash, dep.buildHash), "build_output")
+                os.path.join(self.looperCtl.build_path(dep.buildHash), "build_output")
                 ] = os.path.join("/test_looper", expose_as)
 
             return None
@@ -376,10 +376,8 @@ class TestLooperCtl:
     def sanitize(self, name):
         return name.replace("/","_").replace(":","_").replace("~", "--")
 
-    def build_path(self, reponame, commit, buildHash):
-        buildname = self.repo_and_hash_to_branch.get((reponame,commit),commit)
-
-        return os.path.abspath(os.path.join(self.root_path, "builds", self.sanitizeReponame(reponame), self.sanitize(buildname), self.sanitize(buildHash)))
+    def build_path(self, buildHash):
+        return os.path.abspath(os.path.join(self.root_path, "builds", buildHash))
 
     def sanitizeReponame(self, reponame):
         return self.sanitize(reponame)
@@ -750,6 +748,16 @@ class TestLooperCtl:
 
         return None
 
+    def findTest(self, reponame, testHash):
+        possible = []
+
+        for commit in self.branchesCheckedOutForRepo(reponame):
+            tests = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, commit)[0]
+
+            for test in tests.values():
+                if test.hash == testHash:
+                    return commit, test
+
     def bestTest(self, reponame, test):
         possible = []
 
@@ -794,7 +802,7 @@ class TestLooperCtl:
 
         testDef = all_tests[testname]
 
-        path = self.build_path(reponame, commit, testDef.hash)
+        path = self.build_path(testDef.hash)
 
         if path in seen_already:
             return True
@@ -805,13 +813,11 @@ class TestLooperCtl:
             for depname, dep in testDef.dependencies.iteritems():
                 if dep.matches.Source:
                     pass
-                if dep.matches.InternalBuild:
-                    if not self.buildTest(reponame, commit, dep.name, cores, nologcapture, nodeps, interactive, seen_already):
-                        print "Dependent build ", self.repoShortname(reponame), commit, dep.name, " failed"
-                        return False
-                if dep.matches.ExternalBuild:
-                    if not self.buildTest(dep.repo, dep.commitHash, dep.name, cores, nologcapture, nodeps, interactive, seen_already):
-                        print "Dependent build ", self.repoShortname(dep.repo), dep.commitHash, dep.name, " failed"
+                if dep.matches.Build:
+                    commit, test = self.findTest(dep.repo, dep.buildHash)
+
+                    if not self.buildTest(dep.repo, commit, dep.name, cores, nologcapture, nodeps, interactive, seen_already):
+                        print "Dependent build ", self.repoShortname(dep.repo), dep.name, " failed"
                         return False
         
         print "Building ", self.repoShortname(reponame), commit, testname
