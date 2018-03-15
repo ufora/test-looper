@@ -4,6 +4,7 @@ import test_looper.server.rendering.TestGridRenderer as TestGridRenderer
 import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
 import test_looper.server.rendering.ComboContexts as ComboContexts
 import cgi
+import urllib
 octicon = HtmlGeneration.octicon
 card = HtmlGeneration.card
 
