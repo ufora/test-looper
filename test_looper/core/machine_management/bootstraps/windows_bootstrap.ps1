@@ -33,7 +33,7 @@ $env:Path += ";C:\Python27;C:\Python27\Scripts"
 $client.DownloadFile("https://__testlooper_server_and_port__/get-pip.py", "C:\ProgramData\TestLooper\get-pip.py")
 python "C:\ProgramData\TestLooper\get-pip.py"
 
-pip install simplejson==3.13.2 requests==2.18.4 pyyaml==3.12 boto3==1.5.8 pyodbc==4.0.21 psutil==5.4.3
+pip install simplejson==3.13.2 requests==2.18.4 pyyaml==3.12 boto3==1.5.8 pyodbc==4.0.21 psutil==5.4.3 pypiwin32
 
 log("Running bootstrap script - installing git")
 
