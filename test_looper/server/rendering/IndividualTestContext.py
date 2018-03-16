@@ -74,7 +74,7 @@ class IndividualTestContext(Context.Context):
             for testRun in self.database.TestRun.lookupAll(test=self.test):
                 commit = self.testManager.oldestCommitForTest(testRun.test)
                 for path, sz in self.renderer.artifactStorage.testResultKeysAndSizesForIndividualTest(
-                        commit.repo.name, commit.hash, testRun._identity, self.individualTestName
+                        testRun.test.hash, testRun._identity, self.individualTestName
                         ):
                     grid.append([
                         self.contextFor(testRun).renderLink(False, False),
