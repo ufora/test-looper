@@ -341,4 +341,31 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         
         self.assertEqual(sorted(resolver.testDefinitionsFor("repo0", "c0")), ["t1/e", "t2/e"])
         
+    def test_environment_overrides(self):
+        envdef = textwrap.dedent("""
+            looper_version: 2
+            environments:
+              e: 
+                platform: linux
+                image:
+                  dockerfile_contents: hi
+                test_preCommand: preCommand
+              e2:
+                base: e
+                test_preCommand: preCommand2
+            tests:
+              t1/e2:
+                command: actualCommand
+            """)
+
+        harness = TestManagerTestHarness.getHarness()
+
+        harness.manager.source_control.addCommit("repo0/c0", [], envdef)
+
+        resolver = harness.resolver()
+        
+        test = resolver.testDefinitionsFor("repo0", "c0")["t1/e2"]
+
+        self.assertEqual(test.testCommand, "preCommand\npreCommand2\nactualCommand")
+        
 

@@ -461,7 +461,7 @@ class TestDefinitionResolver:
             env = resolved_envs[testDef.environment_name]
 
             testDef = testDef._withReplacement(environment=env)
-            testDef = TestDefinition.apply_test_substitutions(testDef, env, {})
+            testDef = TestDefinition.apply_environment_to_test(testDef, env, {})
 
             return testDef
 

@@ -70,7 +70,15 @@ TestEnvironment.Environment = {
     "platform": Platform,
     "image": Image,
     "variables": algebraic.Dict(str, str),
-    "dependencies": algebraic.Dict(str, TestDependency)
+    "dependencies": algebraic.Dict(str, TestDependency),
+    "test_preCommand": str,
+    "test_preCleanupCommand": str,
+    "test_timeout": int,
+    "test_min_cores": int,
+    "test_max_cores": int,
+    "test_min_ram_gb": int,
+    "test_max_retries": int,
+    "test_retry_wait_seconds": int
     }
 
 TestEnvironment.Import = {
@@ -79,7 +87,15 @@ TestEnvironment.Import = {
     "imports": algebraic.List(EnvironmentReference),
     "setup_script_contents": str,
     "variables": algebraic.Dict(str, str),
-    "dependencies": algebraic.Dict(str, TestDependency)
+    "dependencies": algebraic.Dict(str, TestDependency),
+    "test_preCommand": str,
+    "test_preCleanupCommand": str,
+    "test_timeout": int,
+    "test_min_cores": int,
+    "test_max_cores": int,
+    "test_min_ram_gb": int,
+    "test_max_retries": int,
+    "test_retry_wait_seconds": int
     }
 
 TestDefinition = algebraic.Alternative("TestDefinition")
@@ -195,7 +211,14 @@ def merge_image_and_extra_setup(image, extra_setup):
     else:
         assert image.matches.AMI, "Can only add setup-script contents to an AMI image, not %s, and we were given %s" % (image, repr(extra_setup))
 
+def makeDict(**kwargs):
+    return dict(kwargs)
 
+def pickFirstNonzero(list):
+    for l in list:
+        if l:
+            return l
+    return 0
 
 def merge_environments(import_environment, underlying_environments):
     """Given an 'Import' environment and a dictionary from 
@@ -228,6 +251,17 @@ def merge_environments(import_environment, underlying_environments):
 
     extra_setups = [e.setup_script_contents for e in order if e.matches.Import and e.setup_script_contents]
 
+    commonKwargs = makeDict(
+        test_preCommand="\n".join([e.test_preCommand for e in reversed(order) if e.test_preCommand]),
+        test_preCleanupCommand="\n".join([e.test_preCleanupCommand for e in reversed(order) if e.test_preCleanupCommand]),
+        test_timeout=pickFirstNonzero([e.test_timeout for e in order]),
+        test_min_cores=pickFirstNonzero([e.test_min_cores for e in order]),
+        test_max_cores=pickFirstNonzero([e.test_max_cores for e in order]),
+        test_min_ram_gb=pickFirstNonzero([e.test_min_ram_gb for e in order]),
+        test_max_retries=pickFirstNonzero([e.test_max_retries for e in order]),
+        test_retry_wait_seconds=pickFirstNonzero([e.test_retry_wait_seconds for e in order])
+        )
+
     for e in reversed(order[:-1]):
         variables = merge_dicts(variables, e.variables)
         dependencies = merge_dicts(dependencies, e.dependencies)
@@ -247,7 +281,8 @@ def merge_environments(import_environment, underlying_environments):
             platform=platform,
             image=image,
             variables=variables,
-            dependencies=dependencies
+            dependencies=dependencies,
+            **commonKwargs
             )
     else:
         return TestEnvironment.Import(
@@ -256,7 +291,8 @@ def merge_environments(import_environment, underlying_environments):
             variables=variables,
             dependencies=dependencies,
             imports=(),
-            setup_script_contents="\n".join(reversed(extra_setups))
+            setup_script_contents="\n".join(reversed(extra_setups)),
+            **commonKwargs
             )
 
 def substitute_variables_in_image(image, vars):
@@ -321,25 +357,19 @@ def apply_environment_substitutions(env):
         assert "$" not in d, "Environment %s produced malformed dependency %s" % (env.environment_name, d)
 
     if env.matches.Environment:
-        return TestEnvironment.Environment(
-                environment_name=env.environment_name,
-                inheritance=env.inheritance,
-                platform=env.platform,
+        return env._withReplacement(
                 image=substitute_variables_in_image(env.image, vardefs),
                 variables=vardefs,
                 dependencies=deps
                 )
     else:
-        return TestEnvironment.Import(
-            environment_name=env.environment_name,
-            inheritance=env.inheritance,
-            imports=env.imports,
+        return env._withReplacement(
             setup_script_contents=VariableSubstitution.substitute_variables(env.setup_script_contents, vardefs),
             variables=vardefs,
             dependencies=deps
             )
 
-def apply_test_substitutions(test, env, input_var_defs):
+def apply_environment_to_test(test, env, input_var_defs):
     vardefs = dict(env.variables)
     vardefs.update(test.variables)
 
@@ -359,19 +389,27 @@ def apply_test_substitutions(test, env, input_var_defs):
             environment_name=test.environment_name,
             variables=vardefs,
             dependencies=dependencies,
-            timeout=test.timeout,
-            min_cores=test.min_cores,
-            max_cores=test.max_cores,
-            min_ram_gb=test.min_ram_gb,
+            timeout=test.timeout or env.test_timeout,
+            min_cores=test.min_cores or env.test_min_cores,
+            max_cores=test.max_cores or env.test_max_cores,
+            min_ram_gb=test.min_ram_gb or env.test_min_ram_gb,
             hash=test.hash,
             **kwargs
             )
 
+    def addNewline(s):
+        if s:
+            return s + "\n"
+        return ""
+
+    test_preCommand = addNewline(env.test_preCommand)
+    test_preCleanupCommand = addNewline(env.test_preCleanupCommand)
+
     if test.matches.Build:
         return make(
             TestDefinition.Build,
-            buildCommand=VariableSubstitution.substitute_variables(test.buildCommand, vardefs),
-            cleanupCommand=VariableSubstitution.substitute_variables(test.cleanupCommand, vardefs),
+            buildCommand=VariableSubstitution.substitute_variables(test_preCommand + test.buildCommand, vardefs),
+            cleanupCommand=VariableSubstitution.substitute_variables(test_preCleanupCommand + test.cleanupCommand, vardefs),
             max_retries=test.max_retries,
             retry_wait_seconds=test.retry_wait_seconds,
             disabled=test.disabled
@@ -379,13 +417,13 @@ def apply_test_substitutions(test, env, input_var_defs):
     elif test.matches.Test:
         return make(
             TestDefinition.Test,
-            testCommand=VariableSubstitution.substitute_variables(test.testCommand, vardefs),
-            cleanupCommand=VariableSubstitution.substitute_variables(test.cleanupCommand, vardefs),
+            testCommand=VariableSubstitution.substitute_variables(test_preCommand + test.testCommand, vardefs),
+            cleanupCommand=VariableSubstitution.substitute_variables(test_preCleanupCommand + test.cleanupCommand, vardefs),
             disabled=test.disabled
             )
     elif test.matches.Deployment:
         return make(
             TestDefinition.Deployment,
-            deployCommand=VariableSubstitution.substitute_variables(test.deployCommand, vardefs),
+            deployCommand=VariableSubstitution.substitute_variables(test_preCommand + test.deployCommand, vardefs),
             portExpose=test.portExpose
             )

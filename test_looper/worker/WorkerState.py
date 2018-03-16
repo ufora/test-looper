@@ -866,7 +866,7 @@ class WorkerState(object):
         env_overrides = self.environment_variables(testId, environment, test_definition)
 
         #update the test definition to resolve dependencies given our base environment overrides
-        test_definition = TestDefinition.apply_test_substitutions(test_definition, environment, env_overrides)
+        test_definition = TestDefinition.apply_environment_to_test(test_definition, environment, env_overrides)
 
         all_dependencies = {}
         all_dependencies.update(environment.dependencies)

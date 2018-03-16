@@ -28,14 +28,30 @@ DefineEnvironment.Import = {
     'base': algebraic.List(str),
     'setup_script_contents': str,
     "variables": VariableDict,
-    "dependencies": algebraic.Dict(str, str)
+    "dependencies": algebraic.Dict(str, str),
+    "test_preCommand": str,
+    "test_preCleanupCommand": str,
+    "test_timeout": int,
+    "test_min_cores": int,
+    "test_max_cores": int,
+    "test_min_ram_gb": int,
+    "test_max_retries": int,
+    "test_retry_wait_seconds": int
     }
 
 DefineEnvironment.Environment = {
     "platform": Platform,
     "image": Image,
     "variables": VariableDict,
-    "dependencies": algebraic.Dict(str, str)
+    "dependencies": algebraic.Dict(str, str),
+    "test_preCommand": str,
+    "test_preCleanupCommand": str,
+    "test_timeout": int,
+    "test_min_cores": int,
+    "test_max_cores": int,
+    "test_min_ram_gb": int,
+    "test_max_retries": int,
+    "test_retry_wait_seconds": int
     }
 
 DefineBuild = algebraic.Alternative("DefineBuild")
@@ -237,7 +253,15 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 variables=envDef.variables,
                 dependencies={
                     "test_inputs/" + name: map_environment_dep(dep) for name, dep in envDef.dependencies.iteritems()
-                    }
+                    },
+                test_preCommand=envDef.test_preCommand,
+                test_preCleanupCommand=envDef.test_preCleanupCommand,
+                test_timeout=envDef.test_timeout,
+                test_min_cores=envDef.test_min_cores,
+                test_max_cores=envDef.test_max_cores,
+                test_min_ram_gb=envDef.test_min_ram_gb,
+                test_max_retries=envDef.test_max_retries,
+                test_retry_wait_seconds=envDef.test_retry_wait_seconds
                 )
 
             environments[envName] = import_env
@@ -251,7 +275,15 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 variables=envDef.variables,
                 dependencies={
                     "test_inputs/" + name: map_environment_dep(dep) for name, dep in envDef.dependencies.iteritems()
-                    }
+                    },
+                test_preCommand=envDef.test_preCommand,
+                test_preCleanupCommand=envDef.test_preCleanupCommand,
+                test_timeout=envDef.test_timeout,
+                test_min_cores=envDef.test_min_cores,
+                test_max_cores=envDef.test_max_cores,
+                test_min_ram_gb=envDef.test_min_ram_gb,
+                test_max_retries=envDef.test_max_retries,
+                test_retry_wait_seconds=envDef.test_retry_wait_seconds
                 )  
 
         return environments[envName]
