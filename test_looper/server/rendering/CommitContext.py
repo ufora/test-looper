@@ -378,7 +378,10 @@ class CommitContext(Context.Context):
 
         tests = sorted(tests, key=lambda test: test.testDefinition.name)
         
-        grid = [["BUILD" if builds else "SUITE", "HASH", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "FAILED", "PRIORITY", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", "", "TEST_DEPS"]]
+        if builds:
+            grid = [["BUILD", "HASH", "", "ENVIRONMENT", "STATUS", "AVG_RUNTIME", "", "DEPENDENCIES"]]
+        else:
+            grid = [["SUITE", "HASH", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "FAILED", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", "", "DEPENDENCIES"]]
 
         for t in tests:
             row = []
@@ -398,50 +401,35 @@ class CommitContext(Context.Context):
 
             row.append(t.testDefinition.environment_name)
 
-            row.append(str(t.activeRuns))
-            row.append(str(t.totalRuns))
-            row.append(str(t.totalRuns - t.successes))
-
-            def stringifyPriority(calculatedPriority, priority):
-                if priority.matches.HardwareComboUnbootable:
-                    return "HardwareComboUnbootable"
-                if priority.matches.WaitingOnBuilds:
-                    return "WaitingOnBuilds"
-                if priority.matches.UnresolvedDependencies:
-                    return "UnresolvedTestDependencies"
-                if priority.matches.NoMoreTests:
-                    return "HaveEnough"
-                if priority.matches.DependencyFailed:
-                    return "DependencyFailed"
-                if (priority.matches.WantsMoreTests or priority.matches.FirstTest or priority.matches.FirstBuild):
-                    return "WaitingForHardware"
-                if priority.matches.WaitingToRetry:
-                    return "WaitingToRetry"
-
-                return "Unknown"
-
-            row.append(stringifyPriority(t.calculatedPriority, t.priority))
+            if builds:
+                row.append(TestSummaryRenderer.TestSummaryRenderer([t],"").renderSummary())
+            else:
+                row.append(str(t.activeRuns))
+                row.append(str(t.totalRuns))
+                row.append(str(t.totalRuns - t.successes))
 
             all_tests = list(self.testManager.database.TestRun.lookupAll(test=t))
             all_noncanceled_tests = [testRun for testRun in all_tests if not testRun.canceled]
             finished_tests = [testRun for testRun in all_noncanceled_tests if testRun.endTimestamp > 0.0]
 
             if t.totalRuns:
-                if t.totalRuns == 1:
-                    #don't want to convert these to floats
-                    row.append("%d" % t.totalTestCount)
-                    row.append("%d" % t.totalFailedTestCount)
-                else:
-                    row.append(str(t.totalTestCount / float(t.totalRuns)))
-                    row.append(str(t.totalFailedTestCount / float(t.totalRuns)))
+                if not builds:
+                    if t.totalRuns == 1:
+                        #don't want to convert these to floats
+                        row.append("%d" % t.totalTestCount)
+                        row.append("%d" % t.totalFailedTestCount)
+                    else:
+                        row.append(str(t.totalTestCount / float(t.totalRuns)))
+                        row.append(str(t.totalFailedTestCount / float(t.totalRuns)))
 
                 if finished_tests:
                     row.append(HtmlGeneration.secondsUpToString(sum([testRun.endTimestamp - testRun.startedTimestamp for testRun in finished_tests]) / len(finished_tests)))
                 else:
                     row.append("")
             else:
-                row.append("")
-                row.append("")
+                if not builds:
+                    row.append("")
+                    row.append("")
                 
                 if all_noncanceled_tests:
                     row.append(HtmlGeneration.secondsUpToString(sum([time.time() - testRun.startedTimestamp for testRun in all_noncanceled_tests]) / len(all_noncanceled_tests)) + " so far")
