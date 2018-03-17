@@ -343,15 +343,49 @@ class TestDefinitionResolver:
 
         return environment
 
+    def actualEnvironmentNameForTest_(self, testDef):
+        if not testDef.environment_mixins:
+            return testDef.environment_name
+        else:
+            return "+".join([testDef.environment_name] + list(testDef.environment_mixins))
+
     def environmentsFor(self, repoName, commitHash):
         if (repoName, commitHash) in self.environmentCache:
             return self.environmentCache[repoName, commitHash]
 
         resolved_repos = self.repoReferencesFor(repoName, commitHash)
 
-        environments = self.postIncludeDefinitions_(repoName, commitHash)[1]
+        tests, environments = self.postIncludeDefinitions_(repoName, commitHash)[:2]
 
-        #resolve names for repos and whatnot
+        synthetic_names = set()
+
+        #we make fake environments for each test that uses mixins
+        for testDef in tests.values():
+            if testDef.environment_mixins:
+                synthetic_name = self.actualEnvironmentNameForTest_(testDef)
+                fakeEnvironment = TestDefinition.TestEnvironment.Import(
+                    environment_name=testDef.environment_name,
+                    inheritance="",
+                    imports= [
+                        TestDefinition.EnvironmentReference.Reference(repo=repoName, commitHash=commitHash,name=ref)
+                            for ref in [testDef.environment_name] + list(testDef.environment_mixins)
+                        ],
+                    setup_script_contents="",
+                    variables={},
+                    dependencies={},
+                    test_preCommand="",
+                    test_preCleanupCommand="",
+                    test_timeout=0,
+                    test_min_cores=0,
+                    test_max_cores=0,
+                    test_min_ram_gb=0,
+                    test_max_retries=0,
+                    test_retry_wait_seconds=0
+                    )
+                environments[synthetic_name] = fakeEnvironment
+
+
+        #resolve names for repos
         environments = {e: self.resolveEnvironmentPreMerge_(environments[e], resolved_repos) 
             for e in environments}
 
@@ -452,13 +486,15 @@ class TestDefinitionResolver:
         resolved_envs = self.environmentsFor(repoName, commitHash)
 
         def resolveTestEnvironmentAndApplyVars(testDef):
-            if testDef.environment_name not in resolved_envs:
+            name = self.actualEnvironmentNameForTest_(testDef)
+
+            if name not in resolved_envs:
                 raise TestResolutionException("Can't find environment %s (referenced by %s) in\n%s" % (
                     testDef.environment_name,
                     testDef.name,
                     "\n".join(["\t" + x for x in sorted(resolved_envs)])
                     ))
-            env = resolved_envs[testDef.environment_name]
+            env = resolved_envs[name]
 
             testDef = testDef._withReplacement(environment=env)
             testDef = TestDefinition.apply_environment_to_test(testDef, env, {})

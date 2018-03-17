@@ -106,6 +106,7 @@ TestDefinition.Build = {
     'hash': str,
     "name": str,
     "environment_name": str,
+    "environment_mixins": algebraic.List(str),
     "environment": TestEnvironment,
     "dependencies": algebraic.Dict(str, TestDependency),
     "variables": algebraic.Dict(str,str),
@@ -124,6 +125,7 @@ TestDefinition.Test = {
     'hash': str,
     "name": str,
     "environment_name": str,
+    "environment_mixins": algebraic.List(str),
     "environment": TestEnvironment,
     "dependencies": algebraic.Dict(str, TestDependency),
     "variables": algebraic.Dict(str,str),
@@ -139,6 +141,7 @@ TestDefinition.Deployment = {
     'hash': str,
     "name": str,
     "environment_name": str,
+    "environment_mixins": algebraic.List(str),
     "environment": TestEnvironment,
     "dependencies": algebraic.Dict(str, TestDependency),
     "variables": algebraic.Dict(str,str),
@@ -186,11 +189,11 @@ def method_resolution_order(env, dependencies):
     linearization = [[env]]
 
     if env.matches.Import:
-        for d in env.imports:
+        for d in reversed(env.imports):
             linearization.append(
                 method_resolution_order(dependencies[d], dependencies)
                 )
-        for d in env.imports:
+        for d in reversed(env.imports):
             linearization.append([dependencies[d]])
 
     return merge(linearization)
@@ -385,8 +388,9 @@ def apply_environment_to_test(test, env, input_var_defs):
         return type(
             name=test.name,
             environment=env,
-            configuration=test.configuration,
+            configuration=VariableSubstitution.substitute_variables(test.configuration, vardefs),
             environment_name=test.environment_name,
+            environment_mixins=test.environment_mixins,
             variables=vardefs,
             dependencies=dependencies,
             timeout=test.timeout or env.test_timeout,

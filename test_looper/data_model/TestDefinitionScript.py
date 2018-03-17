@@ -61,6 +61,7 @@ DefineDeployment = algebraic.Alternative("DefineDeployment")
 DefineBuild.Build = {
     'command': str,
     'environment': str,
+    'mixins': algebraic.List(str), #environments to 'mix in' to modify the behavior of the test
     'configuration': str,
     'cleanup': str, #command to run to copy test outputs to relevant directories...
     'dependencies': algebraic.Dict(str,str),
@@ -77,6 +78,7 @@ DefineBuild.Build = {
 DefineTest.Test = {
     'command': str,
     'environment': str,
+    'mixins': algebraic.List(str), #environments to 'mix in' to modify the behavior of the test
     'configuration': str,
     'cleanup': str, #command to run to copy test outputs to relevant directories...
     'dependencies': algebraic.Dict(str,str),
@@ -91,6 +93,7 @@ DefineTest.Test = {
 DefineDeployment.Deployment = {
     'command': str,
     'environment': str,
+    'mixins': algebraic.List(str), #environments to 'mix in' to modify the behavior of the test
     'configuration': str,
     'dependencies': algebraic.Dict(str,str),
     'variables': VariableDict,
@@ -352,6 +355,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 variables=d.variables,
                 dependencies=deps,
                 environment_name=curEnv,
+                environment_mixins=d.mixins,
                 environment=TestDefinition.TestEnvironment.Unresolved(),
                 timeout=d.timeout,
                 disabled=d.disabled,
@@ -372,6 +376,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 dependencies=deps,
                 disabled=d.disabled,
                 environment_name=curEnv,
+                environment_mixins=d.mixins,
                 environment=TestDefinition.TestEnvironment.Unresolved(),
                 timeout=d.timeout,
                 min_cores=d.min_cores,
@@ -388,6 +393,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 dependencies=deps,
                 portExpose=d.portExpose,
                 environment_name=curEnv,
+                environment_mixins=d.mixins,
                 environment=TestDefinition.TestEnvironment.Unresolved(),
                 timeout=d.timeout,
                 min_cores=d.min_cores,

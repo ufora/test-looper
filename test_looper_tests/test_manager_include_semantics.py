@@ -368,4 +368,38 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
         self.assertEqual(test.testCommand, "preCommand\npreCommand2\nactualCommand")
         
+ 
+    def test_environment_mixins(self):
+        envdef = textwrap.dedent("""
+            looper_version: 2
+            environments:
+              e: 
+                platform: linux
+                image:
+                  dockerfile_contents: hi
+                variables:
+                  v: e
+                test_preCommand: preCommand
+              e2:
+                base: []
+                test_preCommand: preCommand2
+                variables:
+                  v: e2
+            tests:
+              t1/e:
+                mixins: [e2]
+                command: actualCommand - v=${v}
+            """)
+
+        harness = TestManagerTestHarness.getHarness()
+
+        harness.manager.source_control.addCommit("repo0/c0", [], envdef)
+
+        resolver = harness.resolver()
+        
+        test = resolver.testDefinitionsFor("repo0", "c0")["t1/e"]
+
+        self.assertEqual(test.testCommand, "preCommand\npreCommand2\nactualCommand - v=e2")
+        
+        print test
 
