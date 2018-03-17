@@ -373,6 +373,7 @@ class TestDefinitionResolver:
                     setup_script_contents="",
                     variables={},
                     dependencies={},
+                    test_configuration="",
                     test_preCommand="",
                     test_preCleanupCommand="",
                     test_timeout=0,

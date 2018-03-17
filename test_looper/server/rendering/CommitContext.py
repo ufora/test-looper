@@ -399,7 +399,7 @@ class CommitContext(Context.Context):
                    )
                 )
 
-            row.append(t.testDefinition.environment_names[0])
+            row.append(t.testDefinition.environment_name)
 
             if builds:
                 row.append(TestSummaryRenderer.TestSummaryRenderer([t],"").renderSummary())

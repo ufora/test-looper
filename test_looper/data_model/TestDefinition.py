@@ -71,6 +71,7 @@ TestEnvironment.Environment = {
     "image": Image,
     "variables": algebraic.Dict(str, str),
     "dependencies": algebraic.Dict(str, TestDependency),
+    "test_configuration": str,
     "test_preCommand": str,
     "test_preCleanupCommand": str,
     "test_timeout": int,
@@ -88,6 +89,7 @@ TestEnvironment.Import = {
     "setup_script_contents": str,
     "variables": algebraic.Dict(str, str),
     "dependencies": algebraic.Dict(str, TestDependency),
+    "test_configuration": str,
     "test_preCommand": str,
     "test_preCleanupCommand": str,
     "test_timeout": int,
@@ -217,11 +219,11 @@ def merge_image_and_extra_setup(image, extra_setup):
 def makeDict(**kwargs):
     return dict(kwargs)
 
-def pickFirstNonzero(list):
+def pickFirstNonzero(list, defaultVal=0):
     for l in list:
         if l:
             return l
-    return 0
+    return defaultVal
 
 def merge_environments(import_environment, underlying_environments):
     """Given an 'Import' environment and a dictionary from 
@@ -255,6 +257,7 @@ def merge_environments(import_environment, underlying_environments):
     extra_setups = [e.setup_script_contents for e in order if e.matches.Import and e.setup_script_contents]
 
     commonKwargs = makeDict(
+        test_configuration=pickFirstNonzero([e.test_configuration for e in order], ""),
         test_preCommand="\n".join([e.test_preCommand for e in reversed(order) if e.test_preCommand]),
         test_preCleanupCommand="\n".join([e.test_preCleanupCommand for e in reversed(order) if e.test_preCleanupCommand]),
         test_timeout=pickFirstNonzero([e.test_timeout for e in order]),
@@ -384,11 +387,16 @@ def apply_environment_to_test(test, env, input_var_defs):
     #now allow the input vars to apply
     vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(vardefs, input_var_defs)
 
+    if test.configuration:
+        config = test.configuration
+    else:
+        config = env.test_configuration
+
     def make(type, **kwargs):
         return type(
             name=test.name,
             environment=env,
-            configuration=VariableSubstitution.substitute_variables(test.configuration, vardefs),
+            configuration=VariableSubstitution.substitute_variables(config, vardefs),
             environment_name=test.environment_name,
             environment_mixins=test.environment_mixins,
             variables=vardefs,

@@ -368,6 +368,44 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
         self.assertEqual(test.testCommand, "preCommand\npreCommand2\nactualCommand")
         
+    def test_configuration_override(self):
+        envdef = textwrap.dedent("""
+            looper_version: 2
+            environments:
+              e: 
+                platform: linux
+                image:
+                  dockerfile_contents: hi
+                test_preCommand: preCommand
+                test_configuration: override_at_root
+              e2:
+                base: []
+                test_configuration: override_at_mixin
+            tests:
+              t1:
+                environment: e
+                command: actualCommand
+              t2:
+                environment: e
+                mixins: [e2]
+                command: actualCommand
+              t3:
+                environment: e
+                mixins: [e2]
+                configuration: override_at_test_level
+                command: actualCommand
+            """)
+
+        harness = TestManagerTestHarness.getHarness()
+
+        harness.manager.source_control.addCommit("repo0/c0", [], envdef)
+
+        resolver = harness.resolver()
+        
+        self.assertEqual(resolver.testDefinitionsFor("repo0", "c0")["t1"].configuration, "override_at_root")
+        self.assertEqual(resolver.testDefinitionsFor("repo0", "c0")["t2"].configuration, "override_at_mixin")
+        self.assertEqual(resolver.testDefinitionsFor("repo0", "c0")["t3"].configuration, "override_at_test_level")
+        
  
     def test_environment_mixins(self):
         envdef = textwrap.dedent("""

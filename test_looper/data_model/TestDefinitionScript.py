@@ -29,6 +29,7 @@ DefineEnvironment.Import = {
     'setup_script_contents': str,
     "variables": VariableDict,
     "dependencies": algebraic.Dict(str, str),
+    "test_configuration": str,
     "test_preCommand": str,
     "test_preCleanupCommand": str,
     "test_timeout": int,
@@ -44,6 +45,7 @@ DefineEnvironment.Environment = {
     "image": Image,
     "variables": VariableDict,
     "dependencies": algebraic.Dict(str, str),
+    "test_configuration": str,
     "test_preCommand": str,
     "test_preCleanupCommand": str,
     "test_timeout": int,
@@ -257,6 +259,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 dependencies={
                     "test_inputs/" + name: map_environment_dep(dep) for name, dep in envDef.dependencies.iteritems()
                     },
+                test_configuration=envDef.test_configuration,
                 test_preCommand=envDef.test_preCommand,
                 test_preCleanupCommand=envDef.test_preCleanupCommand,
                 test_timeout=envDef.test_timeout,
@@ -279,6 +282,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 dependencies={
                     "test_inputs/" + name: map_environment_dep(dep) for name, dep in envDef.dependencies.iteritems()
                     },
+                test_configuration=envDef.test_configuration,
                 test_preCommand=envDef.test_preCommand,
                 test_preCleanupCommand=envDef.test_preCleanupCommand,
                 test_timeout=envDef.test_timeout,
