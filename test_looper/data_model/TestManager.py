@@ -1997,7 +1997,8 @@ class TestManager(object):
 
     def _testHasFailedDeps(self, test):
         for dep in self.database.TestDependency.lookupAll(test=test):
-            if dep.dependsOn.totalRuns > 0 and dep.dependsOn.successes == 0 and not self._testWantsRetries(dep.dependsOn):
+            if dep.dependsOn.totalRuns > 0 and dep.dependsOn.successes == 0 and not self._testWantsRetries(dep.dependsOn) or \
+                    dep.dependsOn.priority.matches.DependencyFailed:
                 return True
         return False
 
