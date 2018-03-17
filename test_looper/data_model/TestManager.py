@@ -1719,6 +1719,8 @@ class TestManager(object):
     def _updateTestPriority(self, test, curTimestamp):
         self._checkAllTestDependencies(test)
 
+        oldCalcPri = test.calculatedPriority
+
         test.calculatedPriority = max(
             commit.calculatedPriority for commit in self.commitsReferencingTest(test)
             )
@@ -1781,11 +1783,13 @@ class TestManager(object):
                 category.desired = category.desired + net_change
                 self._scheduleBootCheck()
 
-        if test.priority != oldPriority:
+        if test.priority != oldPriority or test.calculatedPriority != oldCalcPri:
             logging.info("test priority for test %s changed to %s", test.testDefinition.hash, test.priority)
         
             for dep in self.database.TestDependency.lookupAll(test=test):
                 self._triggerTestPriorityUpdate(dep.dependsOn)
+            for dep in self.database.TestDependency.lookupAll(dependsOn=test):
+                self._triggerTestPriorityUpdate(dep.test)
 
     def _checkMachineCategoryCounts(self):
         desired = {}

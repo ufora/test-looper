@@ -427,3 +427,32 @@ def apply_environment_to_test(test, env, input_var_defs):
             deployCommand=VariableSubstitution.substitute_variables(test_preCommand + test.deployCommand, vardefs),
             portExpose=test.portExpose
             )
+
+def apply_variable_substitution_to_test(test, input_var_defs):
+    vardefs = dict(test.variables)
+
+    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(vardefs)
+
+    #dependencies need to resolve without use of 'input_var_defs'
+    dependencies = apply_substitutions_to_dependencies(test.dependencies, vardefs)
+
+    #now allow the input vars to apply
+    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(vardefs, input_var_defs)
+
+    if test.matches.Build:
+        return test._withReplacement(
+            variables=vardefs,
+            buildCommand=VariableSubstitution.substitute_variables(test.buildCommand, vardefs),
+            cleanupCommand=VariableSubstitution.substitute_variables(test.cleanupCommand, vardefs)
+            )
+    elif test.matches.Test:
+        return test._withReplacement(
+            variables=vardefs,
+            testCommand=VariableSubstitution.substitute_variables(test.testCommand, vardefs),
+            cleanupCommand=VariableSubstitution.substitute_variables(test.cleanupCommand, vardefs)
+            )
+    elif test.matches.Deployment:
+        return test._withReplacement(
+            variables=vardefs,
+            deployCommand=VariableSubstitution.substitute_variables(test.deployCommand, vardefs)
+            )
