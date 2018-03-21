@@ -92,6 +92,7 @@ def createArgumentParser():
 
     info_parser = subparsers.add_parser("info")
     info_parser.set_defaults(command="info")
+    info_parser.add_argument("-c", "--committish", help="committish override", default=None, required=False)
     info_parser.add_argument("-t", "--test", help="Get info on a specific test", default=None, required=False)
     info_parser.add_argument("-r", "--repo", help="Get info on a checked-out repo", default=None, required=False)
 
@@ -605,9 +606,12 @@ class TestLooperCtl:
     def info(self, args):
         if args.repo:
             if args.test:
-                self.infoForTest(args.repo, args.test)
+                self.infoForTest(args.repo, args.test, args.committish)
             else:
                 self.infoForRepo(args.repo)
+            return
+        elif args.test:
+            self.infoForTest(None, args.test, args.committish)
             return
 
         if self.checkout_root and self.checkout_root[0]:
@@ -616,27 +620,64 @@ class TestLooperCtl:
 
         raise UserWarning("Nothing specified.")
 
-    def infoForTest(self, repo, test):
-        repo = self.bestRepo(repo)
-        commit, test = self.bestTest(repo, test)
+    def infoForTest(self, repo, test, committish):
+        if repo and test and committish:
+            repo = self.bestRepo(repo)
 
-        tests, environments, repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(repo, commit)
+            commit = self.getGitRepo(repo).gitCommitData(committish)[0]
+
+            tests, environments, repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(repo, commit)
+        else:
+            assert committish is None
+            if repo is not None:
+                repo = self.bestRepo(repo)
+
+            repo, commit, test = self.bestTest(repo, test)
+
+            tests, environments, repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(repo, commit)
 
         if test not in tests:
-            raise UserWarning("Can't find test %s" % test)
+            raise UserWarning("Can't find test %s amongst:\n%s" % (test, "\n".join(["  " + x for x in sorted(tests)])))
 
         testDef = tests[test]
 
         print "test: ", test
 
         print "dependencies: "
-        for depname, dep in sorted(testDef.dependencies.iteritems()):
+        allDeps = dict(testDef.environment.dependencies)
+        allDeps.update(testDef.dependencies)
+
+        for depname, dep in sorted(allDeps.iteritems()):
+            print "  ", depname, ": ", 
+
             if dep.matches.InternalBuild:
-                print "\tbuild: ", dep.name
-            if dep.matches.ExternalBuild:
-                print "\tbuild: ", self.repoShortname(dep.repo) + "/" + dep.commitHash + "/" + dep.name
-            if dep.matches.Source:
-                print "\tsource:", self.repoShortname(dep.repo) + "/" + dep.commitHash
+                print "build: ", dep.name
+            elif dep.matches.ExternalBuild:
+                print "build ", self.repoShortname(dep.repo) + ", commit=" + dep.commitHash + ", name=" + dep.name
+            elif dep.matches.Source:
+                print "source", self.repoShortname(dep.repo) + "/" + dep.commitHash
+            elif dep.matches.Build:
+                print "build ", self.repoShortname(dep.repo) + ", hash=" + dep.buildHash, ", name=", dep.name
+            else:
+                print "unknown: ", repr(dep)
+
+        def kvprint(key, value, indent):
+            if isinstance(value, str) and "\n" in value:
+                print indent + key + ": |"
+                print indent + "\n".join(["  " + x for x in value.split("\n")])
+            else:
+                print indent + key + ":" + repr(value)
+
+        print "variables: "
+        for var, varval in sorted(testDef.variables.iteritems()):
+            kvprint(var, varval, "  ")
+
+        toPrint = ["testCommand" if testDef.matches.Test else "buildCommand", "cleanupCommand", "hash", 
+                    "name", "environment_name", "timeout", "max_cores","min_cores", "min_ram_gb"]
+
+        for key in toPrint:
+            kvprint(key, getattr(testDef, key), "")
+
 
     def infoForRepo(self, reponame):
         reponame = self.bestRepo(reponame)
@@ -761,11 +802,17 @@ class TestLooperCtl:
     def bestTest(self, reponame, test):
         possible = []
 
-        for commit in self.branchesCheckedOutForRepo(reponame):
-            tests = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, commit)[0]
-            res = self._pickOne(test, tests, "test")
-            if res:
-                possible.append((commit, res))
+        if reponame is None:
+            reponames = sorted(set(repoAndHash[0] for repoAndHash in self.repo_and_hash_to_branch))
+        else:
+            reponames = [reponame]
+
+        for reponame in reponames:
+            for commit in self.branchesCheckedOutForRepo(reponame):
+                tests = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, commit)[0]
+                res = self._pickOne(test, tests, "test")
+                if res:
+                    possible.append((reponame, commit, res))
 
         if not possible:
             raise UserWarning("Couldn't find a test named %s" % test)
@@ -782,7 +829,7 @@ class TestLooperCtl:
     def build(self, args):
         repo = self.bestRepo(args.repo)
 
-        commit, test = self.bestTest(repo, args.test)
+        repo, commit, test = self.bestTest(repo, args.test)
 
         self.buildTest(repo, commit, test, args.cores, args.nologcapture, args.nodeps, args.interactive, set())
 
