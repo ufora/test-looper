@@ -24,8 +24,9 @@ def cached(f):
 
 class TestSummaryRenderer:
     """Class for rendering a specific set of tests."""
-    def __init__(self, tests, testSummaryUrl=None):
+    def __init__(self, tests, testSummaryUrl=None, ignoreIndividualTests=False):
         self.tests = tests
+        self.ignoreIndividualTests = ignoreIndividualTests
         self.url = testSummaryUrl
 
     @cached
@@ -151,7 +152,7 @@ class TestSummaryRenderer:
                 suitesNotRun, len(tests)
                 )
             
-        if totalTests == 0:
+        if totalTests == 0 or self.ignoreIndividualTests:
             if suitesFailed == 0:
                 return "%s suites successed" % len(tests)
             else:
@@ -229,7 +230,7 @@ class TestSummaryRenderer:
                 return '<span class="text-muted">%s</span>' % "..."
             return octicon("watch")
             
-        if totalTests == 0:
+        if totalTests == 0 or self.ignoreIndividualTests:
             return '<span class="text-muted">%s</span>' % octicon("check")
 
         return self.renderFailureCount(totalFailedTestCount, totalTests)

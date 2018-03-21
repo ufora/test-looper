@@ -379,9 +379,9 @@ class CommitContext(Context.Context):
         tests = sorted(tests, key=lambda test: test.testDefinition.name)
         
         if builds:
-            grid = [["BUILD", "HASH", "", "ENVIRONMENT", "STATUS", "AVG_RUNTIME", "", "DEPENDENCIES"]]
+            grid = [["BUILD", "HASH", "", "ENVIRONMENT", "STATUS", "RUNS", "AVG_RUNTIME", "", "DEPENDENCIES"]]
         else:
-            grid = [["SUITE", "HASH", "", "ENVIRONMENT", "RUNNING", "COMPLETED", "FAILED", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", "", "DEPENDENCIES"]]
+            grid = [["SUITE", "HASH", "", "ENVIRONMENT", "STATUS", "RUNS", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", "", "DEPENDENCIES"]]
 
         for t in tests:
             row = []
@@ -401,12 +401,8 @@ class CommitContext(Context.Context):
 
             row.append(t.testDefinition.environment_name)
 
-            if builds:
-                row.append(TestSummaryRenderer.TestSummaryRenderer([t],"").renderSummary())
-            else:
-                row.append(str(t.activeRuns))
-                row.append(str(t.totalRuns))
-                row.append(str(t.totalRuns - t.successes))
+            row.append(TestSummaryRenderer.TestSummaryRenderer([t],"", ignoreIndividualTests=True).renderSummary())
+            row.append(str(t.totalRuns))
 
             all_tests = list(self.testManager.database.TestRun.lookupAll(test=t))
             all_noncanceled_tests = [testRun for testRun in all_tests if not testRun.canceled]

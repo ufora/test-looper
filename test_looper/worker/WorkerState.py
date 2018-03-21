@@ -1043,6 +1043,9 @@ class WorkerState(object):
                     pathsToUpload = {}
 
                     def processTestSuccess(keyname, entry):
+                        if isinstance(entry, dict) and 'logs' not in entry:
+                            entry['logs'] = []
+                        
                         if isinstance(entry, bool):
                             return (entry, False)
                         elif (isinstance(entry, dict) and
