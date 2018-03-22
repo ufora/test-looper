@@ -210,7 +210,7 @@ class WorkerStateOverride(WorkerState.WorkerState):
 
         if dep.matches.Build:
             self.extra_mappings[
-                os.path.join(self.looperCtl.build_path(dep.buildHash), "build_output")
+                os.path.join(self.looperCtl.build_path(dep.name), "build_output")
                 ] = os.path.join("/test_looper", expose_as)
 
             return None
@@ -377,8 +377,8 @@ class TestLooperCtl:
     def sanitize(self, name):
         return name.replace("/","_").replace(":","_").replace("~", "--")
 
-    def build_path(self, buildHash):
-        return os.path.abspath(os.path.join(self.root_path, "builds", buildHash))
+    def build_path(self, buildname):
+        return os.path.abspath(os.path.join(self.root_path, "builds", self.sanitize(buildname)))
 
     def sanitizeReponame(self, reponame):
         return self.sanitize(reponame)
@@ -849,7 +849,7 @@ class TestLooperCtl:
 
         testDef = all_tests[testname]
 
-        path = self.build_path(testDef.hash)
+        path = self.build_path(testDef.name)
 
         if path in seen_already:
             return True
