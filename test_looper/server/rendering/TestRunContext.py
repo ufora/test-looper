@@ -2,6 +2,7 @@ import test_looper.server.rendering.Context as Context
 import test_looper.server.rendering.ComboContexts as ComboContexts
 import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
 import test_looper.server.HtmlGeneration as HtmlGeneration
+import test_looper.core.ArtifactStorage as ArtifactStorage
 import logging
 
 card = HtmlGeneration.card
@@ -111,9 +112,14 @@ class TestRunContext(Context.Context):
                 logging.info("No build found at %s", build_key)
 
         for artifactName, sizeInBytes in self.renderer.artifactStorage.testResultKeysForWithSizes(testRun.test.hash, testRun._identity):
+            name = self.renderer.artifactStorage.unsanitizeName(artifactName)
+            
+            if name.startswith(ArtifactStorage.TEST_LOG_NAME_PREFIX):
+                name = name[len(ArtifactStorage.TEST_LOG_NAME_PREFIX):]
+
             grid.append([
                 HtmlGeneration.link(
-                    artifactName,
+                    name,
                     self.renderer.testResultDownloadUrl(testRun._identity, artifactName)
                     ),
                 HtmlGeneration.bytesToHumanSize(sizeInBytes)

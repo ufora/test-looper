@@ -25,6 +25,8 @@ FileContents.Redirect = {"url": str}
 
 Encoding = algebraic.Alternative("Encoding")
 
+TEST_LOG_NAME_PREFIX = "individual_test_logs/"
+
 class ArtifactStorage(object):
     @staticmethod
     def keyname_to_encoding(key):
@@ -52,7 +54,7 @@ class ArtifactStorage(object):
         return "".join(result)
 
     def testResultKeysAndSizesForIndividualTest(self, testHash, testId, testName):
-        subPrefix = "individual_test_logs/" + self.sanitizeName(testName)
+        subPrefix = TEST_LOG_NAME_PREFIX + self.sanitizeName(testName)
 
         res = []
 
