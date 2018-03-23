@@ -80,8 +80,6 @@ class MachinesContext(Context.Context):
 
                 d = deployments[0]
                 row.append("DEPLOYMENT")
-                row.append(self.renderer.connectDeploymentLink(d))
-                row.append(self.renderer.shutdownDeploymentLink(d))
             
             grid.append(row)
             
