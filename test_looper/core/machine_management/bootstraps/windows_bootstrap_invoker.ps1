@@ -35,7 +35,8 @@ try {
     Set-ItemProperty -Path “HKLM:SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon” -Name autoadminlogon -Type DWORD -Value 1
 
     $password = ([char[]]([char]33..[char]95) + ([char[]]([char]97..[char]126)) + 0..9 | sort {Get-Random})[0..16] -join ''
-    $password = "Password" + $password
+    #$password = "Password" + $password
+    $password = "t3stl00per"
 
     $secure_password = ConvertTo-SecureString $password -AsPlainText -Force
 
@@ -46,7 +47,7 @@ try {
     echo "Powershell -ExecutionPolicy Unrestricted C:\ProgramData\TestLooper\SetupBootstrap.ps1 >> C:\ProgramData\TestLooper\SetupBootstrap.log 2>&1 " `
         | Out-File -FilePath "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\startup.bat" -Encoding ASCII
 
-    log("Rebooting the machine")
+    log("Rebooting the machine. New password is ")
     Restart-Computer
 
 } catch {
