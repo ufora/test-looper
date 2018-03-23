@@ -119,6 +119,16 @@ class HeartbeatHandler(object):
         self.timestamps = {}
         self.listeners = {}
         
+    def getMostRecentTestHeartbeats(self, testId):
+        with self.lock:
+            if testId in self.logs:
+                res = "".join(self.logs[testId])
+                if len(res) < 10 * 1024:
+                    return res
+                return res[-10*1024:]
+            return ""        
+        
+
     def getAllLogsFor(self, testId):
         with self.lock:
             if testId in self.logs:
@@ -961,7 +971,11 @@ class TestManager(object):
         with self.transaction_and_lock():
             for t in self.database.TestRun.lookupAll(isRunning=True):
                 if t.lastHeartbeat < curTimestamp - TEST_TIMEOUT_SECONDS and curTimestamp - self.initialTimestamp > TEST_TIMEOUT_SECONDS:
-                    logging.info("Canceling testRun %s because it has not had a heartbeat for a long time.", t._identity)
+                    logging.error("Canceling testRun %s because it has not had a heartbeat for a long time. Most recent logs:\n%s", 
+                        t._identity,
+                        self.heartbeatHandler.getMostRecentTestHeartbeats(t._identity)
+                        )
+                    
                     self._cancelTestRun(t, curTimestamp)
 
             for m in self.database.Machine.lookupAll(isAlive=True):
