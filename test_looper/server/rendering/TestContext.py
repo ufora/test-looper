@@ -49,7 +49,7 @@ class TestContext(Context.Context):
         return res + HtmlGeneration.link(self.testName, self.urlString())
 
     def bootTestOrEnvUrl(self):
-        return self.urlString(action="boot")
+        return "/bootDeployment?testHash=" + self.test.hash
 
     def contextViews(self):
         return ["test_runs", "test_dependencies", "test_definition"]

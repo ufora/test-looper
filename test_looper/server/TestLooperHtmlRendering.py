@@ -9,6 +9,7 @@ import time
 import logging
 import tempfile
 import threading
+import traceback
 import markdown
 import urllib
 import urlparse

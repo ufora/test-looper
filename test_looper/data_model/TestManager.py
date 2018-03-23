@@ -435,7 +435,7 @@ class TestManager(object):
             if not test:
                 raise Exception("Can't find test %s" % hash)
 
-            logging.info("Trying to boot a deployment for %s", test.hash + "/" + test.name)
+            logging.info("Trying to boot a deployment for %s", test.hash + "/" + test.testDefinition.name)
 
             cat = self._machineCategoryForTest(test)
             assert cat
@@ -452,7 +452,7 @@ class TestManager(object):
             cat.desired = cat.desired + 1
 
             self.streamForDeployment(deploymentId).addMessageFromDeployment(
-                time.asctime() + " TestLooper> Deployment for %s waiting for hardware.\n\r" % (test.hash + "/" + test.name)
+                time.asctime() + " TestLooper> Deployment for %s waiting for hardware.\n\r" % (test.hash + "/" + test.testDefinition.name)
                 )
 
             self._scheduleBootCheck()
