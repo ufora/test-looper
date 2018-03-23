@@ -1,5 +1,8 @@
 import test_looper.server.rendering.Context as Context
 import test_looper.server.HtmlGeneration as HtmlGeneration
+import time
+
+secondsUpToString = HtmlGeneration.secondsUpToString
 
 class DeploymentsContext(Context.Context):
     def __init__(self, renderer, options):
@@ -44,14 +47,7 @@ class DeploymentsContext(Context.Context):
 
             row.append(self.connectDeploymentLink(d))
 
-            row.append(
-                HtmlGeneration.Link(
-                    self.address + "/shutdownDeployment?deploymentId=" + d._identity,
-                    "shutdown", 
-                    is_button=True,
-                    button_style=self.renderer.disable_if_cant_write('btn-primary btn-xs')
-                    )
-                )
+            row.append(self.shutdownDeploymentLink(d))
 
             grid.append(row)
 
@@ -59,20 +55,20 @@ class DeploymentsContext(Context.Context):
 
     def connectDeploymentLink(self, d):
         return HtmlGeneration.Link( 
-            self.address + "/terminalForDeployment?deploymentId=" + d._identity,
+            "/terminalForDeployment?deploymentId=" + d._identity,
             "connect",
             is_button=True,
             new_tab=True,
-            button_style=self.disable_if_cant_write('btn-primary btn-xs')
+            button_style='btn-primary btn-xs'
             )
 
     def shutdownDeploymentLink(self, d):
         return HtmlGeneration.Link( 
-            self.address + "/shutdownDeployment?deploymentId=" + d._identity,
+            "/shutdownDeployment?deploymentId=" + d._identity,
             "shutdown",
             is_button=True,
             new_tab=True,
-            button_style=self.disable_if_cant_write('btn-primary btn-xs')
+            button_style='btn-primary btn-xs'
             )
     
     def childContexts(self, currentChild):
