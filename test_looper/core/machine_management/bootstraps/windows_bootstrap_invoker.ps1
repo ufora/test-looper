@@ -23,9 +23,9 @@ try {
 
     Set-ItemProperty -Path “HKLM:SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon” -Name autoadminlogon -Type DWORD -Value 1
 
-    "Writing startup.ps1"
-    echo "C:\ProgramData\TestLooper\SetupBootstrap.ps1 > C:\ProgramData\TestLooper\SetupBootstrap.log 2>&1" `
-        | Out-File -FilePath "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\startup.ps1" -Encoding ASCII
+    "Writing startup.bat"
+    echo "Powershell -ExecutionPolicy Unrestricted C:\ProgramData\TestLooper\SetupBootstrap.ps1 >> C:\ProgramData\TestLooper\SetupBootstrap.log 2>&1 " `
+        | Out-File -FilePath "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\startup.bat" -Encoding ASCII
 
     "Rebooting the machine!"
     Restart-Computer
