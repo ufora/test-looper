@@ -40,14 +40,19 @@ try {
 
     $secure_password = ConvertTo-SecureString $password -AsPlainText -Force
 
-    Set-LocalUser -Name Administrator -Password $secure_password
+    $AdminAccount = Get-LocalUser -Name "Administrator"
+    $AdminAccount | Set-LocalUser -Password $secure_password
+
     Set-ItemProperty -Path “HKLM:SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon” -Name DefaultPassword -Type STR -Value $password
+    Set-ItemProperty -Path “HKLM:SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon” -Name DefaultUsername -Type STR -Value "Administrator"
 
     log("writing startup.bat")
     echo "Powershell -ExecutionPolicy Unrestricted C:\ProgramData\TestLooper\SetupBootstrap.ps1 >> C:\ProgramData\TestLooper\SetupBootstrap.log 2>&1 " `
         | Out-File -FilePath "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\startup.bat" -Encoding ASCII
 
-    log("Rebooting the machine. New password is ")
+    $ip = (Get-NetIPConfiguration).IPv4Address.IPAddress
+
+    log("Rebooting the machine. New password is $password and ip is $ip")
     Restart-Computer
 
 } catch {
