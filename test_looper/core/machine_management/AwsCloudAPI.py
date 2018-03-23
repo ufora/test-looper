@@ -107,6 +107,7 @@ class API:
                     .replace("__bootstrap_bucket__", self.config.machine_management.bootstrap_bucket)
                     .replace("__bootstrap_key__", self.config.machine_management.bootstrap_key_prefix + "/%s.ps1" % bootstrap_uuid)
                     .replace("__bootstrap_log_key__", self.config.machine_management.bootstrap_key_prefix + "/%s.log" % bootstrap_uuid)
+                    .replace("__testlooper_server_and_port__", looper_server_and_port)
                     .replace("__hosts__", "\n\n".join(
                         'echo "%s %s" |  Out-File -Append c:/Windows/System32/Drivers/etc/hosts -Encoding ASCII' % (ip,hostname) for hostname,ip in 
                             self.config.machine_management.host_ips.iteritems()

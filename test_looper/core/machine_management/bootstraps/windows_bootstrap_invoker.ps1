@@ -6,12 +6,23 @@
 #from a specified bucket/key pair. 
 ########################################################################
 
+$machineId = Invoke-RestMethod -uri http://169.254.169.254/latest/meta-data/instance-id
+
+$client = New-Object System.Net.WebClient
+
+function log($msg) {
+    $client.DownloadString("https://__testlooper_server_and_port__/machineHeartbeatMessage?machineId=" + $machineId + "&heartbeatmsg=" + [uri]::EscapeUriString($msg))  
+}
+
 try {
+
     md -Force C:\ProgramData\TestLooper
     md -Force C:\Users\Administrator\.ssh
 
     #fixup the hosts file.
     __hosts__
+
+    log("Executing inital bootstrap script.")
 
     #export our ssh keys so 'git' can find them
     echo "__test_key__" | Out-File -FilePath "C:\Users\Administrator\.ssh\id_rsa" -Encoding ASCII
@@ -23,14 +34,23 @@ try {
 
     Set-ItemProperty -Path “HKLM:SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon” -Name autoadminlogon -Type DWORD -Value 1
 
-    "Writing startup.bat"
+    $password = ([char[]]([char]33..[char]95) + ([char[]]([char]97..[char]126)) + 0..9 | sort {Get-Random})[0..16] -join ''
+    $password = "Password" + $password
+
+    $secure_password = ConvertTo-SecureString $password -AsPlainText -Force
+
+    Set-LocalUser -Name Administrator -Password $secure_password
+    Set-ItemProperty -Path “HKLM:SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon” -Name DefaultPassword -Type STR -Value $password
+
+    log("writing startup.bat")
     echo "Powershell -ExecutionPolicy Unrestricted C:\ProgramData\TestLooper\SetupBootstrap.ps1 >> C:\ProgramData\TestLooper\SetupBootstrap.log 2>&1 " `
         | Out-File -FilePath "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\startup.bat" -Encoding ASCII
 
-    "Rebooting the machine!"
+    log("Rebooting the machine")
     Restart-Computer
 
 } catch {
+    log("Failed due to exception. Writing message to S3 at __bootstrap_log_key__")
     Write-S3Object -ContentType "application/octet-stream" -BucketName "__bootstrap_bucket__" -Key "__bootstrap_log_key__"  -Content $_
 }
 </powershell>
