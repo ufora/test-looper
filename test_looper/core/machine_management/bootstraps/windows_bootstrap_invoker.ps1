@@ -21,12 +21,15 @@ try {
     Read-S3Object -BucketName __bootstrap_bucket__ -Key __bootstrap_key__  -File C:\ProgramData\TestLooper\SetupBootstrap.ps1
     Remove-S3Object -Force -BucketName __bootstrap_bucket__ -Key __bootstrap_key__
 
-    powershell -ExecutionPolicy Bypass 'C:\ProgramData\TestLooper\SetupBootstrap.ps1' > C:\ProgramData\TestLooper\SetupBootstrap.log 2>&1
-    rm C:\ProgramData\TestLooper\SetupBootstrap.ps1
+    Set-ItemProperty -Path “HKLM:SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon” -Name autoadminlogon -Type DWORD -Value 1
 
-    Write-S3Object -ContentType "application/octet-stream" -BucketName "__bootstrap_bucket__" -Key "__bootstrap_log_key__"  -File "C:\ProgramData\TestLooper\SetupBootstrap.log"
-    
-    rm C:\ProgramData\TestLooper\SetupBootstrap.log
+    "Writing startup.ps1"
+    echo "C:\ProgramData\TestLooper\SetupBootstrap.ps1 > C:\ProgramData\TestLooper\SetupBootstrap.log 2>&1" `
+        | Out-File -FilePath "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\startup.ps1" -Encoding ASCII
+
+    "Rebooting the machine!"
+    Restart-Computer
+
 } catch {
     Write-S3Object -ContentType "application/octet-stream" -BucketName "__bootstrap_bucket__" -Key "__bootstrap_log_key__"  -Content $_
 }
