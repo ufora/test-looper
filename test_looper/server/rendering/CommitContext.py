@@ -206,20 +206,23 @@ class CommitContext(Context.Context):
             assert includeBranch
             res += self.contextFor(self.repo).renderLink()
 
-        if includeBranch:
-            if res:
-                res += "/"
-            res += self.contextFor(self.branch).renderLink(includeRepo=False)
-
-        name = self.nameInBranch
-
-        if not includeRepo and not includeBranch:
-            name = "HEAD" + name
-        elif not name:
-            name = "/HEAD"
+        if includeBranch and not self.branch:
+            name = self.commit.hash[:10]
         else:
-            if len(name) < 5:
-                name += "&nbsp;" * max(0, 5 - len(name))
+            if includeBranch:
+                if res:
+                    res += "/"
+                res += self.contextFor(self.branch).renderLink(includeRepo=False)
+
+            name = self.nameInBranch
+
+            if not includeRepo and not includeBranch:
+                name = "HEAD" + name
+            elif not name:
+                name = "/HEAD"
+            else:
+                if len(name) < 5:
+                    name += "&nbsp;" * max(0, 5 - len(name))
 
         return res + HtmlGeneration.link(name, self.urlString())
 

@@ -217,14 +217,15 @@ class BranchContext(Context.Context):
         return name
 
     def pinGridWithUpdateButtons(self, branch):
-        lines = [["status", "refname", "Pinned to"]]
+        lines = [["status", "refname", "Cur Commit", "Target Branch"]]
 
         for refname, repoRef in sorted(branch.head.data.repos.iteritems()):
             if repoRef.matches.Pin:
                 lines.append(
                     [self.renderPinUpdateLink(branch, refname, repoRef),
                     refname, 
-                    self.renderPinReference(refname, repoRef)
+                    self.renderPinReference(refname, repoRef),
+                    repoRef.branchname() if repoRef.branchname() else ""
                     ])
 
         return lines

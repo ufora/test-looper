@@ -534,6 +534,7 @@ class TestManager(object):
 
 
     def machineHeartbeat(self, machineId, curTimestamp, msg=None):
+        logging.info("Machine %s heartbeating %s", machineId, msg)
         with self.transaction_and_lock():
             machine = self.database.Machine.lookupAny(machineId=machineId)
             if machine:
