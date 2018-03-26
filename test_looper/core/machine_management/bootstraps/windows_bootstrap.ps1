@@ -42,8 +42,8 @@ $git_for_windows_url = "https://__testlooper_server_and_port__/Git-2.15.1.2-64-b
 $git_for_windows_file = "C:/ProgramData/TestLooper/git_installer.exe"
 $client.DownloadFile($git_for_windows_url, $git_for_windows_file)
 
-Start-Process $git_for_windows_file -ArgumentList @("/silent", "/suppressmsgboxes", "/norestart") -Wait
-$env:Path += ";C:\Program Files\Git\bin"
+Start-Process $git_for_windows_file -ArgumentList @("/silent", "/suppressmsgboxes", "/norestart", '/Dir="C:\Git"') -Wait
+$env:Path += ";C:\Git\bin"
 
 log("Running bootstrap script - getting the looper source")
 
