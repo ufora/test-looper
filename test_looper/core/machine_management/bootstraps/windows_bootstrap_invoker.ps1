@@ -11,7 +11,7 @@ $machineId = Invoke-RestMethod -uri http://169.254.169.254/latest/meta-data/inst
 $client = New-Object System.Net.WebClient
 
 function log($msg) {
-    $client.DownloadString("https://__testlooper_server_and_port__/machineHeartbeatMessage?machineId=" + $machineId + "&heartbeatmsg=" + [uri]::EscapeUriString($msg))  
+    $client.DownloadString("https://__testlooper_server_and_port__/machineHeartbeatMessage?machineId=" + $machineId + "&heartbeatmsg=" + [uri]::EscapeDataString($msg))  
 }
 
 try {
