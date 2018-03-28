@@ -65,7 +65,7 @@ class BranchPinning:
     def pinGetAllBranchPinsWatching(self, pin):
         """Find all the pins that would be updated automatically if this BranchPin object changed."""
         branch = self.pinGetPinnedToBranchAndCommit(pin)[0]
-        if branch is None:
+        if branch is None or branch.repo is None:
             return []
 
         return [x for x in self.database.BranchPin.lookupAll(branch=branch) if x.auto]
@@ -87,15 +87,18 @@ class BranchPinning:
         """Get a list of all the branches that update if this Branch updates."""
         assert branch
 
+        if branch.repo is None:
+            return []
+
         return set([branchPin.branch for 
                 branchPin in self.database.BranchPin.lookupAll(pinned_to=(branch.repo.name, branch.branchname))
-                    if branchPin.auto])
+                    if branchPin.auto and branchPin.branch.repo is not None])
 
     def branchGetAllPinsAutopinnedToSelf(self, branch):
         """Get a list of all the branches that update if this Branch updates."""
         return set([branchPin for 
                 branchPin in self.database.BranchPin.lookupAll(pinned_to=(branch.repo.name, branch.branchname))
-                    if branchPin.auto])
+                    if branchPin.auto and branchPin.branch.repo is not None])
 
     def branchPinsAreCyclic(self, branch):
         """Given a Branch object, determine if updating it would produce a cycle of pin updates."""
@@ -245,7 +248,14 @@ class BranchPinning:
         #now compute a "pin update plan" consisting of a set of updates to the 
         #pins in this one commit, each of which will be broadcast upstream.
         #pin_updates has the shape {branch: {repo_ref: new_commit}}
-        pin_updates = self.computePinUpdate(branch, specific_ref, intermediateCommits, lookDownstream)
+        try:
+            pin_updates = self.computePinUpdate(branch, specific_ref, intermediateCommits, lookDownstream)
+        except:
+            if branch.repo is None:
+                logging.error("Branch branch %s has no repo!", branch.branchname)
+            else:
+                logging.error("Failed to update pin of branch %s/%s", branch.branchname, branch.repo.name)
+            raise
 
         return self.applyPinUpdates(pin_updates, lookDownstream, branch)
 
