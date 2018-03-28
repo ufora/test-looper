@@ -424,16 +424,17 @@ class TestManager(object):
         logging.info("Canceling deployment %s. Desired count for category %s/%s/%s is now %s vs booted %s", 
                 deploymentId, cat._identity[:6], cat.hardware, cat.os, cat.desired, cat.booted)
 
-        deployment.machine.lastTestCompleted = timestamp
+        if deployment.machine:
+            deployment.machine.lastTestCompleted = timestamp
 
-        logging.info("Setting last test completed on %s ", deployment.machine.machineId, timestamp)
+            logging.info("Setting last test completed on %s ", deployment.machine.machineId, timestamp)
 
-        os = deployment.machine.os
+            os = deployment.machine.os
         
-        if (os.matches.WindowsVM or os.matches.LinuxVM):
-            #we need to shut down this machine since it has a setup script
-            if not DISABLE_MACHINE_TERMINATION:
-                self._terminateMachine(deployment.machine, timestamp)
+            if (os.matches.WindowsVM or os.matches.LinuxVM):
+                #we need to shut down this machine since it has a setup script
+                if not DISABLE_MACHINE_TERMINATION:
+                    self._terminateMachine(deployment.machine, timestamp)
 
         self._scheduleBootCheck()
         self._shutdownMachinesIfNecessary(timestamp)
