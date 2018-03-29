@@ -56,6 +56,16 @@ class TestDefinitionResolver:
 
         return self.rawDefinitionsCache[repoName, commitHash]
 
+    def resolveRefWithinRepo(self, curRepoName, nameOfRef, actualRef):
+        """
+        Allows subclasses to modify how we name repositories. 
+
+        curRepoName - the name of the repo we're currently parsing
+        nameOfRef - the name of the reference within the testDefinitions file
+        actualRef - the RepoReference (not an Import) we're processing.
+        """
+        return actualRef
+
     def resolveRepoDefinitions_(self, curRepoName, repos):
         """Given a set of raw repo references, resolve local names and includes.
 
@@ -68,7 +78,7 @@ class TestDefinitionResolver:
                 raise TestResolutionException("Circular repo-refs: %s" % pathSoFar)
 
             if not ref.matches.Import:
-                return ref
+                return self.resolveRefWithinRepo(curRepoName, refName, ref)
             
             if refName in resolved_repos:
                 return resolved_repos[refName]

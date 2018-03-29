@@ -12,18 +12,20 @@ import threading
 import time
 import shutil
 import select
-import tty
-import termios
+import fnmatch
 
 proj_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 sys.path.append(proj_root)
 
+import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.data_model.TestDefinitionResolver as TestDefinitionResolver
 import test_looper.core.tools.Git as Git
 import test_looper.core.Config as Config
 import test_looper.worker.WorkerState as WorkerState
 import test_looper.core.tools.Docker as Docker
 import yaml
+
+ROOT_CHECKOUT_NAME = "__root"
 
 def configureLogging(verbose=False):
     loglevel = logging.INFO if verbose else logging.WARN
@@ -51,50 +53,47 @@ def createArgumentParser():
 
     subparsers = parser.add_subparsers()
 
-    clear_parser = subparsers.add_parser("clear")
-    clear_parser.set_defaults(command="clear")
-    clear_parser.add_argument("-b", "--build", help="Get info on a specific test", default=False, action="store_true")
-    clear_parser.add_argument("-s", "--src", help="Get info on a specific test", default=False, action="store_true")
-
-    fetch_parser = subparsers.add_parser("fetch")
-    fetch_parser.set_defaults(command="fetch")
-
-    init_parser = subparsers.add_parser("init")
+    init_parser = subparsers.add_parser("init", help="Initialize a testlooper checkout")
     init_parser.set_defaults(command="init")
     init_parser.add_argument("path", help="Path to disk storage")
     init_parser.add_argument("git_clone_root", help="Git clone root (e.g. git@gitlab.mycompany.com)")
 
-    status_parser = subparsers.add_parser("status")
-    status_parser.set_defaults(command="status")
+    fetch_parser = subparsers.add_parser("fetch", help="Run 'git fetch origin' on all the repos we know about")
+    fetch_parser.set_defaults(command="fetch")
+    fetch_parser.add_argument("--all", help="Run fetch on all repos (even hidden ones)", default=False, action="store_true")
 
-    checkout_parser = subparsers.add_parser("checkout")
+    status_parser = subparsers.add_parser("status", help="Show currently referenced repos and changed files.")
+    status_parser.set_defaults(command="status")
+    status_parser.add_argument("--all", help="Show all repos (even hidden ones)", default=False, action="store_true")
+
+    checkout_parser = subparsers.add_parser("checkout", help="Checkout a given repo/commit into 'src/src' and grab dependencies")
     checkout_parser.set_defaults(command="checkout")
     checkout_parser.add_argument("repo", help="Name of the repo")
     checkout_parser.add_argument("committish", help="Name of the commit or branch")
-    checkout_parser.add_argument("--hard", help="Force a hard reset in the source repo", default=False, action="store_true")
+    checkout_parser.add_argument("--hard", help="Force a hard reset in the source repo (and all dependent source repos)", default=False, action="store_true")
     checkout_parser.add_argument("--prune", help="Get rid of unused repos", default=False, action="store_true")
     checkout_parser.add_argument("--from", help="Create a new branch, based on this one", dest="from_name", default=None)
     checkout_parser.add_argument("--orphan", help="Create a new orphaned branch, based on this one", dest="orphan", default=False, action='store_true')
 
-    build_parser = subparsers.add_parser("build")
-    build_parser.set_defaults(command="build")
-    build_parser.add_argument("repo", help="Name of the repo")
-    build_parser.add_argument("test", help="Name of the test")
-    build_parser.add_argument("-i", "--interactive", dest="interactive", default=False, help="Drop into an interactive terminal", action="store_true")
-    build_parser.add_argument("-d", "--nodeps", dest="nodeps", default=False, help="Don't build dependencies, just this one", action="store_true")
-    build_parser.add_argument("-s", "--nologcapture", dest="nologcapture", default=False, help="Don't capture logs - show directly", action="store_true")
+    build_parser = subparsers.add_parser("run", help="Run a build or test.")
+    build_parser.set_defaults(command="run")
+    build_parser.add_argument("testpattern", help="Name of the test (with globs)")
+    build_parser.add_argument("-i", "--interactive", dest="interactive", default=False, help="Drop into an interactive terminal for this.", action="store_true")
+    build_parser.add_argument("-d", "--nodeps", dest="nodeps", default=False, help="Don't build dependencies, just this one. ", action="store_true")
+    build_parser.add_argument("-s", "--nologcapture", dest="nologcapture", default=False, help="Don't capture logs - show everything directly", action="store_true")
     build_parser.add_argument("-j",
                         "--cores",
                         dest="cores",
                         default=1,
                         type=int,
-                        help="Number of cores to expose")
+                        help="Number of cores to expose"
+                        )
 
-    info_parser = subparsers.add_parser("info")
+    info_parser = subparsers.add_parser("info", help="Get info on a particular test or group of tests.")
     info_parser.set_defaults(command="info")
-    info_parser.add_argument("-c", "--committish", help="committish override", default=None, required=False)
-    info_parser.add_argument("-t", "--test", help="Get info on a specific test", default=None, required=False)
-    info_parser.add_argument("-r", "--repo", help="Get info on a checked-out repo", default=None, required=False)
+    info_parser.add_argument("testpattern", help="Subset of tests to look at in particular", default=[], nargs='*')
+    info_parser.add_argument("-d", "--detail", help="Dump full test detail, not just the name", default=False, action="store_true")
+    info_parser.add_argument("--all", help="Show all repos (even hidden ones) when displaying dependencies", default=False, action="store_true")
 
     return parser
 
@@ -162,7 +161,7 @@ class WorkerStateOverride(WorkerState.WorkerState):
         
         self.looperCtl = looperCtl
         self.extra_mappings = {}
-        self.resolver = looperCtl.resolver
+        self.resolver = TestDefinitionResolverOverride(looperCtl, None)
 
     def wants_to_run_cleanup(self):
         return False
@@ -200,7 +199,7 @@ class WorkerStateOverride(WorkerState.WorkerState):
         return True
 
     def resetToCommit(self, repoName, commitHash):
-        self.extra_mappings[self.looperCtl.checkout_root_path(repoName, commitHash)] = \
+        self.extra_mappings[self.looperCtl.checkout_root_path(repoName)] = \
             "/test_looper/src"
 
         return True
@@ -210,33 +209,48 @@ class WorkerStateOverride(WorkerState.WorkerState):
 
         if dep.matches.Build:
             self.extra_mappings[
-                os.path.join(self.looperCtl.build_path(dep.name), "build_output")
+                os.path.join(self.looperCtl.build_path(dep.repo, dep.name), "build_output")
                 ] = os.path.join("/test_looper", expose_as)
 
             return None
 
         if dep.matches.Source:
             self.extra_mappings[
-                self.looperCtl.checkout_root_path(dep.repo, dep.commitHash)
+                self.looperCtl.checkout_root_path(dep.repo)
                 ] = os.path.join("/test_looper", expose_as)
 
             return None
 
         return "Unknown dependency type: %s" % dep
 
-
 class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolver):
-    def __init__(self, looperCtl):
+    def __init__(self, looperCtl, visitRepoRef):
         TestDefinitionResolver.TestDefinitionResolver.__init__(self, looperCtl.getGitRepo)
         self.looperCtl = looperCtl
+        self.visitRepoRef = visitRepoRef
+
+    def resolveRefWithinRepo(self, curRepoName, nameOfRef, actualRef):
+        """
+        Allows subclasses to modify how we name repositories. 
+
+        curRepoName - the name of the repo we're currently parsing
+        nameOfRef - the name of the reference within the testDefinitions file
+        actualRef - the RepoReference (not an Import) we're processing.
+        """
+        path = ":".join(curRepoName.split(":")[:-1] + [nameOfRef])
+
+        actualRepoName = actualRef.reponame().split(":")[-1]
+        actualHash = actualRef.commitHash()
+
+        res = actualRef._withReplacement(reference=path + ":" + actualRepoName + "/" + actualHash)
+
+        if self.visitRepoRef:
+            self.visitRepoRef(res)
+
+        return res
 
     def getRepoContentsAtPath(self, repoName, commitHash, path):
-        branchname = self.looperCtl.repo_and_hash_to_branch.get((repoName, commitHash))
-
-        if branchname:
-            root_path = self.looperCtl.checkout_root_path(repoName, branchname)
-        else:
-            root_path = self.looperCtl.checkout_root_path(repoName, commitHash)
+        root_path = self.looperCtl.checkout_root_path(repoName)
 
         if os.path.exists(root_path):
             final_path = os.path.join(root_path, path)
@@ -245,16 +259,10 @@ class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolv
             else:
                 return open(final_path, "r").read()
 
-        git_repo = self.git_repo_lookup(repoName)
-        return git_repo.getFileContents(commitHash, path)
+        return None
 
     def testDefinitionTextAndExtensionFor(self, repoName, commitHash):
-        branchname = self.looperCtl.repo_and_hash_to_branch.get((repoName, commitHash))
-
-        if branchname:
-            root_path = self.looperCtl.checkout_root_path(repoName, branchname)
-        else:
-            root_path = self.looperCtl.checkout_root_path(repoName, commitHash)
+        root_path = self.looperCtl.checkout_root_path(repoName)
 
         if os.path.exists(root_path):
             #we have this checked out already, and want to use the local version of it
@@ -267,19 +275,12 @@ class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolv
 
             return text, os.path.splitext(path)[1], path
 
-        repo = self.looperCtl.getGitRepo(repoName)
-
-        if not repo.commitExists(commitHash):
-            print "Can't find ", commitHash, " in ", repoName, ", so fetching origin..."
-            repo.fetchOrigin()
-
-        return TestDefinitionResolver.TestDefinitionResolver.testDefinitionTextAndExtensionFor(self, repoName, commitHash)
+        return None
 
 class TestLooperCtl:
     def __init__(self, root_path):
         self.root_path = root_path
         self.repos = {}
-        self.resolver = TestDefinitionResolverOverride(self)
         self.initializeAllRepoNames()
     
         self._loadConfig()
@@ -290,17 +291,11 @@ class TestLooperCtl:
             state_file_path = os.path.join(self.root_path, ".tl", "state.yml")
 
             if not os.path.exists(state_file_path):
-                self.repo_and_hash_to_branch = {}
                 self.checkout_root = (None, None)
                 return
         
             with open(state_file_path, "r") as f:
                 state = yaml.load(f.read())
-
-            #map from (repo,hash) -> branchname
-            #when we checkout a repo/commit or repo/branch, each commit is tied
-            #to a branch, and we maintain that.
-            self.repo_and_hash_to_branch = state.get("repo_and_hash_to_branch", {})
 
             #repo, branch (or None), commit
             self.checkout_root = state.get("checkout_root", (None, None))
@@ -322,13 +317,18 @@ class TestLooperCtl:
         except Exception as e:
             raise UserWarning("Corrupt config file: " + str(e))
 
-    def repoIsNotIgnored(self, repo):
+    def repoShouldBeDisplayed(self, repo):
+        repo = repo.split(":")[-1]
+
         for r in self.repo_prefixes_to_ignore:
             if repo.startswith(r):
                 return False
         return True
 
     def repoShortname(self, repo):
+        if repo == ROOT_CHECKOUT_NAME:
+            return ""
+
         prunes = [p for p in self.repo_prefixes_to_strip if repo.startswith(p)]
         prunes = sorted(prunes, key=len)
 
@@ -342,61 +342,75 @@ class TestLooperCtl:
         def walk(items):
             dirpath = os.path.join(self.root_path, ".tl", "repos", *items)
 
-            for i in os.listdir(dirpath):
-                fullpath = os.path.join(dirpath, i)
-                if i != ".git" and os.path.isdir(fullpath):
-                    if os.path.exists(os.path.join(fullpath, ".git")):
-                        self.allRepoNames.add("/".join(items + (i,)))
-                    else:
-                        walk(items + (i,))
+            if os.path.exists(dirpath):
+                for i in os.listdir(dirpath):
+                    fullpath = os.path.join(dirpath, i)
+                    if i != ".git" and os.path.isdir(fullpath):
+                        if os.path.exists(os.path.join(fullpath, ".git")):
+                            self.allRepoNames.add("/".join(items + (i,)))
+                        else:
+                            walk(items + (i,))
 
         walk(())
 
 
     def fetch(self, args):
-        print "fetching origin for ", len(self.allRepoNames), " repos..."
-
         threads = []
         for reponame in self.allRepoNames:
-            def makeUpdater(name):
-                def f():
-                    try:
-                        self.getGitRepo(name).fetchOrigin()
-                    except:
-                        logging.error("Failed to update repo %s: %s", name, traceback.format_exc())
-                return f
-            threads.append(threading.Thread(target=makeUpdater(reponame)))
-            threads[-1].daemon=True
-            threads[-1].start()
+            if args.all or self.repoShouldBeDisplayed(reponame):
+                def makeUpdater(name):
+                    def f():
+                        try:
+                            self.getGitRepo(name).fetchOrigin()
+                        except:
+                            logging.error("Failed to update repo %s: %s", name, traceback.format_exc())
+                    return f
+                threads.append(threading.Thread(target=makeUpdater(reponame)))
+                threads[-1].daemon=True
+                threads[-1].start()
+
+        print "fetching origin for ", len(threads), " repos..."
 
         for t in threads:
             t.join()
 
-
-
     def sanitize(self, name):
         return name.replace("/","_").replace(":","_").replace("~", "--")
 
-    def build_path(self, buildname):
-        return os.path.abspath(os.path.join(self.root_path, "builds", self.sanitize(buildname)))
+    def build_path(self, reponame, buildname):
+        if reponame == ROOT_CHECKOUT_NAME:
+            return os.path.abspath(os.path.join(self.root_path, "builds", self.sanitize(buildname)))
+        else:
+            return os.path.abspath(os.path.join(self.root_path, "builds", reponame.split(":")[:-1], self.sanitize(buildname)))
 
-    def sanitizeReponame(self, reponame):
-        return self.sanitize(reponame)
+    def checkout_root_path(self, reponame):
+        """Return the checkout location of a given repo. 
 
-    def checkout_root_path(self, reponame, hashOrCommitName):
-        if hashOrCommitName is None:
-            return os.path.abspath(os.path.join(*((self.root_path, "src") + tuple(reponame.split("/")))))
+        The reponame is actually an encoding of the reponame and the path (of 
+        repo-variables) that lead us here from the root checkout. That is,
+        if the root test definition refers to hash "H1" in repo "MyRepo" as "my_repo_src",
+        the reponame will be encoded as
 
-        if Git.isShaHash(hashOrCommitName):
-            hashOrCommitName = self.repo_and_hash_to_branch.get((reponame, hashOrCommitName), hashOrCommitName)
+            my_repo_src:MyRepo
 
-        return os.path.abspath(os.path.join(*((self.root_path, "src") + tuple(reponame.split("/")) + (self.sanitize(hashOrCommitName),))))
+        if my_repo_src ends up referring to MySubRepo, that would be encoded as 
+
+            my_repo_src:my_subrepo_src:MySubRepo
+
+        The root commit is always encoded as ROOT_CHECKOUT_NAME and mapped to 'src'.
+        """
+        if reponame is ROOT_CHECKOUT_NAME:
+            return os.path.join(self.root_path, "src", "src")
+
+        path = ".".join(reponame.split(":")[:-1])
+
+        if not self.repoShouldBeDisplayed(reponame):
+            return os.path.join(self.root_path, "hidden", path)
+
+        return os.path.join(self.root_path, "src", path)
     
     def writeState(self):
-        config = {
-            "repo_and_hash_to_branch": self.repo_and_hash_to_branch,
-            "checkout_root": self.checkout_root
-            }
+        config = { "checkout_root": self.checkout_root }
 
         with open(os.path.join(self.root_path, ".tl", "state.yml"), "w") as f:
             f.write(yaml.dump(config, indent=4, default_style=''))
@@ -447,7 +461,7 @@ class TestLooperCtl:
         hash = repo.createInitialCommit()
         repo.pushCommit(hash, branchname, force=False, createBranch=True)
 
-    def checkout(self, args):
+    def setCurCheckoutRoot(self, args):
         reponame = self.bestRepo(args.repo)
 
         repo = self.getGitRepo(reponame)
@@ -474,209 +488,263 @@ class TestLooperCtl:
 
         if Git.isShaHash(committish):
             commitHash = committish
-            branch = repo.closestBranchFor(committish)
         else:
-            branches = repo.listCurrentlyKnownBranchesForRemote("origin")
+            commitHash = repo.gitCommitData("origin/" + committish)[0]
 
-            if committish in branches:
-                branch = committish
-                commitHash = repo.gitCommitData("origin/" + committish)[0]
-            elif "^" in committish or "~" in committish:
-                branch = committish.split("^")[0]
-                branch = committish.split("~")[0]
+        print "Checking out", reponame, commitHash
 
-                if branch not in branches:
-                    raise UserWarning("Can't find branch %s in repo %s" % (branch, reponame))
+        self.checkout_root = (reponame, commitHash)
+        
+    def checkout(self, args):
+        self.setCurCheckoutRoot(args)
 
-                try:
-                    commitHash = repo.gitCommitData("origin/" + committish)[0]
-                except:
-                    raise UserWarning("Invalid committish %s" % committish)
+        self.getGitRepo(self.checkout_root[0]).resetToCommitInDirectory
+
+        #make sure our root checkout (src/src) is populated
+        self._updateRepoCheckout(ROOT_CHECKOUT_NAME, self.checkout_root[1], args.hard)
+
+        paths_visited = set()
+        def visitRepoRef(ref):
+            path = self.checkout_root_path(ref.reponame())
+
+            if path in paths_visited:
+                return
             else:
-                raise UserWarning("Can't find branch %s in repo %s. Available branches:\n%s" % 
-                        (committish, reponame, "\n".join(["    " + x for x in branches])))
+                paths_visited.add(path)
 
-        if branch not in repo.listCurrentlyKnownBranchesForRemote("origin"):
-            print "couldn't identify a branch for %s in repo %s" % (commitHash, reponame)
-            branch = None
+            self._updateRepoCheckout(ref.reponame(), ref.commitHash(), args.hard)
 
-        print "Checking out ", reponame, commitHash, " to branch ", branch
-
-        self.checkout_root = (reponame, branch or commitHash)
-        self.repo_and_hash_to_branch = {}
-
-        repo_and_branch_to_commit = {}
-        repo_and_naked_hash = set()
-
-        def resolve(reponame, branchname, committish):
-            #now find all the dependent repos and make sure we have them as well
-            tests,envs,repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, committish)
-
-            for v in repos.values():
-                import_repo_ref(v.reponame(), v.branchname(), v.commitHash())
-
-        def import_repo_ref(reponame, branchname, commitHash):
-            if branchname:
-                if (reponame, branchname) not in repo_and_branch_to_commit:
-                    repo_and_branch_to_commit[reponame, branchname] = commitHash
-                else:
-                    if repo_and_branch_to_commit[reponame, branchname] != commitHash:
-                        print "Warning: %s/%s used with both %s and %s" % (
-                            reponame, branchname, commitHash, repo_and_branch_to_commit[reponame, branchname]
-                            )
-                        #pick the closer
-                        newHashDistance = repo.distanceForCommitInBranch(commitHash, branchname)
-                        oldHashDistance = repo.distanceForCommitInBranch(repo_and_branch_to_commit[reponame, branchname], branchname)
-                        if newHashDistance < oldHashDistance:
-                            repo_and_naked_hash.add((reponame, repo_and_branch_to_commit[reponame, branchname]))
-                            repo_and_branch_to_commit[reponame,branchname] = commitHash
-                        else:
-                            repo_and_naked_hash.add((reponame, commitHash))
-            else:
-                repo_and_naked_hash.add((reponame, commitHash))
-
-            resolve(reponame, branchname, commitHash)
-
-        import_repo_ref(reponame, branch, commitHash)
-
-        for (reponame, branchname), commitHash in repo_and_branch_to_commit.iteritems():
-            self.repo_and_hash_to_branch[(reponame, commitHash)] = branchname
-
-        for reponame, branchname in sorted(repo_and_branch_to_commit):
-            self._checkoutRepoName(reponame, branchname, repo_and_branch_to_commit[reponame, branchname], args.hard)
-
-        for reponame, hash in repo_and_naked_hash:
-            self._checkoutRepoName(reponame, None, hash, args.hard)
-
-        allRepos = set([x[0] for x in repo_and_branch_to_commit]+ [x[0] for x in repo_and_naked_hash])
+        #walk all the repo definitions and make sure everything is up-to-date
+        resolver = TestDefinitionResolverOverride(self, visitRepoRef)
+        resolver.testEnvironmentAndRepoDefinitionsFor(ROOT_CHECKOUT_NAME, "HEAD")
 
         if args.prune:
-            for reponame in self.allRepoNames:
-                rootPath = self.checkout_root_path(reponame, None)
-                if reponame not in allRepos:
-                    if os.path.exists(rootPath):
-                        print "pruning entire repo reference ", self.repoShortname(reponame)
-                        self.clearDirectoryAsRoot(rootPath)
-                        shutil.rmtree(rootPath)
-                else:
-                    if os.path.exists(rootPath):
-                        for item in os.listdir(rootPath):
-                            if (reponame, item) not in repo_and_branch_to_commit and (reponame, item) not in repo_and_naked_hash:
-                                if os.path.exists(os.path.join(reponame, item)):
-                                    print "pruning checkout ", self.repoShortname(reponame), item
+            all_paths = self.allCheckoutPaths()
+            for path in all_paths:
+                if path not in paths_visited:
+                    print "Removing", path
+                    try:
+                        shutil.rmtree(path)
+                    except:
+                        traceback.print_exc()
 
-                                    self.clearDirectoryAsRoot(os.path.join(reponame, item))
-                                    shutil.rmtree(os.path.join(reponame, item))
-
-        for reponame, branchname in sorted(repo_and_branch_to_commit):
-            commit = repo_and_branch_to_commit[reponame, branchname]
-
-            _,_,repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, commit)
-
-            if repos:
-                print "%s/%s (%s)" % (self.repoShortname(reponame), branchname, commit)
-
-                for refname, ref in repos.iteritems():
-                    if self.repoIsNotIgnored(ref.reponame()):
-                        print "\t", refname, " -> ", self.repoShortname(ref.reponame()), ref.branchname() or commit
-
-    def _checkoutRepoName(self, reponame, branch, hash, hard=False):
-        path = self.checkout_root_path(reponame, branch or hash)
-
-        if not Git.Git(path).isInitialized():
-            self.getGitRepo(reponame).resetToCommitInDirectory(hash, path)
-        else:
-            if hash != Git.Git(path).currentCheckedOutCommit() or hard:
-                if hard:
-                    Git.Git(path).resetHard()
-
-                print "Checkout commit ", hash, " to ", path
-
-                Git.Git(path).checkoutCommit(hash)
-
-    def branchesCheckedOutForRepo(self, reponame):
+    def allCheckoutPaths(self):
         res = []
 
-        for rn, hash in self.repo_and_hash_to_branch:
-            if rn == reponame:
-                res.append(self.repo_and_hash_to_branch[rn,hash])
-        
+        for dirname in os.listdir(os.path.join(self.root_path,"src")):
+            if dirname != "src":
+                res.append(os.path.join(self.root_path,"src",dirname))
+
+        for dirname in os.listdir(os.path.join(self.root_path,"hidden")):
+            res.append(os.path.join(self.root_path,"hidden",dirname))
+
         return res
-        
-    def info(self, args):
-        if args.repo:
-            if args.test:
-                self.infoForTest(args.repo, args.test, args.committish)
-            else:
-                self.infoForRepo(args.repo)
-            return
-        elif args.test:
-            self.infoForTest(None, args.test, args.committish)
-            return
 
-        if self.checkout_root and self.checkout_root[0]:
-            self.infoForRepo(self.checkout_root[0])
-            return
-
-        raise UserWarning("Nothing specified.")
-
-    def infoForTest(self, repo, test, committish):
-        if repo and test and committish:
-            repo = self.bestRepo(repo)
-
-            commit = self.getGitRepo(repo).gitCommitData(committish)[0]
-
-            tests, environments, repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(repo, commit)
+    def _updateRepoCheckout(self, reponame, hash, hard=False):
+        if reponame == ROOT_CHECKOUT_NAME:
+            actualRepoName = self.checkout_root[0]
         else:
-            assert committish is None
-            if repo is not None:
-                repo = self.bestRepo(repo)
+            actualRepoName = reponame.split(":")[-1]
 
-            repo, commit, test = self.bestTest(repo, test)
+        path = self.checkout_root_path(reponame)
+        repo = Git.Git(path)
 
-            tests, environments, repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(repo, commit)
+        if not repo.isInitialized():
+            print "Checking out ", hash, " from ", actualRepoName, " to ", path
+            self.getGitRepo(actualRepoName).resetToCommitInDirectory(hash, path)
+        else:
+            if hash != repo.currentCheckedOutCommit() or hard:
+                if hard:
+                    repo.resetHard()
 
-        if test not in tests:
-            raise UserWarning("Can't find test %s amongst:\n%s" % (test, "\n".join(["  " + x for x in sorted(tests)])))
+                print "Checkout commit ", hash, " to ", path, " currently at ", Git.Git(path).currentCheckedOutCommit()
 
-        testDef = tests[test]
+                repo.checkoutCommit(hash)
 
-        print "test: ", test
+                if repo.currentCheckedOutCommit() != hash:
+                    print "Fetching origin for ", path
+                    repo.fetchOrigin()
+                    repo.checkoutCommit(hash)
 
-        print "dependencies: "
+                if repo.currentCheckedOutCommit() != hash:
+                    print "Failed to checkout ", hash, " into ", path
+                    raise Exception()
+
+
+
+    def allTestsAndBuildsByName(self):
+        visited = set()
+        def visitRepoRef(ref):
+            path = self.checkout_root_path(ref.reponame())
+
+            if path in visited:
+                return
+            else:
+                visited.add(path)
+
+            repo = Git.Git(path)
+            if not repo.isInitialized():
+                self._updateRepoCheckout(ref.reponame(), ref.commitHash())
+
+        resolver = TestDefinitionResolverOverride(self, visitRepoRef)
+        resolver.testEnvironmentAndRepoDefinitionsFor(ROOT_CHECKOUT_NAME, "HEAD")
+
+        allTestsByName = {}
+
+        for (repo, hash), testDict in resolver.testDefinitionCache.iteritems():
+            for testName, testDefinition in testDict.iteritems():
+                if repo == ROOT_CHECKOUT_NAME:
+                    allTestsByName[testName] = (testDefinition, repo)
+                else:
+                    repoName = "/".join(repo.split(":")[:-1])
+
+                    allTestsByName[repoName + "/" + testName] = (testDefinition, repo)
+
+        return allTestsByName
+
+    def run(self, args):
+        if args.interactive:
+            if not args.nodeps:
+                print "Interactive implies no dependencies."
+            if not args.nologcapture:
+                print "Interactive implies nologcapture"
+            args.nologcapture = True
+            args.nodeps = True
+
+        all_tests = self.allTestsAndBuildsByName()
+        
+        possible_tests = {t:all_tests[t] for t in all_tests if fnmatch.fnmatch(t, args.testpattern)}
+
+        if not possible_tests:
+            print "Can't find a test or build matching pattern '%s' amongst " % args.testpattern
+            for test in sorted(all_tests):
+                print "    " + test
+        else:
+            for test in sorted(possible_tests):
+                self.runBuildOrTest(all_tests, possible_tests[test][1], possible_tests[test][0], args.cores, args.nologcapture, args.nodeps, args.interactive, set())
+
+    def runBuildOrTest(self, all_tests, reponame, testDef, cores, nologcapture, nodeps, interactive, seen_already):
+        #walk all the repo definitions and make sure everything is up-to-date
+
+        path = self.build_path(reponame, testDef.name)
+
+        if path in seen_already:
+            return True
+
+        seen_already.add(path)
+
+        if not nodeps:
+            for depname, dep in testDef.dependencies.iteritems():
+                if dep.matches.Source:
+                    pass
+
+                if dep.matches.Build:
+                    test_and_repo = None
+
+                    for t in all_tests:
+                        if all_tests[t][0].hash == dep.buildHash:
+                            test_and_repo = all_tests[t]
+
+                    if test_and_repo:
+                        subdef, subrepo = test_and_repo
+                        if not self.runBuildOrTest(all_tests, subrepo, subdef, cores, nologcapture, nodeps, interactive, seen_already):
+                            print "Dependent build ", self.repoShortname(subrepo.split(":")[-1]), subdef.name, " failed"
+                            return False
+            
+        print "Building ", self.repoShortname(reponame.split(":")[-1]), testDef.name
+
+        worker_state = WorkerStateOverride("test_looper_interactive_", path, self, cores)
+
+        if nologcapture:
+            logfile = sys.stdout
+        else:
+            logfile_dir = os.path.join(path, "logs")
+            worker_state.ensureDirectoryExists(logfile_dir)
+            t = time.gmtime()
+            log_path = os.path.join(logfile_dir, "Log-%s-%s-%s-%s-%s-%s.txt" % (t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec))
+            logfile = open(log_path, "w")
+
+            print "\tlogging output to ", log_path
+
+        if not interactive:
+            class Callbacks:
+                def __init__(self):
+                    self.t0 = time.time()
+                    self.total_lines = 0
+
+                def heartbeat(self, logMessage=None):
+                    if logMessage:
+                        logfile.write(logMessage)
+                        self.total_lines += logMessage.count("\n")
+                        if time.time() - self.t0 > 10 and not nologcapture:
+                            print "\t", time.asctime(), " - ", self.total_lines, " logged"
+                            self.t0 = time.time()
+                            logfile.flush()
+
+                def terminalOutput(self, output):
+                    pass
+
+                def subscribeToTerminalInput(self, callback):
+                    pass
+            callbacks = Callbacks()
+        else:
+            callbacks = WorkerState.DummyWorkerCallbacks(localTerminal=True)
+
+        if not worker_state.runTest("interactive", callbacks, testDef, interactive)[0]:
+            print "Build failed. Exiting."
+            return False
+        return True
+
+    def info(self, args):
+        byName = self.allTestsAndBuildsByName()
+
+        for t in sorted(byName):
+            if any([fnmatch.fnmatch(t, p) for p in args.testpattern]) or not args.testpattern:
+                if args.detail:
+                    self.infoForTest(t, byName[t][0], args.all)
+                else:
+                    print t
+
+    def infoForTest(self, test, testDef, showAll):
+        print test
+        print "  type: ", testDef._which
+
+        print "  dependencies: "
+
         allDeps = dict(testDef.environment.dependencies)
         allDeps.update(testDef.dependencies)
 
         for depname, dep in sorted(allDeps.iteritems()):
-            print "  ", depname, ": ", 
-
             if dep.matches.InternalBuild:
-                print "build: ", dep.name
+                print "    " + depname + ":", dep.name
             elif dep.matches.ExternalBuild:
-                print "build ", self.repoShortname(dep.repo) + ", commit=" + dep.commitHash + ", name=" + dep.name
+                if self.repoShouldBeDisplayed(dep.repo) or showAll:
+                    print "    " + depname + ":", self.repoShortname(dep.repo) + ", commit=" + dep.commitHash + ", name=" + dep.name
             elif dep.matches.Source:
-                print "source", self.repoShortname(dep.repo) + "/" + dep.commitHash
+                if self.repoShouldBeDisplayed(dep.repo) or showAll:
+                    print "    " + depname + ":", self.repoShortname(dep.repo) + "/" + dep.commitHash
             elif dep.matches.Build:
-                print "build ", self.repoShortname(dep.repo) + ", hash=" + dep.buildHash, ", name=", dep.name
+                if self.repoShouldBeDisplayed(dep.repo) or showAll:
+                    print "    " + depname + ":", self.repoShortname(dep.repo) + ", hash=" + dep.buildHash, ", name=", dep.name
             else:
-                print "unknown: ", repr(dep)
+                print "    " + depname + ":", "(unknown!!)", repr(dep)
 
         def kvprint(key, value, indent):
             if isinstance(value, str) and "\n" in value:
                 print indent + key + ": |"
-                print indent + "\n".join(["  " + x for x in value.split("\n")])
+                print "\n".join([indent + "  " + x for x in value.split("\n")])
             else:
                 print indent + key + ":" + repr(value)
 
-        print "variables: "
+        print "  variables: "
         for var, varval in sorted(testDef.variables.iteritems()):
-            kvprint(var, varval, "  ")
+            kvprint(var, varval, "    ")
 
         toPrint = ["testCommand" if testDef.matches.Test else "buildCommand", "cleanupCommand", "hash", 
                     "name", "environment_name", "timeout", "max_cores","min_cores", "min_ram_gb"]
 
         for key in toPrint:
-            kvprint(key, getattr(testDef, key), "")
+            kvprint(key, getattr(testDef, key), "  ")
 
 
     def infoForRepo(self, reponame):
@@ -738,182 +806,51 @@ class TestLooperCtl:
         if self.checkout_root is None:
             return None
 
-        seen = set()
+        paths_visited = set()
 
-        def walk(reponame, committish):
-            if (reponame, committish) in seen:
+        results = []
+
+        def visitRepoRef(ref):
+            path = self.checkout_root_path(ref.reponame())
+
+            if path in paths_visited:
                 return
-            seen.add((reponame, committish))
+            else:
+                paths_visited.add(path)
 
-            _,_,repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, committish)
+            results.append((path, "/".join(ref.reponame().split(":")[:-1]), ref.reponame().split(":")[-1]))
 
-            for v in repos.values():
-                walk(v.reponame(), v.commitHash())
+        #walk all the repo definitions and make sure everything is up-to-date
+        resolver = TestDefinitionResolverOverride(self, visitRepoRef)
+        resolver.testEnvironmentAndRepoDefinitionsFor(ROOT_CHECKOUT_NAME, "HEAD")
 
-        walk(self.checkout_root[0], self.checkout_root[1])
-
-        for reponame, committish in sorted(seen):
-            if self.repoIsNotIgnored(reponame):
-                f(reponame, committish)
+        for path, localname, actualrepo in sorted(results, key=lambda vals: vals[1]):
+            f(path, localname, actualrepo)
 
     def status(self, args):
         if self.checkout_root is None:
             print "Nothing checked out..."
             return
 
-        def printer(reponame, committish):
-            root = self.checkout_root_path(reponame, committish)
-            git = Git.Git(root)
-            print self.repoShortname(reponame), self.repo_and_hash_to_branch.get((reponame, committish), committish[:10] if Git.isShaHash(committish) else committish)
-            
-            if git.isInitialized():
-                diffstat = git.currentFileNumStat()
-                for path in diffstat:
-                    print "\t++ %-5d  -- %-5d   %s" % (diffstat[path][0], diffstat[path][1], path)
-            else:
-                print "\tNOT INITIALIZED"
+        def printer(path, localname, remotename):
+            git = Git.Git(path)
+
+            if args.all or self.repoShouldBeDisplayed(remotename):
+                hash = git.currentCheckedOutCommit()
+
+                diffstat = git.currentFileNumStat() if git.isInitialized() else NOne
+
+                print "%-50s" % localname, "%-50s" % self.repoShortname(remotename), hash, git.branchnameForCommitSloppy(hash)
+                
+                if git.isInitialized():
+                    diffstat = git.currentFileNumStat()
+                    for path in diffstat:
+                        print "\t++ %-5d  -- %-5d   %s" % (diffstat[path][0], diffstat[path][1], path)
+                else:
+                    print "\tNOT INITIALIZED"
 
         self.walkCheckedOutRepos(printer)
         
-
-    def _pickOne(self, lookfor, possibilities, kindOfThing):
-        possible = [item for item in possibilities if lookfor in item]
-        if len(possible) == 1:
-            return possible[0]
-        if len(possible) > 1:
-            #if it's an exact match, then use that.
-            if lookfor in possible:
-                return lookfor
-
-            raise UserWarning("%s could refer to %s of %s" % (lookfor, "any" if len(possible) > 2 else "either", possible))
-
-        return None
-
-    def findTest(self, reponame, testHash):
-        possible = []
-
-        for commit in self.branchesCheckedOutForRepo(reponame):
-            tests = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, commit)[0]
-
-            for test in tests.values():
-                if test.hash == testHash:
-                    return commit, test
-
-    def bestTest(self, reponame, test):
-        possible = []
-
-        if reponame is None:
-            reponames = sorted(set(repoAndHash[0] for repoAndHash in self.repo_and_hash_to_branch))
-        else:
-            reponames = [reponame]
-
-        for reponame in reponames:
-            for commit in self.branchesCheckedOutForRepo(reponame):
-                tests = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, commit)[0]
-                res = self._pickOne(test, tests, "test")
-                if res:
-                    possible.append((reponame, commit, res))
-
-        if not possible:
-            raise UserWarning("Couldn't find a test named %s" % test)
-
-        if len(possible) > 1:
-            raise UserWarning(
-                "Found multiple tests: " + 
-                    ", ".join([self.repo_and_hash_to_branch[reponame,commit] + "/" + test 
-                            for commit,test in possible])
-                )
-
-        return possible[0]
-
-    def build(self, args):
-        repo = self.bestRepo(args.repo)
-
-        repo, commit, test = self.bestTest(repo, args.test)
-
-        self.buildTest(repo, commit, test, args.cores, args.nologcapture, args.nodeps, args.interactive, set())
-
-    def buildTest(self, reponame, commit, testname, cores, nologcapture, nodeps, interactive, seen_already):
-        if interactive:
-            if not nodeps:
-                print "Interactive implies no dependencies."
-            if not nologcapture:
-                print "Interactive implies nologcapture"
-            nologcapture = True
-            nodeps = True
-
-        all_tests = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, commit)[0]
-
-        if testname not in all_tests:
-            raise UserWarning("Can't find test/build %s/%s/%s" % (reponame, commit, testname))
-
-        testDef = all_tests[testname]
-
-        path = self.build_path(testDef.name)
-
-        if path in seen_already:
-            return True
-
-        seen_already.add(path)
-
-        if not nodeps:
-            for depname, dep in testDef.dependencies.iteritems():
-                if dep.matches.Source:
-                    pass
-                if dep.matches.Build:
-                    commit, test = self.findTest(dep.repo, dep.buildHash)
-
-                    if not self.buildTest(dep.repo, commit, dep.name, cores, nologcapture, nodeps, interactive, seen_already):
-                        print "Dependent build ", self.repoShortname(dep.repo), dep.name, " failed"
-                        return False
-        
-        print "Building ", self.repoShortname(reponame), commit, testname
-
-        worker_state = WorkerStateOverride("test_looper_interactive_", path, self, cores)
-
-        if nologcapture:
-            logfile = sys.stdout
-        else:
-            logfile_dir = os.path.join(path, "logs")
-            worker_state.ensureDirectoryExists(logfile_dir)
-            t = time.gmtime()
-            log_path = os.path.join(logfile_dir, "Log-%s-%s-%s-%s-%s-%s.txt" % (t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec))
-            logfile = open(log_path, "w")
-
-            print "\tlogging output to ", log_path
-
-        if not interactive:
-            class Callbacks:
-                def __init__(self):
-                    self.t0 = time.time()
-                    self.total_lines = 0
-
-                def heartbeat(self, logMessage=None):
-                    if logMessage:
-                        logfile.write(logMessage)
-                        self.total_lines += logMessage.count("\n")
-                        if time.time() - self.t0 > 10 and not nologcapture:
-                            print "\t", time.asctime(), " - ", self.total_lines, " logged"
-                            self.t0 = time.time()
-                            logfile.flush()
-
-                def terminalOutput(self, output):
-                    pass
-
-                def subscribeToTerminalInput(self, callback):
-                    pass
-            callbacks = Callbacks()
-        else:
-            callbacks = WorkerState.DummyWorkerCallbacks(localTerminal=True)
-
-        if not worker_state.runTest("interactive", callbacks, testDef, interactive)[0]:
-            print "Build failed. Exiting."
-            return False
-        return True
-
-
-
-
 def main(argv):
     parsedArgs = createArgumentParser().parse_args()
     configureLogging(verbose=parsedArgs.verbose)
@@ -931,20 +868,14 @@ def main(argv):
             try:
                 if parsedArgs.command == "checkout":
                     ctl.checkout(parsedArgs)
-                elif parsedArgs.command == "clear":
-                    ctl.clear(parsedArgs)
                 elif parsedArgs.command == "info":
                     ctl.info(parsedArgs)
-                elif parsedArgs.command == "build":
-                    ctl.build(parsedArgs)
+                elif parsedArgs.command == "run":
+                    ctl.run(parsedArgs)
                 elif parsedArgs.command == "fetch":
                     ctl.fetch(parsedArgs)
                 elif parsedArgs.command == "status":
                     ctl.status(parsedArgs)
-                elif parsedArgs.command == "cd":
-                    ctl.change_directory(parsedArgs)
-                elif parsedArgs.command == "branch_create":
-                    ctl.create_branch(parsedArgs)
                 else:
                     raise UserWarning("Unknown command " + parsedArgs.command)
             finally:
