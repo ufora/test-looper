@@ -13,6 +13,18 @@ import time
 import shutil
 import select
 import fnmatch
+import subprocess
+import yaml
+
+##############
+# dependencies
+# pip install pyyaml
+# pip install simplejson
+# pip install requests
+# pip install psutil
+# 
+# windows also:
+# pip install pypiwin32
 
 proj_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 sys.path.append(proj_root)
@@ -22,8 +34,18 @@ import test_looper.data_model.TestDefinitionResolver as TestDefinitionResolver
 import test_looper.core.tools.Git as Git
 import test_looper.core.Config as Config
 import test_looper.worker.WorkerState as WorkerState
-import test_looper.core.tools.Docker as Docker
-import yaml
+import test_looper.core.SubprocessRunner as SubprocessRunner
+
+if sys.platform != "win32":
+    import test_looper.core.tools.Docker as Docker
+else:
+    Docker = None
+    import win32file
+
+    FILE_ATTRIBUTE_REPARSE_POINT = 1024
+    # To make things easier.
+    REPARSE_FOLDER = (win32file.FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)
+
 
 ROOT_CHECKOUT_NAME = "__root"
 
@@ -57,6 +79,8 @@ def createArgumentParser():
     init_parser.set_defaults(command="init")
     init_parser.add_argument("path", help="Path to disk storage")
     init_parser.add_argument("git_clone_root", help="Git clone root (e.g. git@gitlab.mycompany.com)")
+    init_parser.add_argument("-i", "--ignore", help="Any repos with these strings at the start are by convention not displayed in outputs", nargs='*')
+    init_parser.add_argument("-s", "--strip", help="These strings are by default stripped from the front of reponames", nargs='*')
 
     fetch_parser = subparsers.add_parser("fetch", help="Run 'git fetch origin' on all the repos we know about")
     fetch_parser.set_defaults(command="fetch")
@@ -115,18 +139,28 @@ def find_cur_root(path):
         path = subpath
 
 def run_init(args):
-    curRoot = find_cur_root(os.getcwd())
+    root = os.path.abspath(args.path)
+
+    curRoot = find_cur_root(root)
     if curRoot:
         raise UserWarning("Can't initialize a tl directory here. There is already one at\n\n%s" % curRoot)
 
-    root = os.getcwd()
+    if not os.path.exists(root):
+        os.makedirs(root)
+
     os.mkdir(os.path.join(root, ".tl"))
 
     config_file = os.path.join(root, ".tl", "config.yml")
     with open(config_file, "w") as f:
-        f.write(yaml.dump({"git_clone_root": args.git_clone_root}, indent=4, default_style=''))
-
-
+        f.write(
+            yaml.dump(
+                {"git_clone_root": args.git_clone_root,
+                 "repo_prefixes_to_ignore": args.ignore,
+                 "repo_prefixes_to_strip": args.strip
+                }, 
+                indent=4, 
+                default_style='')
+            )
 
 class DummyArtifactStorage(object):
     def __init__(self):
@@ -172,16 +206,21 @@ class WorkerStateOverride(WorkerState.WorkerState):
     def resetToCommitInDir(self, repoName, commitHash, targetDir):
         assert False
 
+    def applyAmiImageSetupCommand(self):
+        return False
+
     def cleanup(self):
         if Docker is not None:
             Docker.DockerImage.removeDanglingDockerImages()
 
-        #don't remove everything!
-        self.clearDirectoryAsRoot(
-            self.directories.scratch_dir, 
-            self.directories.test_inputs_dir, 
-            self.directories.command_dir
-            )
+            #don't remove everything!
+            self.clearDirectoryAsRoot(
+                self.directories.scratch_dir, 
+                self.directories.test_inputs_dir, 
+                self.directories.command_dir
+                )
+        else:
+            self.clearDirectoryAsRoot(self.directories.command_dir)
 
     def volumesToExpose(self):
         res = {
@@ -199,10 +238,15 @@ class WorkerStateOverride(WorkerState.WorkerState):
         return True
 
     def resetToCommit(self, repoName, commitHash):
-        self.extra_mappings[self.looperCtl.checkout_root_path(repoName)] = \
-            "/test_looper/src"
+        self.extra_mappings[self.looperCtl.checkout_root_path(repoName)] = self.exposeAsDir("src")
 
         return True
+
+    def exposeAsDir(self, expose_as):
+        if sys.platform == "win32":
+            return os.path.join(self.worker_directory, expose_as)
+        else:
+            return os.path.join("/test_looper", expose_as)
 
     def grabDependency(self, log_function, expose_as, dep, worker_callback):
         target_dir = os.path.join(self.directories.test_inputs_dir, expose_as)
@@ -210,18 +254,58 @@ class WorkerStateOverride(WorkerState.WorkerState):
         if dep.matches.Build:
             self.extra_mappings[
                 os.path.join(self.looperCtl.build_path(dep.repo, dep.name), "build_output")
-                ] = os.path.join("/test_looper", expose_as)
+                ] = self.exposeAsDir(expose_as)
 
             return None
 
         if dep.matches.Source:
             self.extra_mappings[
                 self.looperCtl.checkout_root_path(dep.repo)
-                ] = os.path.join("/test_looper", expose_as)
+                ] = self.exposeAsDir(expose_as)
 
             return None
 
         return "Unknown dependency type: %s" % dep
+
+    def _windows_prerun_command(self):
+        def islink(fpath):
+            """ Windows islink implementation. """
+            if win32file.GetFileAttributes(fpath) & REPARSE_FOLDER == REPARSE_FOLDER:
+                return True
+            return False
+
+        def walkToSymlinks(dir):
+            if islink(dir):
+                os.rmdir(dir)
+            else:
+                for p in os.listdir(dir):
+                    if not os.path.isdir(os.path.join(dir,p)):
+                        os.unlink(os.path.join(dir,p))
+                    else:
+                        walkToSymlinks(os.path.join(dir,p))
+                os.rmdir(dir)
+
+        walkToSymlinks(self.directories.test_inputs_dir)
+
+        if os.path.exists(self.directories.repo_copy_dir):
+            os.rmdir(self.directories.repo_copy_dir)
+
+        for k,v in self.extra_mappings.iteritems():
+            if not os.path.exists(os.path.dirname(v)):
+                os.makedirs(os.path.dirname(v))
+            
+            args = ["New-Item", "-Path", v, "-ItemType", "Junction", "-Value", k]
+
+            running_subprocess = subprocess.Popen(
+                ["powershell.exe", "-ExecutionPolicy", "Bypass"] + args,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                shell=True,
+                #env=env_to_pass,
+                #creationflags=subprocess.CREATE_NEW_CONSOLE
+                )
+            running_subprocess.wait()
+
 
 class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolver):
     def __init__(self, looperCtl, visitRepoRef):
@@ -553,6 +637,17 @@ class TestLooperCtl:
             print "Checking out ", hash, " from ", actualRepoName, " to ", path
             self.getGitRepo(actualRepoName).resetToCommitInDirectory(hash, path)
         else:
+            if repo.getSourceRepoName("origin") != actualRepoName:
+                if repo.currentFileNumStat():
+                    print "Repo reference for ", "/".join(reponame.split(":")[:-1]), "changed from ", repo.getSourceRepoName("origin"), "to", actualRepoName
+                    print
+                    print "You have outstanding changes. Please remove them before continuing."
+                    os._exit(1)
+                else:
+                    print "Repo reference for ", "/".join(reponame.split(":")[:-1]), "changed from ", repo.getSourceRepoName("origin"), "to", actualRepoName
+                    print "No files are modified so we're replacing the directory."
+                    shutil.rmtree(path)
+
             if hash != repo.currentCheckedOutCommit() or hard:
                 if hard:
                     repo.resetHard()
@@ -613,7 +708,7 @@ class TestLooperCtl:
 
         all_tests = self.allTestsAndBuildsByName()
         
-        possible_tests = {t:all_tests[t] for t in all_tests if fnmatch.fnmatch(t, args.testpattern)}
+        possible_tests = {t:all_tests[t] for t in all_tests if fnmatch.fnmatchcase(t, args.testpattern)}
 
         if not possible_tests:
             print "Can't find a test or build matching pattern '%s' amongst " % args.testpattern
@@ -699,7 +794,7 @@ class TestLooperCtl:
         byName = self.allTestsAndBuildsByName()
 
         for t in sorted(byName):
-            if any([fnmatch.fnmatch(t, p) for p in args.testpattern]) or not args.testpattern:
+            if any([fnmatch.fnmatchcase(t, p) for p in args.testpattern]) or not args.testpattern:
                 if args.detail:
                     self.infoForTest(t, byName[t][0], args.all)
                 else:
@@ -824,6 +919,10 @@ class TestLooperCtl:
         resolver = TestDefinitionResolverOverride(self, visitRepoRef)
         resolver.testEnvironmentAndRepoDefinitionsFor(ROOT_CHECKOUT_NAME, "HEAD")
 
+        results.append(
+            (self.checkout_root_path(ROOT_CHECKOUT_NAME), "src", self.checkout_root[0])
+            )
+
         for path, localname, actualrepo in sorted(results, key=lambda vals: vals[1]):
             f(path, localname, actualrepo)
 
@@ -838,9 +937,9 @@ class TestLooperCtl:
             if args.all or self.repoShouldBeDisplayed(remotename):
                 hash = git.currentCheckedOutCommit()
 
-                diffstat = git.currentFileNumStat() if git.isInitialized() else NOne
+                diffstat = git.currentFileNumStat() if git.isInitialized() else None
 
-                print "%-50s" % localname, "%-50s" % self.repoShortname(remotename), hash, git.branchnameForCommitSloppy(hash)
+                print "%-50s" % localname, "%-50s" % self.repoShortname(remotename), hash #, git.branchnameForCommitSloppy(hash)
                 
                 if git.isInitialized():
                     diffstat = git.currentFileNumStat()

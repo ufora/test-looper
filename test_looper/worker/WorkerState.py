@@ -118,6 +118,9 @@ class WorkerState(object):
 
         self.cleanup()
 
+    def applyAmiImageSetupCommand(self):
+        return True
+
     def callHeartbeatInBackground(self, log_function, logMessage=None):
         if logMessage is not None:
             log_function(time.asctime() + " TestLooper> " + logMessage + "\n")
@@ -469,7 +472,12 @@ class WorkerState(object):
         else:
             return self._run_test_command_linux(command, timeout, env, log_function, docker_image, working_directory, dumpPreambleLog)
 
+    def _windows_prerun_command(self):
+        pass
+
     def _run_test_command_windows(self, command, timeout, env, log_function, docker_image, working_directory, dumpPreambleLog):
+        self._windows_prerun_command()
+        
         assert docker_image is NAKED_MACHINE
 
         env_to_pass = dict(os.environ)
@@ -955,7 +963,8 @@ class WorkerState(object):
         if environment.image.matches.AMI:
             image = NAKED_MACHINE
 
-            command = environment.image.setup_script_contents + "\n\n" + command
+            if self.applyAmiImageSetupCommand():
+                command = environment.image.setup_script_contents + "\n\n" + command
         else:
             with self.callHeartbeatInBackground(log_function, "Extracting docker image for environment %s" % environment):
                 image = self.getDockerImage(environment, log_function)

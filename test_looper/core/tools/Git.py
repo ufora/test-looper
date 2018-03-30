@@ -23,9 +23,10 @@ class SubprocessCheckCall(object):
     def __call__(self):
         with DirectoryScope.DirectoryScope(self.path):
             try:
-                return pickle.dumps(subprocess.check_call(*self.args, **self.kwds))
+                subprocess.check_output(*self.args, **self.kwds)
+                return 0
             except subprocess.CalledProcessError as e:
-                return pickle.dumps(e.returncode)
+                return e.returncode
 
 class SubprocessCheckOutput(object):
     def __init__(self, path, args, kwds):
@@ -66,6 +67,18 @@ class Git(object):
 
     def listRemotes(self):
         return [x.strip() for x in self.subprocessCheckOutput(["git","remote"]).split("\n") if x.strip() != '']
+
+    def getUrlForRemote(self, remote="origin"):
+        return self.subprocessCheckOutput(["git", "remote", "get-url", remote]).strip()
+
+    def getSourceRepoName(self, remote="origin"):
+        url = self.getUrlForRemote(remote)
+        if url.beginswith("git@"):
+            repo = url.split(":")[1]
+            if repo.endswith(".git"):
+                return repo[:-4]
+
+        raise UserWarning("Can't detect source repo for " + url)
 
     def pullLatest(self):
         remotes = self.listRemotes()
