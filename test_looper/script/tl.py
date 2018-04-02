@@ -81,6 +81,7 @@ def createArgumentParser():
     init_parser.add_argument("git_clone_root", help="Git clone root (e.g. git@gitlab.mycompany.com)")
     init_parser.add_argument("-i", "--ignore", help="Any repos with these strings at the start are by convention not displayed in outputs", nargs='*')
     init_parser.add_argument("-s", "--strip", help="These strings are by default stripped from the front of reponames", nargs='*')
+    init_parser.add_argument("--repos", help="store source repos somewhere other than '.tl/repos'", default=None)
 
     fetch_parser = subparsers.add_parser("fetch", help="Run 'git fetch origin' on all the repos we know about")
     fetch_parser.set_defaults(command="fetch")
@@ -99,13 +100,21 @@ def createArgumentParser():
     checkout_parser.add_argument("--from", help="Create a new branch, based on this one", dest="from_name", default=None)
     checkout_parser.add_argument("--orphan", help="Create a new orphaned branch, based on this one", dest="orphan", default=False, action='store_true')
 
-    build_parser = subparsers.add_parser("run", help="Run a build or test.")
-    build_parser.set_defaults(command="run")
-    build_parser.add_argument("testpattern", help="Name of the test (with globs)")
-    build_parser.add_argument("-i", "--interactive", dest="interactive", default=False, help="Drop into an interactive terminal for this.", action="store_true")
-    build_parser.add_argument("-d", "--nodeps", dest="nodeps", default=False, help="Don't build dependencies, just this one. ", action="store_true")
-    build_parser.add_argument("-s", "--nologcapture", dest="nologcapture", default=False, help="Don't capture logs - show everything directly", action="store_true")
-    build_parser.add_argument("-j",
+    run_parser = subparsers.add_parser("run", help="Run a build or test.")
+    run_parser.set_defaults(command="run")
+    run_parser.add_argument("testpattern", help="Name of the test (with globs)")
+    
+    if sys.platform != "win32":
+        #no reason to have 'interactive' on windows - we're already 'interactive because there's no
+        #docker involved
+        run_parser.add_argument("-i", "--interactive", dest="interactive", default=False, help="Drop into an interactive terminal for this.", action="store_true")
+    else:
+        run_parser.set_defaults(interactive=False)
+
+    run_parser.add_argument("-c", dest="cmd", default=None, help="Just run this one command, instead of the full build")
+    run_parser.add_argument("-d", "--nodeps", dest="nodeps", default=False, help="Don't build dependencies, just this one. ", action="store_true")
+    run_parser.add_argument("-s", "--nologcapture", dest="nologcapture", default=False, help="Don't capture logs - show everything directly", action="store_true")
+    run_parser.add_argument("-j",
                         "--cores",
                         dest="cores",
                         default=1,
@@ -155,6 +164,7 @@ def run_init(args):
         f.write(
             yaml.dump(
                 {"git_clone_root": args.git_clone_root,
+                 "repo_path_override": args.repos,
                  "repo_prefixes_to_ignore": args.ignore,
                  "repo_prefixes_to_strip": args.strip
                 }, 
@@ -365,10 +375,12 @@ class TestLooperCtl:
     def __init__(self, root_path):
         self.root_path = root_path
         self.repos = {}
-        self.initializeAllRepoNames()
+        self.path_to_repos = None
     
         self._loadConfig()
         self._loadState()
+
+        self.initializeAllRepoNames()
 
     def _loadState(self):
         try:
@@ -383,6 +395,7 @@ class TestLooperCtl:
 
             #repo, branch (or None), commit
             self.checkout_root = state.get("checkout_root", (None, None))
+            
         except Exception as e:
             raise UserWarning("Corrupt state file: " + str(e))
 
@@ -395,6 +408,7 @@ class TestLooperCtl:
 
             self.repo_prefixes_to_strip = config.get("repo_prefixes_to_strip", [])
             self.repo_prefixes_to_ignore = config.get("repo_prefixes_to_ignore", [])
+            self.path_to_repos = config.get("repo_path_override", None) or os.path.join(self.root_path, ".tl", "repos")
 
             self.git_clone_root = config["git_clone_root"]
 
@@ -424,7 +438,7 @@ class TestLooperCtl:
         self.allRepoNames = set()
 
         def walk(items):
-            dirpath = os.path.join(self.root_path, ".tl", "repos", *items)
+            dirpath = os.path.join(self.path_to_repos, *items)
 
             if os.path.exists(dirpath):
                 for i in os.listdir(dirpath):
@@ -503,7 +517,7 @@ class TestLooperCtl:
         if reponame in self.repos:
             return self.repos[reponame]
         
-        self.repos[reponame] = Git.Git(os.path.join(*([self.root_path, ".tl", "repos"] + reponame.split("/"))))
+        self.repos[reponame] = Git.Git(os.path.join(*([self.path_to_repos] + reponame.split("/"))))
         self.allRepoNames.add(reponame)
 
         if not self.repos[reponame].isInitialized():
@@ -647,6 +661,7 @@ class TestLooperCtl:
                     print "Repo reference for ", "/".join(reponame.split(":")[:-1]), "changed from ", repo.getSourceRepoName("origin"), "to", actualRepoName
                     print "No files are modified so we're replacing the directory."
                     shutil.rmtree(path)
+                    self.getGitRepo(actualRepoName).resetToCommitInDirectory(hash, path)
 
             if hash != repo.currentCheckedOutCommit() or hard:
                 if hard:
@@ -663,7 +678,10 @@ class TestLooperCtl:
 
                 if repo.currentCheckedOutCommit() != hash:
                     print "Failed to checkout ", hash, " into ", path
-                    raise Exception()
+                    if repo.currentFileNumStat():
+                        print "You have outstanding changes that are conflicting with the checkout."
+
+                    os._exit(1)
 
 
 
@@ -706,6 +724,10 @@ class TestLooperCtl:
             args.nologcapture = True
             args.nodeps = True
 
+        if args.cmd:
+            args.nodeps = True
+            args.nologcapture = True
+
         all_tests = self.allTestsAndBuildsByName()
         
         possible_tests = {t:all_tests[t] for t in all_tests if fnmatch.fnmatchcase(t, args.testpattern)}
@@ -715,10 +737,13 @@ class TestLooperCtl:
             for test in sorted(all_tests):
                 print "    " + test
         else:
-            for test in sorted(possible_tests):
-                self.runBuildOrTest(all_tests, possible_tests[test][1], possible_tests[test][0], args.cores, args.nologcapture, args.nodeps, args.interactive, set())
+            if args.cmd and len(possible_tests) != 1:
+                raise UserWarning("Explicit commands can only be passed to one target.")
 
-    def runBuildOrTest(self, all_tests, reponame, testDef, cores, nologcapture, nodeps, interactive, seen_already):
+            for test in sorted(possible_tests):
+                self.runBuildOrTest(all_tests, possible_tests[test][1], possible_tests[test][0], args.cores, args.nologcapture, args.nodeps, args.interactive, set(), args.cmd)
+
+    def runBuildOrTest(self, all_tests, reponame, testDef, cores, nologcapture, nodeps, interactive, seen_already, explicit_cmd = None):
         #walk all the repo definitions and make sure everything is up-to-date
 
         path = self.build_path(reponame, testDef.name)
@@ -785,7 +810,7 @@ class TestLooperCtl:
         else:
             callbacks = WorkerState.DummyWorkerCallbacks(localTerminal=True)
 
-        if not worker_state.runTest("interactive", callbacks, testDef, interactive)[0]:
+        if not worker_state.runTest("interactive", callbacks, testDef, interactive, command_override=explicit_cmd)[0]:
             print "Build failed. Exiting."
             return False
         return True

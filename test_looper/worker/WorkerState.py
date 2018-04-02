@@ -238,12 +238,13 @@ class WorkerState(object):
             )
 
         if sys.platform == "win32":
+            self._windows_prerun_command()
+
             assert docker_image is NAKED_MACHINE
 
             env_to_pass = dict(os.environ)
             env_to_pass.update(env)
 
-            invoker_path = os.path.join(self.directories.command_dir,"command_invoker.ps1")
             command_path = os.path.join(self.directories.command_dir,"command.ps1")
             with open(command_path,"w") as cmd_file:
                 print >> cmd_file, "cd '" + working_directory + "'"
@@ -252,77 +253,92 @@ class WorkerState(object):
                 print >> cmd_file, "echo '********************************'"
                 print >> cmd_file, command
 
-            with open(invoker_path,"w") as cmd_file:
-                print >> cmd_file, "powershell.exe " + command_path
-                print >> cmd_file, "powershell.exe"
-
-            running_subprocess = subprocess.Popen(
-                ["powershell.exe", "-ExecutionPolicy", "Bypass", invoker_path],
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                shell=True,
-                env=env_to_pass,
-                creationflags=subprocess.CREATE_NEW_CONSOLE
-                )
-
-            logging.info("Powershell process has pid %s", running_subprocess.pid)
-            
-            time.sleep(.5)
-
-            readthreadStop = threading.Event()
-            def readloop(file):
+            if workerCallback.localTerminal:
                 try:
-                    while not readthreadStop.is_set():
-                        data = os.read(file.fileno(), 4096)
-                        if not data:
-                            #do a little throttling
-                            time.sleep(0.01)
-                        else:
-                            workerCallback.terminalOutput(data.replace("\n","\n\r"))
+                    running_subprocess = subprocess.Popen(
+                        ["powershell.exe", "-ExecutionPolicy", "Bypass", command_path, "-NoExit"],
+                        shell=True,
+                        env=env_to_pass,
+                        creationflags=0x00000200
+                        )
+                    running_subprocess.wait()
                 except:
-                    logging.error("Read loop failed:\n%s", traceback.format_exc())
+                    print "EXCEPTION"
+                print "Exiting subshell."
+            else:
+                invoker_path = os.path.join(self.directories.command_dir,"command_invoker.ps1")
 
-            readthreads = [threading.Thread(target=readloop, args=(x,)) for x in [running_subprocess.stdout, running_subprocess.stderr]]
-            for t in readthreads:
-                t.daemon=True
-                t.start()
+                with open(invoker_path,"w") as cmd_file:
+                    print >> cmd_file, "powershell.exe " + command_path
+                    print >> cmd_file, "powershell.exe"
 
-            try:
-                writeFailed = [False]
-                def write(msg):
-                    if not msg:
-                        return
+                running_subprocess = subprocess.Popen(
+                    ["powershell.exe", "-ExecutionPolicy", "Bypass", invoker_path],
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    shell=True,
+                    env=env_to_pass,
+                    creationflags=subprocess.CREATE_NEW_CONSOLE
+                    )
+
+                logging.info("Powershell process has pid %s", running_subprocess.pid)
+                
+                time.sleep(.5)
+
+                readthreadStop = threading.Event()
+                def readloop(file):
                     try:
-                        if not writeFailed[0]:
-                            if isinstance(msg, str):
-                                running_subprocess.stdin.write(msg)
-                            elif msg.matches.KeyboardInput:
-                                running_subprocess.stdin.write(msg.bytes)
+                        while not readthreadStop.is_set():
+                            data = os.read(file.fileno(), 4096)
+                            if not data:
+                                #do a little throttling
+                                time.sleep(0.01)
+                            else:
+                                workerCallback.terminalOutput(data.replace("\n","\n\r"))
                     except:
-                        writeFailed[0] = True 
-                        logging.error("Failed to write to stdin: %s", traceback.format_exc())
+                        logging.error("Read loop failed:\n%s", traceback.format_exc())
 
-                workerCallback.subscribeToTerminalInput(write)
+                readthreads = [threading.Thread(target=readloop, args=(x,)) for x in [running_subprocess.stdout, running_subprocess.stderr]]
+                for t in readthreads:
+                    t.daemon=True
+                    t.start()
 
-                ret_code = None
-                while ret_code is None:
-                    try:
-                        ret_code = running_subprocess.poll()
-                        time.sleep(HEARTBEAT_INTERVAL)
-                    except requests.exceptions.ReadTimeout:
-                        pass
-                    except requests.exceptions.ConnectionError:
-                        pass
-
-                    workerCallback.heartbeat()
-            finally:
                 try:
-                    if ret_code is not None:
-                        running_subprocess.terminate()
-                except:
-                    logging.info("Failed to terminate subprocess: %s", traceback.format_exc())
-                readthreadStop.set()
+                    writeFailed = [False]
+                    def write(msg):
+                        if not msg:
+                            return
+                        try:
+                            if not writeFailed[0]:
+                                if isinstance(msg, str):
+                                    running_subprocess.stdin.write(msg)
+                                elif msg.matches.KeyboardInput:
+                                    running_subprocess.stdin.write(msg.bytes)
+                        except:
+                            writeFailed[0] = True 
+                            logging.error("Failed to write to stdin: %s", traceback.format_exc())
+
+                    workerCallback.subscribeToTerminalInput(write)
+
+                    ret_code = None
+                    while ret_code is None:
+                        try:
+                            ret_code = running_subprocess.poll()
+                            time.sleep(HEARTBEAT_INTERVAL)
+                        except requests.exceptions.ReadTimeout:
+                            pass
+                        except requests.exceptions.ConnectionError:
+                            pass
+
+                        workerCallback.heartbeat()
+                finally:
+                    try:
+                        if ret_code is not None:
+                            running_subprocess.terminate()
+                    except:
+                        logging.info("Failed to terminate subprocess: %s", traceback.format_exc())
+                    readthreadStop.set()
         else:
             with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
                 print >> f, command
@@ -477,13 +493,30 @@ class WorkerState(object):
 
     def _run_test_command_windows(self, command, timeout, env, log_function, docker_image, working_directory, dumpPreambleLog):
         self._windows_prerun_command()
-        
+
         assert docker_image is NAKED_MACHINE
 
         env_to_pass = dict(os.environ)
         env_to_pass.update(env)
 
         t0 = time.time()
+
+        #generate a vars file to override the current environment if we want to 'pop into' this 
+        #session later.
+        with open(os.path.join(self.directories.command_dir,"vars.bat"), "w") as f:
+            print >> f, "@ECHO OFF"
+            print >> f, "REM AUTOGENERATED BATCH VARIABLES"
+            
+            def escape(v):
+                v = v.replace("%", "%%")
+                for char in "^&/<>|":
+                    v = v.replace(char, "^" + char)
+                return v
+
+            for k,v in env.iteritems():
+                print >> f, "SET %s=%s" % (k, escape(v))
+            print >> f, "@ECHO ON"
+
 
         command_path = os.path.join(self.directories.command_dir,"command.ps1")
         with open(command_path,"w") as cmd_file:
@@ -720,7 +753,7 @@ class WorkerState(object):
 
         return None
 
-    def runTest(self, testId, workerCallback, testDefinition, isDeploy, extraPorts=None):
+    def runTest(self, testId, workerCallback, testDefinition, isDeploy, extraPorts=None, command_override=None):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
         self.cleanup()
 
@@ -745,7 +778,7 @@ class WorkerState(object):
                     log_function("Build already exists\n")
                     return True, {}
                 
-                return self._run_task(testId, testDefinition, log_function, workerCallback, isDeploy, extraPorts)
+                return self._run_task(testId, testDefinition, log_function, workerCallback, isDeploy, extraPorts, command_override)
             except KeyboardInterrupt:
                 log_function("\nInterrupted by Ctrl-C\n")
                 return False, {}
@@ -934,7 +967,7 @@ class WorkerState(object):
 
         return environment, all_dependencies, test_definition
 
-    def _run_task(self, testId, test_definition, log_function, workerCallback, isDeploy, extraPorts):
+    def _run_task(self, testId, test_definition, log_function, workerCallback, isDeploy, extraPorts, command_override):
         def logWithTime(msg):
             log_function(time.asctime() + " TestLooper> " + msg + ("\n" if msg[-1] != "\n" else ""))
 
@@ -957,6 +990,10 @@ class WorkerState(object):
             cleanup_command = ""
         else:
             assert False, test_definition
+
+        if command_override is not None:
+            cleanup_command = ""
+            command = command_override
 
         logging.info("Environment is: %s", environment)
 
