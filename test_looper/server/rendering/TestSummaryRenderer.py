@@ -31,26 +31,15 @@ class TestSummaryRenderer:
 
     @cached
     def allBuilds(self):
-        return [t for t in self.tests if t.testDefinition.matches.Build]
+        return [t for t in self.tests if t.testDefinitionSummary.type == "Build"]
 
     @cached
     def allTests(self):
-        return [t for t in self.tests if t.testDefinition.matches.Test]
-
-    @cached
-    def allEnvironments(self):
-        envs = set()
-        for t in self.tests:
-            envs.add(t.testDefinition.environment)
-        return envs
-
-    @cached
-    def hasOneEnvironment(self):
-        return len(self.allEnvironments()) == 1
+        return [t for t in self.tests if t.testDefinitionSummary.type == "Test"]
 
     def renderSummary(self):
         #first, see whether we have any tests
-        if not self.tests or not self.allEnvironments():
+        if not self.tests:
             button_text = '<span class="text-muted" style="width:30px">&nbsp;</span>' 
         else:
             button_text = self.renderSingleEnvironment()
@@ -110,7 +99,7 @@ class TestSummaryRenderer:
         goodBuilds,badBuilds,waitingBuilds = self.categorizeAllBuilds()
 
         if badBuilds:
-            return "Builds failed: " + ", ".join([b.testDefinition.name for b in badBuilds])
+            return "Builds failed: " + ", ".join([b.testDefinitionSummary.name for b in badBuilds])
 
         if waitingBuilds:
             if waitingBuilds[0].calculatedPriority == 0:
@@ -176,11 +165,6 @@ class TestSummaryRenderer:
                 totalFailedTestCount,
                 totalTests
                 )
-
-
-
-    def renderMultipleEnvironments(self):
-        return "%s builds over %s environments" % (len(self.allBuilds()), len(self.allEnvironments()))
 
     def categorizeBuild(self, b):
         if b.successes > 0:

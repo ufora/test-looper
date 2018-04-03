@@ -37,7 +37,7 @@ class DeploymentsContext(Context.Context):
 
             row.append(self.contextFor(commit).renderLink())
 
-            row.append(d.test.testDefinition.name)
+            row.append(d.test.testDefinitionSummary.name)
 
             row.append(time.asctime(time.gmtime(d.createdTimestamp)))
 

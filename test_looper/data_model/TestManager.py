@@ -213,24 +213,13 @@ class TestManager(object):
         if not commit.data:
             return []
 
-        res = []
-
-        for testDef in commit.data.testDefinitions.values():
-            test = self.database.Test.lookupAny(hash=testDef.hash)
-            if test:
-                res.append(test)
-
-        return res
+        return commit.data.tests.values()
 
     def allTestsDependedOnByTest(self, test):
         res = []
 
-        for dep in test.testDefinition.dependencies.values():
-            if dep.matches.Build:
-                for subtest in self.database.Test.lookupAll(
-                        hash=dep.buildHash
-                        ):
-                    res.append(subtest)
+        for dep in self.database.TestDependency.lookupAll(test=test):
+            res.append(dep.dependsOn)
 
         return res
 
@@ -446,7 +435,7 @@ class TestManager(object):
             if not test:
                 raise Exception("Can't find test %s" % hash)
 
-            logging.info("Trying to boot a deployment for %s", test.hash + "/" + test.testDefinition.name)
+            logging.info("Trying to boot a deployment for %s", test.hash + "/" + test.testDefinitionSummary.name)
 
             cat = self._machineCategoryForTest(test)
             assert cat
@@ -463,7 +452,7 @@ class TestManager(object):
             cat.desired = cat.desired + 1
 
             self.streamForDeployment(deploymentId).addMessageFromDeployment(
-                time.asctime() + " TestLooper> Deployment for %s waiting for hardware.\n\r" % (test.hash + "/" + test.testDefinition.name)
+                time.asctime() + " TestLooper> Deployment for %s waiting for hardware.\n\r" % (test.hash + "/" + test.testDefinitionSummary.name)
                 )
 
             self._scheduleBootCheck()
@@ -488,10 +477,8 @@ class TestManager(object):
             return 0
 
         res = 0
-        for testDef in commit.data.testDefinitions.values():
-            test = self.database.Test.lookupAny(hash=testDef.hash)
-            if test:
-                res += max(0, test.activeRuns)
+        for test in commit.data.tests.values():
+            res += max(0, test.activeRuns)
 
         return res
 
@@ -636,10 +623,7 @@ class TestManager(object):
 
     @staticmethod
     def configurationForTest(test):
-        if test.testDefinition.configuration:
-            return test.testDefinition.configuration
-        else:
-            return test.testDefinition.environment_name
+        return test.testDefinitionSummary.configuration
 
     def recordTestResults(self, success, testId, testSuccesses, curTimestamp):
         with self.transaction_and_lock():
@@ -830,7 +814,7 @@ class TestManager(object):
                     
                     test = deployment.test
 
-                    return (deployment._identity, test.testDefinition)
+                    return (deployment._identity, self.definitionForTest(test))
 
             return None, None
 
@@ -967,7 +951,7 @@ class TestManager(object):
 
             self._updateTestPriority(test, timestamp)
 
-            return (runningTest._identity, test.testDefinition)
+            return (runningTest._identity, self.definitionForTest(test))
 
     def performCleanupTasks(self, curTimestamp):
         #check all tests to see if we've exceeded the timeout and the test is dead
@@ -1381,6 +1365,44 @@ class TestManager(object):
         for branch in self.database.Branch.lookupAll(head=commit):
             self._recalculateBranchPins(branch)
 
+    def _extractCommitTestsEnvsAndRepos(self, commit):
+        raw_text, extension = self.getRawTestFileForCommit(commit)
+
+        def getRepo(reponame):
+            if not self.database.Repo.lookupAny(name=reponame):
+                return None
+            return self.source_control.getRepo(reponame).source_repo
+
+        resolver = TestDefinitionResolver.TestDefinitionResolver(getRepo)
+
+        return resolver.testEnvironmentAndRepoDefinitionsFor(
+            commit.repo.name, 
+            commit.hash
+            )
+
+    def environmentForTest(self, test):
+        return self.definitionForTest(test).environment
+
+    def definitionForTest(self, test):
+        """Extracts the testDefinition for a given test."""
+        commitDep = self.database.CommitTestDependency.lookupAny(test=test)
+        
+        assert commitDep is not None, "Somehow, don't have a commit referencing %s" % test._identity
+
+        raw_text, extension = self.getRawTestFileForCommit(commitDep.commit)
+
+        def getRepo(reponame):
+            if not self.database.Repo.lookupAny(name=reponame):
+                return None
+            return self.source_control.getRepo(reponame).source_repo
+
+        resolver = TestDefinitionResolver.TestDefinitionResolver(getRepo)
+
+        return resolver.testEnvironmentAndRepoDefinitionsFor(
+            commitDep.commit.repo.name, 
+            commitDep.commit.hash
+            )[0].get(test.testDefinitionSummary.name)
+
     def _parseCommitTests(self, commit):
         try:
             if commit.data.testsParsed:
@@ -1414,15 +1436,18 @@ class TestManager(object):
                 self._createSourceDep(commit, e.reponame, e.commitHash)
                 return
 
-            commit.data.testDefinitions = all_tests
-            commit.data.environments = all_environments
             commit.data.repos = all_repo_defs
             
+            tests_by_name = {}
+
             for e in all_tests.values():
-                self._createTest(
-                    commit=commit,
-                    testDefinition=e
-                    )
+                tests_by_name[e.name] = \
+                    self._createTest(
+                        commit=commit,
+                        testDefinition=e
+                        )
+
+            commit.data.tests = tests_by_name
 
             commit.repo.commitsWithTests = commit.repo.commitsWithTests + 1
 
@@ -1734,8 +1759,6 @@ class TestManager(object):
         return [dep.commit for dep in self.database.CommitTestDependency.lookupAll(test=test)]
 
     def _updateTestPriority(self, test, curTimestamp):
-        self._checkAllTestDependencies(test)
-
         oldCalcPri = test.calculatedPriority
 
         test.calculatedPriority = max(
@@ -1772,7 +1795,7 @@ class TestManager(object):
             test.targetMachineBoot = 0
         else:
             #sets test.targetMachineBoot
-            if not test.testDefinition.matches.Deployment and test.testDefinition.disabled:
+            if test.testDefinitionSummary.type != "Deployment" and test.testDefinitionSummary.disabled:
                 test.priority = self.database.TestPriority.NoMoreTests()
             elif self._updateTestTargetMachineCountAndReturnIsDone(test, curTimestamp):
 
@@ -1786,7 +1809,7 @@ class TestManager(object):
                         test.priority = self.database.TestPriority.WaitingToRetry()
                 else:
                     test.priority = self.database.TestPriority.NoMoreTests()
-            elif test.testDefinition.matches.Build:
+            elif test.testDefinitionSummary.type == "Build":
                 test.priority = self.database.TestPriority.FirstBuild(priority=test.calculatedPriority)
             elif (test.totalRuns + test.activeRuns) == 0:
                 test.priority = self.database.TestPriority.FirstTest(priority=test.calculatedPriority)
@@ -1801,7 +1824,7 @@ class TestManager(object):
                 self._scheduleBootCheck()
 
         if test.priority != oldPriority or test.calculatedPriority != oldCalcPri:
-            logging.info("test priority for test %s changed to %s", test.testDefinition.hash, test.priority)
+            logging.info("test priority for test %s changed to %s", test.hash, test.priority)
         
             for dep in self.database.TestDependency.lookupAll(test=test):
                 self._triggerTestPriorityUpdate(dep.dependsOn)
@@ -1928,29 +1951,11 @@ class TestManager(object):
             )
 
     def _machineCategoryPairForTest(self, test):
-        env = test.testDefinition.environment
+        os = test.testDefinitionSummary.machineOs
 
-        if env.platform.matches.linux:
-            if env.image.matches.Dockerfile or env.image.matches.DockerfileInline:
-                os = MachineManagement.OsConfig.LinuxWithDocker()
-            elif env.image.matches.AMI:
-                os = MachineManagement.OsConfig.LinuxVM(env.image.base_ami)
-            else:
-                logging.warn("Test %s has an invalid image %s for linux", test.hash + "/" + test.name, env.image)
-                return None
-
-        if env.platform.matches.windows:
-            if env.image.matches.Dockerfile or env.image.matches.DockerfileInline:
-                os = MachineManagement.OsConfig.WindowsWithDocker()
-            elif env.image.matches.AMI:
-                os = MachineManagement.OsConfig.WindowsVM(env.image.base_ami)
-            else:
-                logging.warn("Test %s has an invalid image %s for windows", test.hash + "/" + test.name, env.image)
-                return None
-
-        min_cores = test.testDefinition.min_cores
-        max_cores = test.testDefinition.max_cores
-        min_ram_gb = test.testDefinition.min_ram_gb
+        min_cores = test.testDefinitionSummary.min_cores
+        max_cores = test.testDefinitionSummary.max_cores
+        min_ram_gb = test.testDefinitionSummary.min_ram_gb
 
         viable = []
 
@@ -1986,9 +1991,9 @@ class TestManager(object):
             test.targetMachineBoot = 0
             return True
 
-        if test.testDefinition.matches.Deployment:
+        if test.testDefinitionSummary.type == "Deployment":
             needed = 0
-        elif test.testDefinition.matches.Build:
+        elif test.testDefinitionSummary.type == "Build":
             if self._testWantsRetries(test):
                 if self._readyToRetryTest(test, curTimestamp):
                     needed = test.totalRuns + 1
@@ -2027,22 +2032,22 @@ class TestManager(object):
         if test.totalRuns == 0:
             return True
 
-        return curTimestamp - test.lastTestEndTimestamp > test.testDefinition.retry_wait_seconds
+        return curTimestamp - test.lastTestEndTimestamp > test.testDefinitionSummary.retry_wait_seconds
 
     def _testWantsRetries(self, test):
         if test.calculatedPriority == 0:
             return False
         
-        if not test.testDefinition.matches.Build:
+        if not test.testDefinitionSummary.type == "Build":
             return False
 
-        if test.testDefinition.max_retries == 0:
+        if test.testDefinitionSummary.max_retries == 0:
             return False
 
         if test.successes:
             return False
 
-        if test.totalRuns < test.testDefinition.max_retries:
+        if test.totalRuns < test.testDefinitionSummary.max_retries:
             return True
 
         return False
@@ -2054,27 +2059,62 @@ class TestManager(object):
         if not test:
             test = self.database.Test.New(
                 hash=testDefinition.hash,
-                testDefinition=testDefinition, 
+                testDefinitionSummary=self.database.TestDefinitionSummary.Summary(
+                    machineOs=self._machineOsForEnv(testDefinition.environment),
+                    name=testDefinition.name,
+                    type=testDefinition._which,
+                    configuration=testDefinition.configuration,
+                    project=testDefinition.project,
+                    disabled=testDefinition.disabled,
+                    timeout=testDefinition.timeout,
+                    min_cores=testDefinition.min_cores,
+                    max_cores=testDefinition.max_cores,
+                    min_ram_gb=testDefinition.min_ram_gb,
+                    max_retries=testDefinition.max_retries if testDefinition.matches.Build else 0,
+                    retry_wait_seconds=testDefinition.retry_wait_seconds if testDefinition.matches.Build else 0
+                    ),
                 priority=self.database.TestPriority.NoMoreTests()
                 )
 
-            self._checkAllTestDependencies(test)
+            self._checkAllTestDependencies(test, testDefinition)
             self._markTestCreated(test)
             self._triggerTestPriorityUpdate(test)
 
         self.database.CommitTestDependency.New(commit=commit,test=test)
 
-    def _checkAllTestDependencies(self, test):
-        env = test.testDefinition.environment
+        return test
+
+    def _machineOsForEnv(self, env):
+        if env.platform.matches.linux:
+            if env.image.matches.Dockerfile or env.image.matches.DockerfileInline:
+                return MachineManagement.OsConfig.LinuxWithDocker()
+            elif env.image.matches.AMI:
+                return MachineManagement.OsConfig.LinuxVM(env.image.base_ami)
+            else:
+                logging.warn("Test %s has an invalid image %s for linux", test.hash + "/" + test.name, env.image)
+                return None
+
+        if env.platform.matches.windows:
+            if env.image.matches.Dockerfile or env.image.matches.DockerfileInline:
+                return MachineManagement.OsConfig.WindowsWithDocker()
+            elif env.image.matches.AMI:
+                return MachineManagement.OsConfig.WindowsVM(env.image.base_ami)
+            else:
+                logging.warn("Test %s has an invalid image %s for windows", test.hash + "/" + test.name, env.image)
+                return None
+
+
+    def _checkAllTestDependencies(self, test, testDefinition):
+        env = testDefinition.environment
 
         #here we should have a fully populated environment, with all dependencies
         #resolved
         assert env.matches.Environment
 
         test.machineCategory = self._machineCategoryForTest(test)
-
+                
         all_dependencies = dict(env.dependencies)
-        all_dependencies.update(test.testDefinition.dependencies)
+        all_dependencies.update(testDefinition.dependencies)
 
         #now first check whether this test has any unresolved dependencies
         for depname, dep in all_dependencies.iteritems():

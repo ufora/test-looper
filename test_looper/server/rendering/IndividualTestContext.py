@@ -18,7 +18,7 @@ class IndividualTestContext(Context.Context):
 
         self.commit = self.testManager.oldestCommitForTest(self.test)
         self.repo = self.commit.repo
-        self.testName = self.test.testDefinition.name
+        self.testName = self.test.testDefinitionSummary.name
         
     def consumePath(self, path):
         return None, path

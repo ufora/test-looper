@@ -116,7 +116,7 @@ class BranchContext(Context.Context):
                 commit_string += "%s.commit({sha1: '%s', message: '%s', detailId: 'commit_%s'});\n" % (
                     branches[c.hash],
                     c.hash, 
-                    c.data.subject.replace("'", "\\'"),
+                    c.data.subject.replace("\\","\\\\").replace("'", "\\'"),
                     c.hash
                     )
 
@@ -127,7 +127,7 @@ class BranchContext(Context.Context):
                 commit_string += "%s.commit({sha1: '%s', message: '%s', detailId: 'commit_%s'});\n" % (
                     our_branch,
                     c.hash, 
-                    c.data.subject.replace("'", "\\'"),
+                    c.data.subject.replace("\\","\\\\").replace("'", "\\'"),
                     c.hash
                     )
             else:
@@ -136,7 +136,7 @@ class BranchContext(Context.Context):
 
                 commit_string += "%s.merge(%s, {sha1: '%s', message: '%s', detailId: 'commit_%s'}).delete();" % (other_branch, our_branch, 
                     c.hash, 
-                    c.data.subject.replace("'", "\\'"),
+                    c.data.subject.replace("\\","\\\\").replace("'", "\\'"),
                     c.hash
                     )
 
@@ -175,7 +175,7 @@ class BranchContext(Context.Context):
         return TestGridRenderer.TestGridRenderer(commits, 
             lambda c: [
                 t for t in self.testManager.allTestsForCommit(c)
-                    if not t.testDefinition.matches.Deployment
+                    if not t.testDefinitionSummary.type == "Deployment"
                 ] if c.data else [],
             lambda group: self.contextFor(ComboContexts.BranchAndConfiguration(self.branch, group)).renderLink(),
             lambda group, row: self.contextFor(ComboContexts.CommitAndConfiguration(row, group)).urlString()

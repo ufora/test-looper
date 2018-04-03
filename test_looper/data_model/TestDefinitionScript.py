@@ -65,6 +65,7 @@ DefineBuild.Build = {
     'environment': str,
     'mixins': algebraic.List(str), #environments to 'mix in' to modify the behavior of the test
     'configuration': str,
+    'project': str,
     'cleanup': str, #command to run to copy test outputs to relevant directories...
     'dependencies': algebraic.Dict(str,str),
     'variables': VariableDict,
@@ -82,6 +83,7 @@ DefineTest.Test = {
     'environment': str,
     'mixins': algebraic.List(str), #environments to 'mix in' to modify the behavior of the test
     'configuration': str,
+    'project': str,
     'cleanup': str, #command to run to copy test outputs to relevant directories...
     'dependencies': algebraic.Dict(str,str),
     'variables': VariableDict,
@@ -97,6 +99,7 @@ DefineDeployment.Deployment = {
     'environment': str,
     'mixins': algebraic.List(str), #environments to 'mix in' to modify the behavior of the test
     'configuration': str,
+    'project': str,
     'dependencies': algebraic.Dict(str,str),
     'variables': VariableDict,
     'portExpose': algebraic.Dict(str,int),
@@ -355,6 +358,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 buildCommand=d.command,
                 cleanupCommand=d.cleanup,
                 configuration=d.configuration,
+                project=d.project,
                 name=name,
                 variables=d.variables,
                 dependencies=deps,
@@ -375,6 +379,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 testCommand=d.command,
                 cleanupCommand=d.cleanup,
                 configuration=d.configuration,
+                project=d.project,
                 name=name,
                 variables=d.variables,
                 dependencies=deps,
@@ -392,6 +397,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
             return TestDefinition.TestDefinition.Deployment(
                 deployCommand=d.command,
                 configuration=d.configuration,
+                project=d.project,
                 name=name,
                 variables=d.variables,
                 dependencies=deps,

@@ -16,12 +16,13 @@ import pytz
 import simplejson
 import struct
 import os
+import test_looper.core.GraphUtil as GraphUtil
 import test_looper.core.DirectoryScope as DirectoryScope
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.source_control as Github
+import test_looper.server.rendering as rendering
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.server.TestLooperHtmlRendering as TestLooperHtmlRendering
-import test_looper.server.TestLooperHtmlRenderingDev as TestLooperHtmlRenderingDev
 
 from test_looper.server.TestLooperServer import TerminalInputMsg
 import test_looper.core.algebraic_to_json as algebraic_to_json
@@ -221,36 +222,11 @@ class TestLooperHttpServer(object):
         self.accessTokenHasPermission = {}
 
         self.regular_renderer = TestLooperHtmlRendering.Renderer(self)
-        self.dev_renderer = TestLooperHtmlRenderingDev.Renderer(self)
-        self.dev_filename = TestLooperHtmlRenderingDev.__file__.replace(".pyc",".py")
-        self.dev_modtime = os.path.getmtime(self.dev_filename)
         self.linuxOnly = serverConfig.linuxOnly
 
     @property
     def renderer(self):
-        mtime = os.path.getmtime(self.dev_filename)
-
-        if mtime > self.dev_modtime:
-            logging.info("Reimporting the dev html rendering module")
-            self.dev_modtime = mtime
-            reload(TestLooperHtmlRenderingDev)
-
-            self.dev_renderer = TestLooperHtmlRenderingDev.Renderer(self)
-
-        if cherrypy.session.get("dev_enabled", False):
-            return self.dev_renderer
-        else:
-            return self.regular_renderer
-
-    @cherrypy.expose
-    def enableDev(self, redirect = "/repos"):
-        cherrypy.session["dev_enabled"] = True
-        raise cherrypy.HTTPRedirect(redirect)
-
-    @cherrypy.expose
-    def disableDev(self, redirect = "/repos"):
-        cherrypy.session["dev_enabled"] = False
-        raise cherrypy.HTTPRedirect(redirect)
+        return self.regular_renderer
 
     def addLogMessage(self, format_string, *args, **kwargs):
         self.eventLog.addLogMessage(self.getCurrentLogin(), format_string, *args, **kwargs)
@@ -316,6 +292,29 @@ class TestLooperHttpServer(object):
                 )
         return is_authorized
 
+
+    @cherrypy.expose
+    def reloadSource(self, redirect="/"):
+        toReload = []
+        for name, module in sys.modules.iteritems():
+            if module and module.__name__.startswith("test_looper.server.rendering."):
+                toReload.append(module)
+
+        def edgeFun(m):
+            return [x for x in toReload if x in m.__dict__.values()]
+
+        levels = GraphUtil.placeNodesInLevels(toReload, edgeFun)
+        
+        for level in reversed(levels):
+            for module in level:
+                print module.__name__, [x.__name__ for x in edgeFun(module)]
+                reload(module)
+        
+        reload(TestLooperHtmlRendering)
+
+        self.regular_renderer = TestLooperHtmlRendering.Renderer(self)
+
+        raise cherrypy.HTTPRedirect(redirect)
 
     def authorize(self, read_only):
         if not self.is_authenticated():

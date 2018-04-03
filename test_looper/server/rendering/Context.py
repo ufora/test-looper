@@ -169,7 +169,7 @@ class Context(object):
                     </span>
                 </span>
             </span>"""
-                .format(postfix=postfix, rightside="")
+                .format(postfix=postfix, rightside=self.renderer.reload_link().render())
             )
 
         return '<div class="p-2 bg-light mr-auto tl-navbar">%s</div>' % "".join(headers)

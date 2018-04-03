@@ -24,7 +24,6 @@ def setup_types(database):
     database.BackgroundTask.UpdateTestPriority = {"test": database.Test}
     database.BackgroundTask.UpdateCommitPriority = {'commit': database.Commit}
 
-
     database.TestPriority = algebraic.Alternative("TestPriority")
     database.TestPriority.WaitingToRetry = {}
     database.TestPriority.DependencyFailed = {}
@@ -66,8 +65,7 @@ def setup_types(database):
         commitMessage=str,
         author=str,
         authorEmail=str,
-        testDefinitions=algebraic.Dict(str, TestDefinition.TestDefinition),
-        environments=algebraic.Dict(str, TestDefinition.TestEnvironment),
+        tests=algebraic.Dict(str, database.Test),
         repos=algebraic.Dict(str, TestDefinition.RepoReference),
         testDefinitionsError=str,
         testsParsed=bool,
@@ -84,9 +82,25 @@ def setup_types(database):
         parent=database.Commit
         )
 
+    database.TestDefinitionSummary = algebraic.Alternative("TestDefinitionSummary")
+    database.TestDefinitionSummary.Summary = {
+        "name": str,
+        "machineOs": MachineManagement.OsConfig,
+        "type": str, #Build, Deployment, or Test
+        "configuration": str,
+        "project": str,
+        "disabled": bool, #disabled by default?
+        "timeout": int, #max time, in seconds, for the test
+        "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
+        "max_cores": int, #maximum number of cores we can take advantage of, or zero
+        "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
+        "max_retries": int, #maximum number of times to retry the build
+        "retry_wait_seconds": int, #minimum number of seconds to wait before retrying a build
+        }
+
     database.Test.define(
         hash=str,
-        testDefinition=TestDefinition.TestDefinition,
+        testDefinitionSummary=database.TestDefinitionSummary,
         machineCategory=database.MachineCategory,
         successes=int,
         totalRuns=int,

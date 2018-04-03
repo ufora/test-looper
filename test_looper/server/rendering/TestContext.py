@@ -15,7 +15,7 @@ class TestContext(Context.Context):
         self.test = test
         self.commit = self.testManager.oldestCommitForTest(test)
         self.repo = self.commit.repo
-        self.testName = test.testDefinition.name
+        self.testName = test.testDefinitionSummary.name
         
     def consumePath(self, path):
         if path and path[0] == "test":
@@ -31,7 +31,7 @@ class TestContext(Context.Context):
         return None, path
 
     def renderBreadcrumbPrefixes(self):
-        return ["Suites" if self.test.testDefinition.matches.Test else "Builds"]
+        return ["Suites" if self.test.testDefinitionSummary.type == "Test" else "Builds"]
 
     def primaryObject(self):
         return self.test
@@ -119,7 +119,7 @@ class TestContext(Context.Context):
 
             row.append(self.contextFor(testRun).renderLink(False, False))
 
-            name = testRun.test.testDefinition.name
+            name = testRun.test.testDefinitionSummary.name
 
             row.append(name)
 
@@ -171,7 +171,7 @@ class TestContext(Context.Context):
             )
 
     def iconType(self):
-        if self.test.testDefinition.matches.Build:
+        if self.test.testDefinitionSummary.type == "Build":
             return "tools"
         else:
             return "beaker"

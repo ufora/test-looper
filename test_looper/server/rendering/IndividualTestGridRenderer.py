@@ -127,7 +127,7 @@ class IndividualTestGridRenderer:
                     testNames = run.testNames.test_names
                     testFailures = run.testFailures
                     testHasLogs = run.testHasLogs  
-                    testSuiteName = run.test.testDefinition.name
+                    testSuiteName = run.test.testDefinitionSummary.name
                     
                     for i in xrange(len(testNames)):
                         cur_runs, cur_successes, testIfHasLogs = res.get(testNames[i], (0,0,None))

@@ -338,11 +338,7 @@ class TestManagerTestHarness:
         if not commit:
             return None
 
-        testDef = commit.data.testDefinitions.get(testName)
-        if not testDef:
-            return None
-
-        return self.manager.database.Test.lookupAny(hash=testDef.hash)
+        return commit.data.tests.get(testName)
 
     def assertOneshotMachinesDoOneTest(self):
         for m in self.machine_record:

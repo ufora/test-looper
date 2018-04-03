@@ -24,7 +24,7 @@ class TestRunContext(Context.Context):
     def urlBase(self):
         prefix = "repos/" + self.repo.name + "/-/commits/"
 
-        return prefix + self.commit.hash + "/tests/" + self.test.testDefinition.name + "/-/" + self.testRun._identity
+        return prefix + self.commit.hash + "/tests/" + self.test.testDefinitionSummary.name + "/-/" + self.testRun._identity
 
     def renderNavbarLink(self):
         return self.renderLink(includeCommit=False, includeTest=False)
@@ -39,7 +39,7 @@ class TestRunContext(Context.Context):
             if res:
                 res = res + "/"
 
-            res = res + HtmlGeneration.link(self.test.testDefinition.name, self.contextFor(self.test).urlString())
+            res = res + HtmlGeneration.link(self.test.testDefinitionSummary.name, self.contextFor(self.test).urlString())
 
         if res:
             res = res + "/"
@@ -50,7 +50,7 @@ class TestRunContext(Context.Context):
         return ["Runs"]
 
     def contextViews(self):
-        if self.test.testDefinition.matches.Build:
+        if self.test.testDefinitionSummary.type == "Build":
             return []
         else:
             return ["artifacts", "tests"]
@@ -70,7 +70,7 @@ class TestRunContext(Context.Context):
         return ""
 
     def renderPageBody(self):
-        if self.test.testDefinition.matches.Build:
+        if self.test.testDefinitionSummary.type == "Build":
             return self.artifactsForTestRunGrid()
 
         if self.currentView() == "artifacts":
@@ -100,12 +100,12 @@ class TestRunContext(Context.Context):
 
         grid = [["Artifact", "Size"]]
 
-        if testRun.test.testDefinition.matches.Build:
-            build_key = self.renderer.artifactStorage.sanitizeName(testRun.test.testDefinition.name) + ".tar.gz"
+        if testRun.test.testDefinitionSummary.type == "Build":
+            build_key = self.renderer.artifactStorage.sanitizeName(testRun.test.testDefinitionSummary.name) + ".tar.gz"
 
             if self.renderer.artifactStorage.build_exists(testRun.test.hash, build_key):
                 grid.append([
-                    HtmlGeneration.link(testRun.test.testDefinition.name + ".tar.gz", self.renderer.buildDownloadUrl(testRun.test.hash, build_key)),
+                    HtmlGeneration.link(testRun.test.testDefinitionSummary.name + ".tar.gz", self.renderer.buildDownloadUrl(testRun.test.hash, build_key)),
                     HtmlGeneration.bytesToHumanSize(self.renderer.artifactStorage.build_size(testRun.test.hash, build_key))
                     ])
             else:

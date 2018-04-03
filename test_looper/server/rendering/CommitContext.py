@@ -59,8 +59,8 @@ class CommitContext(Context.Context):
 
             testname = "/".join(testpath)
 
-            if testname in self.commit.data.testDefinitions:
-                test = self.database.Test.lookupAny(hash=self.commit.data.testDefinitions[testname].hash)
+            if testname in self.commit.data.tests:
+                test = self.commit.data.tests[testname]
             else:
                 return None, path
 
@@ -313,12 +313,12 @@ class CommitContext(Context.Context):
     def renderTestResultsGrid(self):
         def testFun(c):
             for t in self.allTests():
-                if c == self.testManager.configurationForTest(t) and t.testDefinition.matches.Test:
+                if c == self.testManager.configurationForTest(t) and t.testDefinitionSummary.type == "Test":
                     yield t
 
         configs = set()
         for t in self.allTests():
-            if t.testDefinition.matches.Test:
+            if t.testDefinitionSummary.type == "Test":
                 configs.add(self.testManager.configurationForTest(t))
 
         if not configs:
@@ -363,9 +363,9 @@ class CommitContext(Context.Context):
         tests = self.allTests()
 
         if builds:
-            tests = [t for t in tests if t.testDefinition.matches.Build]
+            tests = [t for t in tests if t.testDefinitionSummary.type == "Build"]
         else:
-            tests = [t for t in tests if t.testDefinition.matches.Test]
+            tests = [t for t in tests if t.testDefinitionSummary.type == "Test"]
         
         if not tests:
             if commit.data.noTestsFound:
@@ -379,12 +379,12 @@ class CommitContext(Context.Context):
             else:
                 return card("Commit defined no %s." % ("builds" if builds else "tests") )
 
-        tests = sorted(tests, key=lambda test: test.testDefinition.name)
+        tests = sorted(tests, key=lambda test: test.testDefinitionSummary.name)
         
         if builds:
-            grid = [["BUILD", "HASH", "", "ENVIRONMENT", "STATUS", "RUNS", "AVG_RUNTIME", "", "DEPENDENCIES"]]
+            grid = [["BUILD", "HASH", "", "PROJECT", "CONFIGURATION", "STATUS", "RUNS", "RUNTIME", "", "DEPENDENCIES"]]
         else:
-            grid = [["SUITE", "HASH", "", "ENVIRONMENT", "STATUS", "RUNS", "AVG_TEST_CT", "AVG_FAILURE_CT", "AVG_RUNTIME", "", "DEPENDENCIES"]]
+            grid = [["SUITE", "HASH", "", "PROJECT", "CONFIGURATION", "STATUS", "RUNS", "TEST_CT", "FAILURE_CT", "AVG_RUNTIME", "", "DEPENDENCIES"]]
 
         for t in tests:
             row = []
@@ -402,7 +402,8 @@ class CommitContext(Context.Context):
                    )
                 )
 
-            row.append(t.testDefinition.environment_name)
+            row.append(t.testDefinitionSummary.project)
+            row.append(t.testDefinitionSummary.configuration)
 
             row.append(TestSummaryRenderer.TestSummaryRenderer([t],"", ignoreIndividualTests=True).renderSummary())
             row.append(str(t.totalRuns))
@@ -466,19 +467,19 @@ class CommitContext(Context.Context):
                         ]))
                 ]
         if isinstance(currentChild.primaryObject(), self.database.Test):
-            if currentChild.primaryObject().testDefinition.matches.Build:
+            if currentChild.primaryObject().testDefinitionSummary.type == 'Build':
                 return [self.contextFor(t)
                         for t in sorted(
                             self.allTests(),
-                            key=lambda t:t.testDefinition.name
-                            ) if t.testDefinition.matches.Build
+                            key=lambda t:t.testDefinitionSummary.name
+                            ) if t.testDefinitionSummary.type == "Build"
                         ]
-            if currentChild.primaryObject().testDefinition.matches.Test:
+            if currentChild.primaryObject().testDefinitionSummary.type == 'Test':
                 return [self.contextFor(t)
                         for t in sorted(
                             self.allTests(),
-                            key=lambda t:t.testDefinition.name
-                            ) if t.testDefinition.matches.Test
+                            key=lambda t:t.testDefinitionSummary.name
+                            ) if t.testDefinitionSummary.type == "Test"
                         ]
         
         return []
@@ -501,8 +502,8 @@ class CommitContext(Context.Context):
 
     def renderPostViewSelector(self):
         tests = self.allTests()
-        all_tests = [x for x in tests if x.testDefinition.matches.Test]
-        all_builds = [x for x in tests if x.testDefinition.matches.Build]
+        all_tests = [x for x in tests if x.testDefinitionSummary.type == "Test"]
+        all_builds = [x for x in tests if x.testDefinitionSummary.type == "Build"]
 
         return (
             "Testing:&nbsp;" +

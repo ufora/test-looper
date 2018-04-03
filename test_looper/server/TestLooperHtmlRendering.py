@@ -152,8 +152,8 @@ class Renderer:
         with self.testManager.database.view():
             testRun = self.testManager.getTestRunById(testId)
 
-            if testRun.test.testDefinition.matches.Build:
-                build_key = testRun.test.testDefinition.name.replace("/","_") + ".tar.gz"
+            if testRun.test.testDefinitionSummary.type == "Build":
+                build_key = testRun.test.testDefinitionSummary.name.replace("/","_") + ".tar.gz"
 
                 self.artifactStorage.clear_build(testRun.test.hash, build_key)
 
@@ -273,7 +273,10 @@ class Renderer:
             if not commit or not commit.data:
                 return self.errorPage("Commit %s/%s doesn't exist" % (repoName, commitHash))
 
-            env = commit.data.environments.get(environmentName)
+            _, envs, _ = self.testManager._extractCommitTestsEnvsAndRepos(commit)
+
+            env = envs.get(environmentName)
+
             if not env:
                 return self.errorPage("Environment %s/%s/%s doesn't exist" % (repoName, commitHash, environmentName))
 
@@ -293,6 +296,14 @@ class Renderer:
                 'Logout [<span class="octicon octicon-person" aria-hidden="true"></span>%s]'
                 '</a>') % self.getCurrentLogin()
 
+    def reload_link(self):
+        return HtmlGeneration.Link(
+            "/reloadSource?" + 
+                urllib.urlencode({'redirect': self.redirect()}),
+            '<span class="octicon octicon-sync" aria-hidden="true" style="horizontal-align:center"></span>',
+            is_button=True,
+            button_style='btn-outline-primary btn-xs'
+            )
 
     def toggleBranchUnderTestLink(self, branch):
         icon = "octicon-triangle-right"
@@ -391,7 +402,7 @@ class Renderer:
             return False
 
         for test in tests:
-            if not test.testDefinition.matches.Deployment:
+            if not test.testDefinitionSummary.type == "Deployment":
                 if test.totalRuns == 0 or test.priority.matches.WaitingToRetry:
                     if not test.priority.matches.DependencyFailed:
                         return False

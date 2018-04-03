@@ -67,7 +67,7 @@ class MachinesContext(Context.Context):
                 except:
                     row.append("")
 
-                row.append(self.renderer.testRunLink(tests[0], tests[0].test.testDefinition.name))
+                row.append(self.renderer.testRunLink(tests[0], tests[0].test.testDefinitionSummary.name))
                 row.append(self.renderer.testLogsButton(tests[0]._identity))
                 row.append(self.renderer.cancelTestRunButton(tests[0]._identity))
                 

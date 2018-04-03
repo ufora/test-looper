@@ -105,6 +105,7 @@ TestDefinition.Build = {
     "buildCommand": str,
     "cleanupCommand": str,
     'configuration': str,
+    'project': str,
     'hash': str,
     "name": str,
     "environment_name": str,
@@ -124,6 +125,7 @@ TestDefinition.Test = {
     "testCommand": str,
     "cleanupCommand": str,
     'configuration': str,
+    'project': str,
     'hash': str,
     "name": str,
     "environment_name": str,
@@ -140,6 +142,7 @@ TestDefinition.Test = {
 TestDefinition.Deployment = {
     "deployCommand": str,
     'configuration': str,
+    'project': str,
     'hash': str,
     "name": str,
     "environment_name": str,
@@ -392,11 +395,20 @@ def apply_environment_to_test(test, env, input_var_defs):
     else:
         config = env.test_configuration
 
+    if not config:
+        config = test.environment_name
+
+    if test.project:
+        project = test.project
+    else:
+        project = test.name.split("/")[0]
+
     def make(type, **kwargs):
         return type(
             name=test.name,
             environment=env,
             configuration=VariableSubstitution.substitute_variables(config, vardefs),
+            project=VariableSubstitution.substitute_variables(project, vardefs),
             environment_name=test.environment_name,
             environment_mixins=test.environment_mixins,
             variables=vardefs,

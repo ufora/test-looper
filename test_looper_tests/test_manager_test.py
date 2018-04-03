@@ -544,7 +544,7 @@ class TestManagerTests(unittest.TestCase):
         harness.startAllNewTests()
 
         def namefor(x):
-            return x.testDefinition.name + "/" + x.hash
+            return x.testDefinitionSummary.name + "/" + x.hash
 
         with harness.database.view():
             self.assertEqual(
@@ -728,7 +728,7 @@ class TestManagerTests(unittest.TestCase):
             self.assertTrue(test1)
             self.assertTrue(test2) 
 
-            self.assertEqual(test0.testDefinition.environment.variables['ENV'], "repo0")
-            self.assertEqual(test1.testDefinition.environment.variables['ENV_VAR'], "LINUX")
-            self.assertEqual(test2.testDefinition.environment.variables['ENV_VAR_2'], "LINUX_2")
+            self.assertEqual(harness.manager.environmentForTest(test0).variables['ENV'], "repo0")
+            self.assertEqual(harness.manager.environmentForTest(test1).variables['ENV_VAR'], "LINUX")
+            self.assertEqual(harness.manager.environmentForTest(test2).variables['ENV_VAR_2'], "LINUX_2")
 

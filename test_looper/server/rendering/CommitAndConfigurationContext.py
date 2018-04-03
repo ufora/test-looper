@@ -46,7 +46,7 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
             if self.configurationName == self.testManager.configurationForTest(t):
                 res.append(t)
 
-        return sorted(res, key=lambda t: (0 if t.testDefinition.matches.Build else 1, t.name))
+        return sorted(res, key=lambda t: (0 if t.testDefinitionSummary.type == "Build" else 1, t.name))
 
     def renderBreadcrumbPrefixes(self):
         return []
@@ -54,7 +54,7 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
     def renderTestResultsGridByGroup(self):
         def testFun(commit):
             for t in self.testManager.allTestsForCommit(commit):
-                if self.configurationName == self.testManager.configurationForTest(t) and t.testDefinition.matches.Test:
+                if self.configurationName == self.testManager.configurationForTest(t) and t.testDefinitionSummary.type == "Test":
                     yield t
 
         rows = (self.commit,) + self.commit.data.parents
@@ -85,20 +85,20 @@ class CommitAndConfigurationContext(CommitContext.CommitContext):
 
     def childContexts(self, currentChild):
         if isinstance(currentChild.primaryObject(), self.database.Test):
-            if currentChild.primaryObject().testDefinition.matches.Build:
+            if currentChild.primaryObject().testDefinitionSummary.type == 'Build':
                 return [self.contextFor(t)
                         for t in sorted(
                             self.testManager.allTestsForCommit(self.commit),
-                            key=lambda t:t.testDefinition.name
-                            ) if t.testDefinition.matches.Build
+                            key=lambda t:t.testDefinitionSummary.name
+                            ) if t.testDefinitionSummary.type == "Build"
                         and self.testManager.configurationForTest(t) == self.configurationName
                         ]
-            if currentChild.primaryObject().testDefinition.matches.Test:
+            if currentChild.primaryObject().testDefinitionSummary.type == 'Test':
                 return [self.contextFor(t)
                         for t in sorted(
                             self.testManager.allTestsForCommit(self.commit),
-                            key=lambda t:t.testDefinition.name
-                            ) if t.testDefinition.matches.Test
+                            key=lambda t:t.testDefinitionSummary.name
+                            ) if t.testDefinitionSummary.type == "Test"
                         and self.testManager.configurationForTest(t) == self.configurationName
                         ]
         

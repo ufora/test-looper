@@ -73,7 +73,7 @@ class ImportExport(object):
             def walkTest(t, testDict):
                 runList = []
 
-                testDict[t.testDefinition.name] = makeDict(
+                testDict[t.testDefinitionSummary.name] = makeDict(
                     runsDesired=t.runsDesired,
                     runs=runList
                     )
@@ -196,9 +196,7 @@ class ImportExport(object):
                     commit.userPriority=commitdef.priority
 
                     for testname, testdef in commitdef.tests.iteritems():
-                        testHash = commit.data.testDefinitions[testname].hash
-
-                        test = self.database.Test.lookupAny(hash=testHash)
+                        test = commit.data.tests.get(testname)
 
                         if not test:
                             errors.append(
