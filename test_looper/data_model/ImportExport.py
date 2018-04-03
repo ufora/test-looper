@@ -82,18 +82,20 @@ class ImportExport(object):
                     if run.testNames and run.testNames.shaHash not in testNameSets:
                         testNameSets[run.testNames.shaHash] = run.testNames.test_names
 
-                    runList.append(makeDict(
-                        identity=run._identity,
-                        startedTimestamp=run.startedTimestamp,
-                        lastHeartbeat=run.lastHeartbeat,
-                        endTimestamp=run.endTimestamp,
-                        success=run.success,
-                        canceled=run.canceled,
-                        testNames=run.testNames.shaHash if run.testNames else "",
-                        testFailures=run.testFailures.bits,
-                        totalTestCount=run.totalTestCount,
-                        totalFailedTestCount=run.totalFailedTestCount
-                        ))
+                    if not run.canceled:
+                        runList.append(makeDict(
+                            identity=run._identity,
+                            startedTimestamp=run.startedTimestamp,
+                            lastHeartbeat=run.lastHeartbeat,
+                            endTimestamp=run.endTimestamp,
+                            success=run.success,
+                            canceled=run.canceled,
+                            testNames=run.testNames.shaHash if run.testNames else "",
+                            testFailures=run.testFailures.bits,
+                            testHasLogs=run.testHasLogs.bits,
+                            totalTestCount=run.totalTestCount,
+                            totalFailedTestCount=run.totalFailedTestCount
+                            ))
 
             commitsToCheck = set()
 
@@ -229,6 +231,7 @@ class ImportExport(object):
             run.canceled,
             testNameSets[run.testNames] if run.testNames else [],
             run.testFailures,
+            run.testHasLogs,
             run.totalTestCount,
             run.totalFailedTestCount
             )

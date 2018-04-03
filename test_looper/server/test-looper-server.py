@@ -131,9 +131,8 @@ def main():
     testManager = TestManager.TestManager(config.server_ports, src_ctrl, machine_management, jsonStore)
 
     if parsedArgs.export:
-        logging.info("Starting background export thread.")
-        exportThread = threading.Thread(target=exportToFile,args=(testManager, parsedArgs.export))
-        exportThread.start()
+        exportToFile(testManager, parsedArgs.export)
+        sys.exit(0)
 
     if parsedArgs.import_filename:
         logging.info("Loading yaml file: %s", parsedArgs.import_filename)

@@ -603,7 +603,7 @@ class TestManager(object):
             self._triggerTestPriorityUpdate(testRun.test)
 
     def _importTestRun(self, test, identity, startedTimestamp, lastHeartbeat, endTimestamp, success, 
-                      canceled, testNameList, testFailureBits, testCount, failedTestCount):
+                      canceled, testNameList, testFailureBits, testHasLogsBits, testCount, failedTestCount):
         
         testRun = self.database.TestRun.New(
             _identity=identity,
@@ -615,6 +615,7 @@ class TestManager(object):
             success=success,
             testNames=self._testNameSet(testNameList),
             testFailures=Bitstring.Bitstring(testFailureBits),
+            testHasLogs=Bitstring.Bitstring(testHasLogsBits),
             totalTestCount=testCount,
             totalFailedTestCount=failedTestCount
             )
