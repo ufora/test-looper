@@ -40,3 +40,6 @@ class InMemoryJsonStore(object):
         with self.lock:
             if key in self.values:
                 del self.values[key]
+
+    def clearCache(self):
+        pass

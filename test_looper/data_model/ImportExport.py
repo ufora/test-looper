@@ -109,6 +109,8 @@ class ImportExport(object):
 
             totalCommitsChecked = 0
 
+            self.testManager.database.clearCache()
+
             while commitsToCheck:
                 c = commitsToCheck.pop()
 
@@ -116,6 +118,7 @@ class ImportExport(object):
                     totalCommitsChecked += 1
                     if totalCommitsChecked % 1000 == 0:
                         logging.info("Doing commit #%s: %s", totalCommitsChecked, c.repo.name + "/" + c.hash)
+                        self.testManager.database.clearCache()
 
                     testDict = {}
 

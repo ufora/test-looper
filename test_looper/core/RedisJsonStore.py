@@ -82,3 +82,7 @@ class RedisJsonStore(object):
             if key in self.cache:
                 del self.cache[key]
             self.redis.delete(key)
+
+    def clearCache(self):
+        self.cache = {}
+    

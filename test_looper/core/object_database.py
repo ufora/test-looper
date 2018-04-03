@@ -473,6 +473,10 @@ class Database:
         #our parsed representation of each thing in the database
         self._current_database_object_cache = {}
 
+    def clearCache(self):
+        self._kvstore.clearCache()
+        self._current_database_object_cache = {}
+
     def __str__(self):
         return "Database(%s)" % id(self)
 
