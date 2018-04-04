@@ -2227,6 +2227,12 @@ class TestManager(object):
             repo.commits = repo.commits + 1
 
         if not commit.data:
+            self._triggerCommitDataUpdate(commit)
+
+        return commit
+
+    def _triggerCommitDataUpdate(self, commit):
+        if not commit.data:
             self._queueTask(
                 self.database.DataTask.New(
                     task=self.database.BackgroundTask.UpdateCommitData(commit=commit),
@@ -2234,7 +2240,6 @@ class TestManager(object):
                     )
                 )
 
-        return commit
 
     def _queueTask(self, task):
         existing = self.database.DataTask.lookupAny(status=task.status)

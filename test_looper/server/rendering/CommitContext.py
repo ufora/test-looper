@@ -160,7 +160,11 @@ class CommitContext(Context.Context):
 
     def commitMessageDetail(self, renderParents=False):
         if renderParents:
-            parentCommitUrls = ['<span class="mx-2">%s</span>' % self.contextFor(x).renderLinkWithSubject().render() for x in self.commit.data.parents]
+            def render(x):
+                if isinstance(x,str):
+                    return x
+                return x.render()
+            parentCommitUrls = ['<span class="mx-2">%s</span>' % render(self.contextFor(x).renderLinkWithSubject()) for x in self.commit.data.parents]
 
             if not parentCommitUrls:
                 parent_commits = "None"
@@ -280,6 +284,7 @@ class CommitContext(Context.Context):
 
     def renderCommitDataView(self):
         if not self.commit.data:
+            self.testManager._triggerCommitDataUpdate(self.commit)
             return card("Commit hasn't been imported yet")
 
         return card(self.commitMessageDetail(renderParents=True))
