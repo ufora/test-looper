@@ -71,10 +71,9 @@ class ReposContext(Context.Context):
             lambda r: test_rows.get(r, []),
             lambda group: "",
             lambda group, row: 
-                self.contextFor(
-                    ComboContexts.BranchAndConfiguration(best_branch[row], group)
-                    ).urlString()
-                if best_branch[row] else ""
+                self.contextFor(best_branch[row]).urlString()
+                if best_branch[row] else "",
+            lambda test: ""
             )
 
         grid_headers = [gridRenderer.headers()]

@@ -16,16 +16,22 @@ octicon = HtmlGeneration.octicon
 card = HtmlGeneration.card
 
 class CommitContext(Context.Context):
-    def __init__(self, renderer, commit, options):
+    def __init__(self, renderer, commit, configFilter, projectFilter, options):
         Context.Context.__init__(self, renderer, options)
         self.reponame = commit.repo.name
         self.commitHash = commit.hash
         self.options = options
 
         self.repo = commit.repo
-        self.commit = commit        
+        self.commit = commit
         self._nameInBranch = None
         self._branch = None
+
+        self.configFilter = configFilter
+        self.projectFilter = projectFilter
+
+    def commitsToRender(self):
+        return 10
 
     @property
     def branch(self):
@@ -38,6 +44,30 @@ class CommitContext(Context.Context):
         if self._branch is None:
             self._branch, self._nameInBranch = self.testManager.bestCommitBranchAndName(self.commit)
         return self._nameInBranch
+
+    def renderMenuItemText(self, isHeader):
+        return (octicon(self.appropriateIcon()) if isHeader else "") + self.appropriateLinkName()
+
+    def appropriateIcon(self):
+        if self.configFilter:
+            icon = "database"
+        elif self.projectFilter:
+            icon = "circuit-board"
+        else:
+            icon = "git-commit"
+        return icon
+
+    def appropriateLinkName(self):
+        if self.configFilter:
+            return self.configFilter
+        
+        if self.projectFilter:
+            return self.projectFilter
+        
+        if self.branch:
+            return "HEAD" + self.nameInBranch
+
+        return self.commit.hash[:8]
 
     def isPinUpdateCommit(self):
         if not self.commit.data.commitMessage.startwith("Updating pin"):
@@ -52,7 +82,17 @@ class CommitContext(Context.Context):
 
             configurationName = "/".join(groupPath)
 
-            return self.contextFor(ComboContexts.CommitAndConfiguration(self.commit, configurationName)), remainder
+            return self.contextFor(ComboContexts.CommitAndFilter(self.commit, configurationName, self.projectFilter)), remainder
+
+        if path and path[0] == "projects":
+            groupPath, remainder = self.popToDash(path[1:])
+
+            if not path:
+                return None, path
+
+            projectName = "/".join(groupPath)
+
+            return self.contextFor(ComboContexts.CommitAndFilter(self.commit, self.configFilter, projectName)), remainder
 
         if path and path[0] == "tests":
             testpath, remainder = self.popToDash(path[1:])
@@ -89,10 +129,12 @@ class CommitContext(Context.Context):
     def renderLinkToSCM(self):
         url = self.renderer.src_ctrl.commit_url(self.commit.repo.name, self.commit.hash)
         return HtmlGeneration.link(octicon("diff"), url, hover_text="View diff")
-
     
-    def renderNavbarLink(self):
-        return octicon("git-commit") + self.renderLink(includeBranch=False, includeRepo=False)
+    def renderNavbarLink(self, textOverride=None):
+        if textOverride is None:
+            textOverride = self.appropriateLinkName()
+
+        return octicon(self.appropriateIcon()) + self.renderLink(includeBranch=False, includeRepo=False, textOverride=textOverride)
 
     def recency(self):
         return '<span class="text-muted">%s</span>' % (HtmlGeneration.secondsUpToString(time.time() - self.commit.data.timestamp) + " ago")
@@ -204,7 +246,7 @@ class CommitContext(Context.Context):
             )
 
 
-    def renderLink(self, includeRepo=True, includeBranch=True):
+    def renderLink(self, includeRepo=True, includeBranch=True, textOverride=None):
         res = ""
         if includeRepo:
             assert includeBranch
@@ -228,13 +270,27 @@ class CommitContext(Context.Context):
                 if len(name) < 5:
                     name += "&nbsp;" * max(0, 5 - len(name))
 
-        return res + HtmlGeneration.link(name, self.urlString())
+        return (res if not textOverride else "") + HtmlGeneration.link(textOverride or name, self.urlString())
 
     def primaryObject(self):
-        return self.commit
+        if not (self.configFilter or self.projectFilter):
+            return self.commit
+        else:
+            return ComboContexts.CommitAndFilter(self.commit, self.configFilter, self.projectFilter)
 
     def urlBase(self):
-        return "repos/" + self.reponame + "/-/commits/" + self.commitHash
+        res = "repos/" + self.reponame + "/-/commits/" + self.commitHash
+
+        if self.configFilter:
+            res += "/configurations/" + self.configFilter
+
+        if self.projectFilter:
+            if self.configFilter:
+                res += "/-"
+
+            res += "/projects/" + self.projectFilter
+
+        return res
 
     def renderPageBody(self):
         view = self.currentView()
@@ -315,44 +371,159 @@ class CommitContext(Context.Context):
     def allTests(self):
         return self.testManager.allTestsForCommit(self.commit)
 
-    def renderTestResultsGrid(self):
-        def testFun(c):
-            for t in self.allTests():
-                if c == self.testManager.configurationForTest(t) and t.testDefinitionSummary.type == "Test":
-                    yield t
+    def shouldIncludeTest(self, test):
+        if self.projectFilter and test.testDefinitionSummary.project != self.projectFilter:
+            return False
+        if self.configFilter and test.testDefinitionSummary.configuration != self.configFilter:
+            return False
+        return True
 
-        configs = set()
+    def renderProjectAndFilterCrossGrid(self):
+        projects = set()
+        configurations = set()
+
         for t in self.allTests():
-            if t.testDefinitionSummary.type == "Test":
-                configs.add(self.testManager.configurationForTest(t))
+            if t.testDefinitionSummary.type == "Test" and self.shouldIncludeTest(t):
+                projects.add(t.testDefinitionSummary.project)
+                configurations.add(t.testDefinitionSummary.configuration)
 
-        if not configs:
+        renderer = TestGridRenderer.TestGridRenderer(
+            sorted(projects), 
+            lambda p: [t for t in self.allTests() if t.testDefinitionSummary.project == p],
+            lambda group: self.contextFor(ComboContexts.CommitAndFilter(self.commit, group, "")).renderNavbarLink(textOverride=group),
+            lambda group, row: self.contextFor(ComboContexts.CommitAndFilter(self.commit, group, row)).urlString(),
+            lambda test: test.testDefinitionSummary.configuration
+            )
+
+        grid = [["PROJECT"] + renderer.headers()]
+
+        for p in sorted(projects):
+            gridrow = renderer.gridRow(p)
+
+            grid.append([
+                self.contextFor(ComboContexts.CommitAndFilter(self.commit, "", p)).renderLink(textOverride=p)
+                ] + gridrow)
+
+        return HtmlGeneration.grid(grid)
+
+    def renderProjectAndFilterCrossGridOverCommits(self, configFilter):
+        projects = set()
+
+        for t in self.allTests():
+            if t.testDefinitionSummary.type == "Test" and self.shouldIncludeTest(t):
+                projects.add(t.testDefinitionSummary.project)
+
+        commits = [self.commit]
+        while len(commits) < self.commitsToRender() and commits[-1].data and commits[-1].data.parents:
+            commits.append(commits[-1].data.parents[-1])
+
+        grid = []
+        renderers = []
+        for c in commits:
+            def makeRenderer(commit):
+                return TestGridRenderer.TestGridRenderer(
+                    sorted(projects),
+                    lambda p: [t for t in self.allTests() if t.testDefinitionSummary.project == p and t.testDefinitionSummary.configuration == configFilter],
+                    lambda group: self.contextFor(ComboContexts.CommitAndFilter(commit, configFilter, group)).renderLink(textOverride=group,includeRepo=False, includeBranch=False),
+                    lambda group, row: self.contextFor(ComboContexts.CommitAndFilter(commit, group, row)).urlString(),
+                    lambda test: ""
+                    )
+
+            renderers.append(makeRenderer(c))
+
+        grid = [[""] + [renderer.headers()[0] for renderer in renderers]]
+
+        for project in sorted(projects):
+            gridrow = [renderer.gridRow(project)[0] for renderer in renderers]
+
+            grid.append([
+                self.contextFor(ComboContexts.CommitAndFilter(self.commit, configFilter, project)).renderLink(textOverride=project)
+                ] + gridrow)
+
+        return HtmlGeneration.grid(grid)
+
+    def renderTestResultsGrid(self):
+        projectFilter = self.projectFilter
+        configFilter = self.configFilter
+
+        projects = set()
+        configurations = set()
+
+        for t in self.allTests():
+            if t.testDefinitionSummary.type == "Test" and self.shouldIncludeTest(t):
+                projects.add(t.testDefinitionSummary.project)
+                configurations.add(t.testDefinitionSummary.configuration)
+
+        if not projectFilter and len(projects) == 1:
+            projectFilter = list(projects)[0]
+
+        if not configFilter and len(configurations) == 1:
+            configFilter = list(configurations)[0]
+
+        if not (projectFilter or configFilter):
+            return self.renderProjectAndFilterCrossGrid()
+
+        if configFilter and not projectFilter:
+            return self.renderProjectAndFilterCrossGridOverCommits(configFilter)
+
+        if not configurations or not projects:
             return card("No tests defined.")
 
+        if configFilter:
+            #show broken out tests over the last N commits
+            rows = [self.commit]
+            while len(rows) < self.commitsToRender() and rows[-1].data and rows[-1].data.parents:
+                rows.append(rows[-1].data.parents[-1])
+
+            def rowLinkFun(row):
+                return self.contextFor(
+                    ComboContexts.CommitAndFilter(row, configFilter, projectFilter)
+                    ).withOptions(**self.options).renderLink(includeRepo=False, includeBranch=False)
+
+            def testFun(row):
+                for t in self.testManager.allTestsForCommit(row):
+                    if self.shouldIncludeTest(t) and t.testDefinitionSummary.type == "Test":
+                        yield t
+
+            def cellUrlFun(testGroup, row):
+                return self.contextFor(
+                    ComboContexts.CommitAndFilter(row, configFilter, projectFilter)
+                    ).withOptions(**self.options).withOptions(testGroup=testGroup).urlString()
+        else:
+            #show tests over configurations
+            rows = sorted(configurations)
+
+            def rowLinkFun(row):
+                return self.contextFor(
+                    ComboContexts.CommitAndFilter(self.commit, row, projectFilter)
+                    ).withOptions(**self.options).renderNavbarLink(textOverride=row)
+
+            def testFun(row):
+                for t in self.testManager.allTestsForCommit(self.commit):
+                    if self.shouldIncludeTest(t) and t.testDefinitionSummary.type == "Test" and t.testDefinitionSummary.configuration == row:
+                        yield t
+
+            def cellUrlFun(testGroup, row):
+                return self.contextFor(
+                    ComboContexts.CommitAndFilter(self.commit, row, projectFilter)
+                    ).withOptions(**self.options).withOptions(testGroup=testGroup).urlString()
+
         renderer = IndividualTestGridRenderer.IndividualTestGridRenderer(
-            sorted(configs),
+            rows,
             self, 
             testFun,
-            lambda testGroup, row:
-                self.contextFor(
-                    ComboContexts.CommitAndConfiguration(self.commit, row)
-                    ).withOptions(testGroup=testGroup).urlString(),
-            displayIndividualTestsGraphically=False,
-            breakOutIndividualTests=self.options.get("testGroup","") != ""
+            cellUrlFun,
+            breakOutIndividualTests=True#self.options.get("testGroup","") != ""
             )
 
         grid = [[""] + renderer.headers()]
 
-        for configuration in sorted(configs):
-            grid.append([
-                self.contextFor(
-                    ComboContexts.CommitAndConfiguration(self.commit, configuration)
-                    ).withOptions(**self.options).renderLink()
-                ] + renderer.gridRow(configuration))
+        for row in rows:
+            grid.append([rowLinkFun(row)] + renderer.gridRow(row))
 
         grid = HtmlGeneration.transposeGrid(grid)
 
-        return HtmlGeneration.grid(grid, rowHeightOverride=36)
+        return HtmlGeneration.grid(grid)
 
     def renderCommitTestDefinitionsInfo(self):
         raw_text, extension = self.testManager.getRawTestFileForCommit(self.commit)
@@ -368,9 +539,9 @@ class CommitContext(Context.Context):
         tests = self.allTests()
 
         if builds:
-            tests = [t for t in tests if t.testDefinitionSummary.type == "Build"]
+            tests = [t for t in tests if t.testDefinitionSummary.type == "Build" and self.shouldIncludeTest(t)]
         else:
-            tests = [t for t in tests if t.testDefinitionSummary.type == "Test"]
+            tests = [t for t in tests if t.testDefinitionSummary.type == "Test" and self.shouldIncludeTest(t)]
         
         if not tests:
             if commit.data.noTestsFound:
@@ -382,6 +553,12 @@ class CommitContext(Context.Context):
             elif commit.data.testDefinitionsError:
                 return card("<div>Commit defined no tests or builds. Maybe look at the test definitions? Error was</div><pre><code>%s</code></pre>" % commit.data.testDefinitionsError)
             else:
+                if self.projectFilter and self.configFilter:
+                    return card("Commit defined no %s for project '%s' and configuration '%s'." % ("builds" if builds else "tests", self.projectFilter, self.configFilter ))
+                if self.projectFilter:
+                    return card("Commit defined no %s for project '%s'." % ("builds" if builds else "tests", self.projectFilter ))
+                if self.configFilter:
+                    return card("Commit defined no %s for configuration %s." % ("builds" if builds else "tests", self.configFilter ))
                 return card("Commit defined no %s." % ("builds" if builds else "tests") )
 
         tests = sorted(tests, key=lambda test: test.testDefinitionSummary.name)
@@ -463,14 +640,32 @@ class CommitContext(Context.Context):
 
 
     def childContexts(self, currentChild):
-        if isinstance(currentChild.primaryObject(), ComboContexts.CommitAndConfiguration):
-            return [self.contextFor(
-                ComboContexts.CommitAndConfiguration(commit=self.commit, configurationName=g)
-                )
-                    for g in sorted(set([self.testManager.configurationForTest(t)
-                            for t in self.allTests()
-                        ]))
-                ]
+        if isinstance(currentChild.primaryObject(), ComboContexts.CommitAndFilter):
+            if currentChild.configFilter and currentChild.projectFilter:
+                return [self.contextFor(
+                    ComboContexts.CommitAndFilter(commit=self.commit, configurationName=g, projectName=self.projectFilter)
+                    )
+                        for g in sorted(set([t.testDefinitionSummary.configuration
+                                for t in self.testManager.allTestsForCommit(self.commit) 
+                                    if t.testDefinitionSummary.project == self.projectFilter
+                            ]))
+                    ]
+            if currentChild.configFilter:
+                return [self.contextFor(
+                    ComboContexts.CommitAndFilter(commit=self.commit, configurationName=g, projectName="")
+                    )
+                        for g in sorted(set([t.testDefinitionSummary.configuration
+                                for t in self.testManager.allTestsForCommit(self.commit) 
+                            ]))
+                    ]
+            else:
+                return [self.contextFor(
+                    ComboContexts.CommitAndFilter(commit=self.commit, configurationName="", projectName=g)
+                    )
+                        for g in sorted(set([t.testDefinitionSummary.project
+                                for t in self.testManager.allTestsForCommit(self.commit)
+                            ]))
+                    ]
         if isinstance(currentChild.primaryObject(), self.database.Test):
             if currentChild.primaryObject().testDefinitionSummary.type == 'Build':
                 return [self.contextFor(t)
@@ -490,6 +685,16 @@ class CommitContext(Context.Context):
         return []
 
     def parentContext(self):
+        if self.projectFilter and self.configFilter:
+            return self.contextFor(
+                ComboContexts.CommitAndFilter(self.commit, "", self.projectFilter)
+                ).withOptions(**self.options)
+
+        if self.configFilter or self.projectFilter:
+            return self.contextFor(
+                ComboContexts.CommitAndFilter(self.commit, "", "")
+                ).withOptions(**self.options)
+        
         branch, name = self.testManager.bestCommitBranchAndName(self.commit)
 
         if branch:
@@ -498,12 +703,7 @@ class CommitContext(Context.Context):
         return self.contextFor(self.commit.repo)
 
     def renderMenuItemText(self, isHeader):
-        if self.branch:
-            name = "HEAD" + self.nameInBranch
-
-            return (octicon("git-commit") if isHeader else "") + name
-
-        return (octicon("git-commit") if isHeader else "") + self.commit.hash[:10]
+        return (octicon(self.appropriateIcon()) if isHeader else "") + self.appropriateLinkName()
 
     def renderPostViewSelector(self):
         tests = self.allTests()

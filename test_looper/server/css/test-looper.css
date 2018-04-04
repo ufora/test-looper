@@ -95,7 +95,6 @@ th {
 }
 
 .test-result-cell-success {
-    background-color: #eef;
 }
 .test-result-cell-partial {
     background-color: #0ff;
@@ -104,7 +103,6 @@ th {
     background-color: #f00;
 }
 .test-result-cell-notrun {
-    background-color: #fff;
 }
 
 
@@ -118,6 +116,11 @@ th {
     max-width: none;
 }
 
+.large.tooltip-inner {
+    max-width: 350px;
+    /* If max-width does not work, try using width instead */
+    width: 350px; 
+}
 
 .table td p,
 .table th p {

@@ -70,8 +70,8 @@ class RepoContext(Context.Context):
             branches, 
             lambda b: test_rows.get(b, []),
             lambda group: "",
-            lambda group, row: 
-                self.contextFor(ComboContexts.BranchAndConfiguration(row, group)).urlString()
+            lambda group, row: "",
+            lambda t: ""
             )
 
         def interlace(h):

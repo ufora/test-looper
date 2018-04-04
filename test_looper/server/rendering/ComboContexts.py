@@ -8,30 +8,23 @@ class ComboContext:
     def __hash__(self):
         return hash(self.toTuple())
 
-class BranchAndConfiguration(ComboContext):
-    def __init__(self, branch, configurationName):
+class BranchAndFilter(ComboContext):
+    def __init__(self, branch, configurationName, projectName):
         self.branch = branch
         self.configurationName = configurationName
+        self.projectName = projectName
 
     def toTuple(self):
-        return (self.branch, self.configurationName)
+        return (self.branch, self.configurationName, self.projectName)
 
-class BranchAndConfigurationAndGroup(ComboContext):
-    def __init__(self, branch, configurationName, testGroupName):
-        self.branch = branch
-        self.configurationName = configurationName
-        self.testGroupName = testGroupName
-
-    def toTuple(self):
-        return (self.branch, self.configurationName, self.testGroupName)
-
-class CommitAndConfiguration(ComboContext):
-    def __init__(self, commit, configurationName):
+class CommitAndFilter(ComboContext):
+    def __init__(self, commit, configurationName, projectName):
         self.commit = commit
         self.configurationName = configurationName
+        self.projectName = projectName
 
     def toTuple(self):
-        return (self.commit, self.configurationName)
+        return (self.commit, self.configurationName, self.projectName)
 
 class IndividualTest(ComboContext):
     def __init__(self, test, individualTestName):

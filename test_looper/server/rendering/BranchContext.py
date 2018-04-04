@@ -9,25 +9,66 @@ octicon = HtmlGeneration.octicon
 card = HtmlGeneration.card
 
 class BranchContext(Context.Context):
-    def __init__(self, renderer, branch, options):
+    def __init__(self, renderer, branch, configurationFilter, projectFilter, options):
         Context.Context.__init__(self, renderer, options)
         self.branch = branch
         self.repo = branch.repo
         self.reponame = branch.repo.name
         self.branchname = branch.branchname
         self.options = options
+        self.configurationFilter = configurationFilter
+        self.projectFilter = projectFilter
+
+    def appropriateIcon(self):
+        if self.configurationFilter:
+            icon = "database"
+        elif self.projectFilter:
+            icon = "circuit-board"
+        else:
+            icon = "git-branch"
+        return icon
+
+    def appropriateLinkName(self):
+        if self.configurationFilter:
+            text = self.configurationFilter
+        elif self.projectFilter:
+            text = self.projectFilter
+        else:
+            text = self.branchname
+        
+        return text
 
     def renderNavbarLink(self):
-        return octicon("git-branch") + self.renderLink(includeRepo=False)
+        return octicon(self.appropriateIcon()) + self.renderLink(includeRepo=False)
 
     def renderLink(self, includeRepo=True):
-        return HtmlGeneration.link(self.branchname, self.urlString())
+        return HtmlGeneration.link(self.appropriateLinkName(), self.urlString())
 
     def primaryObject(self):
-        return self.branch
+        if not self.configurationFilter and not self.projectFilter:
+            return self.branch
+        else:
+            return ComboContexts.BranchAndFilter(self.branch, self.configurationFilter, self.projectFilter)
+
+    def parentContext(self):
+        if self.configurationFilter and self.projectFilter:
+            return self.contextFor(
+                ComboContexts.BranchAndFilter(self.branch, None, self.projectFilter)
+                ).withOptions(**self.options)
+
+        if self.configurationFilter or self.projectFilter:
+            return self.contextFor(self.branch)
+        return self.contextFor(self.branch.repo)
 
     def urlBase(self):
-        return "repos/" + self.reponame + "/-/branches/" + self.branchname
+        res = "repos/" + self.reponame + "/-/branches/" + self.branchname
+        if self.configurationFilter:
+            res += "/-/configurations/" + self.configurationFilter
+
+        if self.projectFilter:
+            res += "/-/projects/" + self.projectFilter
+
+        return res
 
     def maxCommitCount(self):
         return int(self.options.get("max_commit_count", 100))
@@ -172,17 +213,71 @@ class BranchContext(Context.Context):
         return detail_divs + canvas
 
     def getGridRenderer(self, commits):
+        projectFilter = self.projectFilter
+        configFilter = self.configurationFilter
+
+        def shouldIncludeTest(test):
+            if self.projectFilter and test.testDefinitionSummary.project != self.projectFilter:
+                return False
+            if self.configurationFilter and test.testDefinitionSummary.configuration != self.configurationFilter:
+                return False
+            return True
+
+        projects = set()
+        configurations = set()
+
+        for c in commits:
+            for t in self.testManager.allTestsForCommit(c):
+                if shouldIncludeTest(t):
+                    projects.add(t.testDefinitionSummary.project)
+                    configurations.add(t.testDefinitionSummary.configuration)
+
+        if not projectFilter and len(projects) == 1:
+            projectFilter = list(projects)[0]
+
+        if not configFilter and len(configurations) == 1:
+            configFilter = list(configurations)[0]
+
+        if not projectFilter:
+            return TestGridRenderer.TestGridRenderer(commits, 
+                lambda c: [t for t in self.testManager.allTestsForCommit(c) 
+                        if shouldIncludeTest(t)] 
+                    if c.data else [],
+                lambda group: self.contextFor(ComboContexts.BranchAndFilter(self.branch, configFilter, group)).renderNavbarLink(),
+                lambda group, row: self.contextFor(ComboContexts.CommitAndFilter(row, configFilter, group)).urlString(),
+                lambda test: test.testDefinitionSummary.project
+                )
+
+        if not configFilter:
+            return TestGridRenderer.TestGridRenderer(commits, 
+                lambda c: [t for t in self.testManager.allTestsForCommit(c) 
+                        if shouldIncludeTest(t)] 
+                    if c.data else [],
+                lambda group: self.contextFor(ComboContexts.BranchAndFilter(self.branch, group, projectFilter)).renderNavbarLink(),
+                lambda group, row: self.contextFor(ComboContexts.CommitAndFilter(row, group, projectFilter)).urlString(),
+                lambda test: test.testDefinitionSummary.configuration
+                )
+
         return TestGridRenderer.TestGridRenderer(commits, 
-            lambda c: [
-                t for t in self.testManager.allTestsForCommit(c)
-                    if not t.testDefinitionSummary.type == "Deployment"
-                ] if c.data else [],
-            lambda group: self.contextFor(ComboContexts.BranchAndConfiguration(self.branch, group)).renderLink(),
-            lambda group, row: self.contextFor(ComboContexts.CommitAndConfiguration(row, group)).urlString()
+            lambda c: [t for t in self.testManager.allTestsForCommit(c) 
+                    if shouldIncludeTest(t)] 
+                if c.data else [],
+            lambda group: "",
+            lambda group, row: "",
+            lambda test: ""
             )
 
+
     def getContextForCommit(self, commit):
-        return self.contextFor(commit).withOptions(testGroup=self.options.get("testGroup"))
+        if self.configurationFilter or self.projectFilter:
+            return self.contextFor(
+                ComboContexts.CommitAndFilter(
+                    commit, 
+                    self.configurationFilter, 
+                    self.projectFilter
+                    )
+                )
+        return self.contextFor(commit)
 
     def getBranchCommitRow(self, commit, renderer):
         row = [self.getContextForCommit(commit).renderLinkWithShaHash()]
@@ -292,7 +387,17 @@ class BranchContext(Context.Context):
 
             configurationName = "/".join(groupPath)
 
-            return self.contextFor(ComboContexts.BranchAndConfiguration(self.branch, configurationName)), remainder
+            return self.contextFor(ComboContexts.BranchAndFilter(self.branch, configurationName, self.projectFilter)), remainder
+
+        if path and path[0] == "projects":
+            groupPath, remainder = self.popToDash(path[1:])
+
+            if not path:
+                return None, path
+
+            projectName = "/".join(groupPath)
+
+            return self.contextFor(ComboContexts.BranchAndFilter(self.branch, self.configurationFilter, projectName)), remainder
 
         return None, path
 
@@ -308,20 +413,29 @@ class BranchContext(Context.Context):
                     self.testManager.getNCommits(commit, 10, "below")
                 ]
 
-        if isinstance(currentChild.primaryObject(), ComboContexts.BranchAndConfiguration):
-            return [self.contextFor(
-                ComboContexts.BranchAndConfiguration(branch=self.branch, configurationName=g)
-                )
-                    for g in sorted(set([self.testManager.configurationForTest(t)
-                            for commit in self.testManager.commitsToDisplayForBranch(self.branch, self.maxCommitCount())
-                            for t in self.testManager.allTestsForCommit(commit)
-                        ]))
-                ]
+        if isinstance(currentChild.primaryObject(), ComboContexts.BranchAndFilter):
+            if currentChild.configurationFilter:
+                return [self.contextFor(
+                    ComboContexts.BranchAndFilter(branch=self.branch, configurationName=g, projectName=self.projectFilter)
+                    )
+                        for g in sorted(set([t.testDefinitionSummary.configuration
+                                for commit in self.testManager.commitsToDisplayForBranch(self.branch, self.maxCommitCount())
+                                for t in self.testManager.allTestsForCommit(commit) 
+                                    if t.testDefinitionSummary.project == self.projectFilter
+                            ]))
+                    ]
+            else:
+                return [self.contextFor(
+                    ComboContexts.BranchAndFilter(branch=self.branch, configurationName="", projectName=g)
+                    )
+                        for g in sorted(set([t.testDefinitionSummary.project
+                                for commit in self.testManager.commitsToDisplayForBranch(self.branch, self.maxCommitCount())
+                                for t in self.testManager.allTestsForCommit(commit)
+                            ]))
+                    ]
+            
         else:
             return []
 
-    def parentContext(self):
-        return self.contextFor(self.branch.repo)
-
     def renderMenuItemText(self, isHeader):
-        return (octicon("git-branch") if isHeader else "") + self.branch.branchname
+        return (octicon(self.appropriateIcon()) if isHeader else "") + self.appropriateLinkName()

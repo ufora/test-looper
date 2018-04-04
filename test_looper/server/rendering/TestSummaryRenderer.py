@@ -39,14 +39,17 @@ class TestSummaryRenderer:
 
     def renderSummary(self):
         #first, see whether we have any tests
+        active = sum(t.activeRuns for t in self.tests)
+
         if not self.tests:
             button_text = '<span class="text-muted" style="width:30px">&nbsp;</span>' 
         else:
-            button_text = self.renderSingleEnvironment()
+            button_text = self.renderButtonContents(active)
 
-        active = sum(t.activeRuns for t in self.tests)
         if active:
-            button_text = '<span class="badge badge-info pl-1">{workers}{icon}</span>'.format(workers=max(active,0), icon=octicon("pulse"))
+            button_text = button_text + (
+                '<span class="badge badge-info pl-1">{workers}{icon}</span>'.format(workers=max(active,0), icon=octicon("pulse"))
+                )
 
         summary = self.tooltipSummary()
 
@@ -54,6 +57,9 @@ class TestSummaryRenderer:
             summary = "<span>%s</span>" % summary
 
         if active:
+            if summary:
+                summary += "&nbsp;"
+
             summary += "<span>%s active jobs</span>" % active
 
         if summary:
@@ -98,14 +104,16 @@ class TestSummaryRenderer:
         #first, see if all of our builds have completed
         goodBuilds,badBuilds,waitingBuilds = self.categorizeAllBuilds()
 
+        res = ""
         if badBuilds:
-            return "Builds failed: " + ", ".join([b.testDefinitionSummary.name for b in badBuilds])
-
+            res += "<div>%s builds failed</div>" % (len(badBuilds))
+        if goodBuilds:
+            res += "<div>%s builds succeeded</div>" % (len(goodBuilds))
         if waitingBuilds:
             if waitingBuilds[0].calculatedPriority == 0:
-                return "Not prioritized"
+                res += "<div>%s builds waiting, but the commit is not prioritized</div>" % (len(waitingBuilds))
             else:
-                return 'Waiting on builds'
+                res += "<div>%s builds waiting</div>" % (len(waitingBuilds))
 
         tests = self.allTests()
 
@@ -114,57 +122,63 @@ class TestSummaryRenderer:
                 return "No tests or builds defined."
             return "All builds passed."
 
-        for t in tests:
-            if t.priority.matches.DependencyFailed:
-                return "An underlying dependency failed."
-
         suitesNotRun = 0
         suitesNotRunAndNotPrioritized = 0
         
         totalTests = 0
+        suitesDepFailed = 0
+        suitesSucceeded = 0
         suitesFailed = 0
         totalFailedTestCount = 0
+        suitesWithNoIndividualTests = 0
 
         for t in tests:
-            if t.totalRuns == 0:
-                suitesNotRun += 1
+            if t.priority.matches.DependencyFailed:
+                suitesDepFailed += 1
+            elif t.totalRuns == 0:
                 if t.calculatedPriority == 0:
-                    return "Tests are not prioritized"
+                    suitesNotRunAndNotPrioritized += 1
+                else:
+                    suitesNotRun += 1
             elif t.successes == 0:
                 suitesFailed += 1
             else:
+                if t.totalTestCount == 0:
+                    suitesWithNoIndividualTests += 1
+                else:
+                    suitesSucceeded += 1
+
                 totalTests += t.totalTestCount / t.totalRuns if t.totalRuns != 1 else t.totalTestCount
                 totalFailedTestCount += t.totalFailedTestCount / t.totalRuns if t.totalRuns != 1 else t.totalFailedTestCount
 
+        if suitesWithNoIndividualTests:
+            res += "<div>%s test suites succeeded but dumped no individual tests</div>" % suitesWithNoIndividualTests
+
+        if suitesDepFailed:
+            res += "<div>%s test suites had failed dependencies</div>" % suitesDepFailed
+        
         if suitesNotRun:
-            return "Waiting on %s / %s test suites to finish" % (
-                suitesNotRun, len(tests)
-                )
-            
-        if totalTests == 0 or self.ignoreIndividualTests:
-            if suitesFailed == 0:
-                return "%s suites successed" % len(tests)
-            else:
-                return "%s / %s suites failed" % (suitesFailed, len(tests))
+            res += "<div>%s test suites are waiting to run</div>" % suitesNotRun
+        
+        if suitesNotRunAndNotPrioritized:
+            res += "<div>%s test suites are waiting to run but are not prioritized</div>" % suitesNotRunAndNotPrioritized
+
+        if suitesSucceeded:
+            res += "<div>%s test suites ran</div>" % suitesSucceeded
+
+        if suitesFailed:
+            res += "<div>%s test suites failed</div>" % suitesFailed
 
         totalTests = convertToIntIfClose(totalTests)
         totalFailedTestCount = convertToIntIfClose(totalFailedTestCount)
 
-        if suitesFailed:
-            return "%s / %s tests failed.  %s / %s suites failed outright (producing no individual test summaries)" % (
-                totalFailedTestCount,
-                totalTests,
-                suitesFailed,
-                len(tests)
-                )
-        else:
-            if totalFailedTestCount == 0:
-                return "%s tests succeeded over %s suites" % (totalTests, len(tests))
-
-            return "%s / %s tests failed." % (
+        if totalTests:
+            res += "<div>%s / %s individual test runs failed.</div>" % (
                 totalFailedTestCount,
                 totalTests
                 )
+
+        return res
 
     def categorizeBuild(self, b):
         if b.successes > 0:
@@ -175,22 +189,11 @@ class TestSummaryRenderer:
             return "BAD"
         return "PENDING"
 
-    def renderSingleEnvironment(self):
+    def renderButtonContents(self, activeCount):
         #first, see if all of our builds have completed
         goodBuilds,badBuilds,waitingBuilds = self.categorizeAllBuilds()
-
-        if badBuilds:
-            return """<span class="text-danger">%s</span>""" % octicon("x")
-
-        if len(waitingBuilds):
-            if waitingBuilds[0].calculatedPriority == 0:
-                return '<span class="text-muted">%s</span>' % "..."
-            return octicon("watch")
-
         tests = self.allTests()
 
-        if not tests:
-            return octicon("check")
 
         totalTests = 0
         totalFailedTestCount = 0
@@ -206,18 +209,63 @@ class TestSummaryRenderer:
                 totalTests += t.totalTestCount / t.totalRuns
                 totalFailedTestCount += t.totalFailedTestCount / t.totalRuns
 
-        if depFailed:
-            return '<span class="text-muted">%s</span>' % octicon("x")
+        build_summary = ""
+        allBuildsGood = False
 
-        if suitesNotRun:
-            if tests[0].calculatedPriority == 0:
-                return '<span class="text-muted">%s</span>' % "..."
-            return octicon("watch")
-            
+        if badBuilds:
+            build_summary = """<span class="text-danger">%s</span>""" % octicon("x")
+        elif len(waitingBuilds):
+            if activeCount:
+                return ""
+            if waitingBuilds[0].calculatedPriority == 0:
+                build_summary = '<span class="text-muted">%s</span>' % "..."
+            else:
+                build_summary = octicon("watch")
+        else:
+            build_summary = octicon("check")
+            allBuildsGood = True
+
+        if not tests:
+            #we have no tests, but the builds passed
+            return build_summary
+
         if totalTests == 0 or self.ignoreIndividualTests:
-            return '<span class="text-muted">%s</span>' % octicon("check")
+            #no individual test counts available
+            if allBuildsGood:
+                if depFailed:
+                    return '<span class="text-muted">%s</span>' % octicon("x")
 
-        return self.renderFailureCount(totalFailedTestCount, totalTests)
+                if suitesNotRun:
+                    if activeCount:
+                        return ""
+
+                    if tests[0].calculatedPriority == 0:
+                        return '<span class="text-muted">%s</span>' % "..."
+                    return octicon("watch")
+                    
+                return octicon("check")
+            else:
+                return build_summary
+        else:
+            ratio_text = self.renderFailureCount(totalFailedTestCount, totalTests)
+
+            if allBuildsGood:
+                if not depFailed and not suitesNotRun:
+                    return ratio_text
+                if depFailed:
+                    return ratio_text + '&nbsp;<span class="text-danger">(%s)</span>' % octicon("alert")
+                if suitesNotRun:
+                    if activeCount:
+                        return ""
+                    return ratio_text + '&nbsp;<span class="text-muted">(...)</span>'
+            else:
+                if badBuilds:
+                    return ratio_text + '&nbsp;<span class="text-danger">(%s)</span>' % octicon("alert")
+                else:
+                    if activeCount:
+                        return ""
+                    return ratio_text + '&nbsp;<span class="text-muted">(...)</span>'
+
 
     @staticmethod
     def renderFailureCount(totalFailedTestCount, totalTests, verbose=False):

@@ -86,7 +86,7 @@ class TestContext(Context.Context):
         if self.currentView() == "test_definition":
             return card(
                 '<pre class="language-yaml"><code class="line-numbers">%s</code></pre>' % cgi.escape(
-                    algebraic_to_json.encode_and_dump_as_yaml(test.testDefinition)
+                    algebraic_to_json.encode_and_dump_as_yaml(self.testManager.definitionForTest(test))
                     )
                 )
 
@@ -164,9 +164,10 @@ class TestContext(Context.Context):
 
     def parentContext(self):
         return self.contextFor(
-            ComboContexts.CommitAndConfiguration(
+            ComboContexts.CommitAndFilter(
                 commit=self.commit, 
-                configurationName=self.testManager.configurationForTest(self.test)
+                configurationName=self.test.testDefinitionSummary.configuration,
+                projectName=self.test.testDefinitionSummary.project,
                 )
             )
 

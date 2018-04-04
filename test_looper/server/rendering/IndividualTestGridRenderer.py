@@ -8,25 +8,6 @@ import os
 
 octicon = HtmlGeneration.octicon
 
-def glomTogether(list):
-    """Given a list of things, return a list of tuples (item, count) collapsing successive tuples."""
-    cur = None
-    count = None
-
-    res = []
-
-    for i in xrange(len(list)+1):
-        if i == 0 or i == len(list) or list[i] != cur:
-            if i != 0:
-                res.append((cur,count))
-            
-            if i != len(list):
-                cur = list[i]
-                count = 1
-        else:
-            count += 1
-    return res
-
 def groupBy(things, groupFun):
     result = {}
     for t in things:
@@ -35,8 +16,6 @@ def groupBy(things, groupFun):
             result[g] = []
         result[g].append(t)
     return {g: sorted(result[g]) for g in result}
-
-CELL_WIDTH = 10
 
 class IndividualTest:
     def __init__(self, testSuiteName, testName):
@@ -61,8 +40,7 @@ class IndividualTest:
 
 class IndividualTestGridRenderer:
     def __init__(self, rows, parentContext, testsForRowFun, cellUrlFun=lambda group, row: "", 
-            displayIndividualTestsGraphically=True, 
-            breakOutIndividualTests=None
+            breakOutIndividualTests=False
             ):
         self.rows = rows
         self.cellUrlFun = cellUrlFun
@@ -78,15 +56,8 @@ class IndividualTestGridRenderer:
         
         self.totalTestsToDisplay = sum([len(x) for x in self.groupsToTests.values()])
 
-        self.displayIndividualTestsGraphically = displayIndividualTestsGraphically
+        self.breakOutIndividualTests = breakOutIndividualTests
         
-        if breakOutIndividualTests is not None:
-            self.breakOutIndividualTests = breakOutIndividualTests
-        elif self.totalTestsToDisplay < 200 and len(self.groupsToTests) == 1:
-            self.breakOutIndividualTests = True
-        else:
-            self.breakOutIndividualTests = False
-
     def placeTestsIntoGroups(self):
         self.testsByName = set()
 
@@ -99,11 +70,8 @@ class IndividualTestGridRenderer:
     def headers(self):
         headers = []
         if self.breakOutIndividualTests:
-            if self.displayIndividualTestsGraphically:
-                headers.append("")
-            else:
-                for test in sorted(sum(self.groupsToTests.values(), [])):
-                    headers.append(test.testName)
+            for test in sorted(sum(self.groupsToTests.values(), [])):
+                headers.append(test.testName)
         else:
             for group in sorted(self.groupsToTests):
                 headers.append(
@@ -183,47 +151,37 @@ class IndividualTestGridRenderer:
                             url = ""
 
                         if run_count == success_count:
-                            type = "test-result-cell-success"
+                            cellClass = "test-result-cell-success"
                             tooltip = "Test %s succeeded" % individualTest.name
                             if run_count > 1:
                                 tooltip += " over %s runs" % run_count
                             contentsDetail=octicon("check")
 
                         elif success_count:
-                            type = "test-result-cell-partial"
+                            cellClass = "test-result-cell-partial"
                             tooltip = "Test %s succeeded %s / %s times" % (individualTest.name, success_count, run_count)
                             contentsDetail=octicon("alert")
                         else:
-                            type = "test-result-cell-fail"
+                            cellClass = "test-result-cell-fail"
                             tooltip = "Test %s failed" % individualTest.name
                             if run_count > 1:
                                 tooltip += " over %s runs" % run_count
                             contentsDetail=octicon("x")
                     else:
                         url = ""
-                        type = "test-result-cell-notrun"
+                        cellClass = "test-result-cell-notrun"
                         tooltip = "Test %s didn't run" % individualTest.name
                         contentsDetail = ""
 
-                    if self.displayIndividualTestsGraphically:
-                        res.append('<div {onclick} class="{celltype} {type}" data-toggle="tooltip" title="{text}">{contents}</div>'.format(
-                            type=type,
-                            celltype="test-result-cell",
-                            contents="&nbsp;",
+                    gridRow.append({'content':
+                        '<div {onclick} data-toggle="tooltip" title="{text}">{contents}</div>'.format(
+                            contents=contentsDetail,
                             text=cgi.escape(tooltip),
                             onclick='onclick="location.href=\'{url}\'"'.format(url=url) if url else ''
-                            ))
-                    else:
-                        gridRow.append(
-                            '<div {onclick} data-toggle="tooltip" title="{text}">{contents}</div>'.format(
-                                contents=contentsDetail,
-                                text=cgi.escape(tooltip),
-                                onclick='onclick="location.href=\'{url}\'"'.format(url=url) if url else ''
-                                )
-                            )
-
-                if self.displayIndividualTestsGraphically:
-                    gridRow.append({"content": "".join(res), "class": "nopadding"})
+                            ),
+                        "class": cellClass
+                        }
+                        )
             else:
                 bad,flakey,good,not_running = aggregatedResultsForGroup(group)
 

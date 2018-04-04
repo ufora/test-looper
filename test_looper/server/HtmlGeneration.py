@@ -45,7 +45,9 @@ footers = """
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.11.0/plugins/line-numbers/prism-line-numbers.js"></script>
 <script> 
 $(function () {
-  $('[data-toggle="tooltip"]').tooltip()
+  $('[data-toggle="tooltip"]').tooltip({
+    template: '<div class="tooltip" role="tooltip"><div class="tooltip-arrow"></div><div class="tooltip-inner large"></div></div>'
+    });
 })
 const getChildProp = function(el, child) {
   return $('.data-' + child, $(el).attr('data-bind')).html();

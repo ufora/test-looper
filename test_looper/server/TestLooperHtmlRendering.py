@@ -32,8 +32,6 @@ import test_looper.server.rendering.ReposContext as ReposContext
 import test_looper.server.rendering.MachinesContext as MachinesContext
 import test_looper.server.rendering.DeploymentsContext as DeploymentsContext
 import test_looper.server.rendering.BranchContext as BranchContext
-import test_looper.server.rendering.BranchAndConfigurationContext as BranchAndConfigurationContext
-import test_looper.server.rendering.CommitAndConfigurationContext as CommitAndConfigurationContext
 import test_looper.server.rendering.IndividualTestContext as IndividualTestContext
 import test_looper.server.rendering.CommitContext as CommitContext
 import test_looper.server.rendering.RepoContext as RepoContext
@@ -79,11 +77,18 @@ class Renderer:
         if entity == "deployments":
             return DeploymentsContext.DeploymentsContext(self, options)
 
+        if isinstance(entity, self.testManager.database.Branch):
+            return BranchContext.BranchContext(self, entity, "", "", options)
+        if isinstance(entity, ComboContexts.BranchAndFilter):
+            return BranchContext.BranchContext(self, entity.branch, entity.configurationName, entity.projectName, options)
+
+        if isinstance(entity, self.testManager.database.Commit):
+            return CommitContext.CommitContext(self, entity, "", "", options)
+        if isinstance(entity, ComboContexts.CommitAndFilter):
+            return CommitContext.CommitContext(self, entity.commit, entity.configurationName, entity.projectName, options)
+
         mapping = {
             self.testManager.database.Repo: RepoContext.RepoContext,
-            self.testManager.database.Branch: BranchContext.BranchContext,
-            ComboContexts.BranchAndConfiguration: BranchAndConfigurationContext.BranchAndConfigurationContext,
-            ComboContexts.CommitAndConfiguration: CommitAndConfigurationContext.CommitAndConfigurationContext,
             ComboContexts.IndividualTest: IndividualTestContext.IndividualTestContext,
             self.testManager.database.Commit: CommitContext.CommitContext,
             self.testManager.database.Test: TestContext.TestContext,

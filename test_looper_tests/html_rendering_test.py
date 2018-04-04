@@ -69,12 +69,14 @@ class HtmlRenderingTest(unittest.TestCase):
             for b in self.database.Branch.lookupAll(repo=r):
                 objects.append(b)
                 
-                objects.append(ComboContexts.BranchAndConfiguration(b,"linux"))
+                objects.append(ComboContexts.BranchAndFilter(b, "linux", ""))
+                objects.append(ComboContexts.BranchAndFilter(b, "", "test_with_individual_failures_1"))
 
                 for c in self.testManager.commitsToDisplayForBranch(b,100):
                     objects.append(c)
 
-                    objects.append(ComboContexts.CommitAndConfiguration(c,"linux"))
+                    objects.append(ComboContexts.CommitAndFilter(c,"linux", "test_with_individual_failures_1"))
+                    objects.append(ComboContexts.CommitAndFilter(c,"", "test_with_individual_failures_1"))
 
                     for t in self.testManager.allTestsForCommit(c):
                         objects.append(t)
@@ -128,10 +130,12 @@ class HtmlRenderingTest(unittest.TestCase):
 
         with self.database.view():
             for c in self.getSomeContexts():
-                c.renderWholePage()
+                for view in c.contextViews():
+                    c.withOptions(view=view).renderWholePage()
 
         self.harness.doTestsInPhases()
 
         with self.database.view():
             for c in self.getSomeContexts():
-                c.renderWholePage()
+                for view in c.contextViews():
+                    c.renderWholePage()
