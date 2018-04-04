@@ -19,36 +19,6 @@ BYTE_DATA = "D"
 BYTE_EXCEPTION = "E"
 FORK_START_TIMEOUT = 5.0
 
-class HeartbeatLogger:
-    def __init__(self, msg, timeout=1.0):
-        self.msg = msg
-        self.t0 = None
-        self.timeout = timeout
-        self.thread = threading.Thread(target=self)
-        self.thread.daemon = True
-        self.completedQueue = Queue.Queue()
-
-    def start(self):
-        self.t0 = time.time()
-        self.thread.start()
-
-    def __call__(self):
-        while True:
-            try:
-                self.completedQueue.get(True, self.timeout)
-                logging.info("Heartbeat %s completed after %s", self.msg, time.time() - self.t0)
-                return
-            except Queue.Empty:
-                logging.info(
-                    "Heartbeat %s still active after %s seconds",
-                    self.msg,
-                    time.time() - self.t0
-                    )
-
-    def stop(self):
-        self.completedQueue.put(None)
-        self.thread.join()
-
 class OutOfProcessDownloader:
     """A worker that can answer queries in another process and return their results as strings.
 
@@ -160,12 +130,8 @@ class OutOfProcessDownloader:
 
                     t0 = time.time()
                     callback = None
-                    heartbeatLogger = None
                     try:
                         callback = pickle.loads(msg)
-
-                        heartbeatLogger = HeartbeatLogger(str(callback))
-                        heartbeatLogger.start()
 
                         outgoingMessage = callback()
                         isException = False
@@ -186,9 +152,6 @@ class OutOfProcessDownloader:
 
                         outgoingMessage = str(e)
                         isException = True
-                    finally:
-                        if heartbeatLogger:
-                            heartbeatLogger.stop()
                 else:
                     t0 = time.time()
                     callback = None
