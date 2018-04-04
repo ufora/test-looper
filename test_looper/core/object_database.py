@@ -696,7 +696,11 @@ class Database:
             #set the json representation in the database
             self._kvstore.setSeveral({k: v[0] for k,v in key_value.iteritems()})
             for k,v in key_value.iteritems():
-                self._current_database_object_cache[k] = v[1]
+                if v[1] is None:
+                    if k in self._current_database_object_cache:
+                        del self._current_database_object_cache[k]
+                else:
+                    self._current_database_object_cache[k] = v[1]
 
             #record what objects we touched
             self._version_number_objects[transaction_id] = list(key_value.keys())
