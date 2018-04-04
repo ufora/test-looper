@@ -427,7 +427,7 @@ class Renderer:
 
     def default(self, *args, **kwargs):
         if args:
-            with self.testManager.database.view():
+            with self.testManager.transaction_and_lock():
                 context = self.getFromEncoding(args, kwargs)
                 if context:
                     return context.renderWholePage()
