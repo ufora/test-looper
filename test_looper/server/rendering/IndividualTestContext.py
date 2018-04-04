@@ -52,9 +52,8 @@ class IndividualTestContext(Context.Context):
         if self.options.get("context","") == "dropdown-menu":
             items = []
             for testRun in self.database.TestRun.lookupAll(test=self.test):
-                commit = self.testManager.oldestCommitForTest(testRun.test)
                 for path, sz in self.renderer.artifactStorage.testResultKeysAndSizesForIndividualTest(
-                        commit.repo.name, commit.hash, testRun._identity, self.individualTestName
+                        testRun.test.hash, testRun._identity, self.individualTestName
                         ):
                     contents = os.path.basename(path) + " (" + HtmlGeneration.bytesToHumanSize(sz) + ")"
                     if sz:
@@ -72,7 +71,6 @@ class IndividualTestContext(Context.Context):
             grid = [["Test Run", "File", "Size"]]
 
             for testRun in self.database.TestRun.lookupAll(test=self.test):
-                commit = self.testManager.oldestCommitForTest(testRun.test)
                 for path, sz in self.renderer.artifactStorage.testResultKeysAndSizesForIndividualTest(
                         testRun.test.hash, testRun._identity, self.individualTestName
                         ):
