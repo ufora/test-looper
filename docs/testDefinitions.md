@@ -9,7 +9,7 @@ or fails to produce a valid set of test definitions, the commit is considered
 doesn't itself define any given tests.
 
 The "test-definitions" file in any given repo is determined by looking at all files,
-selecting those whose name is one of "testDefinitions.json" , "testDefinitions.yml", "testlooper.yml", or
+selecting those whose name is one of "testDefinitions.yml", "testlooper.yml", or
 whose name ends with ".testlooper.yml" and by taking the first such file (sorted alphabetically).
 
 That file is parsed for tests independently on each commit that TestLooper
@@ -118,13 +118,13 @@ expands to
 Each test definitions file consists of six basic entries. Only 'looper_version' is 
 strictly required.
 
-	* 'looper_version' (currently 3), identifying which version we're running against.
-	* 'repos' defining a set of repos we are referring to.
-	* 'includes' defining a set of external file includes.
-	* 'environments' defining a set of environments.
-	* 'builds' defining a set of build steps
-	* 'tests' defining a set of test steps
-	* 'deployments' defining a set of deployments
+* `looper_version` (currently 3), identifying which version we're running against.
+* `repos` defining a set of repos we are referring to.
+* `includes` defining a set of external file includes.
+* `environments` defining a set of environments.
+* `builds` defining a set of build steps
+* `tests` defining a set of test steps
+* `deployments` defining a set of deployments
 
 ### Repo definitions
 
@@ -142,9 +142,9 @@ A repo definition (the right-hand side of the 'repos' field) must be a dictionar
 from string (containing reponames which must be 'identifiers' in the python sense)
 to a repo def. A repo def may be one of:
 	
-	* a single string containing a reference
-	* a dictionary containing 'reference', 'branch', and (optionally 'auto').
-	* an 'import' containing a reference to a repo within another already defined repo
+* a single string containing a reference
+* a dictionary containing 'reference', 'branch', and (optionally 'auto').
+* an 'import' containing a reference to a repo within another already defined repo
 
 A repo reference consists of the name of the repository on the git server, followed
 by a commit hash. Note that this must be a full hash, not a branchname, tag, or anything
@@ -199,45 +199,45 @@ is either a 'root environment' or a subclass/mixin environment.
 
 Each root environment defines 
 
-	* platform - one of `linux` or `windows`. A string.
-	* image - either a dockerfile, or an AMI. Currently, linux implies dockerfile
-		and AMI implies windows. You may supply one of the following
-		* {'dockerfile_contents': str} - contents of dockerfile inline
-		* {'dockerfile': str} - contents of dockerfile in a path relative to the root of the current checkout
-		* {'base_ami': str, 'setup_script_contents': str} - defines the AMI (amazon machine image) to use as a starting point,
-			along with a powershell script to set up the machine
+* platform - one of `linux` or `windows`. A string.
+* image - either a dockerfile, or an AMI. Currently, linux implies dockerfile
+	and AMI implies windows. You may supply one of the following
+	* {'dockerfile_contents': str} - contents of dockerfile inline
+	* {'dockerfile': str} - contents of dockerfile in a path relative to the root of the current checkout
+	* {'base_ami': str, 'setup_script_contents': str} - defines the AMI (amazon machine image) to use as a starting point,
+		along with a powershell script to set up the machine
 
 Each subclass/mixin environment defines:
 
-	* base - a string or list of strings giving the base named base environments
-		that this environment descends from
-	* setup_script_contents - a string of shell script that gets merged into 
-		the dockerfile or setup_script of the final environment
+* base - a string or list of strings giving the base named base environments
+  that this environment descends from
+* setup_script_contents - a string of shell script that gets merged into 
+  the dockerfile or setup_script of the final environment
 
 All environments define the following
 
-	* variables - a key-value dictionary of strings containing environment variables
-		that will be in scope during test execution
-	* dependencies - a key-value dictionary of strings describing the 
-		external dependencies that get exposed to 
-		the process wile it's running. These may be dependencies on source trees
-		or the results of other builds. The key determines the location on disk
-		where the binary input will reside.
+* variables - a key-value dictionary of strings containing environment variables
+  that will be in scope during test execution
+* dependencies - a key-value dictionary of strings describing the 
+  external dependencies that get exposed to 
+  the process wile it's running. These may be dependencies on source trees
+  or the results of other builds. The key determines the location on disk
+  where the binary input will reside.
 
 The following variables really refer to tests, but can be supplied as defaults
 through the environment:
 
-	* test_configuration - a value to place in the configuration of any test or
-		build that uses this environment if not overridden.
-	* test_preCommand - shell script text to prepend to the test or build command
-	* test_preCleanupCommand - shell script text to prepend to the test or build cleanup command
-	* test_timeout - maximum number of seconds the test can run for before being considered 'timed out'
-	* test_min_cores - minimum number of cores that must be present to run this test
-	* test_max_cores - the maximum number of cores that this test or build can profitably use. Set higher
-		if you'd like the test or build to run on a bigger box.
-	* test_min_ram_gb - the minimum amount of ram this test or build needs to be run
-	* test_max_retries - the maximum number of times we'll retry this before giving up.
-	* test_retry_wait_seconds - the number of seconds to wait between retries.
+* test_configuration - a value to place in the configuration of any test or
+  build that uses this environment if not overridden.
+* test_preCommand - shell script text to prepend to the test or build command
+* test_preCleanupCommand - shell script text to prepend to the test or build cleanup command
+* test_timeout - maximum number of seconds the test can run for before being considered 'timed out'
+* test_min_cores - minimum number of cores that must be present to run this test
+* test_max_cores - the maximum number of cores that this test or build can profitably use. Set higher
+  if you'd like the test or build to run on a bigger box.
+* test_min_ram_gb - the minimum amount of ram this test or build needs to be run
+* test_max_retries - the maximum number of times we'll retry this before giving up.
+* test_retry_wait_seconds - the number of seconds to wait between retries.
 
 #### Inheritance
 
@@ -263,15 +263,15 @@ to subdirectories.
 
 Dependency values may be 
 
-	* `HEAD`, indicating to map the current source tree containing the test definition file
-	* `reponame`, indicating to map source code of the given named repo to this location
-	* `build_name`, indicating to map the binary output of the build step named 
-		'build_name' from the current namespace
-	* `reponame/source/path`, indicating to map the directory of the repo 'reponame' indicated
-		by 'path' to this location. TestLooper is careful to check the last time content
-		in this directory was modified and use then when hashing the build.
-	* `reponame/build_name`, indicating to map the build output of the build specified
-		by 'build_name' within the tests defined by the remote repo.
+* `HEAD`, indicating to map the current source tree containing the test definition file
+* `reponame`, indicating to map source code of the given named repo to this location
+* `build_name`, indicating to map the binary output of the build step named 
+  'build_name' from the current namespace
+* `reponame/source/path`, indicating to map the directory of the repo 'reponame' indicated
+  by 'path' to this location. TestLooper is careful to check the last time content
+  in this directory was modified and use then when hashing the build.
+* `reponame/build_name`, indicating to map the build output of the build specified
+  by 'build_name' within the tests defined by the remote repo.
 
 ### Test, Build, and Deployment definitions
 
@@ -284,61 +284,61 @@ and must be unique across the commit's namespace.
 
 Each category has a number of items in common:
 
-    * `command` - a string indicating the command (bash on linux, powershell on windows) to execute
-    * `environment` - a string giving the named environment we want to run in. If not present,
-    	then we take the name of the test, split it on '/', and take the last portion
-    * `mixins` - a list of environments to mixin to this test definition.
-    * `configuration` - a string (used only for display purposes) defining what 'configuration' this
-    	test or build belongs to. Defaults to the environment name.
-    * `project` - a string (used only for display purposes) defining the project. If not 
-    	present, we take the name of the test, split it on '/', and take the _first_ portion.
-    * `dependencies` - dependency dict with the same semantics as an environment
-    * `variables` - a variable dict with the same semantics as an environment
-	* `timeout` - maximum number of seconds the test can run for before being considered 'timed out'
-	* `min_cores` - minimum number of cores that must be present to run this test
-	* `max_cores` - the maximum number of cores that this test or build can profitably use. Set higher
-		if you'd like the test or build to run on a bigger box.
-	* `min_ram_gb` - the minimum amount of ram this test or build needs to be run
+* `command` - a string indicating the command (bash on linux, powershell on windows) to execute
+* `environment` - a string giving the named environment we want to run in. If not present,
+  then we take the name of the test, split it on '/', and take the last portion
+* `mixins` - a list of environments to mixin to this test definition.
+* `configuration` - a string (used only for display purposes) defining what 'configuration' this
+  test or build belongs to. Defaults to the environment name.
+* `project` - a string (used only for display purposes) defining the project. If not 
+  present, we take the name of the test, split it on '/', and take the _first_ portion.
+* `dependencies` - dependency dict with the same semantics as an environment
+* `variables` - a variable dict with the same semantics as an environment
+* `timeout` - maximum number of seconds the test can run for before being considered 'timed out'
+* `min_cores` - minimum number of cores that must be present to run this test
+* `max_cores` - the maximum number of cores that this test or build can profitably use. Set higher
+  if you'd like the test or build to run on a bigger box.
+* `min_ram_gb` - the minimum amount of ram this test or build needs to be run
 
 Builds may also define 
 
-	* `cleanup` - a string giving a command  which runs after the test or build, regardless of success
-		or failure, as a way of marshalling artifacts.
-    * `max_retries` - maximum number of times to retry the build. If not given, or zero, we don't retry.
-    * `retry_wait_seconds` - minimum number of seconds to wait before retrying a build if retry is on.
+* `cleanup` - a string giving a command  which runs after the test or build, regardless of success
+  or failure, as a way of marshalling artifacts.
+* `max_retries` - maximum number of times to retry the build. If not given, or zero, we don't retry.
+* `retry_wait_seconds` - minimum number of seconds to wait before retrying a build if retry is on.
 
 Builds and tests both proceed in a similar fashion: first their dependencies are marshalled to
-the ${TEST_INPUTS} directory. Then the `command` is run. If the exit code is zero, then the
+the `${TEST_INPUTS}` directory. Then the `command` is run. If the exit code is zero, then the
 test or build has succeeded. 
 
-For builds, the 'build output' is gathered by pulling the contents of '${TEST_BUILD_OUTPUT_DIR}'.
+For builds, the 'build output' is gathered by pulling the contents of `${TEST_BUILD_OUTPUT_DIR}`.
 This gets zipped or tarballed (depending on platform) and gets inflated in the appropriate
 place for downstream steps.
 
-For tests, we walk all files and directories in '${TEST_OUTPUT_DIR}' and upload their
+For tests, we walk all files and directories in `${TEST_OUTPUT_DIR}` and upload their
 contents as test artifacts. Directories get tarballed before upload.
 
 Prior to tests running, all the variable definitions given by the environment
 and test are merged (with test taking precedence), and then variables get 'resolved'. 
-This means we repeatedly loop over all variables, and for each variable 'var', search for strings
-of the form '${var}' in other variable definitions and shell commands, which we replace with
+This means we repeatedly loop over all variables, and for each variable `var`, search for strings
+of the form `${var}` in other variable definitions and shell commands, which we replace with
 the variable's value. We support chains of variable definition and nested variables, and we're
 careful not to expand cycles if you make a mistake and create one.
 
 At runtime we also define a few specific variables:
 
-	* TEST_CORES_AVAILABLE - number of cores we're allowed to use
-	* TEST_RAM_GB_AVAILABLE - number of GB of ram we may use
-	* HOSTNAME - set to 'testlooperworker'
-	* PYTHONUNBUFFERED - set to TRUE to make sure we get output from test programs
-	* PERL_BIN - (windows only) path to the perl.exe contained in git-for-windows
-	* GIT_BIN - (windows only) path to git.exe
-	* TEST_INPUTS - path to directory where test inputs are mounted
-	* TEST_SCRATCH_DIR - path to directory we can use for scratch space
-	* TEST_OUTPUT_DIR - path to directory where we should place test artifacts
-	* TEST_BUILD_OUTPUT_DIR - path to output of build steps
-	* TEST_CCACHE_DIR - location to use for ccache if we're using it
-	* TEST_LOOPER_TEST_ID - a unique id for the current test or build run
+* `TEST_CORES_AVAILABLE` - number of cores we're allowed to use
+* `TEST_RAM_GB_AVAILABLE` - number of GB of ram we may use
+* `HOSTNAME` - set to 'testlooperworker'
+* `PYTHONUNBUFFERED` - set to TRUE to make sure we get output from test programs
+* `PERL_BIN` - (windows only) path to the perl.exe contained in git-for-windows
+* `GIT_BIN` - (windows only) path to git.exe
+* `TEST_INPUTS` - path to directory where test inputs are mounted
+* `TEST_SCRATCH_DIR` - path to directory we can use for scratch space
+* `TEST_OUTPUT_DIR` - path to directory where we should place test artifacts
+* `TEST_BUILD_OUTPUT_DIR` - path to output of build steps
+* `TEST_CCACHE_DIR` - location to use for ccache if we're using it
+* `TEST_LOOPER_TEST_ID` - a unique id for the current test or build run
 
 Test runs may optionally produce a 'testSummary.json' file. This allows you to 
 specify the success or failure of individual tests within the run. The format of this file should be

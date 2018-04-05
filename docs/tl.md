@@ -23,7 +23,7 @@ To get started, run
 
 	tl.py init <dir> git@gilab.mycompany.com
 
-to initialize a '.tl' repo in '<dir>'. This operates like 'git' - you have a 
+to initialize a '.tl' repo in `dir`. This operates like `git` - you have a 
 `.tl` directory that identifies the root of the installation. All `tl.py` commands
 operate on that installation from any subdirectory.
 
@@ -38,7 +38,7 @@ prefix, you may provide a list of prefixes to 'strip' from names using the
 group in gitlab, you can specify a  'mycompany/core/' prefix and get shorter
 names.
 
-cd into `<dir>`, and run
+cd into `dir`, and run
 
 	tl.py checkout reponame branchname
 
