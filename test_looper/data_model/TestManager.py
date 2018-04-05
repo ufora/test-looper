@@ -1071,6 +1071,33 @@ class TestManager(object):
 
         return testDef
 
+    def touchAllTestsAndRuns(self, curTimestamp):
+        with self.transaction_and_lock():
+            commits = set()
+
+            for repo in self.database.Repo.lookupAll(isActive=True):
+                toCheck = set()
+                for branch in self.database.Branch.lookupAll(repo=repo):
+                    if branch.head:
+                        toCheck.add(branch.head)
+                while toCheck:
+                    c = toCheck.pop()
+                    if c not in commits:
+                        if len(commits) % 1000 == 0:
+                            logging.info("Have done %s commits", len(commits))
+                        commits.add(c)
+
+                        if c.data:
+                            for p in c.data.parents:
+                                toCheck.add(p)
+
+                            for test in c.data.tests.values():
+                                for run in self.database.TestRun.lookupAll(test=test):
+                                    pass
+                        
+
+
+
     def performBackgroundWork(self, curTimestamp):
         with self.transaction_and_lock():
             task = self.database.DataTask.lookupAny(status=pendingVeryHigh)

@@ -267,6 +267,11 @@ class TestLooperServer(SimpleServer.SimpleServer):
         logging.info("Initializing TestManager.")
         self.testManager.markRepoListDirty(time.time())
         try:
+            self.testManager.touchAllTestsAndRuns(time.time())
+        except:
+            logging.error("Server had an exception during initialization:\n%s", traceback.format_exc())
+
+        try:
             self.testManager.pruneDeadWorkers(time.time())
         except:
             logging.error("Server had an exception during initialization:\n%s", traceback.format_exc())
