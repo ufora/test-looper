@@ -47,6 +47,17 @@ else:
     REPARSE_FOLDER = (win32file.FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_REPARSE_POINT)
 
 
+if os.getenv("TESTLOOPER_AWS_CREDS"):
+    try:
+        with open(os.getenv("TESTLOOPER_AWS_CREDS"), "r") as f:
+            creds = json.loads(f.read())
+
+            os.environ["AWS_ACCESS_KEY_ID"] = str(creds["access_key_id"])
+            os.environ["AWS_SECRET_ACCESS_KEY"] = str(creds["secret_access_key"])
+            os.environ["AWS_SESSION_TOKEN"] = str(creds["session_token"])
+    except:
+        print "WARNING: couldn't read credentials from ", os.getenv("TESTLOOPER_AWS_CREDS")
+
 ROOT_CHECKOUT_NAME = "__root"
 
 def printGrid(grid):

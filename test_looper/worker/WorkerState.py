@@ -61,7 +61,7 @@ class DummyWorkerCallbacks:
 
 HEARTBEAT_INTERVAL=3
 
-PASSTHROUGH_KEYS = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"]
+PASSTHROUGH_KEYS = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"]
 
 class NAKED_MACHINE:
     pass
@@ -244,6 +244,10 @@ class WorkerState(object):
 
             env_to_pass = dict(os.environ)
             env_to_pass.update(env)
+
+            for key in PASSTHROUGH_KEYS:
+                if os.getenv(key):
+                    env_to_pass[key] = os.getenv(key)
 
             command_path = os.path.join(self.directories.command_dir,"command.ps1")
             with open(command_path,"w") as cmd_file:
@@ -500,6 +504,10 @@ class WorkerState(object):
 
         for k,v in sorted(env.iteritems()):
             env_to_pass[k.upper()] = v
+
+        for key in PASSTHROUGH_KEYS:
+            if os.getenv(key):
+                env_to_pass[key] = os.getenv(key)
 
         t0 = time.time()
 
