@@ -1838,11 +1838,11 @@ class TestManager(object):
         elif self._testHasUnresolvedDependencies(test):
             test.priority = self.database.TestPriority.UnresolvedDependencies()
             test.targetMachineBoot = 0
-        elif self._testHasUnfinishedDeps(test):
-            test.priority = self.database.TestPriority.WaitingOnBuilds()
-            test.targetMachineBoot = 0
         elif self._testHasFailedDeps(test):
             test.priority = self.database.TestPriority.DependencyFailed()
+            test.targetMachineBoot = 0
+        elif self._testHasUnfinishedDeps(test):
+            test.priority = self.database.TestPriority.WaitingOnBuilds()
             test.targetMachineBoot = 0
         else:
             #sets test.targetMachineBoot
