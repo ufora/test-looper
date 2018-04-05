@@ -104,11 +104,16 @@ class TestSummaryRenderer:
         #first, see if all of our builds have completed
         goodBuilds,badBuilds,waitingBuilds = self.categorizeAllBuilds()
 
+        runningBuilds = [b for b in waitingBuilds if b.activeRuns]
+        waitingBuilds = [b for b in waitingBuilds if not b.activeRuns]
+        
         res = ""
         if badBuilds:
             res += "<div>%s builds failed</div>" % (len(badBuilds))
         if goodBuilds:
             res += "<div>%s builds succeeded</div>" % (len(goodBuilds))
+        if runningBuilds:
+            res += "<div>%s builds running</div>" % (len(runningBuilds))
         if waitingBuilds:
             if waitingBuilds[0].calculatedPriority == 0:
                 res += "<div>%s builds waiting, but the commit is not prioritized</div>" % (len(waitingBuilds))
@@ -120,7 +125,7 @@ class TestSummaryRenderer:
         if not tests:
             if not self.allBuilds():
                 return "No tests or builds defined."
-            return "All builds passed."
+            return res
 
         suitesNotRun = 0
         suitesNotRunAndNotPrioritized = 0
@@ -129,6 +134,7 @@ class TestSummaryRenderer:
         suitesDepFailed = 0
         suitesSucceeded = 0
         suitesFailed = 0
+        suitesRunning = 0
         totalFailedTestCount = 0
         suitesWithNoIndividualTests = 0
 
@@ -139,7 +145,10 @@ class TestSummaryRenderer:
                 if t.calculatedPriority == 0:
                     suitesNotRunAndNotPrioritized += 1
                 else:
-                    suitesNotRun += 1
+                    if t.activeRuns:
+                        suitesRunning += 1
+                    else:
+                        suitesNotRun += 1
             elif t.successes == 0:
                 suitesFailed += 1
             else:
@@ -157,6 +166,9 @@ class TestSummaryRenderer:
         if suitesDepFailed:
             res += "<div>%s test suites had failed dependencies</div>" % suitesDepFailed
         
+        if suitesRunning:
+            res += "<div>%s test suites are actively running</div>" % suitesRunning
+
         if suitesNotRun:
             res += "<div>%s test suites are waiting to run</div>" % suitesNotRun
         
