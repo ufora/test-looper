@@ -479,7 +479,7 @@ class MacroExpander(object):
         if isinstance(json, dict):
             if sorted(json.keys()) == ["define", "in"]:
                 to_use = dict(variables)
-                for k,v in json["define"].iteritems():
+                for k,v in self.expand_macros(json["define"], variables, True).iteritems():
                     if k in to_use:
                         raise Exception("Can't redefine variable %s" % k)
                     to_use[k] = v

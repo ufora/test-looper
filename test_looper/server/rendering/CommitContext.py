@@ -450,7 +450,7 @@ class CommitContext(Context.Context):
         configurations = set()
 
         for t in self.allTests():
-            if t.testDefinitionSummary.type == "Test" and self.shouldIncludeTest(t):
+            if self.shouldIncludeTest(t):
                 projects.add(t.testDefinitionSummary.project)
                 configurations.add(t.testDefinitionSummary.configuration)
 

@@ -23,7 +23,8 @@ class SubprocessCheckCall(object):
     def __call__(self):
         with DirectoryScope.DirectoryScope(self.path):
             try:
-                return pickle.dumps(subprocess.check_call(*self.args, **self.kwds))
+                result = subprocess.check_output(*self.args, stderr=subprocess.STDOUT, **self.kwds)
+                return pickle.dumps(0)
             except subprocess.CalledProcessError as e:
                 return pickle.dumps(e.returncode)
 
@@ -35,7 +36,7 @@ class SubprocessCheckOutput(object):
 
     def __call__(self):
         with DirectoryScope.DirectoryScope(self.path):
-            return pickle.dumps(subprocess.check_output(*self.args, **self.kwds))
+            return pickle.dumps(subprocess.check_output(*self.args, stderr=subprocess.STDOUT, **self.kwds))
 
 sha_pattern = re.compile("^[a-f0-9]{40}$")
 def isShaHash(committish):
@@ -59,6 +60,23 @@ class Git(object):
         self.git_repo_lock = threading.RLock()
 
         self.testDefinitionLocationCache_ = {}
+
+    @staticmethod
+    def versionCheck():
+        version = Git(".").subprocessCheckOutput(["git", "--version"]).strip().split(" ")[2].split(".")
+
+        try:   
+            if sys.platform == "win32":
+                if int(version[0]) < 2 or int(version[1]) < 16 or int(version[2]) < 2 or version[3] != "windows":
+                    raise
+            else:
+                if int(version[0]) < 2 or int(version[1]) < 5:
+                    raise
+        except:
+            if sys.platform == "win32":
+                raise Exception("testlooper requires git version 2.16.2.windows or higher")
+            else:
+                raise Exception("testlooper requires git 2.5")
 
     def writeFile(self, name, text):
         with open(os.path.join(self.path_to_repo, name), "w") as f:

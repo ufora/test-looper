@@ -497,7 +497,9 @@ class WorkerState(object):
         assert docker_image is NAKED_MACHINE
 
         env_to_pass = dict(os.environ)
-        env_to_pass.update(env)
+
+        for k,v in sorted(env.iteritems()):
+            env_to_pass[k.upper()] = v
 
         t0 = time.time()
 
@@ -1172,6 +1174,11 @@ class WorkerState(object):
 
         return path
 
+    def path_to_git_for_windows_installation(self):
+        for path in os.getenv("PATH").split(";"):
+            if os.path.exists(os.path.join(path, "git.exe")):
+                return os.path.dirname(path)
+
     def environment_variables(self, testId, environment, test_definition):
         res = {}
         res.update({
@@ -1180,6 +1187,12 @@ class WorkerState(object):
             'PYTHONUNBUFFERED': "TRUE",
             'HOSTNAME': "testlooperworker"
             })
+
+        if sys.platform == "win32":
+            git_path = self.path_to_git_for_windows_installation()
+
+            res["PERL_BIN"] = os.path.join(git_path, "usr", "bin", "perl.exe")
+            res["GIT_BIN"] = os.path.join(git_path, "cmd", "git.exe")
 
         has_implicit_src_dep = "src" in test_definition.dependencies
         if has_implicit_src_dep:

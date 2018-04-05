@@ -268,14 +268,14 @@ class TestSummaryRenderer:
                     return ratio_text + '&nbsp;<span class="text-danger">(%s)</span>' % octicon("alert")
                 if suitesNotRun:
                     if activeCount:
-                        return ""
+                        return ratio_text
                     return ratio_text + '&nbsp;<span class="text-muted">(...)</span>'
             else:
                 if badBuilds:
                     return ratio_text + '&nbsp;<span class="text-danger">(%s)</span>' % octicon("alert")
                 else:
                     if activeCount:
-                        return ""
+                        return ratio_text
                     return ratio_text + '&nbsp;<span class="text-muted">(...)</span>'
 
 

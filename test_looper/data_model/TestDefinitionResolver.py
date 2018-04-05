@@ -215,6 +215,9 @@ class TestDefinitionResolver:
                         raise TestResolutionException("Name %s can't be defined a second time in include %s/%s/%s" % (
                             reponame, includeRepo, includeHash, includePath
                             ))
+                    if new_repos[reponame].matches.Pin and new_repos[reponame].auto:
+                        raise TestResolutionException("Included repo %s can't be marked 'auto'" % reponame)
+
                 repos.update(new_repos)
                 repos = self.resolveRepoDefinitions_(repoName, repos)
 

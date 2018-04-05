@@ -49,6 +49,23 @@ else:
 
 ROOT_CHECKOUT_NAME = "__root"
 
+def printGrid(grid):
+    grid = [[str(cell) for cell in row] for row in grid]
+
+    col_count = max([len(row) for row in grid])
+    gridWidths = []
+    for col in xrange(col_count):
+        gridWidths.append(max([len(grid[row][col]) if col < len(grid[row]) else 0 for row in xrange(len(grid))]))
+
+    grid = grid[:1] + [["-" * g for g in gridWidths]] + grid[1:]
+
+    rows = []
+    for row in grid:
+        fmt = "  ".join(["%-" + str(gridWidths[col]) + "s" for col in xrange(len(row))])
+        rows.append(fmt % tuple(row))
+
+    print "\n".join(rows) + "\n",
+
 def configureLogging(verbose=False):
     loglevel = logging.INFO if verbose else logging.WARN
     logging.getLogger().setLevel(loglevel)
@@ -818,12 +835,18 @@ class TestLooperCtl:
     def info(self, args):
         byName = self.allTestsAndBuildsByName()
 
-        for t in sorted(byName):
-            if any([fnmatch.fnmatchcase(t, p) for p in args.testpattern]) or not args.testpattern:
-                if args.detail:
+        if args.detail:
+            for t in sorted(byName):
+                if any([fnmatch.fnmatchcase(t, p) for p in args.testpattern]) or not args.testpattern:
                     self.infoForTest(t, byName[t][0], args.all)
-                else:
-                    print t
+        else:
+            grid = [["Name","Type","Project","Configuration","Environment"]]
+
+            for t in sorted(byName):
+                if any([fnmatch.fnmatchcase(t, p) for p in args.testpattern]) or not args.testpattern:
+                    grid.append([t, byName[t][0]._which, byName[t][0].project, byName[t][0].configuration, byName[t][0].environment_name])
+
+            printGrid(grid)
 
     def infoForTest(self, test, testDef, showAll):
         print test
@@ -860,8 +883,11 @@ class TestLooperCtl:
         for var, varval in sorted(testDef.variables.iteritems()):
             kvprint(var, varval, "    ")
 
-        toPrint = ["testCommand" if testDef.matches.Test else "buildCommand", "cleanupCommand", "hash", 
-                    "name", "environment_name", "timeout", "max_cores","min_cores", "min_ram_gb"]
+        toPrint = [
+            "name", "hash","environment_name","configuration","project",
+            "testCommand" if testDef.matches.Test else "buildCommand", "cleanupCommand",
+            "timeout", "max_cores","min_cores", "min_ram_gb"
+            ]
 
         for key in toPrint:
             kvprint(key, getattr(testDef, key), "  ")
@@ -976,6 +1002,13 @@ class TestLooperCtl:
         self.walkCheckedOutRepos(printer)
         
 def main(argv):
+    try:
+        Git.Git.versionCheck()
+    except UserWarning as e:
+        print "Error:\n\n%s" % str(e)
+        #print traceback.format_exc()
+        return 1    
+
     parsedArgs = createArgumentParser().parse_args()
     configureLogging(verbose=parsedArgs.verbose)
 
