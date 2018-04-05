@@ -47,7 +47,7 @@ class TestSummaryRenderer:
             button_text = self.renderButtonContents(active)
 
         if active:
-            button_text = button_text + (
+            button_text = button_text + ("&nbsp;" if button_text else "") + (
                 '<span class="badge badge-info pl-1">{workers}{icon}</span>'.format(workers=max(active,0), icon=octicon("pulse"))
                 )
 
@@ -284,9 +284,6 @@ class TestSummaryRenderer:
         if not verbose:
             if totalTests == 0:
                 return '<span class="text-muted">%s</span>' % octicon("check")
-
-            if totalFailedTestCount == 0:
-                return '%d%s' % (totalTests, '<span class="text-success">%s</span>' % octicon("check"))
 
         if verbose:
             return '<span class="text-danger">%d</span>%s%d' % (totalFailedTestCount, '<span class="text-muted px-1"> failed out of </span>', totalTests)
