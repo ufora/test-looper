@@ -193,6 +193,8 @@ version_pattern = re.compile(".*([0-9-._]+).*")
 
 class TestManager(object):
     def __init__(self, server_port_config, source_control, machine_management, kv_store, initialTimestamp=None):
+        self._repoCommitCalcCache = {}
+
         self.initialTimestamp = initialTimestamp or time.time()
         self.lastWorkerPruneOperation = self.initialTimestamp
 
@@ -230,6 +232,11 @@ class TestManager(object):
         return branch.branchname + name
 
     def bestCommitBranchAndName(self, commit):
+        if commit.repo in self._repoCommitCalcCache and \
+                commit in self._repoCommitCalcCache[commit.repo]:
+            return self._repoCommitCalcCache[commit.repo][commit]
+
+
         branches = self.commitFindAllBranches(commit)
 
         branches_by_name = {b.branchname: v for b,v in branches.items()}
@@ -267,6 +274,10 @@ class TestManager(object):
             
         #pick the least feature-branchy name we can
         best_branch = sorted(branches, key=lambda b: masteryness(b.branchname))[0]
+
+        if commit.repo not in self._repoCommitCalcCache:
+            self._repoCommitCalcCache[commit.repo] = {}
+        self._repoCommitCalcCache[commit.repo][commit] = (best_branch, branches[best_branch])
 
         return best_branch, branches[best_branch]
 
@@ -1239,6 +1250,7 @@ class TestManager(object):
 
         for newname in branchnames_set - set([x.branchname for x in db_branches]):
             newbranch = self.database.Branch.New(branchname=newname, repo=db_repo)
+            self._repoTouched(db_repo)
 
         for branchname, branchHash in branchnamesAndHashes.iteritems():
             try:
@@ -1316,6 +1328,8 @@ class TestManager(object):
             return
 
         parents=[self._lookupCommitByHash(commit.repo, p) for p in parentHashes]
+
+        self._repoTouched(repo)
 
         commit.data = self.database.CommitData.New(
             commit=commit,
@@ -1473,8 +1487,18 @@ class TestManager(object):
     def _branchDeleted(self, branch):
         old_branch_head = branch.head
         if old_branch_head:
-            branch.head = self.database.Commit.Null
+            self._setBranchHead(branch, self.database.Commit.Null)
             self._triggerCommitPriorityUpdate(old_branch_head)
+
+    def _setBranchHead(self, branch, newHead):
+        if branch:
+            branch.head = newHead
+
+            self._repoTouched(branch.repo)
+
+    def _repoTouched(self, repo):
+        if repo in self._repoCommitCalcCache:
+            del self._repoCommitCalcCache[repo]
 
     def _updateBranchTopCommit(self, branch):
         repo = self.source_control.getRepo(branch.repo.name)
@@ -1485,7 +1509,7 @@ class TestManager(object):
         if commit and (not branch.head or commit != branch.head.hash):
             old_branch_head = branch.head
 
-            branch.head = self._lookupCommitByHash(branch.repo, commit)
+            self._setBranchHead(branch, self._lookupCommitByHash(branch.repo, commit))
 
             if old_branch_head:
                 self._triggerCommitPriorityUpdate(old_branch_head)
@@ -2225,6 +2249,7 @@ class TestManager(object):
             
             commit = self.database.Commit.New(repo=repo, hash=commitHash)
             repo.commits = repo.commits + 1
+            self._repoTouched(repo)
 
         if not commit.data:
             self._triggerCommitDataUpdate(commit)
