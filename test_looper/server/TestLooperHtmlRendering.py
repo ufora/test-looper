@@ -435,7 +435,11 @@ class Renderer:
             with self.testManager.transaction_and_lock():
                 context = self.getFromEncoding(args, kwargs)
                 if context:
-                    return context.renderWholePage()
+                    t0 = time.time()
+                    try:
+                        return context.renderWholePage()
+                    finally:
+                        logging.info("Rendering page for %s, %s took %s", args, kwargs, time.time()-t0)
 
         return self.errorPage("Invalid URL provided")
 
