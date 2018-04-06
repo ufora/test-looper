@@ -149,16 +149,34 @@ class CommitContext(Context.Context):
                 hover_text=("commit " + self.commit.hash[:10] + " : " + ("" if not self.commit.data else self.commit.data.commitMessage))
                 )
 
-    def renderSubjectAndAuthor(self, maxChars=40):
-        if not self.commit.data:
-            return ""
+    def unpackCommitPin(self, commit):
+        if not commit or not commit.data:
+            return None
 
-        pinUpdate = BranchPinning.unpackCommitPinUpdateMessage(self.commit.data.commitMessage)
+        pinUpdate = BranchPinning.unpackCommitPinUpdateMessage(commit.data.commitMessage)
 
         if pinUpdate:
             repo, branch, hash = pinUpdate
             underlying_commit = self.testManager._lookupCommitByHash(repo, hash, create=False)
-            if underlying_commit:
+
+            if underlying_commit and underlying_commit.data:
+                subpin = self.unpackCommitPin(underlying_commit)
+                if subpin:
+                    return subpin
+                return pinUpdate
+
+
+    def renderSubjectAndAuthor(self, maxChars=40):
+        if not self.commit.data:
+            return ""
+
+        pinUpdate = self.unpackCommitPin(self.commit)
+
+        if pinUpdate:
+            repo, branch, hash = pinUpdate
+            underlying_commit = self.testManager._lookupCommitByHash(repo, hash, create=False)
+
+            if underlying_commit and underlying_commit.data:
                 underlyingCtx = self.contextFor(underlying_commit)
                 underRepo = self.contextFor(underlying_commit.repo)
                 underName = underlyingCtx.nameInBranch
@@ -166,14 +184,13 @@ class CommitContext(Context.Context):
                     underName = "/HEAD"
 
                 return (
-                    underlyingCtx.renderSubjectAndAuthor() +
-                    '&nbsp;<a class="badge badge-info" data-toggle="tooltip" title="{title}" href="{url}">{icon}</a>&nbsp;'
+                    '<a class="badge badge-info" data-toggle="tooltip" title="{title}" href="{url}">{repo}</a>&nbsp;'
                         .format(
+                            repo=self.renderer.repoDisplayName(underlying_commit.repo.name),
                             url=underlyingCtx.urlString(), 
-                            icon=octicon("pin"),
                             title="This commit is a pin update. The message shown here is from " + 
                                 "commit %s which is underlying commit %s/%s%s" % (hash[:10], repo, branch, underName)
-                            ) 
+                            ) + "&nbsp;" + underlyingCtx.renderSubjectAndAuthor()
                     )
             else:
                 logging.warn("Couldn't find pinned commit %s/%s/%s", repo, branch, hash)
