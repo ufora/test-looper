@@ -22,13 +22,13 @@ headers = """
 <link href='//fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,600,400italic' rel='stylesheet' type='text/css'>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/octicons/4.4.0/font/octicons.min.css"/>
 <link rel="stylesheet" href="/css/test-looper.css"/>
+<link rel="stylesheet" href="/css/datatables.min.css"/>
 <link rel="stylesheet" href="/css/prism.css"/>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/gitgraph.js/1.11.4/gitgraph.css"/>
 
 </head>
 <body>
 <script src="/js/prism.js"></script>
-<script src="/js/gitgraph.js"></script>
 """
 
 footers = """
@@ -39,10 +39,12 @@ footers = """
 <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.12.9/umd/popper.min.js" integrity="sha384-ApNbgh9B+Y1QKtv3Rn7W3mgPxhU9K/ScQsAP7hUibX39j7fakFPskvXusvfa0b4Q" crossorigin="anonymous"></script>
 <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.0.0/js/bootstrap.min.js" integrity="sha384-JZR6Spejh4U02d8jOt6vLEHfe/JQGiRRSQQxSfFWpi1MquVdAyjUar5+76PVCmYl" crossorigin="anonymous"></script>
 
-
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.11.0/prism.js" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.11.0/components/prism-yaml.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/prism/1.11.0/plugins/line-numbers/prism-line-numbers.js"></script>
+
+<script src="/js/datatables.min.js"></script>
+
 <script> 
 $(function () {
   $('[data-toggle="tooltip"]').tooltip({
@@ -52,9 +54,15 @@ $(function () {
 const getChildProp = function(el, child) {
   return $('.data-' + child, $(el).attr('data-bind')).html();
 };
+
 $('.popover-dismiss').popover({
   trigger: 'focus'
-})
+});
+
+$('[data-table-enabled="true"]').DataTable({
+    paging: false
+    });
+
 $('[data-toggle="popover"]').popover({
   html: true,
   container: 'body',
@@ -315,7 +323,7 @@ def transposeGrid(grid):
     rowcount = len(grid)
     return [[grid[y][x] if x < len(grid[y]) else "" for y in xrange(rowcount)] for x in xrange(colcount)]
 
-def grid(rows, header_rows=1, rowHeightOverride=None, fitWidth=True, transpose=False):
+def grid(rows, header_rows=1, rowHeightOverride=None, fitWidth=True, transpose=False, dataTables=False):
     """Given a list-of-lists (e.g. row of column values), format as a grid.
 
     We compute the width of each column (assuming null values if a column
@@ -372,9 +380,14 @@ def grid(rows, header_rows=1, rowHeightOverride=None, fitWidth=True, transpose=F
 
     table_rows = "\n".join(format_row(row) for row in rows[header_rows:])
 
-    format_str = ('<table class="table-hscroll table-sm table-striped">'
-                  '{headers}\n{rows}'
-                  '</table>')
+    if dataTables:
+        format_str = ('<table class="table-hscroll table-sm table-striped" data-table-enabled="true">'
+                      '<thead>{headers}</thead>\n<tbody>{rows}</tbody>'
+                      '</table>')
+    else:
+        format_str = ('<table class="table-hscroll table-sm table-striped">'
+                      '{headers}\n{rows}'
+                      '</table>')
 
     return format_str.format(
         headers=table_headers,

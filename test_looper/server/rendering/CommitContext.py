@@ -540,7 +540,7 @@ class CommitContext(Context.Context):
 
         grid = HtmlGeneration.transposeGrid(grid)
 
-        return HtmlGeneration.grid(grid)
+        return HtmlGeneration.grid(grid, dataTables=True)
 
     def renderCommitTestDefinitionsInfo(self):
         raw_text, extension = self.testManager.getRawTestFileForCommit(self.commit)

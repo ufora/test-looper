@@ -305,13 +305,15 @@ class TestLooperHttpServer(object):
 
         levels = GraphUtil.placeNodesInLevels(toReload, edgeFun)
         
+        reload(HtmlGeneration)
+
         for level in reversed(levels):
             for module in level:
                 print module.__name__, [x.__name__ for x in edgeFun(module)]
                 reload(module)
         
         reload(TestLooperHtmlRendering)
-
+        
         self.regular_renderer = TestLooperHtmlRendering.Renderer(self)
 
         raise cherrypy.HTTPRedirect(redirect)

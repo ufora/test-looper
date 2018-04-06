@@ -155,18 +155,18 @@ class IndividualTestGridRenderer:
                             tooltip = "Test %s succeeded" % individualTest.name
                             if run_count > 1:
                                 tooltip += " over %s runs" % run_count
-                            contentsDetail=octicon("check")
+                            contentsDetail="OK"
 
                         elif success_count:
                             cellClass = "test-result-cell-partial"
                             tooltip = "Test %s succeeded %s / %s times" % (individualTest.name, success_count, run_count)
-                            contentsDetail=octicon("alert")
+                            contentsDetail="MIXED"
                         else:
                             cellClass = "test-result-cell-fail"
                             tooltip = "Test %s failed" % individualTest.name
                             if run_count > 1:
                                 tooltip += " over %s runs" % run_count
-                            contentsDetail=octicon("x")
+                            contentsDetail="FAIL"
                     else:
                         url = ""
                         cellClass = "test-result-cell-notrun"
