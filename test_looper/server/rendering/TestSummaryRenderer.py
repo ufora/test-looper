@@ -39,16 +39,22 @@ class TestSummaryRenderer:
 
     def renderSummary(self):
         #first, see whether we have any tests
-        active = sum(t.activeRuns for t in self.tests)
+        activeTests = sum(t.activeRuns for t in self.allTests())
+        activeBuilds = sum(t.activeRuns for t in self.allBuilds())
+        active = activeTests + activeBuilds
 
         if not self.tests:
             button_text = '<span class="text-muted" style="width:30px">&nbsp;</span>' 
         else:
             button_text = self.renderButtonContents(active)
 
-        if active:
+        if activeTests:
             button_text = button_text + ("&nbsp;" if button_text else "") + (
-                '<span class="badge badge-info pl-1">{workers}{icon}</span>'.format(workers=max(active,0), icon=octicon("pulse"))
+                '<span class="badge badge-info pl-1">{workers}{icon}</span>'.format(workers=max(activeTests,0), icon=octicon("pulse"))
+                )
+        if activeBuilds:
+            button_text = button_text + ("&nbsp;" if button_text else "") + (
+                '<span class="badge badge-info pl-1">{workers}{icon}</span>'.format(workers=max(activeTests,0), icon=octicon("tools"))
                 )
 
         summary = self.tooltipSummary()

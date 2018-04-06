@@ -352,7 +352,7 @@ class TestManager(object):
 
         return Scope()
 
-    def getNCommits(self, commit, N, direction="below"):
+    def getNCommits(self, commit, N, direction="below", restrictTo=None):
         """Do a breadth-first search around 'commit'"""
 
         assert direction in ("above", "below")
@@ -363,7 +363,7 @@ class TestManager(object):
 
         while frontier and len(commits) < N:
             c = frontier.pop(0)
-            if c not in seen:
+            if c not in seen and (not restrictTo or c in restrictTo):
                 seen.add(c)
                 commits.append(c)
                 if direction == "below":

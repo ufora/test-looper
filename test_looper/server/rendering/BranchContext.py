@@ -407,9 +407,19 @@ class BranchContext(Context.Context):
 
             children = []
 
+            commitsInBetween = set()
+            def walk(c):
+                if c and c not in commitsInBetween:
+                    commitsInBetween.add(c)
+                    if c.data:
+                        for p in c.data.parents:
+                            walk(p)
+                            
+            walk(self.branch.head)
+
             #show 10 commits above and below
             return [self.contextFor(x) for x in 
-                list(reversed(self.testManager.getNCommits(commit, 10, "above"))) + [commit] + 
+                list(reversed(self.testManager.getNCommits(commit, 10, "above", commitsInBetween))) + [commit] + 
                     self.testManager.getNCommits(commit, 10, "below")
                 ]
 
