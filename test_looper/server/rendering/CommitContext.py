@@ -322,15 +322,62 @@ class CommitContext(Context.Context):
             return self.renderTestSuitesSummary(builds=True)
         if view == "test_results":
             return self.renderTestResultsGrid()
+        if view == "repo_refs":
+            return self.renderRepoReferencesGrid()
 
         return card('Unknown view &quot;<span class="font-weight-bold">%s</span>&quot;' % view)
 
+    def renderRepoReferencesGrid(self):
+        lines = [["refname", "Commit", "Target Branch"]]
+
+        if not self.commit.data:
+            return card("Commit data not loaded yet.")
+
+        if not self.commit.data.repos:
+            return card("Commit has no references to external repos.")
+
+        for refname, repoRef in sorted(self.commit.data.repos.iteritems()):
+            if repoRef.matches.Pin:
+                lines.append(
+                    [refname, 
+                    self.renderPinReference(refname, repoRef),
+                    repoRef.branchname() if repoRef.branchname() else ""
+                    ])
+
+        return HtmlGeneration.grid(lines)
+    
+    def renderPinReference(self, reference_name, repoRef, includeName=False):
+        if includeName:
+            preamble = reference_name + "-&gt;"
+        else:
+            preamble = ""
+
+        repoName = "/".join(repoRef.reference.split("/")[:-1])
+        commitHash = repoRef.reference.split("/")[-1]
+
+        repo = self.testManager.database.Repo.lookupAny(name=repoName)
+        if not repo:
+            return preamble + HtmlGeneration.lightGreyWithHover(repoRef.reference, "Can't find repo %s" % repoName)
+
+        commit = self.testManager.database.Commit.lookupAny(repo_and_hash=(repo, commitHash))
+        if not commit:
+            return preamble + HtmlGeneration.lightGreyWithHover(repoRef.reference[:--30], "Can't find commit %s" % commitHash[:10])
+
+        branches = {k.branchname: v for k,v in self.testManager.commitFindAllBranches(commit).iteritems()}
+
+        if repoRef.branch not in branches:
+            return preamble + self.contextFor(commit).renderLink()
+
+        return preamble + self.contextFor(commit).renderLink()
+
     def contextViews(self):
-        return ["test_results", "test_builds", "test_suites", "commit_data", "test_definitions"]
+        return ["test_results", "test_builds", "test_suites", "commit_data", "repo_refs", "test_definitions"]
 
     def renderViewMenuItem(self, view):
         if view == "commit_data":
             return "Commit Summary"
+        if view == "repo_refs":
+            return "Repo Refs"
         if view == "test_definitions":
             return "Test Definitions"
         if view == "test_results":
