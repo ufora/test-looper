@@ -29,6 +29,7 @@ headers = """
 </head>
 <body>
 <script src="/js/prism.js"></script>
+<script src="/js/gitgraph.js"></script>
 """
 
 footers = """
