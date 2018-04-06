@@ -54,7 +54,7 @@ class TestSummaryRenderer:
                 )
         if activeBuilds:
             button_text = button_text + ("&nbsp;" if button_text else "") + (
-                '<span class="badge badge-info pl-1">{workers}{icon}</span>'.format(workers=max(activeTests,0), icon=octicon("tools"))
+                '<span class="badge badge-info pl-1">{workers}{icon}</span>'.format(workers=max(activeBuilds,0), icon=octicon("tools"))
                 )
 
         summary = self.tooltipSummary()
