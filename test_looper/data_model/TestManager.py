@@ -593,9 +593,8 @@ class TestManager(object):
             testRun.test.totalRuns = testRun.test.totalRuns - 1
             if testRun.success:
                 testRun.test.successes = testRun.test.successes - 1
-
-            testRun.test.totalTestCount = testRun.test.totalTestCount - testRun.totalTestCount
-            testRun.test.totalFailedTestCount = testRun.test.totalFailedTestCount - testRun.totalFailedTestCount
+                testRun.test.totalTestCount = testRun.test.totalTestCount - testRun.totalTestCount
+                testRun.test.totalFailedTestCount = testRun.test.totalFailedTestCount - testRun.totalFailedTestCount
             testRun.canceled = True
 
             self._triggerTestPriorityUpdate(testRun.test)
@@ -620,15 +619,14 @@ class TestManager(object):
 
         if success:
             test.successes += 1
+            test.totalTestCount += testCount
+            test.totalFailedTestCount += failedTestCount
 
         if not canceled:
             if endTimestamp > 0.0:
                 test.totalRuns += 1
             else:
                 test.activeRuns += 1
-
-        test.totalTestCount += testCount
-        test.totalFailedTestCount += failedTestCount
 
         self._triggerTestPriorityUpdate(testRun.test)
 

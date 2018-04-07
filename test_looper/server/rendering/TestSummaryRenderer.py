@@ -217,15 +217,20 @@ class TestSummaryRenderer:
         totalFailedTestCount = 0
 
         suitesNotRun = 0
+        suitesFailed = 0
         depFailed = 0
+        suitesSucceeded = 0
         for t in tests:
             if t.priority.matches.DependencyFailed:
                 depFailed += 1
             elif t.totalRuns == 0:
                 suitesNotRun += 1
+            elif t.successes == 0:
+                suitesFailed += 1
             else:
-                totalTests += t.totalTestCount / t.totalRuns
-                totalFailedTestCount += t.totalFailedTestCount / t.totalRuns
+                suitesSucceeded += 1
+                totalTests += t.totalTestCount / float(t.successes)
+                totalFailedTestCount += t.totalFailedTestCount / float(t.successes)
 
         build_summary = ""
         allBuildsGood = False
@@ -250,8 +255,11 @@ class TestSummaryRenderer:
         if totalTests == 0 or self.ignoreIndividualTests:
             #no individual test counts available
             if allBuildsGood:
-                if depFailed:
-                    return '<span class="text-muted">%s</span>' % octicon("x")
+                if depFailed or suitesFailed:
+                    if not suitesSucceeded:
+                        return '<span class="text-muted">%s</span>' % octicon("x")
+                    else:
+                        return '<span class="text-muted">%s</span>' % octicon("alert")
 
                 if suitesNotRun:
                     if activeCount:
@@ -270,7 +278,7 @@ class TestSummaryRenderer:
             if allBuildsGood:
                 if not depFailed and not suitesNotRun:
                     return ratio_text
-                if depFailed:
+                if depFailed or suitesFailed:
                     return ratio_text + '&nbsp;<span class="text-danger">(%s)</span>' % octicon("alert")
                 if suitesNotRun:
                     if activeCount:
@@ -287,6 +295,9 @@ class TestSummaryRenderer:
 
     @staticmethod
     def renderFailureCount(totalFailedTestCount, totalTests, verbose=False):
+        totalFailedTestCount = convertToIntIfClose(totalFailedTestCount)
+        totalTests = convertToIntIfClose(totalTests)
+        
         if not verbose:
             if totalTests == 0:
                 return '<span class="text-muted">%s</span>' % octicon("check")
