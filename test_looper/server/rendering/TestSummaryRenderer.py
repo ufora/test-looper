@@ -221,7 +221,7 @@ class TestSummaryRenderer:
         depFailed = 0
         suitesSucceeded = 0
         for t in tests:
-            if t.priority.matches.DependencyFailed:
+            if t.totalRuns == 0 and t.priority.matches.DependencyFailed:
                 depFailed += 1
             elif t.totalRuns == 0:
                 suitesNotRun += 1
