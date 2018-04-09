@@ -246,6 +246,12 @@ class AwsMachineManagement(MachineManagement):
     def all_hardware_configs(self):
         return sorted(self.instance_types.keys(), key=lambda hw: hw.cores)
 
+    def canBoot(self, hardwareConfig, osConfig):
+        if hardwareConfig not in self.instance_types:
+            return False
+
+        return MachineManagement.canBoot(self, hardwareConfig, osConfig)
+
     def synchronize_workers(self, machineIds):
         with self._lock:
             activeMachines = set(self.api.machineIdsOfAllWorkers())
