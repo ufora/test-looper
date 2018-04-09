@@ -527,6 +527,17 @@ class WorkerState(object):
                 print >> f, "SET %s=%s" % (k, escape(v))
             print >> f, "@ECHO ON"
 
+        #generate a vars file to override the current environment if we want to 'pop into' this 
+        #session later.
+        with open(os.path.join(self.directories.command_dir,"vars.ps1"), "w") as f:
+            def escape(v):
+                for char in "`$'\"":
+                    v = v.replace(char, "`" + char)
+                return v
+
+            for k,v in env.iteritems():
+                print >> f, '$env:%s="%s"' % (k, escape(v))
+
 
         command_path = os.path.join(self.directories.command_dir,"command.ps1")
         with open(command_path,"w") as cmd_file:

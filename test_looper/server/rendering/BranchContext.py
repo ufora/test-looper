@@ -408,14 +408,17 @@ class BranchContext(Context.Context):
             children = []
 
             commitsInBetween = set()
-            def walk(c):
+            commitsToCheck = set()
+            commitsToCheck.add(self.branch.head)
+
+            while commitsToCheck:
+                c = commitsToCheck.pop()
+
                 if c and c not in commitsInBetween:
                     commitsInBetween.add(c)
                     if c.data:
                         for p in c.data.parents:
-                            walk(p)
-                            
-            walk(self.branch.head)
+                            commitsToCheck.add(p)
 
             #show 10 commits above and below
             return [self.contextFor(x) for x in 
