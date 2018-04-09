@@ -1915,7 +1915,7 @@ class TestManager(object):
 
             if real_cat != test.machineCategory:
                 logging.warn("test %s had incorrect desired machine category %s != %s", 
-                    test.hash + "/" + test.name, 
+                    test.hash + "/" + test.testDefinitionSummary.name, 
                     "<none>" if not test.machineCategory else
                         str(test.machineCategory.hardware) + "/" + str(test.machineCategory.os),
                     "<none>" if not real_cat else
