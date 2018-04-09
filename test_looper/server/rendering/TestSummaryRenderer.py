@@ -227,6 +227,10 @@ class TestSummaryRenderer:
                 suitesNotRun += 1
             elif t.successes == 0:
                 suitesFailed += 1
+                
+                #treat this as a test failure
+                totalTests += 1
+                totalFailedTestCount += 1
             else:
                 suitesSucceeded += 1
                 totalTests += t.totalTestCount / float(t.successes)
@@ -276,10 +280,10 @@ class TestSummaryRenderer:
             ratio_text = self.renderFailureCount(totalFailedTestCount, totalTests)
 
             if allBuildsGood:
+                if depFailed:
+                    return ratio_text + '&nbsp;<span class="text-danger">(%s)</span>' % octicon("alert")
                 if not depFailed and not suitesNotRun:
                     return ratio_text
-                if depFailed or suitesFailed:
-                    return ratio_text + '&nbsp;<span class="text-danger">(%s)</span>' % octicon("alert")
                 if suitesNotRun:
                     if activeCount:
                         return ratio_text
