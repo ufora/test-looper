@@ -182,7 +182,8 @@ def setup_types(database):
         os=MachineManagement.OsConfig,
         booted=int,
         desired=int,
-        hardwareComboUnbootable=bool
+        hardwareComboUnbootable=bool,
+        hardwareComboUnbootableReason=str
         )
 
     database.Machine.define(

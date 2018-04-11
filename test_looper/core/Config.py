@@ -17,7 +17,8 @@ MachineManagementConfig.Aws = {
     "keypair": str,              #security keypair name to use
     "bootstrap_bucket": str,     #bucket to put windows bootstrap scripts into.
     "bootstrap_key_prefix": str, #key prefix for windows bootstrap scripts.
-    "worker_name": str,          #name of workers. This should be unique to this instll.
+    "windows_password": str,     #password to use for booted-up windows boxes
+    "worker_name": str,          #name of workers. This should be unique to this install.
     "worker_iam_role_name": str, #AIM role to boot workers into
     "linux_ami": str,            #default linux AMI to use when booting linux workers
     "windows_ami": str,          #default AMI to use when booting windows workers. Can be overridden for one-shot workers.
@@ -144,7 +145,5 @@ WorkerConfig = algebraic.Alternative("WorkerConfig")
 WorkerConfig.Config = {
     "server_ports": ServerPortConfig,
     "source_control": SourceControlConfig,
-    "artifacts": ArtifactsConfig,
-    "cores": int,
-    "ram_gb": int
+    "artifacts": ArtifactsConfig
     }

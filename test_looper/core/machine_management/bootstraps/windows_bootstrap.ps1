@@ -19,38 +19,11 @@ try {
 	Set-Partition -DriveLetter "D" -NewDriveLetter "Z"
 } catch { }
 
-log("Running bootstrap script - installing python")
-
-#download and intall python2.7.14
-$python_msi_url = "https://__testlooper_server_and_port__/python-2.7.14.amd64.msi"
-$python_msi_file = "C:\ProgramData\TestLooper\python-2.7.14.amd64.msi"
-
-$client.DownloadFile($python_msi_url, $python_msi_file)
-Start-Process "msiexec.exe" -ArgumentList @("/i", $python_msi_file, 'ALLUSERS="1"', "/passive", "/quiet", "/L*V", "C:\ProgramData\TestLooper\python-install.log") -Wait
-$env:Path += ";C:\Python27;C:\Python27\Scripts"
-
-#get pip
-$client.DownloadFile("https://__testlooper_server_and_port__/get-pip.py", "C:\ProgramData\TestLooper\get-pip.py")
-python "C:\ProgramData\TestLooper\get-pip.py"
-
-pip install simplejson==3.13.2 requests==2.18.4 pyyaml==3.12 boto3==1.5.8 pyodbc==4.0.21 psutil==5.4.3 pypiwin32
-
-log("Running bootstrap script - installing git")
-
-#download and install git 2.15.1
-$git_for_windows_url = "https://__testlooper_server_and_port__/Git-2.15.1.2-64-bit.exe"
-$git_for_windows_file = "C:/ProgramData/TestLooper/git_installer.exe"
-$client.DownloadFile($git_for_windows_url, $git_for_windows_file)
-
-Start-Process $git_for_windows_file -ArgumentList @("/silent", "/suppressmsgboxes", "/norestart", '/Dir="C:\Git"') -Wait
-$env:Path += ";C:\Git\bin"
-
 log("Running bootstrap script - getting the looper source")
 
 #get the test-looper source
 $testlooper_src_url = "https://__testlooper_server_and_port__/test_looper.zip"
 $testlooper_zip_file = "C:\ProgramData\TestLooper\test_looper.zip"
-
 
 $env:PYTHONPATH = "C:\ProgramData\TestLooper"
 

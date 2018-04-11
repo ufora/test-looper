@@ -1672,6 +1672,14 @@ class TestManager(object):
                 )
             )
 
+    def _setupContentsForMachineCategory(self, category):
+        for test in self.database.Test.lookupAll(machineCategoryAndPrioritized=category):
+            try:            
+                env = self.environmentForTest(test)
+                return env.image.setup_script_contents
+            except:
+                logging.error("Couldn't get an environment for test %s" % test.testDefinitionSummary.hash)
+
     def _bootMachinesIfNecessary(self, curTimestamp):
         #repeatedly check if we can boot any machines. If we can't,
         #but we want to, we need to check whether there are any machines we can
@@ -1681,6 +1689,9 @@ class TestManager(object):
                             self.database.MachineCategory.lookupAll(want_less=True)):
             logging.info("\t%s/%s: %s desired vs %s booted", cat.hardware, cat.os, cat.desired, cat.booted)
 
+        logging.info("Checking whether we need to build any AMIs")
+        self.machine_management.amiCollectionCheck()
+
         def check():
             wantingBoot = self.database.MachineCategory.lookupAll(want_more=True)
             wantingShutdown = self.database.MachineCategory.lookupAll(want_less=True)
@@ -1689,6 +1700,20 @@ class TestManager(object):
                 for c in wantingBoot:
                     if self.machine_management.canBoot(c.hardware, c.os):
                         return c
+                    elif self.machine_management.wantsToSeeSetupScriptForOsConfig(c.os):
+                        setupContents = self._setupContentsForMachineCategory(c)
+                        if setupContents:
+                            self.machine_management.ensureOsConfigAvailable(c.os, setupContents)
+                        else:
+                            c.hardwareComboUnbootable=True
+                            c.hardwareComboUnbootableReason="Couldn't find setup contents."
+                            c.desired=0
+                    elif self.machine_management.isOsConfigInvalid(c.os):
+                        c.hardwareComboUnbootable=True
+                        c.hardwareComboUnbootableReason="Ami creation failed"
+                        c.desired=0
+
+
 
             while wantingBoot and not canBoot() and wantingShutdown:
                 shutAnyDown = False
@@ -1724,6 +1749,7 @@ class TestManager(object):
             machineId = self.machine_management.boot_worker(category.hardware, category.os)
         except MachineManagement.UnbootableWorkerCombination as e:
             category.hardwareComboUnbootable=True
+            category.hardwareComboUnbootableReason="Invalid hardware/os combination"
             category.desired=0
 
             for t in self.database.Test.lookupAll(machineCategoryAndPrioritized=category):

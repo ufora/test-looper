@@ -244,9 +244,6 @@ class WorkerStateOverride(WorkerState.WorkerState):
     def resetToCommitInDir(self, repoName, commitHash, targetDir):
         assert False
 
-    def applyAmiImageSetupCommand(self):
-        return False
-
     def cleanup(self):
         if Docker is not None:
             Docker.DockerImage.removeDanglingDockerImages()

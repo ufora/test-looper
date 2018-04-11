@@ -9,6 +9,8 @@ import signal
 import threading
 import time
 import os
+import multiprocessing
+import psutil
 
 import test_looper.core.algebraic_to_json as algebraic_to_json
 import test_looper.core.Config as Config
@@ -61,7 +63,10 @@ def createTestWorker(config, worker_path, machineId):
         source_control=source_control,
         artifactStorage=artifact_storage,
         machineId=machineId,
-        hardwareConfig=Config.HardwareConfig(cores=config.cores,ram_gb=config.ram_gb)
+        hardwareConfig=Config.HardwareConfig(
+            cores=multiprocessing.cpu_count(),
+            ram_gb=psutil.virtual_memory().total / 1024 / 1024 / 1024
+            )
         )
 
     return TestLooperWorker.TestLooperWorker(workerState, machineId, config.server_ports, True, 2.0)

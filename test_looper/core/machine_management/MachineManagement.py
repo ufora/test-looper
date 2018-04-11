@@ -45,6 +45,21 @@ class MachineManagement(object):
     def shutdown(self):
         pass
 
+    def amiCollectionCheck(self):
+        pass
+
+    def wantsToSeeSetupScriptForOsConfig(self, osConfig):
+        return False
+
+    def isOsConfigInvalid(self, osConfig):
+        return False
+
+    def invalidOsConfigLogOrNone(self, osConfig):
+        return None
+
+    def ensureOsConfigAvailable(self, osConfig, setupScript):
+        assert False, "Not implemented"
+
     def canBoot(self, hardwareConfig, osConfig):
         with self._lock:
             config = self.config.machine_management
@@ -243,6 +258,26 @@ class AwsMachineManagement(MachineManagement):
 
         self.instance_types = config.machine_management.instance_types
 
+        self.updateOsConfigsAvailable()
+
+    def updateOsConfigsAvailable(self):
+        self.windowsOsConfigsAvailable = set()
+        self.windowsOsConfigsBeingCreated = set()
+        self.invalidWindowsOsConfigs = set()
+
+        listing = self.api.listWindowsOsConfigs()
+        for ((ami,hash),status) in listing.iteritems():
+            config = OsConfig.WindowsVM(ami=ami, setupHash=hash)
+
+            if status in ("In progress", "Awaiting snapshot", "Snapshotting"):
+                self.windowsOsConfigsBeingCreated.add(config)
+            elif status == "Failed":
+                self.invalidWindowsOsConfigs.add(config)
+            elif status == "Complete":
+                self.windowsOsConfigsAvailable.add(config)
+            else:
+                logging.error("Invalid status for os config %s: %s", config, status)
+
     def all_hardware_configs(self):
         return sorted(self.instance_types.keys(), key=lambda hw: hw.cores)
 
@@ -250,7 +285,46 @@ class AwsMachineManagement(MachineManagement):
         if hardwareConfig not in self.instance_types:
             return False
 
+        if osConfig.matches.WindowsVM and osConfig not in self.windowsOsConfigsAvailable:
+            return False
+
         return MachineManagement.canBoot(self, hardwareConfig, osConfig)
+
+    def wantsToSeeSetupScriptForOsConfig(self, osConfig):
+        with self._lock:
+            if osConfig.matches.WindowsVM:
+                if osConfig in self.invalidWindowsOsConfigs:
+                    return False
+                if osConfig not in self.windowsOsConfigsAvailable:
+                    return True
+                if osConfig not in self.windowsOsConfigsBeingCreated:
+                    return True
+
+            return False
+
+    def isOsConfigInvalid(self, osConfig):
+        with self._lock:
+            return osConfig in self.invalidWindowsOsConfigs
+
+    def invalidOsConfigLogOrNone(self, osConfig):
+        with self._lock:
+            if osConfig in self.invalidWindowsOsConfigs:
+                return self.api.invalidWindowsOsConfigLog(osConfig.ami, osConfig.setupHash)
+            else:
+                return None
+
+    def ensureOsConfigAvailable(self, osConfig, setupScript):
+        assert osConfig.matches.WindowsVM
+        with self._lock:
+            if osConfig in self.windowsOsConfigsBeingCreated:
+                return
+
+            self.windowsOsConfigsBeingCreated.add(osConfig)
+            self.api.bootAmiCreator("windows", "m5.xlarge", osConfig.ami, setupScript)
+
+    def amiCollectionCheck(self):
+        self.api.gatherAmis()
+        self.updateOsConfigsAvailable()
 
     def synchronize_workers(self, machineIds):
         with self._lock:
@@ -305,10 +379,13 @@ class AwsMachineManagement(MachineManagement):
             elif os_config.matches.WindowsVM:
                 platform = "windows"
                 amiOverride = os_config.ami
+                if not amiOverride:
+                    amiOverride = self.config.machine_management.windows_ami
+                amiOverride = self.api.lookupActualAmiForScriptHash(amiOverride, os_config.setupHash)
             else:
                 raise UnbootableWorkerCombination(hardware_config, os_config)
 
-            machineId = self.api.bootWorker(platform, instance_type, hardware_config, amiOverride=amiOverride)
+            machineId = self.api.bootWorker(platform, instance_type, amiOverride=amiOverride)
 
             self._machineBooted(machineId, hardware_config, os_config, True)
 

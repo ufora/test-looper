@@ -2,16 +2,19 @@ import boto3
 import uuid
 import test_looper.core.algebraic as algebraic
 import test_looper.core.algebraic_to_json as algebraic_to_json
+from test_looper.core.hash import sha_hash
 import base64
 import json
 import sys
 import time
 import os.path
 import logging
+import traceback
+import datetime
 
 own_dir = os.path.split(__file__)[0]
 
-windows_bootstrap_script_invoker = open(os.path.join(own_dir, "bootstraps", "windows_bootstrap_invoker.ps1"), "r").read()
+windows_ami_creator = open(os.path.join(own_dir, "bootstraps", "windows_ami_creator.ps1"), "r").read()
 windows_bootstrap_script = open(os.path.join(own_dir, "bootstraps", "windows_bootstrap.ps1"), "r").read()
 linux_bootstrap_script = open(os.path.join(own_dir, "bootstraps", "linux_bootstrap.sh"), "r").read()
 
@@ -22,15 +25,15 @@ class API:
         self.ec2_client = boto3.client('ec2',region_name=self.config.machine_management.region)
         self.s3 = boto3.resource('s3',region_name=self.config.machine_management.region)
 
-    def machineIdsOfAllWorkers(self):
+    def machineIdsOfAllWorkers(self, producingAmis=False):
         filters = [{  
             'Name': 'tag:Name',
-            'Values': [self.config.machine_management.worker_name]
+            'Values': [self.config.machine_management.worker_name + ("_ami_creator" if producingAmis else "")]
             }]
         res = []
         for reservations in self.ec2_client.describe_instances(Filters=filters)["Reservations"]:
             for instance in reservations["Instances"]:
-                if instance['State']['Name'] == 'running':
+                if instance['State']['Name'] == 'running' or producingAmis:
                     res.append(str(instance["InstanceId"]))
         return res
 
@@ -57,12 +60,261 @@ class API:
         logging.info("Terminating AWS instance %s", instance)
         instance.terminate()
 
+    def invalidWindowsOsConfigLog(self, baseAmi, setupScriptHash):
+        bucket = self.s3.Bucket(self.config.machine_management.bootstrap_bucket)
+
+        object = bucket.objects.filter(Prefix=self.bootstrap_key_root + baseAmi + "_" + setupScriptHash + "_BootstrapLog.fail")
+        if len(object) != 1:
+            return None
+        return object
+
+    def listWindowsImages(self, availableOnly):
+        images = self.ec2.images.filter(Owners=['self'])
+
+        res = {}
+        for i in images:
+            tags = { t["Key"]: t["Value"] for t in i.tags or [] }
+
+            if (tags.get("testlooper_worker_name","") == self.config.machine_management.worker_name 
+                    and "BaseAmi" in tags and "SetupScriptHash" in tags):
+                if not availableOnly or i.status == "available":
+                    res[tags["BaseAmi"],tags["SetupScriptHash"]] = i
+
+        return res
+
+    def getImageByName(self, name):
+        images = self.ec2.images.filter(Filters=[{"Name": "name", "Values": [name]}])
+
+        for i in images:
+            return i
+
+    def gatherAmis(self):
+        instances = {}
+        images = self.listWindowsImages(availableOnly = False)
+        amiStates = self.listWindowsOsConfigs()
+
+        for id in self.machineIdsOfAllWorkers(producingAmis=True):
+            instance = self.ec2.Instance(id)
+
+            if instance.state["Name"] != "terminated":
+                tags = {t["Key"]: t["Value"] for t in instance.tags}
+
+                if 'BaseAmi' in tags and 'SetupScriptHash' in tags:
+                    instances[tags["BaseAmi"], tags["SetupScriptHash"]] = instance
+                else:
+                    logging.error("Invalid instance found: %s. Terminating.", id)
+                    try:
+                        instance.terminate()
+                    except:
+                        logging.critical("Failed to terminate instance: %s\n%s", id, traceback.format_exc())
+
+        for ami,hash in set(list(instances.keys()) + list(images.keys())):
+            try:
+                self.checkAmiStateTransition(ami,hash, instances.get((ami,hash),None), images.get((ami,hash),None), amiStates.get((ami,hash), None))
+            except:
+                logging.error("Failed to update AMI state transition for %s/%s:\n%s", ami, hash, traceback.format_exc())
+
+    def checkAmiStateTransition(self, baseAmi, scriptHash, creatorInstance, actualImage, bootstrapLogState):
+        if actualImage is not None:
+            if actualImage.state == "available":
+                if creatorInstance and creatorInstance.state["Name"] != "terminated":
+                    logging.info(
+                        "Ami %s/%s still has an instance %s in state %s. terminating", 
+                        baseAmi, scriptHash, creatorInstance, creatorInstance.state["Name"]
+                        )
+                    creatorInstance.terminate()
+        else:
+            if creatorInstance.state["Name"] in ("terminated", "shutting-down"):
+                return
+
+            if bootstrapLogState == "Failed":
+                logging.info("Instance %s produced a failure bootstrap log for %s/%s, so shutting it down", creatorInstance, baseAmi, scriptHash)
+                creatorInstance.terminate()
+
+            if creatorInstance.state["Name"] == "stopped":
+                logging.info("Ami %s/%s has a stopped instance but no image. Creating one.", baseAmi, scriptHash)
+                for v in creatorInstance.volumes.all():
+                    devices = []
+                    for a in v.attachments:
+                        if a.get("Device",None):
+                            devices.append(a["Device"])
+                    
+                    if "/dev/xvdb" in devices:
+                        creatorInstance.detach_volume(VolumeId=v.id)
+
+                imageName = self.config.machine_management.worker_name + "_" + baseAmi + "_" + scriptHash
+                
+                image = self.getImageByName(imageName)
+                if not image:
+                    logging.info("Creating an image named %s", imageName)
+                    image = creatorInstance.create_image(Name=imageName)
+                    logging.info("Image named %s has id %s", imageName, image)
+                else:
+                    logging.info("Image named %s already exists as %s", imageName, image)                
+
+                image.create_tags(Tags=[
+                    {"Key": "BaseAmi", "Value": baseAmi},
+                    {"Key": "SetupScriptHash", "Value": scriptHash}
+                    ])
+
+                logging.info("AMI %s/%s created as %s", baseAmi, scriptHash, image)
+            else:
+                upFor = time.time() - self.instanceLaunchTimestamp(creatorInstance)
+
+                #two hour cutoff
+                if upFor > 3600 * 2:
+                    logging.info("Instance %s has been up for %s seconds, which exceeds the cutoff", creatorInstance, upFor)
+
+                    bucket = self.s3.Bucket(self.config.machine_management.bootstrap_bucket)
+                    bucket.put_object(Key=self.bootstrap_key_root + baseAmi + "_" + setupScriptHash + "_BootstrapLog.fail", Body="Timed out...")
+
+                    creatorInstance.terminate()
+                    return
+
+    def instanceLaunchTimestamp(self, instance):
+        launch_naive  = instance.launch_time.replace(tzinfo=None) - instance.launch_time.utcoffset()
+        return (launch_naive - datetime.datetime(1970, 1, 1)).total_seconds()
+
+    def listWindowsOsConfigs(self):
+        images = self.listWindowsImages(availableOnly=True)
+        pending_images = self.listWindowsImages(availableOnly=False)
+
+        bucket = self.s3.Bucket(self.config.machine_management.bootstrap_bucket)
+
+        configs = {}
+
+        for obj in bucket.objects.filter(Prefix=self.bootstrap_key_root):
+            key = obj.key[len(self.bootstrap_key_root):]
+            try:
+                ami, hash, target = key.split("_")
+
+                if (ami,hash) not in configs:
+                    configs[ami,hash] = "In progress" 
+
+                if target == "BootstrapLog.fail":
+                    configs[ami,hash] = "Failed"
+
+                if target == "BootstrapLog.success":
+                    if (ami,hash) in images:
+                        configs[ami,hash] = "Complete"
+                    elif (ami,hash) in pending_images:
+                        configs[ami,hash] = "Snapshotting"
+                    else:
+                        configs[ami,hash] = "Awaiting snapshot"
+            except:
+                logging.error("AwsCloudAPI encountered unparsable key %s", key)
+
+        return configs
+
+    def lookupActualAmiForScriptHash(self, baseAmi, setupScriptHash):
+        res = self.listWindowsImages(availableOnly).get((baseAmi, setupScriptHash), None)
+        assert res is not None, "Image %s/%s is not available" % (baseAmi, setupScriptHash)
+        return res
+
+    @property
+    def bootstrap_key_root(self):
+        bootstrap_path = self.config.machine_management.bootstrap_key_prefix
+        if not bootstrap_path.endswith("/"):
+            bootstrap_path += "/"
+        return bootstrap_path
+
+    def clearAll(self, dry_run):
+        bucket = self.s3.Bucket(self.config.machine_management.bootstrap_bucket)
+        for o in bucket.objects.filter(Prefix=self.bootstrap_key_root):
+            if not dry_run:
+                print "deleting key ", o
+                assert False
+                o.delete()
+            else:
+                print "would delete key ", o
+
+        for id in self.machineIdsOfAllWorkers(producingAmis=True):
+            instance = self.ec2.Instance(id)
+            if instance.state["Name"] in "terminated":
+                print instance, " is already terminated."
+            else:
+                if not dry_run:
+                    print "terminating ", instance
+                    assert False
+                    instance.terminate()
+                else:
+                    print "would terminate ", instance
+
+        images = self.listWindowsImages(False)
+        for ((a,h),i) in images.iteritems():
+            if dry_run:
+                print "would deregister image ", (a,h), i
+            else:
+                print "deregister image ", (a,h), i
+                assert False
+                i.deregister()
+
+
+    def bootAmiCreator(self, platform, instanceType, baseAmi, setupScript):
+        assert platform == "windows"
+
+        to_json = algebraic_to_json.Encoder().to_json
+
+        baseAmi = baseAmi or self.config.machine_management.windows_ami
+
+        looper_server_and_port = (
+            "%s:%s" % (
+                self.config.server_ports.server_address, 
+                self.config.server_ports.server_https_port
+                )
+            )
+        
+        bootstrap_path = self.bootstrap_key_root + baseAmi + "_" + sha_hash(setupScript).hexdigest
+
+        boot_script = (
+            windows_ami_creator
+                .replace("__windows_box_password__", self.config.machine_management.windows_password)
+                .replace("__test_key__", open(self.config.machine_management.path_to_keys,"r").read())
+                .replace("__test_key_pub__", open(self.config.machine_management.path_to_keys + ".pub","r").read())
+                .replace("__bootstrap_bucket__", self.config.machine_management.bootstrap_bucket)
+                .replace("__installation_key__", bootstrap_path + "_InstallScript.ps1")
+                .replace("__reboot_script_key__", bootstrap_path + "_RebootScript.ps1")
+                .replace("__bootstrap_log_key__", bootstrap_path + "_BootstrapLog")
+                .replace("__testlooper_server_and_port__", looper_server_and_port)
+                .replace("__hosts__", "\n\n".join(
+                    'echo "%s %s" |  Out-File -Append c:/Windows/System32/Drivers/etc/hosts -Encoding ASCII' % (ip,hostname) for hostname,ip in 
+                        self.config.machine_management.host_ips.iteritems()
+                    ))
+            )
+
+        bucket = self.s3.Bucket(self.config.machine_management.bootstrap_bucket)
+
+        reboot_script = (
+            windows_bootstrap_script.replace("__test_config__", json.dumps({
+                    "server_ports": to_json(self.config.server_ports),
+                    "source_control": to_json(self.config.source_control),
+                    "artifacts": to_json(self.config.artifacts)
+                    }, indent=4))
+                .replace("__testlooper_server_and_port__", looper_server_and_port)
+            )
+
+        bucket.put_object(Key=bootstrap_path + "_RebootScript.ps1", Body=reboot_script)
+        bucket.put_object(Key=bootstrap_path + "_InstallScript.ps1", Body=setupScript)
+
+        self.bootWorker(
+            platform, 
+            instanceType, 
+            amiOverride=baseAmi, 
+            bootScriptOverride=boot_script,
+            nameValueOverride=self.config.machine_management.worker_name+"_ami_creator",
+            extraTags={"BaseAmi": baseAmi, "SetupScriptHash": sha_hash(setupScript).hexdigest},
+            wantsTerminateOnShutdown=False
+            )
+
     def bootWorker(self, 
             platform, 
             instanceType,
-            hardwareConfig,
             clientToken=None,
-            amiOverride=None
+            amiOverride=None,
+            bootScriptOverride=None,
+            nameValueOverride=None,
+            extraTags=None,
+            wantsTerminateOnShutdown=True
             ):
         assert platform in ["linux", "windows"]
 
@@ -77,9 +329,7 @@ class API:
                         {
                         "server_ports": to_json(self.config.server_ports),
                         "source_control": to_json(self.config.source_control),
-                        "artifacts": to_json(self.config.artifacts),
-                        "cores": hardwareConfig.cores,
-                        "ram_gb": hardwareConfig.ram_gb
+                        "artifacts": to_json(self.config.artifacts)
                         },
                         indent=4
                         )
@@ -92,42 +342,10 @@ class API:
                     )
                 )
         else:
-            looper_server_and_port = (
-                "%s:%s" % (
-                    self.config.server_ports.server_address, 
-                    self.config.server_ports.server_https_port
-                    )
-                )
-            bootstrap_uuid = str(uuid.uuid4())
+            boot_script = ""
 
-            boot_script = (
-                windows_bootstrap_script_invoker
-                    .replace("__test_key__", open(self.config.machine_management.path_to_keys,"r").read())
-                    .replace("__test_key_pub__", open(self.config.machine_management.path_to_keys + ".pub","r").read())
-                    .replace("__bootstrap_bucket__", self.config.machine_management.bootstrap_bucket)
-                    .replace("__bootstrap_key__", self.config.machine_management.bootstrap_key_prefix + "/%s.ps1" % bootstrap_uuid)
-                    .replace("__bootstrap_log_key__", self.config.machine_management.bootstrap_key_prefix + "/%s.log" % bootstrap_uuid)
-                    .replace("__testlooper_server_and_port__", looper_server_and_port)
-                    .replace("__hosts__", "\n\n".join(
-                        'echo "%s %s" |  Out-File -Append c:/Windows/System32/Drivers/etc/hosts -Encoding ASCII' % (ip,hostname) for hostname,ip in 
-                            self.config.machine_management.host_ips.iteritems()
-                        ))
-                )
-
-            bucket = self.s3.Bucket(self.config.machine_management.bootstrap_bucket)
-
-            actual_bootstrap_script = (
-                windows_bootstrap_script.replace("__test_config__", json.dumps({
-                        "server_ports": to_json(self.config.server_ports),
-                        "source_control": to_json(self.config.source_control),
-                        "artifacts": to_json(self.config.artifacts),
-                        "cores": hardwareConfig.cores,
-                        "ram_gb": hardwareConfig.ram_gb
-                        }, indent=4))
-                    .replace("__testlooper_server_and_port__", looper_server_and_port)
-                )
-
-            bucket.put_object(Key=self.config.machine_management.bootstrap_key_prefix + '/%s.ps1' % bootstrap_uuid, Body=actual_bootstrap_script)
+        if bootScriptOverride:
+            boot_script = bootScriptOverride
 
         if clientToken is None:
             clientToken = str(uuid.uuid4())
@@ -161,7 +379,9 @@ class API:
                     "DeleteOnTermination": True,
                     "VolumeSize": 200
                     }
-                }            
+                }
+
+        nameValue = nameValueOverride or self.config.machine_management.worker_name
 
         return str(self.ec2.create_instances(
             ImageId=ami,
@@ -172,7 +392,7 @@ class API:
             SecurityGroupIds=[self.config.machine_management.security_group],
             SubnetId=self.config.machine_management.subnet,
             ClientToken=clientToken,
-            InstanceInitiatedShutdownBehavior='terminate',
+            InstanceInitiatedShutdownBehavior='terminate' if wantsTerminateOnShutdown else "stop",
             IamInstanceProfile={'Name': self.config.machine_management.worker_iam_role_name},
             UserData=base64.b64encode(boot_script) if platform=="linux" else boot_script,
             BlockDeviceMappings=[deviceMapping],
@@ -181,7 +401,7 @@ class API:
                     'ResourceType': 'instance',
                     'Tags': [{ 
                         "Key": 'Name', 
-                        "Value": self.config.machine_management.worker_name
-                        }]
+                        "Value": nameValue
+                        }] + [{ "Key": k, "Value": v} for (k,v) in (extraTags or {}).iteritems()]
                 }]
             )[0].id)
