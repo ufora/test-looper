@@ -6,7 +6,7 @@ class RootContext(Context.Context):
         Context.Context.__init__(self, renderer, options)
 
     def consumePath(self, path):
-        if path and path[0] in ["repos", "deployments", "machines"]:
+        if path and path[0] in ["repos", "deployments", "machines", "amis"]:
             return self.renderer.contextFor(path[0], self.options), path[1:]
 
         return None, path
@@ -21,7 +21,7 @@ class RootContext(Context.Context):
         return "repos/" + self.reponame
 
     def childContexts(self, currentChild):
-        return [self.contextFor(x) for x in ["repos", "deployments", "machines"]]
+        return [self.contextFor(x) for x in ["repos", "deployments", "machines", "amis"]]
 
     def parentContext(self):
         return None

@@ -77,7 +77,7 @@ class API:
 
             if (tags.get("testlooper_worker_name","") == self.config.machine_management.worker_name 
                     and "BaseAmi" in tags and "SetupScriptHash" in tags):
-                if not availableOnly or i.status == "available":
+                if not availableOnly or i.state == "available":
                     res[tags["BaseAmi"],tags["SetupScriptHash"]] = i
 
         return res
@@ -154,7 +154,8 @@ class API:
 
                 image.create_tags(Tags=[
                     {"Key": "BaseAmi", "Value": baseAmi},
-                    {"Key": "SetupScriptHash", "Value": scriptHash}
+                    {"Key": "SetupScriptHash", "Value": scriptHash},
+                    {"Key": "testlooper_worker_name", "Value": self.config.machine_management.worker_name},
                     ])
 
                 logging.info("AMI %s/%s created as %s", baseAmi, scriptHash, image)
@@ -207,9 +208,9 @@ class API:
         return configs
 
     def lookupActualAmiForScriptHash(self, baseAmi, setupScriptHash):
-        res = self.listWindowsImages(availableOnly).get((baseAmi, setupScriptHash), None)
+        res = self.listWindowsImages(availableOnly=True).get((baseAmi, setupScriptHash), None)
         assert res is not None, "Image %s/%s is not available" % (baseAmi, setupScriptHash)
-        return res
+        return res.id
 
     @property
     def bootstrap_key_root(self):

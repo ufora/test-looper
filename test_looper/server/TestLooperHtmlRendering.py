@@ -30,6 +30,7 @@ import test_looper.server.rendering.ComboContexts as ComboContexts
 import test_looper.server.rendering.RootContext as RootContext
 import test_looper.server.rendering.ReposContext as ReposContext
 import test_looper.server.rendering.MachinesContext as MachinesContext
+import test_looper.server.rendering.AmisContext as AmisContext
 import test_looper.server.rendering.DeploymentsContext as DeploymentsContext
 import test_looper.server.rendering.BranchContext as BranchContext
 import test_looper.server.rendering.IndividualTestContext as IndividualTestContext
@@ -74,6 +75,8 @@ class Renderer:
             return ReposContext.ReposContext(self, options)
         if entity == "machines":
             return MachinesContext.MachinesContext(self, options)
+        if entity == "amis":
+            return AmisContext.AmisContext(self, options)
         if entity == "deployments":
             return DeploymentsContext.DeploymentsContext(self, options)
 
