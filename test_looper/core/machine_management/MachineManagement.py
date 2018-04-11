@@ -13,8 +13,8 @@ import os
 OsConfig = algebraic.Alternative("OsConfig")
 OsConfig.LinuxWithDocker = {}
 OsConfig.WindowsWithDocker = {}
-OsConfig.WindowsVM = {"ami": str}
-OsConfig.LinuxVM = {"ami": str}
+OsConfig.WindowsVM = {"ami": str, "setupHash": str}
+OsConfig.LinuxVM = {"ami": str, "setupHash": str}
 
 class UnbootableWorkerCombination(Exception):
     """An exception indicating that we can't meet this request for hardware/software,

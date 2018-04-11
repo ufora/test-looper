@@ -1070,29 +1070,58 @@ class TestManager(object):
         return testDef
 
     def touchAllTestsAndRuns(self, curTimestamp):
+        toCheck = set()
+        commits = set()
+
         with self.transaction_and_lock():
-            commits = set()
 
             for repo in self.database.Repo.lookupAll(isActive=True):
-                toCheck = set()
                 for branch in self.database.Branch.lookupAll(repo=repo):
                     if branch.head:
                         toCheck.add(branch.head)
-                while toCheck:
-                    c = toCheck.pop()
-                    if c not in commits:
-                        if len(commits) % 1000 == 0:
-                            logging.info("Have done %s commits", len(commits))
-                        commits.add(c)
 
-                        if c.data:
-                            for p in c.data.parents:
-                                toCheck.add(p)
+        while toCheck:
+            c = toCheck.pop()
+            if c not in commits:
+                if len(commits) % 1000 == 0:
+                    logging.info("Have done %s commits. %s pending", len(commits), len(toCheck))
+                commits.add(c)
 
-                            for test in c.data.tests.values():
-                                for run in self.database.TestRun.lookupAll(test=test):
-                                    pass
-                        
+                with self.transaction_and_lock():
+                    if c.data:
+                        for p in c.data.parents:
+                            toCheck.add(p)
+
+                        commitTestDefs = None
+
+                        for test in c.data.tests.values():
+                            for typename in test.__types__:
+                                getattr(test, typename)
+
+                            os = test.testDefinitionSummary.machineOs
+                            if os.matches.WindowsVM or os.matches.LinuxVM:
+                                if not os.setupHash:
+                                    if commitTestDefs is None:
+                                        try:
+                                            commitTestDefs = self.testsForCommit(c)
+                                        except:
+                                            commitTestDefs = {}
+                                    try:
+                                        env = commitTestDefs.get(test.testDefinitionSummary.name).environment
+
+                                        test.testDefinitionSummary = \
+                                            test.testDefinitionSummary._withReplacement(
+                                                machineOs=self._machineOsForEnv(env)
+                                                )
+
+                                        logging.info("Had to rebuild os for test %s", test)
+                                    except:
+                                        logging.error("Failed to rebuild os for test %s:\n%s", test, traceback.format_exc())
+
+                            for run in self.database.TestRun.lookupAll(test=test):
+                                for typename in run.__types__:
+                                    getattr(run, typename)
+                    
 
 
 
@@ -1419,16 +1448,8 @@ class TestManager(object):
             commit.hash
             )
 
-    def environmentForTest(self, test):
-        return self.definitionForTest(test).environment
-
-    def definitionForTest(self, test):
-        """Extracts the testDefinition for a given test."""
-        commitDep = self.database.CommitTestDependency.lookupAny(test=test)
-        
-        assert commitDep is not None, "Somehow, don't have a commit referencing %s" % test._identity
-
-        raw_text, extension = self.getRawTestFileForCommit(commitDep.commit)
+    def testsForCommit(self, commit):
+        raw_text, extension = self.getRawTestFileForCommit(commit)
 
         def getRepo(reponame):
             if not self.database.Repo.lookupAny(name=reponame):
@@ -1438,9 +1459,21 @@ class TestManager(object):
         resolver = TestDefinitionResolver.TestDefinitionResolver(getRepo)
 
         return resolver.testEnvironmentAndRepoDefinitionsFor(
-            commitDep.commit.repo.name, 
-            commitDep.commit.hash
-            )[0].get(test.testDefinitionSummary.name)
+            commit.repo.name, 
+            commit.hash
+            )[0]
+
+
+    def environmentForTest(self, test):
+        return self.definitionForTest(test).environment
+
+    def definitionForTest(self, test):
+        """Extracts the testDefinition for a given test."""
+        commitDep = self.database.CommitTestDependency.lookupAny(test=test)
+        
+        assert commitDep is not None, "Somehow, don't have a commit referencing %s" % test._identity
+
+        return self.testsForCommit(commitDep.commit).get(test.testDefinitionSummary.name)
 
     def _parseCommitTests(self, commit):
         try:
@@ -1828,7 +1861,7 @@ class TestManager(object):
         oldPriority = test.priority
         oldTargetMachineBoot = test.targetMachineBoot
 
-        category = test.machineCategory
+        category = test.machineCategory = self._machineCategoryForTest(test)
 
         if category and category.hardwareComboUnbootable:
             test.priority = self.database.TestPriority.HardwareComboUnbootable()
@@ -2138,7 +2171,10 @@ class TestManager(object):
             if env.image.matches.Dockerfile or env.image.matches.DockerfileInline:
                 return MachineManagement.OsConfig.LinuxWithDocker()
             elif env.image.matches.AMI:
-                return MachineManagement.OsConfig.LinuxVM(env.image.base_ami)
+                return MachineManagement.OsConfig.LinuxVM(
+                    ami=env.image.base_ami,
+                    setupHash=sha_hash(env.image.setup_script_contents).hexdigest
+                    )
             else:
                 logging.warn("Test %s has an invalid image %s for linux", test.hash + "/" + test.name, env.image)
                 return None
@@ -2147,7 +2183,10 @@ class TestManager(object):
             if env.image.matches.Dockerfile or env.image.matches.DockerfileInline:
                 return MachineManagement.OsConfig.WindowsWithDocker()
             elif env.image.matches.AMI:
-                return MachineManagement.OsConfig.WindowsVM(env.image.base_ami)
+                return MachineManagement.OsConfig.WindowsVM(
+                    ami=env.image.base_ami,
+                    setupHash=sha_hash(env.image.setup_script_contents).hexdigest
+                    )
             else:
                 logging.warn("Test %s has an invalid image %s for windows", test.hash + "/" + test.name, env.image)
                 return None

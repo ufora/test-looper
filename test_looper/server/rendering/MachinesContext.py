@@ -28,9 +28,9 @@ class MachinesContext(Context.Context):
             row.append(m.machineId)
             row.append("%s cores, %s GB" % (m.hardware.cores, m.hardware.ram_gb))
             if m.os.matches.WindowsVM:
-                row.append("Win(%s)" % m.os.ami)
+                row.append("Win(%s, %s)" % (m.os.ami, m.os.setupHash[:8]))
             elif m.os.matches.LinuxVM:
-                row.append("Linux(%s)" % m.os.ami)
+                row.append("Linux(%s, %s)" % (m.os.ami, m.os.setupHash[:8]))
             elif m.os.matches.LinuxWithDocker:
                 row.append("LinuxDocker()")
             elif m.os.matches.WindowsWithDocker:
