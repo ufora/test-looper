@@ -1098,26 +1098,6 @@ class TestManager(object):
                             for typename in test.__types__:
                                 getattr(test, typename)
 
-                            os = test.testDefinitionSummary.machineOs
-                            if os.matches.WindowsVM or os.matches.LinuxVM:
-                                if not os.setupHash:
-                                    if commitTestDefs is None:
-                                        try:
-                                            commitTestDefs = self.testsForCommit(c)
-                                        except:
-                                            commitTestDefs = {}
-                                    try:
-                                        env = commitTestDefs.get(test.testDefinitionSummary.name).environment
-
-                                        test.testDefinitionSummary = \
-                                            test.testDefinitionSummary._withReplacement(
-                                                machineOs=self._machineOsForEnv(env)
-                                                )
-
-                                        logging.info("Had to rebuild os for test %s", test)
-                                    except:
-                                        logging.error("Failed to rebuild os for test %s:\n%s", test, traceback.format_exc())
-
                             for run in self.database.TestRun.lookupAll(test=test):
                                 for typename in run.__types__:
                                     getattr(run, typename)
