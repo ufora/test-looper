@@ -65,7 +65,7 @@ def createTestWorker(config, worker_path, machineId):
         machineId=machineId,
         hardwareConfig=Config.HardwareConfig(
             cores=multiprocessing.cpu_count(),
-            ram_gb=psutil.virtual_memory().total / 1024 / 1024 / 1024
+            ram_gb=int(psutil.virtual_memory().total / 1024.0 / 1024.0 / 1024.0 + .1)
             )
         )
 
