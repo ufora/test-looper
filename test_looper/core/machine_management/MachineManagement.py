@@ -267,6 +267,8 @@ class AwsMachineManagement(MachineManagement):
 
         listing = self.api.listWindowsOsConfigs()
         for ((ami,hash),status) in listing.iteritems():
+            logging.info("AMI status: %s/%s = %s", ami,hash,status)
+            
             config = OsConfig.WindowsVM(ami=ami, setupHash=hash)
 
             if status in ("In progress", "Awaiting snapshot", "Snapshotting"):
