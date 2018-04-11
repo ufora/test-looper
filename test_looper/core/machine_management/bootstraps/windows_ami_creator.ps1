@@ -77,7 +77,8 @@ try {
     $env:Path += ";C:\Git\bin"
 
     log("Writing startup.bat")
-    echo "Powershell -ExecutionPolicy Unrestricted C:\ProgramData\TestLooper\RebootScript.ps1 >> C:\ProgramData\TestLooper\RebootScript.log 2>&1 " `
+    # >> C:\ProgramData\TestLooper\RebootScript.log 2>&1 
+    echo "Powershell -ExecutionPolicy Unrestricted C:\ProgramData\TestLooper\RebootScript.ps1" `
         | Out-File -FilePath "C:\ProgramData\Microsoft\Windows\Start Menu\Programs\StartUp\startup.bat" -Encoding ASCII
 
     log("Executing startup script")

@@ -88,6 +88,22 @@ class API:
         for i in images:
             return i
 
+    def imagesBeingProducedByWorkers(self):
+        res = set()
+
+        images = self.listWindowsImages(availableOnly = False)
+        
+        for id in self.machineIdsOfAllWorkers(producingAmis=True):
+            instance = self.ec2.Instance(id)
+
+            if instance.state["Name"] != "terminated":
+                tags = {t["Key"]: t["Value"] for t in instance.tags}
+
+                if 'BaseAmi' in tags and 'SetupScriptHash' in tags:
+                    res.add((tags["BaseAmi"], tags["SetupScriptHash"]))
+
+        return res
+
     def gatherAmis(self):
         instances = {}
         images = self.listWindowsImages(availableOnly = False)
@@ -253,6 +269,11 @@ class API:
 
     def bootAmiCreator(self, platform, instanceType, baseAmi, setupScript):
         assert platform == "windows"
+
+        if (baseAmi, setupScript) in self.imagesBeingProducedByWorkers():
+            logging.warn("We tried to boot an image creator for %s/%s, but one is already up", (baseAmi, setupScript))
+            return
+
 
         to_json = algebraic_to_json.Encoder().to_json
 
