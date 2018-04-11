@@ -26,6 +26,8 @@ $testlooper_src_url = "https://__testlooper_server_and_port__/test_looper.zip"
 $testlooper_zip_file = "C:\ProgramData\TestLooper\test_looper.zip"
 
 $env:PYTHONPATH = "C:\ProgramData\TestLooper"
+$env:Path += ";C:\Python27;C:\Python27\Scripts"
+$env:Path += ";C:\Git\bin"
 
 echo '__test_config__' | Out-File -FilePath C:\ProgramData\TestLooper\config.json -Encoding ASCII
 
