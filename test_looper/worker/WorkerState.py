@@ -1210,8 +1210,9 @@ class WorkerState(object):
         if sys.platform == "win32":
             git_path = self.path_to_git_for_windows_installation()
 
-            res["GIT_PERL_BIN"] = os.path.join(git_path, "usr", "bin", "perl.exe")
-            res["GIT_BIN"] = os.path.join(git_path, "cmd", "git.exe")
+            if git_path:
+                res["GIT_PERL_BIN"] = os.path.join(git_path, "usr", "bin", "perl.exe")
+                res["GIT_BIN"] = os.path.join(git_path, "cmd", "git.exe")
 
         has_implicit_src_dep = "src" in test_definition.dependencies
         if has_implicit_src_dep:

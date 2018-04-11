@@ -163,6 +163,7 @@ class TestSummaryRenderer:
                 else:
                     suitesSucceeded += 1
 
+            if t.totalRuns:
                 totalTests += t.totalTestCount / t.totalRuns if t.totalRuns != 1 else t.totalTestCount
                 totalFailedTestCount += t.totalFailedTestCount / t.totalRuns if t.totalRuns != 1 else t.totalFailedTestCount
 
@@ -227,14 +228,13 @@ class TestSummaryRenderer:
                 suitesNotRun += 1
             elif t.successes == 0:
                 suitesFailed += 1
-                
-                #treat this as a test failure
-                totalTests += 1
-                totalFailedTestCount += 1
             else:
                 suitesSucceeded += 1
-                totalTests += t.totalTestCount / float(t.successes)
-                totalFailedTestCount += t.totalFailedTestCount / float(t.successes)
+
+            if t.totalRuns > 0:
+                totalTests += t.totalTestCount / float(t.totalRuns)
+                totalFailedTestCount += t.totalFailedTestCount / float(t.totalRuns)
+
 
         build_summary = ""
         allBuildsGood = False
