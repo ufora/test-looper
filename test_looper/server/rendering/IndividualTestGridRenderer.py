@@ -177,7 +177,7 @@ class IndividualTestGridRenderer:
                         '<div {onclick} data-toggle="tooltip" title="{text}">{contents}</div>'.format(
                             contents=contentsDetail,
                             text=cgi.escape(tooltip),
-                            onclick='onclick="location.href=\'{url}\'"'.format(url=url) if url else ''
+                            onclick='onclick="window.open(\'{url}\',\'_blank\')"'.format(url=url) if url else ''
                             ),
                         "class": cellClass
                         }
