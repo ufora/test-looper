@@ -552,9 +552,10 @@ class WorkerState(object):
                 print >> cmd_file, "echo 'HERE ARE AVAILABLE SERVICES:'"
                 print >> cmd_file, "Get-Service | Format-Table -Property Name, Status, StartType, DisplayName"
                 print >> cmd_file, "echo '********************************'"
-                print >> cmd_file, "echo 'BOOTING STOPPED AUTOSTART SERVICES:'"
-                print >> cmd_file, """Start-Service Netlogon"""
-                print >> cmd_file, """Get-Service | Where-Object { $_.StartType -eq "Automatic" -and $_.Status -eq "Stopped" } | ForEach-Object { Start-Service $_.Name }"""
+                print >> cmd_file, "echo 'REBOOT SCRIPT ******************'"
+                print >> cmd_file, """cat "C:\ProgramData\TestLooper\PreWorkerStartup.ps1" """
+                print >> cmd_file, "echo 'REBOOT SCRIPT OUTPUT ***********'"
+                print >> cmd_file, """cat "C:\ProgramData\TestLooper\PreWorkerStartup.log" """
                 print >> cmd_file, "echo '********************************'"
                 
             print >> cmd_file, command

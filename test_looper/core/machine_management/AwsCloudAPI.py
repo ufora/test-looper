@@ -171,7 +171,7 @@ class API:
                     
                     if "/dev/xvdb" in devices:
                         creatorInstance.detach_volume(VolumeId=v.id)
-                        v.create_tags([
+                        v.create_tags(Tags=[
                             {'Key': 'testlooper_worker_name', "Value": self.config.machine_management.worker_name},
                             {'Key': 'testlooper_volume_type', "Value": "image_bootstrap_discardable_storage"}
                             ])

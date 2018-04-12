@@ -31,6 +31,10 @@ $env:Path += ";C:\Git\bin"
 
 echo '__test_config__' | Out-File -FilePath C:\ProgramData\TestLooper\config.json -Encoding ASCII
 
+log("Executing the pre-boot process.")
+
+C:\ProgramData\TestLooper\PreWorkerStartup.ps1 >> C:\ProgramData\TestLooper\PreWorkerStartup.log 2>&1
+
 log("Executing the test-looper worker process.")
 
 #run the test-looper worker

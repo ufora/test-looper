@@ -41,6 +41,7 @@ try {
     Read-S3Object -BucketName __bootstrap_bucket__ -Key __installation_key__  -File C:\ProgramData\TestLooper\InstallScript.ps1
 
     $password = "__windows_box_password__"
+    $env:AdministratorPassword = $password
 
     $secure_password = ConvertTo-SecureString $password -AsPlainText -Force
 
@@ -75,6 +76,8 @@ try {
 
     Start-Process $git_for_windows_file -ArgumentList @("/silent", "/suppressmsgboxes", "/norestart", '/Dir="C:\Git"') -Wait
     $env:Path += ";C:\Git\bin"
+
+    echo "" >> "C:\ProgramData\TestLooper\PreWorkerStartup.ps1"
 
     log("Writing startup.bat")
     # >> C:\ProgramData\TestLooper\RebootScript.log 2>&1 
