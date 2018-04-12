@@ -288,8 +288,9 @@ class AwsArtifactStorage(ArtifactStorage):
 
     def build_size(self, testHash, key_name):
         try:
-            key = self._bucket.Object(self.build_artifact_key_prefix + "/" + testHash + "/" + key_name).load()
-            return None if not key else key.size
+            key = self._bucket.Object(self.build_artifact_key_prefix + "/" + testHash + "/" + key_name)
+            key.load()
+            return None if not key else key.content_length
         except botocore.exceptions.ClientError as e:
             return False
 

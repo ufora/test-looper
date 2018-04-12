@@ -417,7 +417,8 @@ class API:
                 "Ebs": {
                     "Encrypted": False,
                     "DeleteOnTermination": True,
-                    "VolumeSize": 200
+                    "VolumeSize": 200,
+                    "VolumeType": "gp2"
                     }
                 }
 

@@ -255,6 +255,9 @@ class WorkerState(object):
                 print >> cmd_file, "echo 'HERE ARE AVAILABLE SERVICES:'"
                 print >> cmd_file, "Get-Service | Format-Table -Property Name, Status, StartType, DisplayName"
                 print >> cmd_file, "echo '********************************'"
+                print >> cmd_file, "echo 'BOOTING STOPPED AUTOSTART SERVICES:'"
+                print >> cmd_file, """Get-Service | Where-Object { $_.StartType -eq "Automatic" -and $_.Status -eq "Stopped" } | ForEach-Object { Start-Service $_.Name }"""
+                print >> cmd_file, "echo '********************************'"
                 print >> cmd_file, command
 
             if workerCallback.localTerminal:
@@ -549,6 +552,11 @@ class WorkerState(object):
                 print >> cmd_file, "echo 'HERE ARE AVAILABLE SERVICES:'"
                 print >> cmd_file, "Get-Service | Format-Table -Property Name, Status, StartType, DisplayName"
                 print >> cmd_file, "echo '********************************'"
+                print >> cmd_file, "echo 'BOOTING STOPPED AUTOSTART SERVICES:'"
+                print >> cmd_file, """Start-Service Netlogon"""
+                print >> cmd_file, """Get-Service | Where-Object { $_.StartType -eq "Automatic" -and $_.Status -eq "Stopped" } | ForEach-Object { Start-Service $_.Name }"""
+                print >> cmd_file, "echo '********************************'"
+                
             print >> cmd_file, command
             print >> cmd_file, "exit $lastexitcode"
 
@@ -1191,7 +1199,7 @@ class WorkerState(object):
         path = self._buildCachePathFor(buildHash, testName)
         
         if not os.path.exists(path):
-            log_function(time.asctime() + " TestLooper> " + "Downloading build for %s test %s" % (buildHash, testName))
+            log_function(time.asctime() + " TestLooper> " + "Downloading build for %s test %s\n" % (buildHash, testName))
             log_function(time.asctime() + " TestLooper> " + "    to %s.\n" % (path))
 
             self.artifactStorage.download_build(buildHash, self.artifactKeyForBuild(testName), path)
