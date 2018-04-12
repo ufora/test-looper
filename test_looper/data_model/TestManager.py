@@ -636,6 +636,49 @@ class TestManager(object):
     def configurationForTest(test):
         return test.testDefinitionSummary.configuration
 
+    def recordTestArtifactUploaded(self, testId, artifact, curTimestamp, isCumulative):
+        with self.transaction_and_lock():
+            testRun = self.database.TestRun(str(testId))
+
+            if not isCumulative:
+                artifactIx = len(testRun.artifactsCompleted)
+
+                if artifactIx >= len(testRun.test.testDefinitionSummary.artifacts):
+                    raise Exception("Unexpected artifact for test %s. We thought we were done, but got %s" 
+                            % (testId, artifact))
+
+                expected = testRun.test.testDefinitionSummary.artifacts[artifactIx]
+
+                if artifact != expected:
+                    raise Exception("Unexpected artifact for test %s. We expected ix=%s to be %s but got %s" % (
+                        testId,
+                        artifactIx,
+                        expected,
+                        artifact
+                        ))
+
+                testRun.artifactsCompleted = testRun.artifactsCompleted + (artifact,)
+            else:
+                if len(testRun.artifactsCompleted) > len(artifact) or \
+                        list(artifact[:len(testRun.artifactsCompleted)]) != list(testRun.artifactsCompleted):
+                    raise Exception("Unexpected cumulative artifact update for test %s: %s vs %s" % (
+                        testId, artifact, testRun.artifactsCompleted
+                        ))
+                if len(artifact) > len(testRun.test.testDefinitionSummary.artifacts):
+                    raise Exception("Unexpected cumulative artifact update for test %s: %s exceeds %s" % (
+                        testId, artifact, testRun.test.testDefinitionSummary.artifacts
+                        ))
+                if list(artifact) != list(testRun.test.testDefinitionSummary.artifacts[:len(artifact)]):
+                    raise Exception("Unexpected cumulative artifact update for test %s: %s vs %s" % (
+                        testId, artifact, testRun.test.testDefinitionSummary.artifacts
+                        ))
+
+                testRun.artifactsCompleted = artifact
+
+            for dep in self.database.TestDependency.lookupAll(dependsOn=testRun.test):
+                self._updateTestPriority(dep.test, curTimestamp)
+
+
     def recordTestResults(self, success, testId, testSuccesses, curTimestamp):
         with self.transaction_and_lock():
             testRun = self.database.TestRun(str(testId))
@@ -645,6 +688,11 @@ class TestManager(object):
 
             if testRun.canceled:
                 return False
+
+            if success:
+                if testRun.artifactsCompleted != testRun.test.testDefinitionSummary.artifacts:
+                    logging.warn("Test %s didn't get the right list of completed artifacts!", testId)
+                    assert False
 
             testRun.endTimestamp = curTimestamp
             
@@ -684,9 +732,9 @@ class TestManager(object):
 
             return True
 
-    def handleTestConnectionReinitialized(self, testId, timestamp, allLogs):
+    def handleTestConnectionReinitialized(self, testId, timestamp, allLogs, allArtifacts):
         self.heartbeatHandler.testHeartbeatReinitialized(testId, timestamp, allLogs)
-
+        self.recordTestArtifactUploaded(testId, allArtifacts, timestamp, isCumulative=True)
         return self.testHeartbeat(testId, timestamp)
 
     def testHeartbeat(self, testId, timestamp, logMessage = None):
@@ -1386,18 +1434,32 @@ class TestManager(object):
         #when we get new commits, make sure we have the right priority
         #on them. This is a one-time operation when the commit is first created
         #to apply the branch priority to the commit
-        priority = max([r.child.userPriority
-            for r in self.database.CommitRelationship.lookupAll(parent=commit)] + [0])
+        priority = 0
 
         for branch in self.database.Branch.lookupAll(head=commit):
             if branch.isUnderTest:
                 priority = max(priority, 1)
 
+        #if this is an auto-commit, only prioritize if the commit has been tagged
+        pinUpdate = BranchPinning.unpackCommitPinUpdateMessage(commit.data.commitMessage)
+        if pinUpdate and len(parents) == 1 and parents[0].data:
+            #the unpacker returns the name of the reference (which we can look up)
+            #in the last slot.
+            refname_updated = pinUpdate[3]
+
+            ref = parents[0].data.repos.get(refname_updated)
+
+            #currently, we only support enabling everything or nothing by pin.
+            if ref and not ('all' in ref.prioritize or 'true' in ref.prioritize):
+                priority = 0
+
         commit.userPriority = max(commit.userPriority, priority)
 
         if knownNoTestFile:
             commit.data.noTestsFound = True
-        #ignore commits produced before the looper existed. They won't have these files!
+
+        #ignore commits produced before the looper existed. They won't have these files, and it's
+        #slow to import them
         elif commit.data.timestamp > OLDEST_TIMESTAMP_WITH_TESTS:
             logging.info("Loading data for commit %s with timestamp %s", commit.hash, time.asctime(time.gmtime(commit.data.timestamp)))
             self._triggerCommitPriorityUpdate(commit)
@@ -1658,7 +1720,9 @@ class TestManager(object):
                         repo_def=repo_def, 
                         pinned_to_repo=reponame,
                         pinned_to_branch=target.branch,
-                        auto=target.auto
+                        auto=target.auto != "" and target.auto != "false",
+                        auto_policy=target.auto,
+                        prioritize=target.prioritize
                         )
 
         self._scheduleBranchPinNeedsUpdating(branch)
@@ -1854,8 +1918,13 @@ class TestManager(object):
             commit.calculatedPriority for commit in self.commitsReferencingTest(test)
             )
 
+        anyTestsReferencingUs = False
+
         #now check all tests that depend on us
         for dep in self.database.TestDependency.lookupAll(dependsOn=test):
+            if dep.test.calculatedPriority:
+                anyTestsReferencingUs = True
+
             test.calculatedPriority = max(dep.test.calculatedPriority, test.calculatedPriority)
 
         #cancel any runs already going if this gets deprioritized
@@ -1871,6 +1940,7 @@ class TestManager(object):
         category = test.machineCategory = self._machineCategoryForTest(test)
 
         if category and category.hardwareComboUnbootable:
+            logging.warn("Can't boot test %s because the hardware combo is unbootable.", test.hash)
             test.priority = self.database.TestPriority.HardwareComboUnbootable()
             test.targetMachineBoot = 0
         elif self._testHasUnresolvedDependencies(test):
@@ -1884,10 +1954,9 @@ class TestManager(object):
             test.targetMachineBoot = 0
         else:
             #sets test.targetMachineBoot
-            if test.testDefinitionSummary.type != "Deployment" and test.testDefinitionSummary.disabled:
+            if test.testDefinitionSummary.type != "Deployment" and test.testDefinitionSummary.disabled and not anyTestsReferencingUs:
                 test.priority = self.database.TestPriority.NoMoreTests()
             elif self._updateTestTargetMachineCountAndReturnIsDone(test, curTimestamp):
-
                 if self._testWantsRetries(test):
                     if test.activeRuns:
                         #if we have an active test, then it is itself a retry and we don't
@@ -1913,12 +1982,20 @@ class TestManager(object):
                 self._scheduleBootCheck()
 
         if test.priority != oldPriority or test.calculatedPriority != oldCalcPri:
-            logging.info("test priority for test %s changed to %s", test.hash, test.priority)
-        
             for dep in self.database.TestDependency.lookupAll(test=test):
                 self._triggerTestPriorityUpdate(dep.dependsOn)
             for dep in self.database.TestDependency.lookupAll(dependsOn=test):
                 self._triggerTestPriorityUpdate(dep.test)
+
+        logging.info(
+            "test priority for test %s is now %s. targetBoot=%s. disabled=%s", 
+            test.hash, 
+            test.priority, 
+            test.targetMachineBoot,
+            test.testDefinitionSummary.disabled
+            )
+      
+
 
     def _checkMachineCategoryCounts(self):
         desired = {}
@@ -2104,17 +2181,26 @@ class TestManager(object):
         deps = self.database.TestDependency.lookupAll(test=test)
 
         for dep in deps:
-            if dep.dependsOn.totalRuns == 0:
-                return True
-            if self._testWantsRetries(dep.dependsOn):
+            if not self._testHasArtifactAnywhere(dep.dependsOn, dep.artifact):
+                if dep.dependsOn.totalRuns == 0:
+                    return True
+                if self._testWantsRetries(dep.dependsOn):
+                    return True
+        return False
+
+    def _testHasArtifactAnywhere(self, test, artifact):
+        for run in self.database.TestRun.lookupAll(test=test):
+            if not run.canceled and artifact in run.artifactsCompleted:
                 return True
         return False
 
+
     def _testHasFailedDeps(self, test):
         for dep in self.database.TestDependency.lookupAll(test=test):
-            if dep.dependsOn.totalRuns > 0 and dep.dependsOn.successes == 0 and not self._testWantsRetries(dep.dependsOn) or \
-                    dep.dependsOn.priority.matches.DependencyFailed:
-                return True
+            if not self._testHasArtifactAnywhere(dep.dependsOn, dep.artifact):
+                if dep.dependsOn.totalRuns > 0 and dep.dependsOn.successes == 0 and not self._testWantsRetries(dep.dependsOn) or \
+                        dep.dependsOn.priority.matches.DependencyFailed:
+                    return True
         return False
 
     def _readyToRetryTest(self, test, curTimestamp):
@@ -2150,6 +2236,7 @@ class TestManager(object):
                 hash=testDefinition.hash,
                 testDefinitionSummary=self.database.TestDefinitionSummary.Summary(
                     machineOs=self._machineOsForEnv(testDefinition.environment),
+                    artifacts=[a.name for stage in testDefinition.stages for a in stage.artifacts],
                     name=testDefinition.name,
                     type=testDefinition._which,
                     configuration=testDefinition.configuration,
@@ -2159,6 +2246,7 @@ class TestManager(object):
                     min_cores=testDefinition.min_cores,
                     max_cores=testDefinition.max_cores,
                     min_ram_gb=testDefinition.min_ram_gb,
+                    min_disk_gb=testDefinition.min_disk_gb,
                     max_retries=testDefinition.max_retries if testDefinition.matches.Build else 0,
                     retry_wait_seconds=testDefinition.retry_wait_seconds if testDefinition.matches.Build else 0
                     ),
@@ -2218,7 +2306,7 @@ class TestManager(object):
             elif dep.matches.InternalBuild:
                 assert False
             elif dep.matches.Build:
-                self._createTestDep(test, dep.buildHash)
+                self._createTestDep(test, dep.buildHash, dep.artifact)
             elif dep.matches.Source:
                 pass
 
@@ -2240,21 +2328,21 @@ class TestManager(object):
 
         return False
 
-    def _createTestDep(self, test, childHash):
+    def _createTestDep(self, test, childHash, artifact):
         dep_test = self.database.Test.lookupAny(hash=childHash)
 
         assert dep_test != test
 
         if not dep_test:
-            if self.database.UnresolvedTestDependency.lookupAny(test_and_depends=(test, childHash)) is None:
-                self.database.UnresolvedTestDependency.New(test=test, dependsOnHash=childHash)
+            if self.database.UnresolvedTestDependency.lookupAny(test_and_depends=(test, childHash,artifact)) is None:
+                self.database.UnresolvedTestDependency.New(test=test, dependsOnHash=childHash,artifact=artifact)
         else:
-            if self.database.TestDependency.lookupAny(test_and_depends=(test, dep_test)) is None:
-                self.database.TestDependency.New(test=test, dependsOn=dep_test)
+            if self.database.TestDependency.lookupAny(test_and_depends=(test, dep_test, artifact)) is None:
+                self.database.TestDependency.New(test=test, dependsOn=dep_test,artifact=artifact)
 
     def _markTestCreated(self, test):
         for dep in self.database.UnresolvedTestDependency.lookupAll(dependsOnHash=test.hash):
-            self.database.TestDependency.New(test=dep.test, dependsOn=test)
+            self.database.TestDependency.New(test=dep.test, dependsOn=test,artifact=dep.artifact)
             self._triggerTestPriorityUpdate(dep.test)
             dep.delete()
                 

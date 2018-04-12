@@ -2,7 +2,7 @@ import os
 import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.core.GraphUtil as GraphUtil
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
-
+import fnmatch
 from test_looper.core.hash import sha_hash
 
 MAX_INCLUDE_ATTEMPTS = 128
@@ -160,7 +160,7 @@ class TestDefinitionResolver:
         if (repoName, commitHash) in self.postIncludeDefinitionsCache:
             return self.postIncludeDefinitionsCache[repoName, commitHash]
 
-        tests, envs, repos, includes = self.unprocessedTestsEnvsAndReposFor_(repoName, commitHash)
+        tests, envs, repos, includes, prioritizeGlobs = self.unprocessedTestsEnvsAndReposFor_(repoName, commitHash)
 
         repos = self.resolveRepoDefinitions_(repoName, repos)
 
@@ -201,7 +201,7 @@ class TestDefinitionResolver:
                             )
                         )
 
-                new_tests, new_envs, new_repos, new_includes = TestDefinitionScript.extract_tests_from_str(
+                new_tests, new_envs, new_repos, new_includes, prioritizeGlobs = TestDefinitionScript.extract_tests_from_str(
                     includeRepo, 
                     includeHash, 
                     os.path.splitext(includePath)[1], 
@@ -209,6 +209,9 @@ class TestDefinitionResolver:
                     variable_definitions=variable_defs,
                     externally_defined_repos=repos
                     )
+
+                if prioritizeGlobs:
+                    raise TestResolutionException("include targets can't prioritize individual tests")
 
                 for reponame in new_repos:
                     if reponame in repos:
@@ -239,6 +242,15 @@ class TestDefinitionResolver:
                     includes.append((includeSourceRepo, includeSourceHash,i))
 
         self.postIncludeDefinitionsCache[repoName, commitHash] = (tests, envs, repos, includes)
+
+        for t in list(tests.keys()):
+            tests[t] = tests[t]._withReplacement(
+                disabled=
+                    tests[t].disabled or not (
+                        any([fnmatch.fnmatchcase(t, pat) for pat in prioritizeGlobs])
+                            or not prioritizeGlobs
+                        )
+                )
 
         return self.postIncludeDefinitionsCache[repoName, commitHash]
 
@@ -386,13 +398,13 @@ class TestDefinitionResolver:
                     setup_script_contents="",
                     variables={},
                     dependencies={},
+                    test_stages=(),
                     test_configuration="",
-                    test_preCommand="",
-                    test_preCleanupCommand="",
                     test_timeout=0,
                     test_min_cores=0,
                     test_max_cores=0,
                     test_min_ram_gb=0,
+                    test_min_disk_gb=0,
                     test_max_retries=0,
                     test_retry_wait_seconds=0
                     )
@@ -478,7 +490,8 @@ class TestDefinitionResolver:
     def assertTestsNoncircular_(self, tests):
         def children(t):
             return (
-                [dep.name for dep in tests[t].dependencies.values() if dep.matches.InternalBuild]
+                [self.resolveTestNameToTestAndArtifact(dep.name, tests)[0] 
+                    for dep in tests[t].dependencies.values() if dep.matches.InternalBuild]
                     if t in tests else []
                 )
 
@@ -489,6 +502,37 @@ class TestDefinitionResolver:
 
         if cycle:
             raise TestResolutionException("Circular test dependency found: %s" % (" -> ".join(cycle)))
+
+    def resolveTestNameToTestAndArtifact(self, testName, testSet):
+        """Given a name like 'test/artifact', search for it amongst testSet
+
+        a shorter name will always match first. E.g. if we have tests "A" and
+        "A/artifact", then "A/artifact" will always be masked by 'A'
+        
+        returns the referenced test and the artifact name as a pair
+        """
+
+        parts = testName.split("/")
+        for i in xrange(len(parts)+1):
+            if "/".join(parts[:i]) in testSet:
+                name, artifact = "/".join(parts[:i]), "/".join(parts[i:])
+
+                validArtifacts = set()
+                for stage in testSet[name].stages:
+                    for a in stage.artifacts:
+                        validArtifacts.add(a.name)
+
+                if artifact not in validArtifacts:
+                    raise UserWarning("Can't resolve artifact '%s' in test %s. Valid are %s" % (
+                        artifact, name, sorted(validArtifacts)
+                        ))
+
+                return name, artifact
+
+        raise UserWarning("Can't resolve %s to a valid name amongst:\n%s" % (
+            testName,
+            "\n".join(["  " + x for x in testSet])
+            ))
 
     def testDefinitionsFor(self, repoName, commitHash):
         if (repoName, commitHash) in self.testDefinitionCache:
@@ -538,31 +582,27 @@ class TestDefinitionResolver:
                     )
 
             if testDep.matches.InternalBuild:
+                name,artifact = self.resolveTestNameToTestAndArtifact(testDep.name, tests)
+
                 return TestDefinition.TestDependency.Build(
                     repo=repoName,
-                    buildHash=resolveTest(testDep.name).hash,
-                    name=testDep.name
+                    buildHash=resolveTest(name).hash,
+                    name=name,
+                    artifact=artifact
                     )
 
             if testDep.matches.ExternalBuild:
                 assert not (testDep.repo == repoName and testDep.commitHash == commitHash)
 
-                tests = self.testDefinitionsFor(testDep.repo, testDep.commitHash)
+                externalTests = self.testDefinitionsFor(testDep.repo, testDep.commitHash)
 
-                if testDep.name not in tests:
-                    raise TestResolutionException(
-                        "Build %s doesn't exist in %s/%s. found %s" % (
-                            testDep.name,
-                            testDep.repo,
-                            testDep.commitHash,
-                            ",".join(tests) if tests else "no tests"
-                            )
-                        )
+                name, artifact = self.resolveTestNameToTestAndArtifact(testDep.name, externalTests)
 
                 return TestDefinition.TestDependency.Build(
                     repo=testDep.repo,
-                    buildHash=tests[testDep.name].hash,
-                    name=testDep.name
+                    buildHash=externalTests[name].hash,
+                    name=name,
+                    artifact=artifact
                     )
 
             if testDep.matches.UnresolvedExternalBuild or testDep.matches.UnresolvedSource:
@@ -603,8 +643,11 @@ class TestDefinitionResolver:
                         )
                 testDef = tests[testName]
 
+                self.assertArtifactSetValid(testDef)
+
                 resolved_tests[testName] = testDef._withReplacement(
-                    dependencies={k:resolveTestDep(v) for k,v in testDef.dependencies.iteritems()}
+                    dependencies={k:resolveTestDep(v) for k,v in testDef.dependencies.iteritems()},
+                    stages=self.sortTestStages(testDef.stages)
                     )
 
                 resolved_tests[testName]._withReplacement(hash=sha_hash(resolved_tests[testName]).hexdigest)
@@ -617,6 +660,38 @@ class TestDefinitionResolver:
         self.testDefinitionCache[repoName, commitHash] = resolved_tests
 
         return resolved_tests
+
+    def sortTestStages(self, stages):
+        """A stable sort of 'stages' by 'order'"""
+        orders = {}
+        for stage in stages:
+            if stage.order not in orders:
+                orders[stage.order] = []
+            orders[stage.order].append(stage)
+
+        result = []
+        for o in sorted(orders):
+            result.extend(orders[o])
+        return result
+
+
+    def assertArtifactSetValid(self, testDef):
+        validArtifacts = set()
+        for stage in testDef.stages:
+            for a in stage.artifacts:
+                if a.name in validArtifacts:
+                    if not a.name:
+                        raise UserWarning(("Test %s defined the unnamed artifact twice. "
+                            "check whether a naked 'command' (outside of a stage) exists in the build definition "
+                            "since that implies a global artifact of the entire TEST_BUILD_OUTPUT_DIR"
+                            ) % testDef.name)
+                    raise UserWarning("Test %s defined artifact %s twice" % (testDef.name, repr(a.name)))
+                validArtifacts.add(a.name)
+        if "" in validArtifacts and len(validArtifacts) > 1:
+            raise UserWarning("Test %s can only define the unnamed artifact if it defines no others" % (testDef.name))
+
+
+
 
     def testEnvironmentAndRepoDefinitionsFor(self, repoName, commitHash):
         return (

@@ -14,6 +14,7 @@ import requests
 import traceback
 import subprocess
 import base64
+import fnmatch
 import tempfile
 import cStringIO as StringIO
 import uuid
@@ -36,14 +37,29 @@ else:
 import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper
 
+def withTime(logger):
+    def logWithTime(msg, *args):
+        if args:
+            msg = msg % args
+
+        msg = time.asctime() + " TestLooper> " + msg + ("\n" if msg[-1] != "\n" else "")
+        logger(msg)
+    return logWithTime
+
+        
+
 class DummyWorkerCallbacks:
     def __init__(self, localTerminal=False):
         self.logMessages = []
+        self.artifacts = []
         self.localTerminal = localTerminal
 
     def heartbeat(self, logMessage=None):
         if logMessage is not None:
             self.logMessages.append(logMessage)
+
+    def recordArtifactUploaded(self, artifact):
+        self.artifacts.append(artifact)
 
     def terminalOutput(self, output):
         pass
@@ -208,6 +224,8 @@ class WorkerState(object):
         for k,v in self.volumesToExpose().items():
             if path.startswith(v + "/"):
                 return k + "/" + path[len(v)+1:]
+            elif path == v:
+                return k
 
         return None
 
@@ -222,17 +240,12 @@ class WorkerState(object):
             self.directories.command_dir: "/test_looper/command"
             }
 
-    def _run_deployment(self, command, env, workerCallback, docker_image, working_directory, extraPorts=None):
+    def _run_deployment(self, env, workerCallback, docker_image, working_directory, extraPorts=None):
         build_log = StringIO.StringIO()
 
-        self.dumpPreambleLog(build_log, env, docker_image, command, working_directory)
+        self.dumpPreambleLog(build_log, env, docker_image, "", working_directory)
 
         workerCallback.terminalOutput(build_log.getvalue().replace("\n","\r\n"))
-
-        logging.info("Running command: '%s' on %s", 
-            command, 
-            "Docker image: " + docker_image.image if docker_image is not NAKED_MACHINE else "the naked machine"
-            )
 
         if sys.platform == "win32":
             self._windows_prerun_command()
@@ -255,10 +268,6 @@ class WorkerState(object):
                 print >> cmd_file, "echo 'HERE ARE AVAILABLE SERVICES:'"
                 print >> cmd_file, "Get-Service | Format-Table -Property Name, Status, StartType, DisplayName"
                 print >> cmd_file, "echo '********************************'"
-                print >> cmd_file, "echo 'BOOTING STOPPED AUTOSTART SERVICES:'"
-                print >> cmd_file, """Get-Service | Where-Object { $_.StartType -eq "Automatic" -and $_.Status -eq "Stopped" } | ForEach-Object { Start-Service $_.Name }"""
-                print >> cmd_file, "echo '********************************'"
-                print >> cmd_file, command
 
             if workerCallback.localTerminal:
                 try:
@@ -347,12 +356,8 @@ class WorkerState(object):
                         logging.info("Failed to terminate subprocess: %s", traceback.format_exc())
                     readthreadStop.set()
         else:
-            with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
-                print >> f, command
-
             with open(os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w") as f:
                 print >> f, "hostname testlooperworker"
-                print >> f, "bash /test_looper/command/cmd.sh"
                 print >> f, "export PS1='${debian_chroot:+($debian_chroot)}\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ '"
                 print >> f, "bash --noprofile --norc"
 
@@ -480,9 +485,10 @@ class WorkerState(object):
         print >> build_log, "Working Directory: " + working_directory
         build_log.flush()
 
-        print >> build_log, "TestLooper Running command:"
-        print >> build_log, command
-        build_log.flush()
+        if command:
+            print >> build_log, "TestLooper Running command:"
+            print >> build_log, command
+            build_log.flush()
 
         print >> build_log, "********************************************"
         print >> build_log
@@ -807,7 +813,13 @@ class WorkerState(object):
 
         def executeTest():
             try:
-                if not isDeploy and testDefinition.matches.Build and self.artifactStorage.build_exists(testDefinition.hash, self.artifactKeyForBuild(testName)):
+                artifactNames = [artifact.name for stage in testDefinition.stages for artifact in stage.artifacts]
+                artifactNames = [testName + ("/" if name else "") + name for name in artifactNames]
+
+                allExist = all([self.artifactStorage.build_exists(testDefinition.hash, self.artifactKeyForBuild(name))
+                    for name in artifactNames])
+
+                if not isDeploy and testDefinition.matches.Build and allExist:
                     log_function("Build already exists\n")
                     return True, {}
                 
@@ -860,9 +872,6 @@ class WorkerState(object):
 
     def extract_package(self, package_file, target_dir):
         with tarfile.open(package_file, "r|gz") as tar:
-            root = tar.next()
-            if root is None:
-                raise Exception("Package %s is empty" % package_file)
             logging.info("Extracting package %s to %s", package_file, target_dir)
             tar.extractall(target_dir)
 
@@ -870,12 +879,14 @@ class WorkerState(object):
         target_dir = os.path.join(self.directories.worker_directory, expose_as)
 
         if dep.matches.Build:
-            if not self.artifactStorage.build_exists(dep.buildHash, self.artifactKeyForBuild(dep.name)):
-                return "can't run tests because dependent external build %s doesn't exist" % (dep.repo + "/" + dep.buildHash + "/" + dep.name)
+            full_name = dep.name + ("/" if dep.artifact else "") + dep.artifact
 
-            path = self._download_build(dep.buildHash, dep.name, log_function)
+            if not self.artifactStorage.build_exists(dep.buildHash, self.artifactKeyForBuild(full_name)):
+                return "can't run tests because dependent external build %s doesn't exist" % (dep.repo + "/" + dep.buildHash + "/" + full_name)
+
+            path = self._download_build(dep.buildHash, full_name, log_function)
             
-            log_function(time.asctime() + " TestLooper> Extracting tarball for %s/%s/%s.\n" % (dep.repo, dep.buildHash, dep.name))
+            log_function(time.asctime() + " TestLooper> Extracting tarball for %s/%s/%s.\n" % (dep.repo, dep.buildHash, full_name))
 
             self.ensureDirectoryExists(target_dir)
             self.extract_package(path, target_dir)
@@ -1004,9 +1015,6 @@ class WorkerState(object):
         return environment, all_dependencies, test_definition
 
     def _run_task(self, testId, test_definition, log_function, workerCallback, isDeploy, extraPorts, command_override):
-        def logWithTime(msg):
-            log_function(time.asctime() + " TestLooper> " + msg + ("\n" if msg[-1] != "\n" else ""))
-
         try:
             environment, all_dependencies, test_definition = \
                 self.getEnvironmentAndDependencies(testId, test_definition, log_function, workerCallback)
@@ -1016,22 +1024,23 @@ class WorkerState(object):
             return False, {}
 
         if test_definition.matches.Build:
-            command = test_definition.buildCommand
-            cleanup_command = test_definition.cleanupCommand
+            stages = test_definition.stages
         elif test_definition.matches.Test:
-            command = test_definition.testCommand
-            cleanup_command = test_definition.cleanupCommand
+            stages = test_definition.stages
         elif test_definition.matches.Deployment:
-            command = test_definition.deployCommand
-            cleanup_command = ""
+            stages = []
         else:
             assert False, test_definition
 
         if command_override is not None:
-            cleanup_command = ""
-            command = command_override
-
-        logging.info("Environment is: %s", environment)
+            stages = [
+                TestDefinition.Stage.Stage(
+                    command=command_override,
+                    cleanup="",
+                    artifacts=[],
+                    order=0.0
+                    )
+                ]
 
         if environment.image.matches.AMI:
             image = NAKED_MACHINE
@@ -1039,76 +1048,86 @@ class WorkerState(object):
             with self.callHeartbeatInBackground(log_function, "Extracting docker image for environment %s" % environment):
                 image = self.getDockerImage(environment, log_function)
 
+        is_success = True
+
         if image is None:
             is_success = False
             if isDeploy:
                 log_function("Couldn't find docker image...")
                 return False, {}
         else:
-            logging.info("Machine %s is starting run for %s. Command: %s",
+            logging.info("Machine %s is starting run for %s.",
                          self.machineId,
-                         test_definition.hash,
-                         command)
+                         test_definition.hash
+                         )
 
-            if 'src' in test_definition.dependencies:
-                if image is NAKED_MACHINE:
-                    working_directory = self.directories.repo_copy_dir
-                else:
-                    working_directory = "/test_looper/src"
+            if image is NAKED_MACHINE:
+                working_directory = self.directories.test_inputs_dir
             else:
-                if image is NAKED_MACHINE:
-                    working_directory = self.directories.test_inputs_dir
-                else:
-                    working_directory = "/test_looper/test_inputs"
+                working_directory = "/test_looper/test_inputs"
 
             if isDeploy:
-                self._run_deployment(command, test_definition.variables, workerCallback, image, working_directory, extraPorts=extraPorts)
+                self._run_deployment(test_definition.variables, workerCallback, image, working_directory, extraPorts=extraPorts)
                 return False, {}
             else:
-                logWithTime("Starting Test Run")
+                for stage in stages:
+                    is_success = self._runStage(testId, stage, image, test_definition, working_directory, log_function, workerCallback)
+                    if not is_success:
+                        break
 
-                is_success = self._run_test_command(
-                    command,
+        individualTestSuccesses = self.finalTestArtifactUpload(image, testId, test_definition, log_function)
+
+        return is_success, individualTestSuccesses
+
+    def _runStage(self, testId, stage, image, test_definition, working_directory, log_function, workerCallback):
+        withTime(log_function)("Starting Test Run")
+
+        is_success = self._run_test_command(
+            stage.command,
+            test_definition.timeout or 60 * 60, #1 hour if unspecified
+            test_definition.variables,
+            log_function,
+            image,
+            working_directory, 
+            dumpPreambleLog=True
+            )
+
+        #run the cleanup_command if necessary
+        if self.wants_to_run_cleanup() and stage.cleanup.strip():
+            if not self._run_test_command(
+                    stage.cleanup,
                     test_definition.timeout or 60 * 60, #1 hour if unspecified
                     test_definition.variables,
                     log_function,
                     image,
                     working_directory, 
-                    dumpPreambleLog=True
-                    )
+                    dumpPreambleLog=False
+                    ):
+                is_success = False
 
-                #run the cleanup_command if necessary
-                if self.wants_to_run_cleanup() and cleanup_command.strip() and not self._run_test_command(
-                        cleanup_command,
-                        test_definition.timeout or 60 * 60, #1 hour if unspecified
-                        test_definition.variables,
-                        log_function,
-                        image,
-                        working_directory, 
-                        dumpPreambleLog=False
-                        ):
-                    is_success = False
+        if test_definition.matches.Build:
+            if is_success:
+                for artifact in stage.artifacts:
+                    with self.callHeartbeatInBackground(log_function, "Uploading build artifact for %s/%s." % (test_definition.name, artifact.name)):
+                        if not self._upload_artifact(test_definition.hash, test_definition.name, artifact, False, log_function, image):
+                            is_success = False
+                        else:
+                            workerCallback.recordArtifactUploaded(artifact.name)
+        else:
+            for artifact in stage.artifacts:
+                with self.callHeartbeatInBackground(log_function, "Uploading build artifact for %s/%s." % (test_definition.name, artifact.name)):
+                    if not self._upload_artifact(test_definition.hash, testId, artifact, True, log_function, image):
+                        is_success = False
+                    else:
+                        workerCallback.recordArtifactUploaded(artifact.name)
 
-        if is_success and test_definition.matches.Build:
-            with self.callHeartbeatInBackground(log_function, "Uploading build artifacts."):
-                if not self._upload_build(test_definition.hash, test_definition.name):
-                    logging.error('Failed to upload build for %s/%s/%s', test_definition.hash, test_definition.name)
-                    is_success = False
+        return is_success
 
-        log_function("")
-        
-        logging.info("machine %s uploading artifacts for test %s", self.machineId, testId)
 
+    def finalTestArtifactUpload(self, image, testId, test_definition, log_function):
         individualTestSuccesses = {}
 
         with self.callHeartbeatInBackground(log_function, "Uploading test artifacts."):
-            self.artifactStorage.uploadTestArtifacts(
-                test_definition.hash,
-                testId,
-                self.directories.test_output_dir,
-                set(["test_looper_log.txt", "test_result.json"])
-                )
-
             testSummaryJsonPath = os.path.join(self.directories.test_output_dir, "testSummary.json")
 
             if os.path.exists(testSummaryJsonPath):
@@ -1138,14 +1157,14 @@ class WorkerState(object):
                                 pathVisibleToWorker = self.mapInternalToExternalPath(path, image is not NAKED_MACHINE)
 
                                 if not pathVisibleToWorker:
-                                    logWithTime("Test output path %s not visible outside of the docker container!" % path)
+                                    withTime(log_function)("Test output path %s not visible outside of the docker container!" % path)
                                     return {'success': False, 'logs': False}
 
                                 pathsToUpload[keyname] = pathsToUpload.get(keyname,()) + (pathVisibleToWorker,)
 
                             return (entry['success'], True)
                         else:
-                            logWithTime("testSummary.json entries should be bools or {'success': Bool, 'logs': ['str']}, not %s" % entry)
+                            withTime(log_function)("testSummary.json entries should be bools or {'success': Bool, 'logs': ['str']}, not %s" % entry)
                             return (False, False)
 
                     individualTestSuccesses = {str(k): processTestSuccess(k, v) for k,v in individualTestSuccesses.iteritems()}
@@ -1158,42 +1177,115 @@ class WorkerState(object):
                     log_function("Failed to pull in testSummary.json: " + str(e))
                     logging.error("Error processing testSummary.json:\n%s", traceback.format_exc())
 
-        return is_success, individualTestSuccesses
+        return individualTestSuccesses
 
     def artifactKeyForBuild(self, testName):
         return self.artifactStorage.sanitizeName(testName) + ".tar.gz"
 
-    def _upload_build(self, buildHash, testName):
-        #upload all the data in our directory
-        tarball_name = self._buildCachePathFor(buildHash, testName)
-
-        if not os.path.exists(tarball_name):
-            logging.info("Tarballing %s into %s", self.directories.build_output_dir, tarball_name)
-
-            with tarfile.open(tarball_name, "w:gz", compresslevel=1) as tf:
-                tf.add(self.directories.build_output_dir, ".")
-
-            logging.info("Resulting tarball at %s is %.2f MB", tarball_name, os.stat(tarball_name).st_size / 1024.0**2)
+    def mapArtifactDirectoryToAbspath(self, dir, isTest, isNaked):
+        if os.path.isabs(dir):
+            return dir
+        if isNaked:
+            #this is on windows
+            if isTest:
+                return self.directories.test_output_dir
+            else:
+                return self.directories.build_output_dir
         else:
-            logging.warn("A build for %s/%s already exists at %s", buildHash, testName, tarball_name)
+            if isTest:
+                return "/test_looper/output"
+            else:
+                return "/test_looper/build_output"
+
+    def _upload_artifact(self, testDefHash, testNameOrId, artifact, isTestArtifact, log_function, image):
+        intendedDirectory = self.mapArtifactDirectoryToAbspath(artifact.directory, isTestArtifact, image is NAKED_MACHINE)
+
+        artifactDirectory = self.mapInternalToExternalPath(intendedDirectory, image is not NAKED_MACHINE)
+
+        if not artifactDirectory:
+            withTime(log_function)("Error: path %s isn't visible outside of the docker container", intendedDirectory)
+            return False
+
+        if isTestArtifact:
+            try:
+                self.artifactStorage.uploadTestArtifacts(
+                    testDefHash, 
+                    testNameOrId, 
+                    artifact.name + "/" if artifact.name else "", 
+                    artifactDirectory
+                    )
+                return True
+            except:
+                withTime(log_function)("ERROR: failed to upload test artifacts for %s:\n%s", artifact.name, traceback.format_exc())
+                return False
+
+        #upload all the data in our directory
+        full_name = testNameOrId + ("/" + artifact.name if artifact.name else "")
+
+        tarball_name = self._buildCachePathFor(testDefHash, full_name)
+
+        if os.path.exists(tarball_name):
+            logging.warn("A build for %s/%s already exists at %s", testDefHash, full_name, tarball_name)
+            os.remove(tarball_name)
+
+        withTime(log_function)("Tarballing %s into %s", intendedDirectory, tarball_name)
+
+        with tarfile.open(tarball_name, "w:gz", compresslevel=1) as tf:
+            def filter(tarinfo):
+                name = tarinfo.name
+
+                if name.startswith("./"):
+                    name = name[2:]
+
+                if not tarinfo.isfile():
+                    return tarinfo
+
+                anyIncluding = True
+                if artifact.include_patterns:
+                    anyIncluding = False
+                    for glob in artifact.include_patterns:
+                        if fnmatch.fnmatchcase(name, glob):
+                            anyIncluding = True
+                            break
+
+                if not anyIncluding:
+                    return None
+
+                for glob in artifact.exclude_patterns:
+                    if fnmatch.fnmatchcase(name, glob):
+                        return None
+
+                return tarinfo
+
+            if os.path.exists(artifactDirectory):
+                tf.add(artifactDirectory, ".", filter=filter)
+            else:
+                withTime(log_function)("Warning: directory %s doesnt exist", intendedDirectory)
+
+        withTime(log_function)("Resulting tarball at %s is %.2f MB", tarball_name, os.stat(tarball_name).st_size / 1024.0**2)
 
         try:
-            logging.info("Uploading %s to %s", tarball_name, self.artifactKeyForBuild(testName))
+            withTime(log_function)("Uploading %s", tarball_name)
 
-            self.artifactStorage.upload_build(buildHash, self.artifactKeyForBuild(testName), tarball_name)
+            if isTestArtifact:
+                self.artifactStorage.uploadSingleTestArtifact(testDefHash, testNameOrId, self.artifactKeyForBuild(artifact.name), tarball_name)
+            else:
+                self.artifactStorage.upload_build(testDefHash, self.artifactKeyForBuild(full_name), tarball_name)
+
+            withTime(log_function)("Done uploading %s", tarball_name)
+
             return True
         except:
-            logging.error("Failed to upload package '%s' to %s/%s\n%s",
+            withTime(log_function)("ERROR: Failed to upload package '%s':\n%s",
                           tarball_name,
-                          buildHash,
                           traceback.format_exc()
                           )
             return False
 
-    def _buildCachePathFor(self, buildHash, testName):
+    def _buildCachePathFor(self, testDefHash, testName):
         return os.path.join(
             self.directories.build_cache_dir,
-            (buildHash + "_" + self.artifactKeyForBuild(testName))
+            (testDefHash + "_" + self.artifactKeyForBuild(testName))
             )
 
     def _download_build(self, buildHash, testName, log_function):

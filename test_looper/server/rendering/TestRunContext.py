@@ -101,15 +101,16 @@ class TestRunContext(Context.Context):
         grid = [["Artifact", "Size"]]
 
         if testRun.test.testDefinitionSummary.type == "Build":
-            build_key = self.renderer.artifactStorage.sanitizeName(testRun.test.testDefinitionSummary.name) + ".tar.gz"
+            for artifact in testRun.test.testDefinitionSummary.artifacts:
+                full_name = testRun.test.testDefinitionSummary.name + ("/" + artifact if artifact else "")
 
-            if self.renderer.artifactStorage.build_exists(testRun.test.hash, build_key):
-                grid.append([
-                    HtmlGeneration.link(testRun.test.testDefinitionSummary.name + ".tar.gz", self.renderer.buildDownloadUrl(testRun.test.hash, build_key)),
-                    HtmlGeneration.bytesToHumanSize(self.renderer.artifactStorage.build_size(testRun.test.hash, build_key))
-                    ])
-            else:
-                logging.info("No build found at %s", build_key)
+                build_key = self.renderer.artifactStorage.sanitizeName(full_name) + ".tar.gz"
+
+                if self.renderer.artifactStorage.build_exists(testRun.test.hash, build_key):
+                    grid.append([
+                        HtmlGeneration.link(full_name + ".tar.gz", self.renderer.buildDownloadUrl(testRun.test.hash, build_key)),
+                        HtmlGeneration.bytesToHumanSize(self.renderer.artifactStorage.build_size(testRun.test.hash, build_key))
+                        ])
 
         for artifactName, sizeInBytes in self.renderer.artifactStorage.testResultKeysForWithSizes(testRun.test.hash, testRun._identity):
             name = self.renderer.artifactStorage.unsanitizeName(artifactName)

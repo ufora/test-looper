@@ -30,6 +30,12 @@ class Hash:
     def hexdigest(self):
         return self.digest.encode("hex")
 
+    def __str__(self):
+        return "0x" + self.hexdigest
+
+    def __repr__(self):
+        return "0x" + self.hexdigest
+
     def __hash__(self):
         return hash(self.digest)
 

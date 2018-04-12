@@ -88,12 +88,14 @@ def setup_types(database):
         "machineOs": MachineManagement.OsConfig,
         "type": str, #Build, Deployment, or Test
         "configuration": str,
+        "artifacts": algebraic.List(str),
         "project": str,
         "disabled": bool, #disabled by default?
         "timeout": int, #max time, in seconds, for the test
         "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
         "max_cores": int, #maximum number of cores we can take advantage of, or zero
         "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
+        "min_disk_gb": int, #minimum GB of disk space we need to run, or zero if we don't care
         "max_retries": int, #maximum number of times to retry the build
         "retry_wait_seconds": int, #minimum number of seconds to wait before retrying a build
         }
@@ -116,7 +118,8 @@ def setup_types(database):
 
     database.UnresolvedTestDependency.define(
         test=database.Test,
-        dependsOnHash=str
+        dependsOnHash=str,
+        artifact=str
         )
 
     database.UnresolvedCommitSourceDependency.define(
@@ -132,7 +135,8 @@ def setup_types(database):
 
     database.TestDependency.define(
         test=database.Test,
-        dependsOn=database.Test
+        dependsOn=database.Test,
+        artifact=str
         )
 
     database.TestRun.define(
@@ -141,6 +145,7 @@ def setup_types(database):
         lastHeartbeat=float,
         endTimestamp=float,
         success=bool,
+        artifactsCompleted=algebraic.List(str),
         machine=database.Machine,
         canceled=bool,
         testNames=database.IndividualTestNameSet,
@@ -174,7 +179,9 @@ def setup_types(database):
         repo_def=str,
         pinned_to_repo=str,
         pinned_to_branch=str,
-        auto=bool
+        auto=bool,
+        auto_policy=str,
+        prioritize=algebraic.List(str)
         )
 
     database.MachineCategory.define(
@@ -238,7 +245,7 @@ def setup_types(database):
 
     database.addIndex(database.UnresolvedTestDependency, 'dependsOnHash')
     database.addIndex(database.UnresolvedTestDependency, 'test')
-    database.addIndex(database.UnresolvedTestDependency, 'test_and_depends', lambda o:(o.test, o.dependsOnHash))
+    database.addIndex(database.UnresolvedTestDependency, 'test_and_depends', lambda o:(o.test, o.dependsOnHash, o.artifact))
 
     database.addIndex(database.AllocatedGitRepoLocks, "alive", lambda o: True)
     database.addIndex(database.AllocatedGitRepoLocks, "requestUniqueId")
@@ -254,7 +261,7 @@ def setup_types(database):
 
     database.addIndex(database.TestDependency, 'test')
     database.addIndex(database.TestDependency, 'dependsOn')
-    database.addIndex(database.TestDependency, 'test_and_depends', lambda o:(o.test, o.dependsOn))
+    database.addIndex(database.TestDependency, 'test_and_depends', lambda o:(o.test, o.dependsOn,o.artifact))
     database.addIndex(database.Repo, 'name')
     database.addIndex(database.Repo, 'isActive')
     database.addIndex(database.Branch, 'repo')

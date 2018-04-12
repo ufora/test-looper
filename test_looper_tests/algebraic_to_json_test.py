@@ -37,6 +37,7 @@ bin_a = expr.Binop(opcode=opcode.Sub(), l=c10, r=c20)
 
 several = expr.Many([c10, c20, a, expr.Possibly(None), expr.Possibly(c20), bin_a])
 
+
 class AlgebraicToJsonTests(unittest.TestCase):
     def test_basic(self):
         e = Encoder()

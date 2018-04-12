@@ -72,7 +72,7 @@ class ArtifactStorage(object):
                 self.uploadSingleTestArtifact(
                     testHash, 
                     testId, 
-                    "individual_test_logs/" + testName + "/" + filename, 
+                    TEST_LOG_NAME_PREFIX + testName + "/" + filename, 
                     path
                     )
             except:
@@ -91,11 +91,8 @@ class ArtifactStorage(object):
         for _ in xrange(counts):
             sem.acquire()
 
-    def uploadTestArtifacts(self, testHash, testId, testOutputDir, reserved_names):
+    def uploadTestArtifacts(self, testHash, testId, prefix, testOutputDir):
         """Upload all the files in 'testOutputDir'.
-
-        reserved_names - set of reserved filenames used to ensure we don't 
-            conflict with special outputs reserved by the looper
         """
         all_paths = set(os.listdir(testOutputDir))
 
@@ -117,13 +114,7 @@ class ArtifactStorage(object):
                     full_path = full_path + ".gz"
                     path = path + ".gz"
 
-                if path in reserved_names:
-                    prefix = "0_"
-                    while prefix + path in all_paths:
-                        prefix = str(int(prefix[:-1])+1) + "_"
-                    path = prefix + path
-
-                self.uploadSingleTestArtifact(testHash, testId, path, full_path)
+                self.uploadSingleTestArtifact(testHash, testId, prefix + path, full_path)
             except:
                 logging.error("Failed to upload %s:\n%s", path, traceback.format_exc())
             finally:

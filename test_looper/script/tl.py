@@ -269,7 +269,7 @@ class WorkerStateOverride(WorkerState.WorkerState):
 
         return res
     
-    def _upload_build(self, *args, **kwargs):
+    def _upload_artifact(self, *args, **kwargs):
         return True
 
     def resetToCommit(self, repoName, commitHash):

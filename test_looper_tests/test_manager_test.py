@@ -161,7 +161,7 @@ class TestManagerTests(unittest.TestCase):
             top_commit = harness.getCommit(harness.manager.source_control.getBranch("repo5/master"))
             self.assertEqual(top_commit.data.repos["child"].reference, "repo2/c5")
 
-            repo,branch,hash = BranchPinning.unpackCommitPinUpdateMessage(top_commit.data.commitMessage)
+            repo,branch,hash,refname = BranchPinning.unpackCommitPinUpdateMessage(top_commit.data.commitMessage)
             self.assertEqual(repo, "repo2")
             self.assertEqual(branch, "master")
             self.assertEqual(hash, "c5")
@@ -227,6 +227,56 @@ class TestManagerTests(unittest.TestCase):
 
         self.assertEqual(harness.manager.source_control.created_commits, 4)
 
+
+    def test_manager_pin_calculation(self):
+        harness = TestManagerTestHarness.getHarness(max_workers=1)
+
+        harness.add_content()
+        
+        harness.manager.source_control.addCommit("repo6/underlying", [], TestYamlFiles.repo6_nopin)
+        harness.manager.source_control.setBranch("repo6/underlying_left", "repo6/underlying")
+        harness.manager.source_control.setBranch("repo6/underlying_right", "repo6/underlying")
+
+        harness.manager.source_control.addCommit("repo6/merged", [], 
+            (TestYamlFiles.repo6_twopins
+                .replace("__branch__", "underlying_left")
+                .replace("HEAD1", "root")
+                .replace("__branch2__", "underlying_right")
+                .replace("HEAD2", "root")
+                )
+            )
+        harness.manager.source_control.setBranch("repo6/merged_branch", "merged")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        with harness.database.transaction():
+            merged_branch = harness.database.Branch.lookupOne(reponame_and_branchname=("repo6","merged_branch"))
+            left_branch = harness.database.Branch.lookupOne(reponame_and_branchname=("repo6","underlying_left"))
+            right_branch = harness.database.Branch.lookupOne(reponame_and_branchname=("repo6","underlying_right"))
+
+            merged_branch.isUnderTest = True
+
+        #push to the left branch and nothing happens
+        harness.manager.source_control.addCommit("repo6/c1", [], TestYamlFiles.repo6_nopin)
+        harness.manager.source_control.setBranch("repo6/underlying_left", "repo6/c1")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        with harness.database.transaction():
+            self.assertEqual(merged_branch.head.userPriority, 0)
+
+        harness.manager.source_control.addCommit("repo6/c2", [], TestYamlFiles.repo6_nopin)
+        harness.manager.source_control.setBranch("repo6/underlying_right", "repo6/c2")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        with harness.database.transaction():
+            self.assertEqual(merged_branch.head.userPriority, 1)
+
+    
     def test_manager_pin_resolution_ordering(self):
         harness = TestManagerTestHarness.getHarness(max_workers=1)
 
@@ -319,7 +369,7 @@ class TestManagerTests(unittest.TestCase):
         #this should update all 16
         self.assertEqual(harness.manager.source_control.created_commits, 31)
 
-
+    
 
     def test_manager_update_head_commits(self):
         harness = TestManagerTestHarness.getHarness(max_workers=1)

@@ -38,12 +38,13 @@ ClientToServerMsg = algebraic.Alternative("ClientToServerMsg")
 WorkerState = algebraic.Alternative("WorkerState")
 WorkerState.Waiting = {}
 WorkerState.WorkingOnDeployment = {'deploymentId': str, 'logs_so_far': str}
-WorkerState.WorkingOnTest = {'testId': str, 'logs_so_far': str}
+WorkerState.WorkingOnTest = {'testId': str, 'logs_so_far': str, 'artifacts': algebraic.List(str)}
 WorkerState.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,(bool, bool))} #testSuccess: name->(success,hasLogs)
 
 ClientToServerMsg.CurrentState = {'machineId': str, 'state': WorkerState}
 ClientToServerMsg.WaitingHeartbeat = {}
 ClientToServerMsg.TestHeartbeat = {'testId': str}
+ClientToServerMsg.ArtifactUploaded = {'testId': str, 'artifact': str}
 ClientToServerMsg.TestLogOutput = {'testId': str, 'log': str}
 ClientToServerMsg.DeploymentHeartbeat = {'deploymentId': str}
 ClientToServerMsg.DeploymentExited = {'deploymentId': str}
@@ -126,7 +127,7 @@ class Session(object):
                     self.testManager.subscribeToClientMessages(deploymentId, onMessage)
 
             elif msg.state.matches.WorkingOnTest:
-                if not self.testManager.handleTestConnectionReinitialized(msg.state.testId, time.time(), msg.state.logs_so_far):
+                if not self.testManager.handleTestConnectionReinitialized(msg.state.testId, time.time(), msg.state.logs_so_far, msg.state.artifacts):
                     self.send(ServerToClientMsg.CancelTest(msg.state.testId))
                 else:
                     self.currentTestId = msg.state.testId
@@ -178,7 +179,9 @@ class Session(object):
                                 testDefinition=testDefinition
                                 )
                             )
-
+        elif msg.matches.ArtifactUploaded:
+            if msg.testId == self.currentTestId:
+                self.testManager.recordTestArtifactUploaded(self.currentTestId, msg.artifact, time.time(), isCumulative=False)
         elif msg.matches.TestHeartbeat or msg.matches.TestLogOutput:
             if msg.matches.TestHeartbeat:
                 log = None

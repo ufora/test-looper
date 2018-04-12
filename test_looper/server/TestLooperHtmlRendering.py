@@ -161,9 +161,12 @@ class Renderer:
             testRun = self.testManager.getTestRunById(testId)
 
             if testRun.test.testDefinitionSummary.type == "Build":
-                build_key = testRun.test.testDefinitionSummary.name.replace("/","_") + ".tar.gz"
+                for artifact in testRun.test.testDefinitionSummary.artifacts:
+                    full_name = testRun.test.testDefinitionSummary.name + ("/" + artifact if artifact else "")
 
-                self.artifactStorage.clear_build(testRun.test.hash, build_key)
+                    build_key = self.artifactStorage.sanitizeName(full_name) + ".tar.gz"
+
+                    self.artifactStorage.clear_build(testRun.test.hash, full_name)
 
         raise cherrypy.HTTPRedirect(redirect)
 

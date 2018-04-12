@@ -9,7 +9,7 @@ def unpackCommitPinUpdateMessage(msg):
     if len(lines) < 4:
         return None
 
-    firstline = "Updating pin"
+    firstline = "Updating pin "
     secondline = "New commit in pinned branch "
     thirdline = "    commit "
 
@@ -26,12 +26,14 @@ def unpackCommitPinUpdateMessage(msg):
         return None
     
     hash = lines[3][len(thirdline):].strip()
+    ref_name = lines[0][len(firstline):].split(":")[0]
+
     #there's a : at the end of the message
     repoAndBranch = lines[2][len(secondline):].strip()[:-1]
     repo = "/".join(repoAndBranch.split("/")[:-1])
     branch = repoAndBranch.split("/")[-1]
 
-    return repo, branch, hash
+    return repo, branch, hash, ref_name
 
 
 class BranchPinning:

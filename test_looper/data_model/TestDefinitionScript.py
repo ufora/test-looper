@@ -12,7 +12,7 @@ import json
 import simplejson 
 import logging
 
-VALID_VERSIONS = [2,3]
+VALID_VERSIONS = [4]
 
 Platform = TestDefinition.Platform
 
@@ -30,12 +30,12 @@ DefineEnvironment.Import = {
     "variables": VariableDict,
     "dependencies": algebraic.Dict(str, str),
     "test_configuration": str,
-    "test_preCommand": str,
-    "test_preCleanupCommand": str,
+    "test_stages": algebraic.List(TestDefinition.Stage),
     "test_timeout": int,
     "test_min_cores": int,
     "test_max_cores": int,
     "test_min_ram_gb": int,
+    "test_min_disk_gb": int,
     "test_max_retries": int,
     "test_retry_wait_seconds": int
     }
@@ -46,12 +46,12 @@ DefineEnvironment.Environment = {
     "variables": VariableDict,
     "dependencies": algebraic.Dict(str, str),
     "test_configuration": str,
-    "test_preCommand": str,
-    "test_preCleanupCommand": str,
+    "test_stages": algebraic.List(TestDefinition.Stage),
     "test_timeout": int,
     "test_min_cores": int,
     "test_max_cores": int,
     "test_min_ram_gb": int,
+    "test_min_disk_gb": int,
     "test_max_retries": int,
     "test_retry_wait_seconds": int
     }
@@ -61,30 +61,33 @@ DefineTest = algebraic.Alternative("DefineTest")
 DefineDeployment = algebraic.Alternative("DefineDeployment")
 
 DefineBuild.Build = {
-    'command': str,
+    'stages': algebraic.List(TestDefinition.Stage),
+    'command': str, #shorthand to create a single-stage build with a blank name at the ${TEST_BUILD_OUTPUT_DIR}
+    'cleanup': str, #shorthand for the single-stage build
     'environment': str,
     'mixins': algebraic.List(str), #environments to 'mix in' to modify the behavior of the test
     'configuration': str,
     'project': str,
-    'cleanup': str, #command to run to copy test outputs to relevant directories...
     'dependencies': algebraic.Dict(str,str),
     'variables': VariableDict,
-    "timeout": int, #max time, in seconds, for the test
+    "timeout": int, #max time, in seconds, for the build
     "disabled": bool, #disabled by default?
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
     "max_cores": int, #maximum number of cores we can take advantage of, or zero
     "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
+    "min_disk_gb": int, #minimum GB of disk space we need to run, or zero if we don't care
     "max_retries": int, #maximum number of times to retry the build
     "retry_wait_seconds": int, #minimum number of seconds to wait before retrying a build
     }
 
 DefineTest.Test = {
-    'command': str,
+    'stages': algebraic.List(TestDefinition.Stage),
+    'command': str, #shorthand to create a single-stage build with a blank name at the ${TEST_BUILD_OUTPUT_DIR}
+    'cleanup': str, #shorthand for the single-stage build
     'environment': str,
     'mixins': algebraic.List(str), #environments to 'mix in' to modify the behavior of the test
     'configuration': str,
     'project': str,
-    'cleanup': str, #command to run to copy test outputs to relevant directories...
     'dependencies': algebraic.Dict(str,str),
     'variables': VariableDict,
     "disabled": bool, #disabled by default?
@@ -92,10 +95,10 @@ DefineTest.Test = {
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
     "max_cores": int, #maximum number of cores we can take advantage of, or zero
     "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
+    "min_disk_gb": int, #minimum GB of disk space we need to run, or zero if we are ok with the default
     }
 
 DefineDeployment.Deployment = {
-    'command': str,
     'environment': str,
     'mixins': algebraic.List(str), #environments to 'mix in' to modify the behavior of the test
     'configuration': str,
@@ -107,6 +110,7 @@ DefineDeployment.Deployment = {
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
     "max_cores": int, #maximum number of cores we can take advantage of, or zero
     "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
+    "min_disk_gb": int, #minimum GB of disk space we need to run, or zero if we don't care
     }
 
 RepoReference = TestDefinition.RepoReference
@@ -122,7 +126,11 @@ TestDefinitionScript.Definition = {
     "environments": algebraic.Dict(str, DefineEnvironment),
     "builds": algebraic.Dict(str, DefineBuild),
     "tests": algebraic.Dict(str, DefineTest),
-    "deployments": algebraic.Dict(str, DefineDeployment)
+    "deployments": algebraic.Dict(str, DefineDeployment),
+
+    #policy for which tests/builds to run if this commit gets explicitly prioritized.
+    #if empty, everything. Otherwise, a list of globs selecting tests/builds by name
+    "prioritize": algebraic.List(str) 
     }
 
 reservedNames = ["data", "source", "HEAD"]
@@ -253,6 +261,8 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                             )
                         )
 
+            stages = envDef.test_stages
+
             import_env = TestDefinition.TestEnvironment.Import(
                 environment_name=envName,
                 inheritance=(),
@@ -263,14 +273,14 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                     "test_inputs/" + name: map_environment_dep(dep) for name, dep in envDef.dependencies.iteritems()
                     },
                 test_configuration=envDef.test_configuration,
-                test_preCommand=envDef.test_preCommand,
-                test_preCleanupCommand=envDef.test_preCleanupCommand,
                 test_timeout=envDef.test_timeout,
                 test_min_cores=envDef.test_min_cores,
                 test_max_cores=envDef.test_max_cores,
                 test_min_ram_gb=envDef.test_min_ram_gb,
+                test_min_disk_gb=envDef.test_min_disk_gb,
                 test_max_retries=envDef.test_max_retries,
-                test_retry_wait_seconds=envDef.test_retry_wait_seconds
+                test_retry_wait_seconds=envDef.test_retry_wait_seconds,
+                test_stages=envDef.test_stages
                 )
 
             environments[envName] = import_env
@@ -286,14 +296,14 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                     "test_inputs/" + name: map_environment_dep(dep) for name, dep in envDef.dependencies.iteritems()
                     },
                 test_configuration=envDef.test_configuration,
-                test_preCommand=envDef.test_preCommand,
-                test_preCleanupCommand=envDef.test_preCleanupCommand,
                 test_timeout=envDef.test_timeout,
                 test_min_cores=envDef.test_min_cores,
                 test_max_cores=envDef.test_max_cores,
                 test_min_ram_gb=envDef.test_min_ram_gb,
+                test_min_disk_gb=envDef.test_min_disk_gb,
                 test_max_retries=envDef.test_max_retries,
-                test_retry_wait_seconds=envDef.test_retry_wait_seconds
+                test_retry_wait_seconds=envDef.test_retry_wait_seconds,
+                test_stages=envDef.test_stages
                 )  
 
         return environments[envName]
@@ -350,13 +360,30 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
 
         deps = {"test_inputs/" + depname: convert_build_dep(dep, curEnv) for (depname, dep) in d.dependencies.items()}
 
-        if version == 2:
-            deps["src"] = TestDefinition.TestDependency.Source(repo=curRepoName, commitHash=curCommitHash, path="")
+        if d.matches.Build or d.matches.Test:
+            stages = list(d.stages)
+
+            if d.command or d.cleanup:
+                stages.append(
+                    TestDefinition.Stage.Stage(
+                        command=d.command,
+                        cleanup=d.cleanup,
+                        artifacts=[
+                            TestDefinition.Artifact(
+                                name="",
+                                directory="${TEST_BUILD_OUTPUT_DIR}" if d.matches.Build else "${TEST_OUTPUT_DIR}",
+                                include_patterns=(),
+                                exclude_patterns=(),
+                                format=TestDefinition.ArtifactFormat.Tar()
+                                )
+                            ],
+                        order=10.**9
+                        )
+                    )
 
         if d.matches.Build:
             return TestDefinition.TestDefinition.Build(
-                buildCommand=d.command,
-                cleanupCommand=d.cleanup,
+                stages=stages,
                 configuration=d.configuration,
                 project=d.project,
                 name=name,
@@ -370,14 +397,14 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 min_cores=d.min_cores,
                 max_cores=d.max_cores,
                 min_ram_gb=d.min_ram_gb,
+                min_disk_gb=d.min_disk_gb,
                 max_retries=d.max_retries,
                 retry_wait_seconds=d.retry_wait_seconds,
                 hash=""
                 )
         if d.matches.Test:
             return TestDefinition.TestDefinition.Test(
-                testCommand=d.command,
-                cleanupCommand=d.cleanup,
+                stages=stages,
                 configuration=d.configuration,
                 project=d.project,
                 name=name,
@@ -391,11 +418,11 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 min_cores=d.min_cores,
                 max_cores=d.max_cores,
                 min_ram_gb=d.min_ram_gb,
+                min_disk_gb=d.min_disk_gb,
                 hash=""
                 )
         if d.matches.Deployment:
             return TestDefinition.TestDefinition.Deployment(
-                deployCommand=d.command,
                 configuration=d.configuration,
                 project=d.project,
                 name=name,
@@ -409,6 +436,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 min_cores=d.min_cores,
                 max_cores=d.max_cores,
                 min_ram_gb=d.min_ram_gb,
+                min_disk_gb=d.min_disk_gb,
                 hash=""
                 )
 
@@ -427,7 +455,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
 
         allTests[name] = convert_def(name, definition)
 
-    return allTests, environments, testScript.repos, testScript.includes
+    return allTests, environments, testScript.repos, testScript.includes, testScript.prioritize
 
 def flatten(l):
     if not isinstance(l, list):
@@ -653,12 +681,12 @@ def extract_tests_from_str(repoName, commitHash, extension, text, variable_defin
     test_defs_json = extract_postprocessed_test_definitions(extension, text, variable_definitions)
     
     if 'looper_version' not in test_defs_json:
-        raise Exception("No looper version specified. Valid versions are 2 <= version <= 3")
+        raise Exception("No looper version specified. Valid versions for this build are %s" % (repr(VALID_VERSIONS),))
 
     version = test_defs_json['looper_version']
     del test_defs_json['looper_version']
 
     if version not in VALID_VERSIONS:
-        raise Exception("Can't handle looper version %s" % version)
+        raise Exception("Can't handle looper version %s. Valid versions are %s" % (version, repr(VALID_VERSIONS,)))
 
     return extract_tests(repoName, commitHash, encoder.from_json(test_defs_json, TestDefinitionScript), version, externally_defined_repos)

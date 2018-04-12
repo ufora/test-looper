@@ -35,6 +35,7 @@ class TestLooperClient(object):
         self._curTestResults = None
         self._curDeploymentId = None
         self._curOutputs = None
+        self._curArtifacts = None
         self._subscriptions = {}
         self._subscriptionsLock = threading.Lock()
 
@@ -161,12 +162,14 @@ class TestLooperClient(object):
                 if msg.matches.TestAssignment:
                     self._curTestId = msg.testId
                     self._curOutputs = []
+                    self._curArtifacts = []
                     logging.info("New TestID is %s", self._curTestId)
                     return msg.testId, msg.testDefinition, False
 
                 if msg.matches.DeploymentAssignment:
                     self._curDeploymentId = msg.deploymentId
                     self._curOutputs = []
+                    self._curArtifacts = []
                     logging.info("New deploymentId is %s", self._curDeploymentId)
                     return msg.deploymentId, msg.testDefinition, True
 
@@ -186,7 +189,8 @@ class TestLooperClient(object):
                     elif self._curTestId is not None:
                         workerState=TestLooperServer.WorkerState.WorkingOnTest(
                             testId=self._curTestId,
-                            logs_so_far="".join(self._curOutputs)
+                            logs_so_far="".join(self._curOutputs),
+                            artifactsSoFar=self._curArtifacts
                             )
                     elif self._curDeploymentId is not None:
                         workerState=TestLooperServer.WorkerState.WorkingOnDeployment(
@@ -208,16 +212,19 @@ class TestLooperClient(object):
                     logging.info("TestLooperServer acknowledged test completion.")
                     self._curTestId = None
                     self._curOutputs = None
+                    self._curArtifacts = None
                     self._curTestResults = None
                 if m.matches.CancelTest and self._curTestId == m.testId:
                     logging.info("TestLooper canceling test %s", self._curTestId)
                     self._curTestId = None
                     self._curOutputs = None
+                    self._curArtifacts = None
                     self._curTestResults = None
                 if m.matches.ShutdownDeployment and self._curDeploymentId == m.deploymentId:
                     logging.info("TestLooper canceling deployment %s", self._curDeploymentId)
                     self._curDeploymentId = None
                     self._curOutputs = None
+                    self._curArtifacts = None
         except Queue.Empty:
             pass
 
@@ -276,6 +283,18 @@ class TestLooperClient(object):
 
     def releaseGitRepoLock(self, requestUniqueId):
         self._send(TestLooperServer.ClientToServerMsg.GitRepoPullCompleted(requestUniqueId))
+
+    def recordArtifactUploaded(self, artifact):
+        if self._shouldStop:
+            raise Exception("Shutting down")
+
+        self.consumeMessages()
+
+        if self._curTestId is not None:
+            self._curArtifacts.append(artifact)
+            self._send(TestLooperServer.ClientToServerMsg.ArtifactUploaded(testId=self._curTestId, artifact=artifact))
+        else:
+            raise Exception("No active test")
 
     def scopedReadLockAroundGitRepo(self):
         class Scope:

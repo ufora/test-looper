@@ -109,12 +109,17 @@ class Alternative(object):
         self._frozen = False
         self._methods = {}
         self._common_fields = {}
+        self._createDefaultValue = None
         
         for k, v in kwds.items():
             self.__setattr__(k,v)
 
         self._unique_field_to_type = {}
         self._types_with_unique_fields = set()
+
+    def setCreateDefault(self, defaultMaker):
+        assert self._createDefaultValue is None
+        self._createDefaultValue = defaultMaker
 
     def add_common_fields(self, fields):
         assert not self._frozen, "can't modify an Alternative once it has been frozen"
@@ -256,6 +261,8 @@ def default_initialize(tgt_type):
         return ()
     if isinstance(tgt_type, NullableAlternative):
         return tgt_type.Null()
+    if isinstance(tgt_type, Alternative) and tgt_type._createDefaultValue:
+        return tgt_type._createDefaultValue()
     if hasattr(tgt_type, "__default_initializer__"):
         return tgt_type.__default_initializer__()
 
@@ -316,7 +323,15 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
 
         def __sha_hash__(self):
             if self._sha_hash_cache is None:
-                self._sha_hash_cache = sha_hash(self._fields) + sha_hash(self._which)
+                base_hash = sha_hash(alternative._name)
+                for fieldname in sorted(self._fields):
+                    val = self._fields[fieldname]
+                    default = default_initialize(typedict[fieldname])
+
+                    if val != default:
+                        base_hash = base_hash + sha_hash(fieldname) + sha_hash(val)
+
+                self._sha_hash_cache = base_hash + sha_hash(self._which)
             return self._sha_hash_cache
 
         def __hash__(self):

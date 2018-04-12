@@ -19,7 +19,7 @@ import unittest
 import yaml
 
 basic_yaml_file = """
-looper_version: 2
+looper_version: 4
 repos:
   child: child-repo-name/repo_hash
 environments:
@@ -39,20 +39,22 @@ builds:
   foreach: {env: [linux, test_linux]}
   repeat:
     build/${env}:
-      command: "build.sh $TEST_LOOPER_IMPORTS/child"
+      command: "src/build.sh $TEST_INPUTS/child"
       dependencies:
+        src: HEAD
         child: child/build/${env}
 tests:
   foreach: {env: [linux, test_linux]}
   repeat:
     test/${env}:
-      command: "test.sh $TEST_LOOPER_IMPORTS/build"
+      command: "src/test.sh $TEST_INPUTS/build"
       dependencies:
+        src: HEAD
         build: build/${env}
 """
 
 circular_yaml_file = """
-looper_version: 2
+looper_version: 4
 environments:
   linux:
     platform: linux
@@ -60,12 +62,14 @@ environments:
       dockerfile: "test_looper/Dockerfile.txt"
 builds:
   build1/linux:
-    command: "build.sh"
+    command: "src/build.sh"
     dependencies:
+      src: HEAD
       child: build2/linux
   build2/linux:
-    command: "build.sh"
+    command: "src/build.sh"
     dependencies:
+      src: HEAD
       child: build1/linux
 """
 
@@ -96,7 +100,7 @@ tests:
 
 environment_yaml_file = """
 environments:
-looper_version: 2
+looper_version: 4
 environments:
   env_root:
     platform: windows
@@ -117,7 +121,7 @@ environments:
 """
 
 includes_yaml_file = """
-looper_version: 2
+looper_version: 4
 includes:
   foreach:
     v1: [v1_val1, v1_val2]
@@ -135,7 +139,7 @@ def apply_and_merge(vars, extras=None):
 
 class TestDefinitionScriptTests(unittest.TestCase):
     def test_basic(self):
-        tests, environments, repos, includes = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", basic_yaml_file)
+        tests, environments, repos, includes, prioritizes = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", basic_yaml_file)
 
         for name in ['build/linux', 'build/test_linux', 'test/linux', 'test/test_linux']:
             self.assertTrue(name in tests, name)
@@ -145,7 +149,7 @@ class TestDefinitionScriptTests(unittest.TestCase):
         self.assertEqual(environments["test_linux"].variables["A_BOOL_VAR"], "true")
 
     def test_environment_inheritance(self):
-        tests, environments, repos, includes = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", environment_yaml_file)
+        tests, environments, repos, includes, prioritizes = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", environment_yaml_file)
 
         Ref = TestDefinition.EnvironmentReference.Reference
 

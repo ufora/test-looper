@@ -1,0 +1,46 @@
+looper_version: 4
+environments:
+  linux:
+    platform: linux
+    image:
+      dockerfile_contents: |
+        FROM ubuntu:16.04
+
+        RUN apt update
+        RUN apt-get update
+        RUN apt-get install -y python-pip
+        RUN apt-get install -y python-nose
+        RUN pip install numpy
+        RUN pip install docker==2.5.0
+
+        RUN echo "some text" > /some_file
+
+#three kinds of builds
+builds:
+  build_with_stages:
+    environment: linux
+    stages:
+    - command: echo "file1" > $TEST_BUILD_OUTPUT_DIR/file1.txt
+      artifacts:
+      - name: first_stage
+        include_patterns: 
+          - "*.txt"
+    - command: echo "file2" > $TEST_BUILD_OUTPUT_DIR/file2.log
+      artifacts:
+      - name: second_stage
+        include_patterns: 
+          - "*.log"
+
+  build_consuming_stage_1:
+    environment: linux
+    dependencies:
+      in: build_with_stages/first_stage
+    command:
+      cat $TEST_INPUTS/in/file1.txt
+
+  build_consuming_stage_2:
+    environment: linux
+    dependencies:
+      in: build_with_stages/second_stage
+    command:
+      cat $TEST_INPUTS/in/file2.log

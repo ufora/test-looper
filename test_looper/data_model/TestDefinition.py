@@ -20,8 +20,8 @@ Image.Dockerfile = {"repo": str, "commitHash": str, "dockerfile": str}
 Image.AMI = {"base_ami": str, "setup_script_contents": str}
 
 TestDependency = algebraic.Alternative("TestDependency")
-TestDependency.Build = {"repo": str, "name": str, "buildHash": str}
-TestDependency.Source = {"repo": str, "commitHash": str, "path": str}
+TestDependency.Build = {"repo": str, "name": str, "buildHash": str, "artifact": str }
+TestDependency.Source = {"repo": str, "commitHash": str, "path": str }
 
 #these are intermediate parse states. Resolved builds won't have them.
 TestDependency.InternalBuild = {"name": str}
@@ -37,6 +37,32 @@ EnvironmentReference = algebraic.Alternative("EnvironmentReference")
 EnvironmentReference.Reference = {"repo": str, "commitHash": str, "name": str}
 EnvironmentReference.UnresolvedReference = {"repo_name": str, "name": str}
 
+Stage = algebraic.Alternative("Stage")
+Artifact = algebraic.Alternative("Artifact")
+Stage.Stage = {
+    "command": str, #command to run
+    "cleanup": str, #command to copy output to build output directory
+    "order": float,
+    "artifacts": algebraic.List(Artifact)
+    }
+
+ArtifactFormat = algebraic.Alternative("ArtifactFormat")
+ArtifactFormat.Tar = {}
+ArtifactFormat.Zip = {}
+ArtifactFormat.Files = {}
+ArtifactFormat.setCreateDefault(lambda: ArtifactFormat.Tar())
+
+
+Artifact.Artifact = {
+    "name": str, #unique within the entire build. If populated, then this output is named "build_name/artifact_name"
+                 #if blank, then the output is just named "build_name". Names must be unique. A blank name is only
+                 #allowed if we have exactly one build artifact across the stages
+    "directory": str, #directory from which to build the actual build artifact
+    "include_patterns": algebraic.List(str), #list of globs we want to include. If empty, then we include everything.
+    "exclude_patterns": algebraic.List(str), #list of globs we want to exclude from the build
+    "format": ArtifactFormat
+    }
+
 RepoReference = algebraic.Alternative("RepoReference")
 RepoReference.Import = {"import": str} # /-separated sequence of repo refs
 RepoReference.ImportedReference = {"reference": str, "import_source": str, "orig_reference": str}
@@ -44,7 +70,13 @@ RepoReference.Reference = {"reference": str}
 RepoReference.Pin = {
     "reference": str,
     "branch": str,
-    "auto": bool
+
+    #true, false/blank, or "every N (second(s)|minute(s)|hour(s)|day(s))"
+    "auto": str,
+            
+    #if we update this commit and the branch is prioritized, do we want the commit prioritized also?
+    #if empty, then no. If one element of 'true', or 'all', then yes. 
+    "prioritize": algebraic.List(str)
     }
 
 def RepoReference_reponame(ref):
@@ -72,12 +104,12 @@ TestEnvironment.Environment = {
     "variables": algebraic.Dict(str, str),
     "dependencies": algebraic.Dict(str, TestDependency),
     "test_configuration": str,
-    "test_preCommand": str,
-    "test_preCleanupCommand": str,
+    'test_stages': algebraic.List(Stage),
     "test_timeout": int,
     "test_min_cores": int,
     "test_max_cores": int,
     "test_min_ram_gb": int,
+    "test_min_disk_gb": int,
     "test_max_retries": int,
     "test_retry_wait_seconds": int
     }
@@ -90,20 +122,19 @@ TestEnvironment.Import = {
     "variables": algebraic.Dict(str, str),
     "dependencies": algebraic.Dict(str, TestDependency),
     "test_configuration": str,
-    "test_preCommand": str,
-    "test_preCleanupCommand": str,
+    'test_stages': algebraic.List(Stage),
     "test_timeout": int,
     "test_min_cores": int,
     "test_max_cores": int,
     "test_min_ram_gb": int,
+    "test_min_disk_gb": int,
     "test_max_retries": int,
     "test_retry_wait_seconds": int
     }
 
 TestDefinition = algebraic.Alternative("TestDefinition")
 TestDefinition.Build = {
-    "buildCommand": str,
-    "cleanupCommand": str,
+    'stages': algebraic.List(Stage),
     'configuration': str,
     'project': str,
     'hash': str,
@@ -118,12 +149,12 @@ TestDefinition.Build = {
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
     "max_cores": int, #maximum number of cores we can take advantage of, or zero
     "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
+    "min_disk_gb": int, #minimum GB of disk space we need for this test
     "max_retries": int, #maximum number of times to retry the build
     "retry_wait_seconds": int, #minimum number of seconds to wait before retrying a build
     }
 TestDefinition.Test = {
-    "testCommand": str,
-    "cleanupCommand": str,
+    'stages': algebraic.List(Stage),
     'configuration': str,
     'project': str,
     'hash': str,
@@ -138,9 +169,9 @@ TestDefinition.Test = {
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
     "max_cores": int, #maximum number of cores we can take advantage of, or zero
     "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
+    "min_disk_gb": int, #minimum GB of disk space we need
     }
 TestDefinition.Deployment = {
-    "deployCommand": str,
     'configuration': str,
     'project': str,
     'hash': str,
@@ -155,6 +186,7 @@ TestDefinition.Deployment = {
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
     "max_cores": int, #maximum number of cores we can take advantage of, or zero
     "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
+    "min_disk_gb": int, #minimum GB of ram we need to run, or zero if we don't care
     }
 
 
@@ -261,12 +293,12 @@ def merge_environments(import_environment, underlying_environments):
 
     commonKwargs = makeDict(
         test_configuration=pickFirstNonzero([e.test_configuration for e in order], ""),
-        test_preCommand="\n".join([e.test_preCommand for e in reversed(order) if e.test_preCommand]),
-        test_preCleanupCommand="\n".join([e.test_preCleanupCommand for e in reversed(order) if e.test_preCleanupCommand]),
+        test_stages=sum([list(e.test_stages) for e in reversed(order)], []),
         test_timeout=pickFirstNonzero([e.test_timeout for e in order]),
         test_min_cores=pickFirstNonzero([e.test_min_cores for e in order]),
         test_max_cores=pickFirstNonzero([e.test_max_cores for e in order]),
         test_min_ram_gb=pickFirstNonzero([e.test_min_ram_gb for e in order]),
+        test_min_disk_gb=pickFirstNonzero([e.test_min_disk_gb for e in order]),
         test_max_retries=pickFirstNonzero([e.test_max_retries for e in order]),
         test_retry_wait_seconds=pickFirstNonzero([e.test_retry_wait_seconds for e in order])
         )
@@ -378,6 +410,26 @@ def apply_environment_substitutions(env):
             dependencies=deps
             )
 
+def apply_variable_substitution_to_artifact(artifact, vardefs):
+    return Artifact.Artifact(
+        name=VariableSubstitution.substitute_variables(artifact.name, vardefs),
+        directory=VariableSubstitution.substitute_variables(artifact.directory, vardefs),
+        include_patterns=[VariableSubstitution.substitute_variables(i, vardefs) for i in artifact.include_patterns],
+        exclude_patterns=[VariableSubstitution.substitute_variables(i, vardefs) for i in artifact.exclude_patterns],
+        format=artifact.format
+        )
+
+def apply_variable_substitutions_to_stage(stage, vardefs):
+    return Stage.Stage(
+        command=VariableSubstitution.substitute_variables(stage.command, vardefs),
+        cleanup=VariableSubstitution.substitute_variables(stage.cleanup, vardefs),
+        order=stage.order,
+        artifacts=[apply_variable_substitution_to_artifact(a, vardefs) for a in stage.artifacts],
+        )
+
+def apply_variable_substitution_to_stages(stages, vardefs):
+    return [apply_variable_substitutions_to_stage(s, vardefs) for s in stages]
+
 def apply_environment_to_test(test, env, input_var_defs):
     vardefs = dict(env.variables)
     vardefs.update(test.variables)
@@ -417,23 +469,19 @@ def apply_environment_to_test(test, env, input_var_defs):
             min_cores=test.min_cores or env.test_min_cores,
             max_cores=test.max_cores or env.test_max_cores,
             min_ram_gb=test.min_ram_gb or env.test_min_ram_gb,
+            min_disk_gb=test.min_disk_gb or env.test_min_disk_gb,
             hash=test.hash,
             **kwargs
             )
 
-    def addNewline(s):
-        if s:
-            return s + "\n"
-        return ""
-
-    test_preCommand = addNewline(env.test_preCommand)
-    test_preCleanupCommand = addNewline(env.test_preCleanupCommand)
+    if test.matches.Build or test.matches.Test:
+        stages = env.test_stages + test.stages
+        stages = apply_variable_substitution_to_stages(stages, vardefs)
 
     if test.matches.Build:
         return make(
             TestDefinition.Build,
-            buildCommand=VariableSubstitution.substitute_variables(test_preCommand + test.buildCommand, vardefs),
-            cleanupCommand=VariableSubstitution.substitute_variables(test_preCleanupCommand + test.cleanupCommand, vardefs),
+            stages=stages,
             max_retries=test.max_retries,
             retry_wait_seconds=test.retry_wait_seconds,
             disabled=test.disabled
@@ -441,14 +489,12 @@ def apply_environment_to_test(test, env, input_var_defs):
     elif test.matches.Test:
         return make(
             TestDefinition.Test,
-            testCommand=VariableSubstitution.substitute_variables(test_preCommand + test.testCommand, vardefs),
-            cleanupCommand=VariableSubstitution.substitute_variables(test_preCleanupCommand + test.cleanupCommand, vardefs),
+            stages=stages,
             disabled=test.disabled
             )
     elif test.matches.Deployment:
         return make(
             TestDefinition.Deployment,
-            deployCommand=VariableSubstitution.substitute_variables(test_preCommand + test.deployCommand, vardefs),
             portExpose=test.portExpose
             )
 
@@ -466,17 +512,14 @@ def apply_variable_substitution_to_test(test, input_var_defs):
     if test.matches.Build:
         return test._withReplacement(
             variables=vardefs,
-            buildCommand=VariableSubstitution.substitute_variables(test.buildCommand, vardefs),
-            cleanupCommand=VariableSubstitution.substitute_variables(test.cleanupCommand, vardefs)
+            stages=apply_variable_substitution_to_stages(test.stages, vardefs)
             )
     elif test.matches.Test:
         return test._withReplacement(
             variables=vardefs,
-            testCommand=VariableSubstitution.substitute_variables(test.testCommand, vardefs),
-            cleanupCommand=VariableSubstitution.substitute_variables(test.cleanupCommand, vardefs)
+            stages=apply_variable_substitution_to_stages(test.stages, vardefs)
             )
     elif test.matches.Deployment:
         return test._withReplacement(
-            variables=vardefs,
-            deployCommand=VariableSubstitution.substitute_variables(test.deployCommand, vardefs)
+            variables=vardefs
             )

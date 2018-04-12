@@ -398,7 +398,10 @@ class TestManagerTestHarness:
                 self.manager.testHeartbeat(testId, self.timestamp)
                 self.timestamp += .1
 
-            for testId,_ in tests:
+            for testId, testDef in tests:
+                for artifact in [a for stage in testDef.stages for a in stage.artifacts]:
+                    self.manager.recordTestArtifactUploaded(testId, artifact.name, self.timestamp, False)
+
                 self.manager.recordTestResults(True, testId, {"ATest": (True,False), "AnotherTest": (False, False)}, self.timestamp)
                 self.timestamp += .1
 

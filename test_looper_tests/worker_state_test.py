@@ -331,6 +331,9 @@ class WorkerStateTests(unittest.TestCase):
                     else:
                         self.callback(msg)
 
+            def recordArtifactUploaded(self, artifact):
+                pass
+
             def scopedReadLockAroundGitRepo(self):
                 class Scope:
                     def __enter__(self, *args):
@@ -478,3 +481,26 @@ class WorkerStateTests(unittest.TestCase):
         self.assertTrue(
             self.runWorkerTest(worker, "test2", commit2Name, commit2Hash, "test_commit_message_in_dependencies/linux", callbacks2, isDeploy=False)[0]
             )
+
+
+    def test_worker_stage_flow(self):
+        repo, repoName, commitHash, worker = self.get_worker("project_with_stages")
+
+        callbacks1 = WorkerState.DummyWorkerCallbacks()
+        callbacks2 = WorkerState.DummyWorkerCallbacks()
+        callbacks3 = WorkerState.DummyWorkerCallbacks()
+
+        self.assertTrue(
+            self.runWorkerTest(worker, "test0", repoName, commitHash, "build_with_stages", callbacks1, isDeploy=False)[0],
+            self.get_failure_log(worker, repoName, commitHash, "test0")
+            )
+        self.assertEqual(callbacks1.artifacts, ["first_stage", "second_stage"])
+
+        self.assertTrue(
+            self.runWorkerTest(worker, "test2", repoName, commitHash, "build_consuming_stage_1", callbacks2, isDeploy=False)[0]
+            )
+
+        self.assertTrue(
+            self.runWorkerTest(worker, "test3", repoName, commitHash, "build_consuming_stage_2", callbacks3, isDeploy=False)[0]
+            )
+

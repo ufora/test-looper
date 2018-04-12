@@ -1,6 +1,6 @@
 
 repo0 = """
-looper_version: 2
+looper_version: 4
 environments:
   repo0_env:
     platform: linux
@@ -11,7 +11,7 @@ environments:
 """
 
 repo1 = """
-looper_version: 2
+looper_version: 4
 repos:
   repo0c0: repo0/c0
   repo0c1: repo0/c1
@@ -43,20 +43,25 @@ environments:
       dep1: repo0c1
 builds:
   build/linux:
-    command: "build.sh"
+    dependencies:
+      src: HEAD
+    command: "src/build.sh"
     min_cores: 1
     max_cores: 1
 tests:
   test/linux:
     command: "test.sh"
     dependencies:
+      src: HEAD
       build: build/linux
     min_cores: 4
   test/windows:
-    command: "test.py"
+    command: "src/test.py"
+    dependencies:
+      src: HEAD
 """
 repo2 = """
-looper_version: 2
+looper_version: 4
 repos:
   child: repo1/c0
   repo0c0: repo0/c0
@@ -90,23 +95,27 @@ builds:
   - foreach: {env: [linux]}
     repeat:
       build/${env}:
-        command: "build.sh $TEST_LOOPER_IMPORTS/child"
+        command: "src/build.sh $TEST_LOOPER_IMPORTS/child"
         dependencies:
           child: child/build/${env}
+          src: HEAD
   - build_without_deps/linux:
-      command: "build.sh"
+      dependencies:
+        src: HEAD
+      command: "src/build.sh"
       disabled: true
 tests:
   foreach: {env: [linux]}
   repeat:
       test/${env}:
-        command: "test.sh $TEST_LOOPER_IMPORTS/build"
+        command: "src/test.sh $TEST_LOOPER_IMPORTS/build"
         dependencies:
+          src: HEAD
           build: build/${env}
 """
 
 repo3 = """
-looper_version: 2
+looper_version: 4
 repos:
   child: repo2/c0
 environments:
@@ -114,8 +123,9 @@ environments:
     base: child/linux
 builds:
   build/linux:
-    command: "build.sh $TEST_LOOPER_IMPORTS/child"
+    command: "src/build.sh $TEST_LOOPER_IMPORTS/child"
     dependencies:
+      src: HEAD
       child: child/build/linux
   build_without_deps/linux:
     command: "build.sh"
@@ -123,7 +133,7 @@ builds:
 """
 
 repo4 = """
-looper_version: 2
+looper_version: 4
 environments:
   windows_good: 
     platform: windows
@@ -135,13 +145,17 @@ environments:
       base_ami: "not_an_ami"
 builds:
   build/windows_good:
-    command: "build.sh"
+    dependencies: 
+      src: HEAD
+    command: "src/build.sh"
   build/windows_bad:
-    command: "build.sh"
+    dependencies: 
+      src: HEAD
+    command: "src/build.sh"
 """
 
 repo5 = """
-looper_version: 2
+looper_version: 4
 repos:
   child: 
     reference: repo2/c0
@@ -150,14 +164,14 @@ repos:
 """
 
 repo5_nopin = """
-looper_version: 2
+looper_version: 4
 repos:
   child: 
     reference: repo2/c0
 """
 
 repo6 = """
-looper_version: 2
+looper_version: 4
 repos:
   child: 
     reference: repo6/c0
@@ -166,7 +180,7 @@ repos:
 """
 
 repo6_twopins = """
-looper_version: 2
+looper_version: 4
 repos:
   child: 
     reference: repo6/HEAD1
@@ -176,10 +190,11 @@ repos:
     reference: repo6/HEAD2
     branch: __branch2__
     auto: true
+    prioritize: true
 """
 
 repo6_headpin = """
-looper_version: 2
+looper_version: 4
 repos:
   child: 
     reference: repo6/HEAD
@@ -188,14 +203,14 @@ repos:
 """
 
 repo6_nopin = """
-looper_version: 2
+looper_version: 4
 repos:
   child: 
     reference: repo6/c0
 """
 
 repo7_circular = """
-looper_version: 2
+looper_version: 4
 environments:
   e1: 
     base: [e2]
@@ -207,7 +222,7 @@ builds:
 """
 
 repo8_circular_builds = """
-looper_version: 2
+looper_version: 4
 environments:
   e1: 
     platform: linux
@@ -223,7 +238,7 @@ builds:
 """
 
 repo9_import_child_refs = """
-looper_version: 2
+looper_version: 4
 repos:
   repo2_ref: repo2/c0
   repo0c0_ref: 

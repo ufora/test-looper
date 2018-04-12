@@ -153,6 +153,8 @@ class Encoder(object):
                     return {self.from_json(k, algebraic_type.keytype):self.from_json(v, algebraic_type.valtype) for k,v in value.iteritems()}
 
                 if self.mergeListsIntoDicts:
+                    if not isinstance(value, (list,tuple)):
+                        raise UserWarning("Can't convert %s to a %s" % (value, algebraic_type))
                     res = {}
                     for subitem in value:
                         for k,v in self.from_json(subitem, algebraic_type).iteritems():
@@ -169,11 +171,16 @@ class Encoder(object):
                 #allow objects to be treated as lists of tuples
                 if isinstance(value, dict):
                     value = value.items()
-                if isinstance(value, str):
+                if isinstance(value, (str, int, bool)):
                     value = (value,)
                 return tuple(self.from_json(v, algebraic_type.subtype) for v in value)
 
             if algebraic_type in algebraic._primitive_types:
+                if algebraic_type is str and isinstance(value, bool):
+                    value = "true" if value else "false"
+                if algebraic_type is str and isinstance(value, int):
+                    value = str(value)
+                
                 return value
 
             if isinstance(algebraic_type, algebraic.Alternative):
@@ -218,7 +225,6 @@ class Encoder(object):
                             possible = [p for p in possible if fname in algebraic_type._types[p]]
                             if not possible:
                                 raise UserWarning("Can't find a type with fieldnames " + str(sorted(value)))
-
 
                         if len(possible) > 1:
                             possible = [p for p in possible if len(algebraic_type._types[p]) == len(value)]

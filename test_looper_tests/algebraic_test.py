@@ -13,6 +13,7 @@
 #   limitations under the License.
 
 import test_looper.core.algebraic as Algebraic
+from test_looper.core.hash import sha_hash
 import unittest
 
 expr = Algebraic.Alternative("Expr")
@@ -33,6 +34,36 @@ class AlgebraicTests(unittest.TestCase):
 
         self.assertTrue(xb.matches.B)
         self.assertFalse(xb.matches.A)
+
+    def test_stable_sha_hashing(self):
+        #adding default values to a type shouldn't disrupt its hashes
+        leaf = Algebraic.Alternative("Leaf")
+        leaf.A = {'a': int}
+        leaf.B = {'b': int}
+        leaf.setCreateDefault(lambda: leaf.A(0))
+
+        not_leaf = Algebraic.Alternative("NotLeaf")
+        not_leaf.A = {'z': float, 'leaf': leaf}
+
+        not_leaf2 = Algebraic.Alternative("NotLeaf")
+        not_leaf2.A = {'z': float, 'leaf': leaf, 'int': int}
+
+        a_simple_notleaf = not_leaf.A(z=10.0,_fill_in_missing=True)
+        a_simple_notleaf2 = not_leaf2.A(z=10.0,_fill_in_missing=True)
+
+        a_different_notleaf = not_leaf.A(z=10.0, leaf=leaf.B(b=10),_fill_in_missing=True)
+        a_different_notleaf2 = not_leaf2.A(z=10.0, leaf=leaf.B(b=10),_fill_in_missing=True)
+        a_final_different_notleaf = not_leaf2.A(z=10.0, leaf=leaf.B(b=10),int=123,_fill_in_missing=True)
+
+        self.assertEqual(sha_hash(a_simple_notleaf), sha_hash(a_simple_notleaf2))
+        
+        self.assertNotEqual(sha_hash(a_simple_notleaf), sha_hash(a_different_notleaf))
+        self.assertEqual(sha_hash(a_different_notleaf), sha_hash(a_different_notleaf2))
+
+        self.assertNotEqual(sha_hash(a_simple_notleaf), sha_hash(a_final_different_notleaf))
+        self.assertNotEqual(sha_hash(a_different_notleaf), sha_hash(a_final_different_notleaf))
+
+
 
     def test_field_lookup(self):
         X = Algebraic.Alternative('X', A = {'a': int}, B = {'b': float})

@@ -156,7 +156,7 @@ class CommitContext(Context.Context):
         pinUpdate = BranchPinning.unpackCommitPinUpdateMessage(commit.data.commitMessage)
 
         if pinUpdate:
-            repo, branch, hash = pinUpdate
+            repo, branch, hash, refname = pinUpdate
             underlying_commit = self.testManager._lookupCommitByHash(repo, hash, create=False)
 
             if underlying_commit and underlying_commit.data:
@@ -173,7 +173,7 @@ class CommitContext(Context.Context):
         pinUpdate = self.unpackCommitPin(self.commit)
 
         if pinUpdate:
-            repo, branch, hash = pinUpdate
+            repo, branch, hash, repodef_name = pinUpdate
             underlying_commit = self.testManager._lookupCommitByHash(repo, hash, create=False)
 
             if underlying_commit and underlying_commit.data:
@@ -628,7 +628,7 @@ class CommitContext(Context.Context):
         tests = sorted(tests, key=lambda test: test.testDefinitionSummary.name)
         
         if builds:
-            grid = [["BUILD", "HASH", "", "PROJECT", "CONFIGURATION", "STATUS", "RUNS", "RUNTIME", "", "DEPENDENCIES"]]
+            grid = [["BUILD", "HASH", "", "PROJECT", "CONFIGURATION", "STATUS", "STAGE", "RUNS", "RUNTIME", "", "DEPENDENCIES"]]
         else:
             grid = [["SUITE", "HASH", "", "PROJECT", "CONFIGURATION", "STATUS", "RUNS", "TEST_CT", "FAILURE_CT", "AVG_RUNTIME", "", "DEPENDENCIES"]]
 
@@ -652,11 +652,23 @@ class CommitContext(Context.Context):
             row.append(t.testDefinitionSummary.configuration)
 
             row.append(TestSummaryRenderer.TestSummaryRenderer([t],"", ignoreIndividualTests=True).renderSummary())
-            row.append(str(t.totalRuns))
 
             all_tests = list(self.testManager.database.TestRun.lookupAll(test=t))
             all_noncanceled_tests = [testRun for testRun in all_tests if not testRun.canceled]
+            all_running_tests = [testRun for testRun in all_noncanceled_tests if testRun.endTimestamp == 0.0]
             finished_tests = [testRun for testRun in all_noncanceled_tests if testRun.endTimestamp > 0.0]
+
+            if builds:
+                if not all_running_tests or not t.testDefinitionSummary.artifacts:
+                    row.append("")
+                else:
+                    completed = len(all_running_tests[0].artifactsCompleted)
+                    row.append(
+                        "%s / %s" % (completed, len(t.testDefinitionSummary.artifacts))
+                            + ([" (" + x + ")" for x in t.testDefinitionSummary.artifacts] + [""])[completed]
+                        )
+
+            row.append(str(t.totalRuns))
 
             if t.totalRuns:
                 if not builds:

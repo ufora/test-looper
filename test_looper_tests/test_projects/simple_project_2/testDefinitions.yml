@@ -1,4 +1,4 @@
-looper_version: 2
+looper_version: 4
 repos:
   simple: 
     reference: simple_project/__replace_this_hash__
@@ -28,7 +28,8 @@ environments:
       base_ami: "ami-123"
 builds:
   build2/linux:
-    command: "cp $TEST_INPUTS/build_import/* $TEST_BUILD_OUTPUT_DIR"
+    command: |
+      cp $TEST_INPUTS/build_import/* $TEST_BUILD_OUTPUT_DIR
     dependencies:
       build_import: simple/build/linux
   build_flakey/linux:
@@ -69,7 +70,9 @@ tests:
     dependencies:
       build_import: simple/build/linux
   sleeper/linux:
-    command: "./sleeper.py"
+    dependencies:
+      src: HEAD
+    command: "src/sleeper.py"
   test3_dep_on_cached_source/linux:
     command: |
       if [ -f $TEST_INPUTS/simplesource/starts_a_long_docker.py ]
@@ -84,8 +87,10 @@ tests:
     command: |
       echo '{"Test1": true, "Test2": false}' > $TEST_OUTPUT_DIR/testSummary.json
   test_commit_message/linux:
+    dependencies:
+      src: HEAD
     command: |
-      grep -Fq "a message" .git_commit
+      grep -Fq "a message" src/.git_commit
   test_commit_message_in_dependencies/linux:
     dependencies:
       simplesource: simple

@@ -1,4 +1,4 @@
-looper_version: 2
+looper_version: 4
 repos:
   simple_2: 
     reference: simple_project_2/__replace_this_hash__
@@ -66,8 +66,12 @@ tests:
     env: [env, env_1, env_2, env_12, env_21]
   repeat:
     test/${env}:
-      command: |
-        echo "${OVERRIDE_OUTPUT}" >> $TEST_OUTPUT_DIR/results.txt
-        cat $TEST_INPUTS/build/build_output.txt >> $TEST_OUTPUT_DIR/results.txt
+      stages:
+      - command: |
+          echo "${OVERRIDE_OUTPUT}" >> $TEST_OUTPUT_DIR/results.txt
+          cat $TEST_INPUTS/build/build_output.txt >> $TEST_OUTPUT_DIR/results.txt
+        artifacts:
+          - directory: ${TEST_OUTPUT_DIR}
+            format: Files
       dependencies:
         build: build/${BUILD_KIND}

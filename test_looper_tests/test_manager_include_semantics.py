@@ -15,7 +15,7 @@ common.configureLogging()
 class TestManagerIncludeSemanticsTests(unittest.TestCase):
     def test_basic_includes(self):
         repo_include_envdef = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             environments:
               ${env_name}: 
                 platform: linux
@@ -26,7 +26,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             repos:
               include_from: 
                 reference: repo0/base
@@ -54,19 +54,19 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_include_includes(self):
         envdef2 = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             repos:
               r: repo0/base
             """)
 
         envdef = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             includes:
               - ./envdef2.yml
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             includes:
               - ./envdef.yml
             """
@@ -82,19 +82,19 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_recursive_includes(self):
         envdef2 = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             includes:
               - ./envdef.yml
             """)
 
         envdef = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             includes:
               - ./envdef2.yml
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             includes:
               - ./envdef.yml
             """
@@ -110,7 +110,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_recursive_includes_with_variables_that_expand_forever(self):
         envdef2 = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             includes:
               - path: ./envdef.yml
                 variables:
@@ -118,7 +118,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         envdef = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             includes:
               - path: ./envdef2.yml
                 variables:
@@ -126,7 +126,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             includes:
               - path: ./envdef.yml
                 variables:
@@ -145,19 +145,19 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_includes_cant_redefine_repos(self):
         envdef2 = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             repos:
               r: repo0/base
             """)
 
         envdef = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             repos:
               r: repo0/base2
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             includes:
               - ./envdef.yml
               - ./envdef2.yml
@@ -178,7 +178,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_includes_cant_redefine_environments(self):
         envdef2 = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             environments:
               e: 
                 platform: linux
@@ -187,7 +187,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         envdef = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             environments:
               e: 
                 platform: linux
@@ -196,7 +196,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             includes:
               - ./envdef.yml
               - ./envdef2.yml
@@ -217,7 +217,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_includes_cant_redefine_tests(self):
         envdef2 = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             environments:
               e1: 
                 platform: linux
@@ -230,7 +230,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         envdef = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             environments:
               e2: 
                 platform: linux
@@ -243,7 +243,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             includes:
               - ./envdef.yml
               - ./envdef2.yml
@@ -265,7 +265,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_includes_can_share_environments(self):
         envdef = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             environments:
               e: 
                 platform: linux
@@ -277,14 +277,14 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         envdef2 = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             tests:
               t2/e:
                 command: "./script.py 1"
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             includes:
               - ./envdef.yml
               - ./envdef2.yml
@@ -304,7 +304,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         
     def test_includes_use_correct_repo(self):
         envdef = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             environments:
               e: 
                 platform: linux
@@ -316,14 +316,14 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         envdef2 = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             tests:
               t2/e:
                 command: "./script.py 1"
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             includes:
               - ./envdef.yml
               - ./envdef2.yml
@@ -343,16 +343,18 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         
     def test_environment_overrides(self):
         envdef = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             environments:
               e: 
                 platform: linux
                 image:
                   dockerfile_contents: hi
-                test_preCommand: preCommand
+                test_stages:
+                  - command: preCommand
               e2:
                 base: e
-                test_preCommand: preCommand2
+                test_stages:
+                  - command: preCommand2
             tests:
               t1/e2:
                 command: actualCommand
@@ -366,17 +368,18 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         
         test = resolver.testDefinitionsFor("repo0", "c0")["t1/e2"]
 
-        self.assertEqual(test.testCommand, "preCommand\npreCommand2\nactualCommand")
+        self.assertEqual([s.command for s in test.stages], ["preCommand", "preCommand2", "actualCommand"])
         
     def test_configuration_override(self):
         envdef = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             environments:
               e: 
                 platform: linux
                 image:
                   dockerfile_contents: hi
-                test_preCommand: preCommand
+                test_stages:
+                  - command: preCommand
                 test_configuration: override_at_root
               e2:
                 base: []
@@ -406,10 +409,44 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         self.assertEqual(resolver.testDefinitionsFor("repo0", "c0")["t2"].configuration, "override_at_mixin")
         self.assertEqual(resolver.testDefinitionsFor("repo0", "c0")["t3"].configuration, "override_at_test_level")
         
+    def test_prioritization_filters(self):
+        envdef = textwrap.dedent("""
+            looper_version: 4
+            environments:
+              e: 
+                platform: linux
+                image:
+                  dockerfile_contents: hi
+            tests:
+              foreach:
+                name: [t1, t2]
+                env: [e1, e2]
+              repeat:
+                ${name}/${env}:
+                  environment: e
+                  command: cmd
+            prioritize:
+              - 't1/*'
+              - '*/e2'
+            """)
+
+        harness = TestManagerTestHarness.getHarness()
+
+        harness.manager.source_control.addCommit("repo0/c0", [], envdef)
+        resolver = harness.resolver()
+        
+        tests = resolver.testDefinitionsFor("repo0", "c0").values()
+
+        self.assertEqual(
+            set([t.name for t in tests if not t.disabled]), 
+            set(["t1/e1","t1/e2","t2/e2"])
+            )
+
+        
  
     def test_environment_mixins(self):
         envdef = textwrap.dedent("""
-            looper_version: 2
+            looper_version: 4
             environments:
               e: 
                 platform: linux
@@ -417,10 +454,12 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
                   dockerfile_contents: hi
                 variables:
                   v: e
-                test_preCommand: preCommand
+                test_stages:
+                  - command: preCommand
               e2:
                 base: []
-                test_preCommand: preCommand2
+                test_stages:
+                  - command: preCommand2
                 variables:
                   v: e2
             tests:
@@ -437,7 +476,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         
         test = resolver.testDefinitionsFor("repo0", "c0")["t1/e"]
 
-        self.assertEqual(test.testCommand, "preCommand\npreCommand2\nactualCommand - v=e2")
+        self.assertEqual([s.command for s in test.stages], ["preCommand" ,"preCommand2", "actualCommand - v=e2"])
         
         print test
 

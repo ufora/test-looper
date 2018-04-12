@@ -1,4 +1,4 @@
-looper_version: 3
+looper_version: 4
 environments:
   linux:
     platform: linux
@@ -16,15 +16,16 @@ builds:
   build/linux:
     dependencies:
       src: HEAD
-    command: "cp $TEST_INPUTS/src/build_file $TEST_BUILD_OUTPUT_DIR/build_file"
+    command: |
+      cp $TEST_INPUTS/src/build_file $TEST_BUILD_OUTPUT_DIR/build_file
 tests:
   - good/linux:
-      command: "$TEST_INPUTS/src/script.py 0"
+      command: "src/script.py 0"
       dependencies:
         build: build/linux
         src: HEAD
     bad/linux:
-      command: "./script.py 1"
+      command: "src/script.py 1"
       dependencies:
         build: build/linux
         src: HEAD
