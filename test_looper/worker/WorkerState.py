@@ -252,6 +252,9 @@ class WorkerState(object):
                 print >> cmd_file, "echo 'Welcome to TestLooper on Windows. Here is the current environment:'"
                 print >> cmd_file, "gci env:* | sort-object name"
                 print >> cmd_file, "echo '********************************'"
+                print >> cmd_file, "echo 'HERE ARE AVAILABLE SERVICES:'"
+                print >> cmd_file, "Get-Service | Format-Table -Property Name, Status, StartType, DisplayName"
+                print >> cmd_file, "echo '********************************'"
                 print >> cmd_file, command
 
             if workerCallback.localTerminal:
@@ -542,6 +545,9 @@ class WorkerState(object):
             if dumpPreambleLog:
                 print >> cmd_file, "echo 'Welcome to TestLooper on Windows. Here is the current environment:'"
                 print >> cmd_file, "gci env:* | sort-object name"
+                print >> cmd_file, "echo '********************************'"
+                print >> cmd_file, "echo 'HERE ARE AVAILABLE SERVICES:'"
+                print >> cmd_file, "Get-Service | Format-Table -Property Name, Status, StartType, DisplayName"
                 print >> cmd_file, "echo '********************************'"
             print >> cmd_file, command
             print >> cmd_file, "exit $lastexitcode"
@@ -844,7 +850,7 @@ class WorkerState(object):
 
 
     def extract_package(self, package_file, target_dir):
-        with tarfile.open(package_file) as tar:
+        with tarfile.open(package_file, "r|gz") as tar:
             root = tar.next()
             if root is None:
                 raise Exception("Package %s is empty" % package_file)
@@ -860,8 +866,11 @@ class WorkerState(object):
 
             path = self._download_build(dep.buildHash, dep.name, log_function)
             
+            log_function(time.asctime() + " TestLooper> Extracting tarball for %s/%s/%s.\n" % (dep.repo, dep.buildHash, dep.name))
+
             self.ensureDirectoryExists(target_dir)
             self.extract_package(path, target_dir)
+
             return None
 
         if dep.matches.Source:
@@ -1182,7 +1191,9 @@ class WorkerState(object):
         path = self._buildCachePathFor(buildHash, testName)
         
         if not os.path.exists(path):
-            log_function("Downloading build for %s test %s to %s.\n" % (buildHash, testName, path))
+            log_function(time.asctime() + " TestLooper> " + "Downloading build for %s test %s" % (buildHash, testName))
+            log_function(time.asctime() + " TestLooper> " + "    to %s.\n" % (path))
+
             self.artifactStorage.download_build(buildHash, self.artifactKeyForBuild(testName), path)
 
         return path

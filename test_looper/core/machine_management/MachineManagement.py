@@ -40,6 +40,11 @@ class MachineManagement(object):
 
         self.ram_gb_booted = 0
         self.cores_booted = 0
+
+        self.windowsOsConfigsAvailable = set()
+        self.windowsOsConfigsBeingCreated = set()
+        self.invalidWindowsOsConfigs = set()
+
         self._lock = threading.RLock()
 
     def shutdown(self):
@@ -54,7 +59,7 @@ class MachineManagement(object):
     def isOsConfigInvalid(self, osConfig):
         return False
 
-    def invalidOsConfigLogOrNone(self, osConfig):
+    def amiConfigLogUrl(self, baseAmi, contentHash, type):
         return None
 
     def ensureOsConfigAvailable(self, osConfig, setupScript):
@@ -267,8 +272,6 @@ class AwsMachineManagement(MachineManagement):
 
         listing = self.api.listWindowsOsConfigs()
         for ((ami,hash),status) in listing.iteritems():
-            logging.info("AMI status: %s/%s = %s", ami,hash,status)
-            
             config = OsConfig.WindowsVM(ami=ami, setupHash=hash)
 
             if status in ("In progress", "Awaiting snapshot", "Snapshotting"):
@@ -308,12 +311,9 @@ class AwsMachineManagement(MachineManagement):
         with self._lock:
             return osConfig in self.invalidWindowsOsConfigs
 
-    def invalidOsConfigLogOrNone(self, osConfig):
+    def amiConfigLogUrl(self, baseAmi, contentHash, type="BootstrapLog"):
         with self._lock:
-            if osConfig in self.invalidWindowsOsConfigs:
-                return self.api.invalidWindowsOsConfigLog(osConfig.ami, osConfig.setupHash)
-            else:
-                return None
+            return self.api.generateAmiConfigLogUrl(baseAmi, contentHash, type)
 
     def ensureOsConfigAvailable(self, osConfig, setupScript):
         assert osConfig.matches.WindowsVM

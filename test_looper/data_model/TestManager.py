@@ -29,6 +29,7 @@ MAX_LOG_MESSAGES_PER_TEST = 100000
 MACHINE_TIMEOUT_SECONDS = 600
 DISABLE_MACHINE_TERMINATION = False
 DEAD_WORKER_PRUNE_INTERVAL = 600
+AMI_CHECK_INTERVAL = 30
 
 OLDEST_TIMESTAMP_WITH_TESTS = 1500000000
 MAX_GIT_CONNECTIONS = 4
@@ -197,6 +198,7 @@ class TestManager(object):
 
         self.initialTimestamp = initialTimestamp or time.time()
         self.lastWorkerPruneOperation = self.initialTimestamp
+        self.lastAmiCheckTimestamp = 0
 
         self.server_port_config = server_port_config
         self.source_control = source_control
@@ -1101,9 +1103,6 @@ class TestManager(object):
                             for run in self.database.TestRun.lookupAll(test=test):
                                 for typename in run.__types__:
                                     getattr(run, typename)
-                    
-
-
 
     def performBackgroundWork(self, curTimestamp):
         with self.transaction_and_lock():
@@ -1689,8 +1688,10 @@ class TestManager(object):
                             self.database.MachineCategory.lookupAll(want_less=True)):
             logging.info("\t%s/%s: %s desired vs %s booted. Bootable=%s", cat.hardware, cat.os, cat.desired, cat.booted, not cat.hardwareComboUnbootable)
 
-        logging.info("Checking whether we need to build any AMIs")
-        self.machine_management.amiCollectionCheck()
+        if curTimestamp - self.lastAmiCheckTimestamp > AMI_CHECK_INTERVAL:
+            logging.info("Checking whether we need to build any AMIs")
+            self.lastAmiCheckTimestamp = curTimestamp
+            self.machine_management.amiCollectionCheck()
 
         def check():
             wantingBoot = self.database.MachineCategory.lookupAll(want_more=True)

@@ -24,6 +24,7 @@ class API:
         self.ec2 = boto3.resource('ec2',region_name=self.config.machine_management.region)
         self.ec2_client = boto3.client('ec2',region_name=self.config.machine_management.region)
         self.s3 = boto3.resource('s3',region_name=self.config.machine_management.region)
+        self.s3_client = boto3.client('s3',region_name=self.config.machine_management.region)
 
     def machineIdsOfAllWorkers(self, producingAmis=False):
         filters = [{  
@@ -60,10 +61,23 @@ class API:
         logging.info("Terminating AWS instance %s", instance)
         instance.terminate()
 
-    def invalidWindowsOsConfigLog(self, baseAmi, setupScriptHash):
+    def generateAmiConfigLogUrl(self, baseAmi, setupScriptHash, logType):
         bucket = self.s3.Bucket(self.config.machine_management.bootstrap_bucket)
 
-        object = bucket.objects.filter(Prefix=self.bootstrap_key_root + baseAmi + "_" + setupScriptHash + "_BootstrapLog.fail")
+        log_objects = bucket.objects.filter(Prefix=self.bootstrap_key_root + baseAmi + "_" + setupScriptHash + "_" + logType)
+
+        for log in log_objects:
+            Params = {'Bucket': self.config.machine_management.bootstrap_bucket, 'Key': log.key}
+
+            Params["ResponseContentType"] = "text/plain"
+            Params["ResponseContentDisposition"] = "inline"
+
+            return self.s3_client.generate_presigned_url(
+                    'get_object', 
+                    Params = Params, 
+                    ExpiresIn = 300
+                    )
+
         if len(object) != 1:
             return None
         return object
@@ -157,6 +171,10 @@ class API:
                     
                     if "/dev/xvdb" in devices:
                         creatorInstance.detach_volume(VolumeId=v.id)
+                        v.create_tags([
+                            {'Key': 'testlooper_worker_name', "Value": self.config.machine_management.worker_name},
+                            {'Key': 'testlooper_volume_type', "Value": "image_bootstrap_discardable_storage"}
+                            ])
 
                 imageName = self.config.machine_management.worker_name + "_" + baseAmi + "_" + scriptHash
                 

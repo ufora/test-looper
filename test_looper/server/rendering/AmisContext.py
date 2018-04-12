@@ -1,6 +1,7 @@
 import test_looper.server.rendering.Context as Context
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import time
+import cherrypy
 
 class AmisContext(Context.Context):
     def __init__(self, renderer, options):
@@ -20,14 +21,59 @@ class AmisContext(Context.Context):
         return "amis"
 
     def renderPageBody(self):
-        amisAndHashes = self.testManager.machine_management.api.listWindowsOsConfigs()
+        mm = self.testManager.machine_management
 
-        grid = [["BaseAmi", "Hash", "Status"]]
+        if self.options.get("amiLogs"):
+            ami,hash = self.options.get("amiLogs").split("_")
+            url = mm.amiConfigLogUrl(ami,hash)
+            if url:
+                raise cherrypy.HTTPRedirect(url)
+            else:
+                return HtmlGeneration.card("No logs available")
 
-        for ami,contentHash in sorted(amisAndHashes):
-            status = amisAndHashes[ami,contentHash]
+        if self.options.get("amiSetupScript"):
+            ami,hash = self.options.get("amiSetupScript").split("_")
+            url = mm.amiConfigLogUrl(ami,hash, "InstallScript")
+            if url:
+                raise cherrypy.HTTPRedirect(url)
+            else:
+                return HtmlGeneration.card("No script available")
 
-            grid.append([ami,contentHash,status])
+        osConfigs = set(
+            list(mm.windowsOsConfigsAvailable) + 
+            list(mm.windowsOsConfigsBeingCreated) + 
+            list(mm.invalidWindowsOsConfigs)
+            )
+
+        grid = [["BaseAmi", "Hash", "Status", "", ""]]
+
+        for osConfig in sorted(osConfigs, key=lambda c: (c.ami, c.setupHash)):
+            ami,contentHash = osConfig.ami, osConfig.setupHash
+
+            status = (
+                "OK" if osConfig in mm.windowsOsConfigsAvailable else 
+                "In progress" if osConfig in mm.windowsOsConfigsBeingCreated else 
+                "Invalid"
+                )
+
+            if status in ("OK", "Invalid"):
+                logsButton = HtmlGeneration.Link(
+                    self.withOptions(amiLogs=ami+"_"+contentHash).urlString(), 
+                    "Logs",
+                    is_button=True,
+                    button_style='btn-primary btn-xs'
+                    ).render()
+            else:
+                logsButton = ""
+
+            scriptButton = HtmlGeneration.Link(
+                self.withOptions(amiSetupScript=ami+"_"+contentHash).urlString(), 
+                "Setup Script",
+                is_button=True,
+                button_style='btn-primary btn-xs'
+                ).render()
+
+            grid.append([ami,contentHash,status, logsButton, scriptButton])
             
         return HtmlGeneration.grid(grid)
 
