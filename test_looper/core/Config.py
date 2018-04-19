@@ -83,6 +83,7 @@ ServerPortConfig.Config = {
     "server_https_port": int,
     "server_worker_port": int,
     "server_worker_port_use_ssl": bool,
+    "docker_image_repo": str
     }
 
 ArtifactsConfig = algebraic.Alternative("ArtifactsConfig")

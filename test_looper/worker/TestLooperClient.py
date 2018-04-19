@@ -190,7 +190,7 @@ class TestLooperClient(object):
                         workerState=TestLooperServer.WorkerState.WorkingOnTest(
                             testId=self._curTestId,
                             logs_so_far="".join(self._curOutputs),
-                            artifactsSoFar=self._curArtifacts
+                            artifacts=self._curArtifacts
                             )
                     elif self._curDeploymentId is not None:
                         workerState=TestLooperServer.WorkerState.WorkingOnDeployment(

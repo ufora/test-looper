@@ -66,7 +66,8 @@ def createTestWorker(config, worker_path, machineId):
         hardwareConfig=Config.HardwareConfig(
             cores=multiprocessing.cpu_count(),
             ram_gb=int(psutil.virtual_memory().total / 1024.0 / 1024.0 / 1024.0 + .1)
-            )
+            ),
+        docker_image_repo=config.server_ports.docker_image_repo
         )
 
     return TestLooperWorker.TestLooperWorker(workerState, machineId, config.server_ports, True, 2.0)

@@ -143,7 +143,7 @@ class DockerImage(object):
             docker_client.images.remove(c.id)
 
     @classmethod
-    def from_dockerfile_as_string(cls, docker_repo, dockerfile_as_string, create_missing=False, env_keys_to_passthrough=()):
+    def from_dockerfile_as_string(cls, docker_repo, dockerfile_as_string, create_missing=False, env_keys_to_passthrough=(), logger=None):
         dockerfile_hash = hash_string(dockerfile_as_string)
 
         if docker_repo is not None:
@@ -153,14 +153,25 @@ class DockerImage(object):
 
         docker = DockerImage(docker_image)
 
+        if logger and docker_repo:
+            logger("Pulling docker image %s" % docker_image)
+
+            if not docker.pull():
+                logger("Pulling image failed.")
+            else:
+                logger("Pulling image %s succeeded." % docker_image)
+
+
         if not docker.image_exists():
             if create_missing:
-                print "Building docker image %s from source..." % docker_image
+                if logger:
+                    logger("Building docker image %s from source..." % docker_image)
 
-                docker.buildFromString(dockerfile_as_string, env_keys_to_passthrough=env_keys_to_passthrough)
+                docker.buildFromString(dockerfile_as_string, env_keys_to_passthrough=env_keys_to_passthrough, logger=logger)
+                
                 if docker_repo is not None:
-                    print "pushing docker iamge"
-                    docker.push()
+                    logger("pushing docker image")
+                    docker.push(logger=logger)
             else:
                 raise MissingImageError(docker_image)
 
@@ -173,12 +184,20 @@ class DockerImage(object):
             shell=True
             ) == 0
 
-    def pull(self):
-        return SubprocessRunner.callAndReturnResultWithoutOutput(
-            "{docker} pull {image}".format(docker=self.binary, image=self.image),
-            shell=True
-            ) == 0
+    def pull(self,logger=None, timeout=360):
+        def onStdOut(msg):
+            if logger:
+                logger(msg)
+            else:
+                print msg
 
+        proc = SubprocessRunner.SubprocessRunner(
+            [self.binary, "pull", self.image],
+            onStdOut,
+            onStdOut
+            )
+        proc.start()
+        return proc.wait(timeout=timeout) == 0
     
     def disable_build_cache(self):
         return False
@@ -194,7 +213,7 @@ class DockerImage(object):
             shell=True
             )
 
-    def buildFromString(self, dockerfile_text,timeout=None, env_keys_to_passthrough=()):
+    def buildFromString(self, dockerfile_text,timeout=None, env_keys_to_passthrough=(), logger=None):
         with tempfile.NamedTemporaryFile() as tmp:
             print >> tmp, dockerfile_text
             tmp.flush()
@@ -203,7 +222,10 @@ class DockerImage(object):
 
             def onStdOut(m):
                 output.append(m)
-                print m
+                if logger:
+                    logger(m)
+                else:
+                    print m
 
             buildargs = []
             for e in env_keys_to_passthrough:
@@ -232,14 +254,24 @@ class DockerImage(object):
             result = proc.wait(timeout=timeout)
 
             if result != 0:
-                raise Exception("Failed to build dockerfile:\n%s" % ("\n".join(output)))
+                if logger:
+                    raise Exception("Failed to build dockerfile")
+                else:
+                    raise Exception("Failed to build dockerfile:\n%s" % ("\n".join(output)))
 
-    def push(self):
-        print "push returned: ", SubprocessRunner.callAndReturnResultWithoutOutput(
-            "{docker} push {image}"
-                .format(docker=self.binary, image=self.image),
-            shell=True
+    def push(self, logger=None):
+        def output(msg):
+            if logger:
+                logger(msg)
+
+        runner = SubprocessRunner.SubprocessRunner(
+            [self.binary, "push", self.image],
+            output, output
             )
+        runner.start()
+        result = runner.wait(timeout=360)
+
+        return result != 0
 
     def run(self,
             command='',

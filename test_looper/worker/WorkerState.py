@@ -785,7 +785,8 @@ class WorkerState(object):
                     self.docker_image_repo, 
                     testEnvironment.image.dockerfile_contents, 
                     create_missing=True, 
-                    env_keys_to_passthrough=PASSTHROUGH_KEYS
+                    env_keys_to_passthrough=PASSTHROUGH_KEYS,
+                    logger=withTime(log_function)
                     )
         except Exception as e:
             log_function(time.asctime() + " TestLooper> Failed to build docker image:\n" + str(e))
