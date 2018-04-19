@@ -961,63 +961,75 @@ class WorkerState(object):
         all_dependencies.update(environment.dependencies)
         all_dependencies.update(test_definition.dependencies)
 
-        if self.hardwareConfig.cores > 2:
-            lock = threading.Lock()
+        image = [None]
+        image_exception = [None]
 
-            def heartbeatWithLock(msg=None):
-                with lock:
-                    log_function(msg)
+        lock = threading.Lock()
 
-            with self.callHeartbeatInBackground(
-                    heartbeatWithLock, 
-                    "Pulling dependencies:\n%s" % "\n".join(["\t%s -> %s" % (k,v) for k,v in sorted(all_dependencies.iteritems())])
-                    ):
+        def heartbeatWithLock(msg=None):
+            with lock:
+                log_function(msg)
 
-                results = {}
+        with self.callHeartbeatInBackground(
+                heartbeatWithLock, 
+                "Pulling dependencies:\n%s" % "\n".join(["\t%s -> %s" % (k,v) for k,v in sorted(all_dependencies.iteritems())])
+                ):
 
-                def callFun(expose_as, dep):
-                    for tries in xrange(3):
-                        try:
-                            results[expose_as] = self.grabDependency(heartbeatWithLock, expose_as, dep, worker_callback)
-                            heartbeatWithLock(time.asctime() + " TestLooper> Done pulling %s.\n" % dep)
-                            return
-                        except Exception as e:
-                            if tries < 2:
-                                heartbeatWithLock(time.asctime() + " TestLooper> Failed to pull %s because %s, but retrying.\n" % (dep, str(e)))
+            results = {}
 
-                            results[expose_as] = traceback.format_exc()
+            def pullImage():
+                if environment.image.matches.AMI:
+                    image[0] = NAKED_MACHINE
+                else:
+                    try:
+                        image[0] = self.getDockerImage(environment, heartbeatWithLock)
+                    except:
+                        image_exception[0] = traceback.format_exc()
 
-                waiting_threads = [threading.Thread(target=callFun, args=expose_as_and_dep)
-                                for expose_as_and_dep in all_dependencies.iteritems()]
 
-                running_threads = []
+            def callFun(expose_as, dep):
+                for tries in xrange(3):
+                    try:
+                        results[expose_as] = self.grabDependency(heartbeatWithLock, expose_as, dep, worker_callback)
+                        heartbeatWithLock(time.asctime() + " TestLooper> Done pulling %s.\n" % dep)
+                        return
+                    except Exception as e:
+                        if tries < 2:
+                            heartbeatWithLock(time.asctime() + " TestLooper> Failed to pull %s because %s, but retrying.\n" % (dep, str(e)))
 
-                simultaneous = self.hardwareConfig.cores
+                        results[expose_as] = traceback.format_exc()
 
-                while running_threads + waiting_threads:
-                    running_threads = [x for x in running_threads if x.isAlive()]
-                    while len(running_threads) < simultaneous and waiting_threads:
-                        t = waiting_threads.pop(0)
-                        t.start()
-                        running_threads.append(t)
-                    time.sleep(1.0)
+            waiting_threads = []
 
-                for e in all_dependencies:
-                    if results[e] is not None:
-                        raise Exception("Failed to download dependency %s: %s" % (all_dependencies[e], results[e]))
-        else:
-            for expose_as, dep in all_dependencies.iteritems():
-                with self.callHeartbeatInBackground(log_function, "Pulling dependency %s for dep %s" % (dep, expose_as)):
-                    errStringOrNone = self.grabDependency(log_function, expose_as, dep, worker_callback)
+            waiting_threads.append(threading.Thread(target=pullImage))
 
-                if errStringOrNone is not None:
-                    raise Exception(errStringOrNone)
+            for expose_as_and_dep in all_dependencies.iteritems():
+                waiting_threads.append(threading.Thread(target=callFun, args=expose_as_and_dep))
 
-        return environment, all_dependencies, test_definition
+            running_threads = []
+
+            simultaneous = self.hardwareConfig.cores
+
+            while running_threads + waiting_threads:
+                running_threads = [x for x in running_threads if x.isAlive()]
+                while len(running_threads) < simultaneous and waiting_threads:
+                    t = waiting_threads.pop(0)
+                    t.start()
+                    running_threads.append(t)
+                time.sleep(1.0)
+
+            for e in all_dependencies:
+                if results[e] is not None:
+                    raise Exception("Failed to download dependency %s: %s" % (all_dependencies[e], results[e]))
+
+            if image_exception[0]:
+                raise Exception(image_exception[0])
+        
+        return environment, all_dependencies, test_definition, image[0]
 
     def _run_task(self, testId, test_definition, log_function, workerCallback, isDeploy, extraPorts, command_override):
         try:
-            environment, all_dependencies, test_definition = \
+            environment, all_dependencies, test_definition, image = \
                 self.getEnvironmentAndDependencies(testId, test_definition, log_function, workerCallback)
         except Exception as e:
             logging.error(traceback.format_exc())
@@ -1042,12 +1054,6 @@ class WorkerState(object):
                     order=0.0
                     )
                 ]
-
-        if environment.image.matches.AMI:
-            image = NAKED_MACHINE
-        else:
-            with self.callHeartbeatInBackground(log_function, "Extracting docker image for environment %s" % environment):
-                image = self.getDockerImage(environment, log_function)
 
         is_success = True
 
