@@ -157,7 +157,7 @@ class ImportExport(object):
             for reponame, repodef in results.repos.iteritems():
                 repo = self.database.Repo.lookupAny(name=reponame)
                 if repo:
-                    self.testManager._refreshBranches(repo)
+                    self.testManager._refreshBranches(repo, time.time())
                 else:
                     errors.append(ImportError.UnknownRepo(repo=reponame))
 

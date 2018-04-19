@@ -195,6 +195,9 @@ class Git(object):
                         f.write(contents)
             return self.commit(commit_message, timestamp_override, author)
 
+    def deleteRemoteBranch(self, branch, remote="origin"):
+        return self.subprocessCheckCall(["git", "push", "origin", ":%s" % (branch)]) == 0
+
     def pushCommit(self, commitHash, branch, force=False, createBranch=False):
         """push a sha-hash to a branch and return success"""
         assert commitHash and isinstance(commitHash, str)

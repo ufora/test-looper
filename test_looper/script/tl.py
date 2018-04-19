@@ -381,6 +381,9 @@ class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolv
         return None
 
     def testDefinitionTextAndExtensionFor(self, repoName, commitHash):
+        if not isShaHash(commitHash):
+            return None, None
+
         root_path = self.looperCtl.checkout_root_path(repoName)
 
         if os.path.exists(root_path):

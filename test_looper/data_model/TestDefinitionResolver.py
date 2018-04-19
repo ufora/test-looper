@@ -3,7 +3,12 @@ import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.core.GraphUtil as GraphUtil
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import fnmatch
+import re
 from test_looper.core.hash import sha_hash
+
+sha_pattern = re.compile("^[a-f0-9]{40}$")
+def isValidCommitRef(committish):
+    return sha_pattern.match(committish)
 
 MAX_INCLUDE_ATTEMPTS = 128
 
@@ -48,7 +53,7 @@ class TestDefinitionResolver:
         textAndExtension = self.testDefinitionTextAndExtensionFor(repoName, commitHash)
 
         if textAndExtension is None or textAndExtension[1] is None:
-            self.rawDefinitionsCache[repoName, commitHash] = ({}, {}, {}, {})
+            self.rawDefinitionsCache[repoName, commitHash] = ({}, {}, {}, {}, [])
         else:
             self.rawDefinitionsCache[repoName, commitHash] = \
                 TestDefinitionScript.extract_tests_from_str(repoName, commitHash, textAndExtension[1], textAndExtension[0])
@@ -72,6 +77,9 @@ class TestDefinitionResolver:
         Every resulting repo is an RepoReference.Pin, RepoReference.Reference or an RepoReference.ImportedReference
         """
         resolved_repos = {}
+
+        if any([r.commitHash() == "HEAD" for r in repos.values()]):
+            return {r: v for r,v in repos.iteritems() if v.matches.Pin or v.matches.Reference}
 
         def resolveRepoRef(refName, ref, pathSoFar):
             if refName in pathSoFar:
@@ -163,6 +171,12 @@ class TestDefinitionResolver:
         tests, envs, repos, includes, prioritizeGlobs = self.unprocessedTestsEnvsAndReposFor_(repoName, commitHash)
 
         repos = self.resolveRepoDefinitions_(repoName, repos)
+
+        if any([r.commitHash() == "HEAD" for r in repos.values()]):
+            #this is not a _real_ commit, so don't try to follow it. We do want the repo
+            #pins to be available, however, so we don't fail parsing.
+            self.postIncludeDefinitionsCache[repoName, commitHash] = ({},{},repos,{})
+            return self.postIncludeDefinitionsCache[repoName, commitHash]
 
         everIncluded = set()
 
@@ -465,6 +479,9 @@ class TestDefinitionResolver:
         return resolved_envs
 
     def testDefinitionTextAndExtensionFor(self, repoName, commitHash):
+        if not isValidCommitRef(commitHash):
+            return None, None
+
         repo = self.git_repo_lookup(repoName)
 
         if not repo:
@@ -483,6 +500,9 @@ class TestDefinitionResolver:
         return testText, os.path.splitext(path)[1], path
 
     def getRepoContentsAtPath(self, repoName, commitHash, path):
+        if not isValidCommitRef(commitHash):
+            return None
+
         git_repo = self.git_repo_lookup(repoName)
         
         return git_repo.getFileContents(commitHash, path)

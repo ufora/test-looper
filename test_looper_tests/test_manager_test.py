@@ -782,3 +782,47 @@ class TestManagerTests(unittest.TestCase):
             self.assertEqual(harness.manager.environmentForTest(test1).variables['ENV_VAR'], "LINUX")
             self.assertEqual(harness.manager.environmentForTest(test2).variables['ENV_VAR_2'], "LINUX_2")
 
+
+    def test_manager_branch_creation_from_template(self):
+        harness = TestManagerTestHarness.getHarness(max_workers=1)
+
+        harness.add_content()
+        
+        harness.manager.source_control.addCommit("repo6/c0", [], "")
+        harness.manager.source_control.addCommit("repo6/c1", ["repo6/c0"], "")
+        harness.manager.source_control.setBranch("repo6/master", "repo6/c0")
+
+        harness.manager.source_control.addCommit("repo6/c0_test", [], TestYamlFiles.repo6.replace("__branch__", "master"))
+        harness.manager.source_control.setBranch("repo6/master-looper", "repo6/c0_test")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        with harness.manager.transaction_and_lock():
+            repo = harness.getRepo("repo6")
+            repo.branchCreateTemplates = [
+                harness.database.BranchCreateTemplate.New(
+                    globsToInclude=["*"],
+                    globsToExclude=["*master*", "*-looper"],
+                    suffix="-looper",
+                    branchToCopyFrom="master-looper",
+                    def_to_replace="child",
+                    disableOtherAutos=True
+                    )
+                ]
+
+        harness.manager.source_control.setBranch("repo6/a_branch", "repo6/c1")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        with harness.database.view():
+            print
+            log = harness.getRepo("repo6").branchCreateLogs
+            while log:
+                print log.msg
+                log = log.prior
+
+        self.assertTrue("repo6/a_branch-looper" in harness.manager.source_control.listBranches(),
+            harness.manager.source_control.listBranches()
+            )

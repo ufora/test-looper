@@ -2,8 +2,11 @@ import test_looper.server.rendering.Context as Context
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.server.rendering.TestGridRenderer as TestGridRenderer
 import test_looper.server.rendering.ComboContexts as ComboContexts
+import time
+import cgi
 
 octicon = HtmlGeneration.octicon
+card = HtmlGeneration.card
 
 class RepoContext(Context.Context):
     def __init__(self, renderer, repo, options):
@@ -44,10 +47,179 @@ class RepoContext(Context.Context):
     def urlBase(self):
         return "repos/" + self.reponame
 
-    def renderPageBody(self):
-        headers, grid = self.grid()
+    def contextViews(self):
+        return ["branches", "configuration", "logs"]
 
-        return HtmlGeneration.grid(headers+grid, header_rows=len(headers))
+    def renderViewMenuItem(self, view):
+        if view == "branches":
+            return "Branches"
+        if view == "configuration":
+            return "Configuration"
+        if view == "logs":
+            return "Logs"
+        return view
+
+    def renderViewMenuMouseoverText(self, view):
+        if view == "branches":
+            return "Branches contained in this commit that have tests"
+        if view == "configuration":
+            return "Configure auto-looper-branch-creation"
+        if view == "logs":
+            return "Logs for automatic branch creation"
+        return view
+
+    def renderPageBody(self):
+        view = self.currentView()
+
+        if view == "branches":
+            headers, grid = self.grid()
+            return HtmlGeneration.grid(headers+grid, header_rows=len(headers))
+        if view == "configuration":
+            return self.configurationView()
+        if view == "logs":
+            return self.logsView()
+
+    def logsView(self):
+        grid = [["Timestamp", "Message"]]
+        log = self.repo.branchCreateLogs
+        if not log:
+            return card("No logs so far")
+
+        while log and len(grid) < 100:
+            grid.append([time.asctime(time.gmtime(log.timestamp)), "<pre>" + cgi.escape(log.msg) + "</pre>"])
+            log = log.prior
+
+        return HtmlGeneration.grid(grid)
+
+
+    def renderTemplateUpdateForm(self, template):
+        def textArea(name, val, short_desc, long_desc):
+            return """
+              <div class="form-group">
+                <label for="{name}_{id}">{short_desc}</label>
+                <textarea rows={rows} name="{name}" class="form-control" id="{name}_{id}" aria-describedby="{name}_help_{id}">{val}</textarea>
+                <small id="{name}_help_{id}" class="form-text text-muted">{long_desc}</small>
+              </div>
+            """.format(name=name, id=template._identity, short_desc=short_desc, long_desc=long_desc,val=cgi.escape(val), rows=len(val.split("\n")) + 1)
+
+        def simpleInput(name, val, short_desc, long_desc):
+            return """
+              <div class="form-group">
+                <label for="{name}_{id}">{short_desc}</label>
+                <input type="text" rows={rows} name="{name}" class="form-control" id="{name}_{id}" aria-describedby="{name}_help_{id}" value="{val}">
+                <small id="{name}_help_{id}" class="form-text text-muted">{long_desc}</small>
+              </div>
+            """.format(name=name, id=template._identity, short_desc=short_desc, long_desc=long_desc,val=cgi.escape(val, quote=True), rows=len(val.split("\n")) + 1)
+
+        def checkbox(name, long_desc, val):
+            return """
+              <div class="form-check">
+                <input name="{name}" class="form-check-input" type="checkbox" id="{name}_{id}" value="True" {val}>
+                <label for="{name}_{id}" class="form-check-label">{long_desc}</label>
+              </div>
+            """.format(name=name, id=template._identity, long_desc=long_desc,val="checked" if val else "")
+
+
+        return """
+        <form method="GET" action="{url}">
+          <input type="hidden" name="view" value="configuration" /> 
+          <input type="hidden" name="action" value="update_template" /> 
+          <input type="hidden" name="identity" value="{id}" /> 
+          <div class="form-group row">
+              <div class="col">
+                  {includes}
+              </div>
+              <div class="col">
+                  {excludes}
+              </div>
+          </div>
+          <div class="form-group row">
+              <div class="col">
+                  {branch}
+              </div>
+              <div class="col">
+                  {suffix}
+              </div>
+          </div>
+          <div class="form-group row">
+              <div class="col">
+                  {def_to_replace}
+              </div>
+              <div class="col">
+                  {disableOtherAutos}
+                  {autoprioritizeBranch}
+                  {deleteOnUnderlyingRemoval}
+              </div>
+          </div>
+          <div>&nbsp;</div>
+          <button type="submit" class="btn btn-primary">Update</button>
+        </form>
+        """.format(
+            url=self.withOptionsReset().urlString(),
+            id=template._identity,
+            includes=textArea("include_pats", "\n".join(template.globsToInclude), "Branches to include", "Glob patterns for branchnames that should trigger this"),
+            excludes=textArea("exclude_pats", "\n".join(template.globsToExclude), "Branches to exclude", "Glob patterns for branchnames that should not trigger this"),
+            suffix=simpleInput("suffix", template.suffix, "Suffix to append", "Suffix to append to the branchname"),
+            branch=simpleInput("branch", template.branchToCopyFrom, "Branch to copy", "Name of the branch to duplicate"),
+            def_to_replace=simpleInput("def_to_replace", template.def_to_replace, "Reference to update", "Name of the specific reference to update"),
+            disableOtherAutos=checkbox(
+                "disableOtherAutos", 
+                "Only allow the primary tracking branch to float. (if not checked, just copy the settings from the underlying).",
+                template.disableOtherAutos
+                ),
+            autoprioritizeBranch=checkbox(
+                "autoprioritizeBranch", 
+                "Autoprioritize the branch when it's created.", 
+                template.autoprioritizeBranch
+                ),
+            deleteOnUnderlyingRemoval=checkbox(
+                "deleteOnUnderlyingRemoval", 
+                "If the underlying feature branch gets deleted, remove this branch too.", 
+                template.deleteOnUnderlyingRemoval
+                )
+            )
+
+    def configurationView(self):
+        if self.repo.branchCreateTemplates is None:
+            self.repo.branchCreateTemplates = []
+
+        if self.options.get('action', None) == "new_template":
+            self.repo.branchCreateTemplates = list(self.repo.branchCreateTemplates) + [
+                self.database.BranchCreateTemplate.New()
+                ]
+
+            return HtmlGeneration.Redirect(self.withOptions(action=None).urlString())
+        if self.options.get('action', None) == "update_template":
+            template = self.database.BranchCreateTemplate(str(self.options.get("identity")))
+            assert template.exists() and template in self.repo.branchCreateTemplates
+
+            template.globsToInclude = [str(x) for x in self.options.get("include_pats").split("\n")]
+            template.globsToExclude = [str(x) for x in self.options.get("exclude_pats").split("\n")]
+            template.suffix = str(self.options.get("suffix"))
+            template.branchToCopyFrom = str(self.options.get("branch"))
+            template.def_to_replace = str(self.options.get("def_to_replace"))
+            template.disableOtherAutos = bool(self.options.get("disableOtherAutos"))
+            template.autoprioritizeBranch = bool(self.options.get("autoprioritizeBranch"))
+            template.deleteOnUnderlyingRemoval = bool(self.options.get("deleteOnUnderlyingRemoval"))
+
+            return HtmlGeneration.Redirect(self.withOptions(action=None).urlString())
+        
+        result = ""
+
+        for template in self.repo.branchCreateTemplates:
+            result += card(self.renderTemplateUpdateForm(template))
+
+        result += card(
+            HtmlGeneration.Link(
+                self.withOptions(action='new_template').urlString(),
+                "Create new Branch Template",
+                is_button=True,
+                button_style=self.renderer.disable_if_cant_write('btn-primary btn-xs'),
+                hover_text="Create a new branch-creation template."
+                ).render()
+            )
+
+        return result        
 
     def branchHasTests(self, branch):
         return self.renderer.branchHasTests(branch)

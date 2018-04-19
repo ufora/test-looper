@@ -178,12 +178,16 @@ class Context(object):
         if self.options.get("bodyOnly"):
             return self.renderPageBody()
         
+        pageBody = card("Invalid Object") if not self.primaryObject() else self.renderPageBody()
+
+        if isinstance(pageBody, HtmlGeneration.Redirect):
+            return pageBody
+
         return (
             HtmlGeneration.headers + 
             self.renderPageHeader() + 
             '<main class="py-md-2"><div class="container-fluid">' + 
-            (card("Invalid Object") if not self.primaryObject() else 
-                    self.renderPageBody()) +
+            pageBody +
             "</div></main>" + 
             HtmlGeneration.footers
             )

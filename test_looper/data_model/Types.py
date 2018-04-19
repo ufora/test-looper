@@ -24,6 +24,7 @@ def setup_types(database):
     database.BackgroundTask.CommitTestParse = {"commit": database.Commit}
     database.BackgroundTask.UpdateTestPriority = {"test": database.Test}
     database.BackgroundTask.UpdateCommitPriority = {'commit': database.Commit}
+    database.BackgroundTask.CheckBranchAutocreate = {"branch": database.Branch}
 
     database.TestPriority = algebraic.Alternative("TestPriority")
     database.TestPriority.WaitingToRetry = {}
@@ -165,14 +166,34 @@ def setup_types(database):
         name=str,
         isActive=bool,
         commits=int,
-        commitsWithTests=int
+        commitsWithTests=int,
+        branchCreateTemplates=algebraic.List(database.BranchCreateTemplate),
+        branchCreateLogs=database.LogMessage
+        )
+
+    database.BranchCreateTemplate.define(
+        globsToInclude=algebraic.List(str),
+        globsToExclude=algebraic.List(str),
+        suffix=str,
+        branchToCopyFrom=str,
+        def_to_replace=str,
+        disableOtherAutos=bool,
+        autoprioritizeBranch=bool,
+        deleteOnUnderlyingRemoval=bool
+        )
+
+    database.LogMessage.define(
+        msg=str,
+        timestamp=float,
+        prior = database.LogMessage
         )
 
     database.Branch.define(
         branchname=str,
         repo=database.Repo,
         head=database.Commit,
-        isUnderTest=bool
+        isUnderTest=bool,
+        autocreateTrackingBranchName=str
         )
 
     database.BranchPin.define(
@@ -268,6 +289,7 @@ def setup_types(database):
     database.addIndex(database.Branch, 'repo')
     database.addIndex(database.Branch, 'head')
     database.addIndex(database.Branch, 'reponame_and_branchname', lambda o: (o.repo.name, o.branchname))
+    database.addIndex(database.Branch, 'autocreateTrackingBranchName')
     database.addIndex(database.BranchPin, 'branch')
     database.addIndex(database.BranchPin, 'pinned_to', lambda o: (o.pinned_to_repo, o.pinned_to_branch))
     database.addIndex(database.Commit, 'repo_and_hash', lambda o: (o.repo, o.hash))

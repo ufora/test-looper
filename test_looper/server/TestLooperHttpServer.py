@@ -602,7 +602,10 @@ class TestLooperHttpServer(object):
     @cherrypy.expose
     def default(self, *args, **kwargs):
         self.authenticate()
-        return self.renderer.default(*args, **kwargs)
+        res = self.renderer.default(*args, **kwargs)
+        if isinstance(res, HtmlGeneration.Redirect):
+            raise cherrypy.HTTPRedirect(res.url)
+        return res
 
     def start(self):
         config = {

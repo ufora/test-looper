@@ -80,8 +80,12 @@ RepoReference.Pin = {
     }
 
 def RepoReference_reponame(ref):
+    if ref.matches.Import:
+        return None
     return "/".join(ref.reference.split("/")[:-1])
 def RepoReference_commitHash(ref):
+    if ref.matches.Import:
+        return None
     return ref.reference.split("/")[-1]
 def RepoReference_branchname(ref):
     if ref.matches.Pin:

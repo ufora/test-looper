@@ -1,4 +1,5 @@
 import test_looper.core.GraphUtil as GraphUtil
+import test_looper.core.algebraic_to_json as algebraic_to_json
 import logging
 import re
 
@@ -464,3 +465,85 @@ class BranchPinning:
         assert new_hash
 
         return new_hash
+
+    def _updatePinsByDefInCommitAndReturnHash(self, branch, origPins, pinRewrite, rootCommitMessage):
+        assert pinRewrite
+
+        repo = self.source_control.getRepo(branch.repo.name)
+        path = repo.source_repo.getTestDefinitionsPath(branch.head.hash)
+        branchCommitHash = branch.head.hash
+        
+        if not path:
+            logging.error("Can't update pins of %s/%s because we can't find testDefinitions.yml", 
+                branch.repo.name, 
+                branch.branchname
+                )
+            raise Exception("Couldn't update pin")
+
+        contents = repo.source_repo.getFileContents(branchCommitHash, path)
+        orig_contents = contents
+
+        for pin, newPinVal in pinRewrite.iteritems():
+            contents = self.updatePinInContents(contents, pin, origPins[pin], newPinVal)
+            
+        new_hash = repo.source_repo.createCommit(
+            branchCommitHash,
+            {path:contents},
+            rootCommitMessage
+            )
+
+        assert new_hash
+
+        return new_hash
+
+    def updatePinInContents(self, contents, pin, curPinVal, newPinVal):
+        pat_text = r"^\s*\b({r})(\s*:\s*reference\s*:\s*)({tr}/{h})\b".format(r=pin,tr=curPinVal.reponame(), h=curPinVal.commitHash())
+
+        pattern = re.compile(pat_text, flags=re.MULTILINE)
+
+        offset = re.search(pattern, contents)
+
+        if not offset:
+            raise Exception("Failed to find the text location for pin %s" % pin)
+
+        index = offset.start()
+        subsequentLines = contents[index:].split("\n")
+
+        def indentLevel(ln):
+            return len(ln) - len(ln.lstrip())
+
+        blockEnds = len(subsequentLines)
+        for i in xrange(1, len(subsequentLines)):
+            if indentLevel(subsequentLines[i]) <= indentLevel(subsequentLines[0]):
+                blockEnds = i
+                break
+
+        yaml_identifier = re.compile(r"^[a-zA-Z0-9_/-]*$")
+        def yamlQuoteIfNeeded(val):
+            if yaml_identifier.match(val):
+                return val
+            else:
+                return '"' + val.replace("\\","\\\\").replace('"', '\"') + '"'
+
+
+        newVal = [yamlQuoteIfNeeded(pin) + ":"] #algebraic_to_json.encode_and_dump_as_yaml({pin:newPinVal})
+        newVal.append("  reference: " + yamlQuoteIfNeeded(newPinVal.reference))
+        newVal.append("  branch: " + yamlQuoteIfNeeded(newPinVal.branch))
+        if newPinVal.auto:
+            newVal.append("  auto: " + yamlQuoteIfNeeded(newPinVal.auto))
+        if newPinVal.prioritize:
+            newVal.append("  prioritize: true")
+
+        newVal = [" " * indentLevel(subsequentLines[0]) + line for line in newVal]
+
+        subsequentLines[:blockEnds] = newVal
+
+        finalContents = contents[:index] + "\n".join(subsequentLines)
+
+        print finalContents
+
+        return finalContents
+
+        
+
+                

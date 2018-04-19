@@ -13,6 +13,8 @@ import test_looper.core.tools.Git as Git
 import test_looper.core.algebraic as algebraic
 import test_looper.core.source_control.SourceControl as SourceControl
 
+TestDefinitionResolver.isValidCommitRef = lambda str: str != "HEAD"
+
 class MockSourceControl(SourceControl.SourceControl):
     def __init__(self):
         self.repos = set()
@@ -164,10 +166,17 @@ class MockGitRepo:
 
         return ancestors
 
-    def pushCommit(self, commitHash, target_branch):
+    def pushCommit(self, commitHash, target_branch, createBranch=False):
         commitId = self.repo.repoName + "/" + commitHash
 
         bn = self.repo.repoName + "/" + target_branch
+
+        if createBranch:
+            if bn in self.repo.source_control.branch_to_commitId:
+                return False
+                
+            self.repo.source_control.branch_to_commitId[bn] = commitId
+            return True
 
         if bn not in self.repo.source_control.branch_to_commitId:
             return False

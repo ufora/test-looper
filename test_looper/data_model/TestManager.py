@@ -5,6 +5,7 @@ import time
 import traceback
 import simplejson
 import threading
+import fnmatch
 import textwrap
 import re
 from test_looper.core.hash import sha_hash
@@ -1244,7 +1245,7 @@ class TestManager(object):
         if task.matches.RefreshRepos:
             self._refreshRepos()
         elif task.matches.RefreshBranches:
-            self._refreshBranches(task.repo)
+            self._refreshBranches(task.repo, curTimestamp)
         elif task.matches.UpdateBranchPins:
             branch = task.branch
 
@@ -1268,10 +1269,121 @@ class TestManager(object):
             self._updateTestPriority(task.test, curTimestamp)
         elif task.matches.BootMachineCheck:
             self._bootMachinesIfNecessary(curTimestamp)
+        elif task.matches.CheckBranchAutocreate:
+            self._checkBranchAutocreate(task.branch, curTimestamp)
         elif task.matches.UpdateCommitPriority:
             self._updateCommitPriority(task.commit)
         else:
             raise Exception("Unknown task: %s" % task)
+
+    def _checkBranchAutocreate(self, branch, timestamp):
+        if branch.autocreateTrackingBranchName:
+            return
+
+        for template in branch.repo.branchCreateTemplates:
+            if self._branchMatchesTemplate(branch, template):
+                try:
+                    logMessage = self._createNewBranchFromTemplate(branch, template)
+                except:
+                    logMessage = "Error creating branch from template:\n" + traceback.format_exc()
+
+                branch.repo.branchCreateLogs = self._createLogMessage(branch.repo.branchCreateLogs, logMessage, timestamp)
+
+                return
+
+        if branch.repo.branchCreateTemplates:
+            logMessage = "New branch %s didn't match any templates." % branch.branchname
+
+            branch.repo.branchCreateLogs = self._createLogMessage(branch.repo.branchCreateLogs, logMessage, timestamp)
+
+    def _createLogMessage(self, priorLog, text, timestamp):
+        if not priorLog:
+            priorLog = self.database.LogMessage.Null
+        return self.database.LogMessage.New(msg=text, timestamp=timestamp,prior=priorLog)
+
+    def _branchMatchesTemplate(self, branch, template):
+        if branch.branchname.startswith("svn-"):
+            return False
+
+        for exclude in template.globsToExclude:
+            if fnmatch.fnmatchcase(branch.branchname, exclude):
+                return False
+        for include in template.globsToInclude:
+            if fnmatch.fnmatchcase(branch.branchname, include):
+                return True
+        return False
+
+    def _createNewBranchFromTemplate(self, branch, template):
+        source_branch = self.database.Branch.lookupAny(reponame_and_branchname=(branch.repo.name, template.branchToCopyFrom))
+        if not source_branch:
+            return "Source branch '%s' doesn't exist" % template.branchToCopyFrom
+
+        if not template.suffix:
+            return "Template branchname suffix is empty"
+
+        new_name = branch.branchname + template.suffix
+        if self.database.Branch.lookupAny(reponame_and_branchname=(branch.repo.name, new_name)):
+            return "Newly created branch %s already exists." % new_name
+
+        if not source_branch.head.data:
+            return "Source branch didn't have a valid commit on its HEAD"
+        
+        if template.def_to_replace not in source_branch.head.data.repos:
+            return "Couldn't find repodef %s amongst:\n%s" % (
+                template.def_to_replace,
+                "\n".join(["  " + x for x in sorted(source_branch.head.data.repos)])
+                )
+
+        if not source_branch.head.data.repos[template.def_to_replace].matches.Pin:
+            return "Targeted reporef is not updatable."
+
+        newRepoDefs = dict({k:v for k,v in source_branch.head.data.repos.iteritems() if v.matches.Pin})
+        
+        if template.disableOtherAutos:
+            for defname in list(newRepoDefs):
+                pin = newRepoDefs[defname]
+                if pin.matches.Pin and defname != template.def_to_replace:
+                    pin = pin._withReplacement(auto="")
+                newRepoDefs[defname] = pin
+
+        newRepoDefs[template.def_to_replace] = (
+            newRepoDefs[template.def_to_replace]
+                ._withReplacement(auto="true")
+                ._withReplacement(prioritize=["true"])
+                ._withReplacement(branch=branch.branchname)
+                ._withReplacement(reference="%s/%s" % (branch.repo.name, "HEAD"))
+            )
+
+        pinning = BranchPinning.BranchPinning(self.database, self.source_control)
+        
+        try:
+            newHash = pinning._updatePinsByDefInCommitAndReturnHash(
+                source_branch,
+                source_branch.head.data.repos,
+                newRepoDefs, 
+                "Pointing branch %s at %s for testing." % (source_branch.branchname, branch.branchname)
+                )
+        except Exception as e:
+            return "Failed to update yaml file:\n%s" % traceback.format_exc()
+
+        repo = self.source_control.getRepo(branch.repo.name)
+
+        if not repo.source_repo.pushCommit(newHash, new_name, createBranch=True):
+            return "Failed to push new commit to source control"
+
+        #create an explicit new branch object
+        newbranch = self.database.Branch.New(branchname=new_name, repo=branch.repo)
+
+        if template.autoprioritizeBranch:
+            newbranch.isUnderTest = True
+
+        if template.deleteOnUnderlyingRemoval:
+            newbranch.autocreateTrackingBranchName = branch.branchname
+
+        self._repoTouched(newbranch.repo)
+        self._scheduleUpdateBranchTopCommit(newbranch)
+
+        return "Successfully pushed %s to new branch %s" % (newHash, new_name)
 
     def _refreshRepos(self):
         all_repos = set(self.source_control.listRepos())
@@ -1299,7 +1411,7 @@ class TestManager(object):
                     )
                 )
 
-    def _refreshBranches(self, db_repo):
+    def _refreshBranches(self, db_repo, curTimestamp):
         repo = self.source_control.getRepo(db_repo.name)
 
         try:
@@ -1331,12 +1443,20 @@ class TestManager(object):
         final_branches = tuple([x for x in db_branches if x.branchname in branchnames_set])
         for branch in db_branches:
             if branch.branchname not in branchnames_set:
-                self._branchDeleted(branch)
+                self._branchDeleted(branch, curTimestamp)
                 branch.delete()
 
         for newname in branchnames_set - set([x.branchname for x in db_branches]):
             newbranch = self.database.Branch.New(branchname=newname, repo=db_repo)
             self._repoTouched(db_repo)
+
+            self._queueTask(
+                self.database.DataTask.New(
+                    task=self.database.BackgroundTask.CheckBranchAutocreate(newbranch),
+                    status=pendingLow
+                    )
+                )
+
 
         for branchname, branchHash in branchnamesAndHashes.iteritems():
             try:
@@ -1588,11 +1708,27 @@ class TestManager(object):
         for branch_updated in pinning.branches_updated:
             self._scheduleUpdateBranchTopCommit(branch_updated)
 
-    def _branchDeleted(self, branch):
+    def _branchDeleted(self, branch, curTimestamp):
         old_branch_head = branch.head
         if old_branch_head:
             self._setBranchHead(branch, self.database.Commit.Null)
             self._triggerCommitPriorityUpdate(old_branch_head)
+
+        for trackingBranch in self.database.Branch.lookupAll(autocreateTrackingBranchName=branch.branchname):
+            logging.info("Deleting test-tracking branch %s because %s was deleted." % (trackingBranch.branchname, branch.branchname))
+            try:
+                repo = self.source_control.getRepo(trackingBranch.repo.name).source_repo
+                repo.deleteRemoteBranch(trackingBranch.branchname)
+                trackingBranch.repo.branchCreateLogs = self._createLogMessage(
+                    trackingBranch.repo.branchCreateLogs, 
+                    "Deleted branch %s because underlying branch %s was deleted" % (
+                        trackingBranch.branchname,
+                        branch.branchname
+                        ), 
+                    curTimestamp
+                    )
+            except:
+                logging.error("Failed to delete remote branch %s:\n\n%s", trackingBranch.branchname, traceback.format_exc())
 
     def _setBranchHead(self, branch, newHead):
         if branch:

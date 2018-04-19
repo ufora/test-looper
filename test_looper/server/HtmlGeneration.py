@@ -515,3 +515,7 @@ def urlDropdown(contents, url):
             contents=contents,
             url=url
             )
+
+class Redirect:
+    def __init__(self, url):
+        self.url = url
