@@ -20,6 +20,7 @@ pendingVeryHigh = Types.BackgroundTaskStatus.PendingVeryHigh()
 pendingHigh = Types.BackgroundTaskStatus.PendingHigh()
 pendingMedium = Types.BackgroundTaskStatus.PendingMedium()
 pendingLow = Types.BackgroundTaskStatus.PendingLow()
+pendingVeryLow = Types.BackgroundTaskStatus.PendingVeryLow()
 running = Types.BackgroundTaskStatus.Running()
 
 MAX_TEST_PRIORITY = 2
@@ -1098,6 +1099,8 @@ class TestManager(object):
                     task = self.database.DataTask.lookupAny(status=pendingMedium)
                 if task is None:
                     task = self.database.DataTask.lookupAny(status=pendingLow)
+                if task is None:
+                    task = self.database.DataTask.lookupAny(status=pendingVeryLow)
 
                 if task is None:
                     return
@@ -1161,6 +1164,8 @@ class TestManager(object):
                 task = self.database.DataTask.lookupAny(status=pendingMedium)
             if task is None:
                 task = self.database.DataTask.lookupAny(status=pendingLow)
+            if task is None:
+                task = self.database.DataTask.lookupAny(status=pendingVeryLow)
 
             if task is None:
                 return
@@ -1290,7 +1295,7 @@ class TestManager(object):
             self._queueTask(
                 self.database.DataTask.New(
                     task=self.database.BackgroundTask.RefreshBranches(r),
-                    status=pendingVeryHigh
+                    status=pendingVeryLow
                     )
                 )
 

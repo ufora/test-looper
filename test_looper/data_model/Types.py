@@ -9,6 +9,7 @@ BackgroundTaskStatus.PendingVeryHigh = {}
 BackgroundTaskStatus.PendingHigh = {}
 BackgroundTaskStatus.PendingMedium = {}
 BackgroundTaskStatus.PendingLow = {}
+BackgroundTaskStatus.PendingVeryLow = {}
 BackgroundTaskStatus.Running = {}
 
 def setup_types(database):
