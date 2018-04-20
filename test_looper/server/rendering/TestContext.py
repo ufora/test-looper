@@ -79,7 +79,7 @@ class TestContext(Context.Context):
 
     def renderIndividualTestResults(self):
         #show broken out tests over the last N commits
-        rows = self.testManager.database.TestRun.lookupAll(test=self.test)
+        rows = [x for x in self.testManager.database.TestRun.lookupAll(test=self.test) if not x.canceled]
 
         def rowLinkFun(row):
             return self.contextFor(row).renderLink(includeCommit=False, includeTest=False)
