@@ -53,7 +53,7 @@ class TestRunContext(Context.Context):
         if self.test.testDefinitionSummary.type == "Build":
             return []
         else:
-            return ["artifacts", "tests"]
+            return ["tests", "artifacts"]
 
     def renderViewMenuItem(self, view):
         if view == "artifacts":
@@ -115,16 +115,14 @@ class TestRunContext(Context.Context):
         for artifactName, sizeInBytes in self.renderer.artifactStorage.testResultKeysForWithSizes(testRun.test.hash, testRun._identity):
             name = self.renderer.artifactStorage.unsanitizeName(artifactName)
             
-            if name.startswith(ArtifactStorage.TEST_LOG_NAME_PREFIX):
-                name = name[len(ArtifactStorage.TEST_LOG_NAME_PREFIX):]
-
-            grid.append([
-                HtmlGeneration.link(
-                    name,
-                    self.renderer.testResultDownloadUrl(testRun._identity, artifactName)
-                    ),
-                HtmlGeneration.bytesToHumanSize(sizeInBytes)
-                ])
+            if not name.startswith(ArtifactStorage.TEST_LOG_NAME_PREFIX):
+                grid.append([
+                    HtmlGeneration.link(
+                        name,
+                        self.renderer.testResultDownloadUrl(testRun._identity, artifactName)
+                        ),
+                    HtmlGeneration.bytesToHumanSize(sizeInBytes)
+                    ])
 
         if not grid:
             return card("No Test Artifacts produced")

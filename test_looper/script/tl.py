@@ -250,8 +250,8 @@ class WorkerStateOverride(WorkerState.WorkerState):
 
             #don't remove everything!
             self.clearDirectoryAsRoot(
-                self.directories.scratch_dir, 
-                self.directories.test_inputs_dir, 
+                self.directories.scratch_dir,
+                self.directories.test_inputs_dir,
                 self.directories.command_dir
                 )
         else:
@@ -262,6 +262,7 @@ class WorkerStateOverride(WorkerState.WorkerState):
             self.directories.scratch_dir: "/test_looper/scratch",
             self.directories.test_output_dir: "/test_looper/output",
             self.directories.build_output_dir: "/test_looper/build_output",
+            self.directories.test_inputs_dir: "/test_looper/test_inputs",
             self.directories.ccache_dir: "/test_looper/ccache",
             self.directories.command_dir: "/test_looper/command"
             }
@@ -281,11 +282,16 @@ class WorkerStateOverride(WorkerState.WorkerState):
         if sys.platform == "win32":
             return os.path.join(self.worker_directory, expose_as)
         else:
-            return os.path.join("/test_looper", expose_as)
+            assert expose_as.startswith("test_inputs/")
+            tgt = os.path.join("/test_looper/mountpoints", expose_as)
+
+            target_linkpoint = os.path.join(self.directories.test_inputs_dir, expose_as[len("test_inputs/"):])
+            if not os.path.exists(os.path.dirname(target_linkpoint)):
+                os.makedirs(os.path.dirname(target_linkpoint))
+            os.symlink(tgt, target_linkpoint)
+            return tgt
 
     def grabDependency(self, log_function, expose_as, dep, worker_callback):
-        target_dir = os.path.join(self.directories.test_inputs_dir, expose_as)
-
         if dep.matches.Build:
             self.extra_mappings[
                 os.path.join(self.looperCtl.build_path(dep.repo, dep.name), "build_output")
@@ -381,9 +387,6 @@ class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolv
         return None
 
     def testDefinitionTextAndExtensionFor(self, repoName, commitHash):
-        if not isShaHash(commitHash):
-            return None, None
-
         root_path = self.looperCtl.checkout_root_path(repoName)
 
         if os.path.exists(root_path):
@@ -820,6 +823,9 @@ class TestLooperCtl:
                     self.t0 = time.time()
                     self.total_lines = 0
 
+                def recordArtifactUploaded(self, artifact):
+                    print "Finished stage ", artifact
+
                 def heartbeat(self, logMessage=None):
                     if logMessage:
                         logfile.write(logMessage)
@@ -834,6 +840,7 @@ class TestLooperCtl:
 
                 def subscribeToTerminalInput(self, callback):
                     pass
+
             callbacks = Callbacks()
         else:
             callbacks = WorkerState.DummyWorkerCallbacks(localTerminal=True)

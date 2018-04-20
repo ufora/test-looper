@@ -309,7 +309,17 @@ class CommitContext(Context.Context):
 
         return res
 
+    def handleAction(self):
+        if self.options.get("action", "") == "update_suite_runs":
+            suite = self.commit.data.tests[self.options.get("suite")]
+            suite.runsDesired = max(1, min(int(self.options.get("targetRuns")), 100))
+            self.testManager._triggerTestPriorityUpdate(suite)
+
     def renderPageBody(self):
+        if self.options.get("action", ""):
+            self.handleAction()
+            return HtmlGeneration.Redirect(self.withOptionsReset(view=self.options.get("view")).urlString())
+
         view = self.currentView()
 
         if view == "commit_data":
@@ -630,7 +640,7 @@ class CommitContext(Context.Context):
         if builds:
             grid = [["BUILD", "HASH", "", "PROJECT", "CONFIGURATION", "STATUS", "STAGE", "RUNS", "RUNTIME", "", "DEPENDENCIES"]]
         else:
-            grid = [["SUITE", "HASH", "", "PROJECT", "CONFIGURATION", "STATUS", "RUNS", "TEST_CT", "FAILURE_CT", "AVG_RUNTIME", "", "DEPENDENCIES"]]
+            grid = [["SUITE", "HASH", "", "PROJECT", "CONFIGURATION", "STATUS", "RUNS", "TARGET_RUNS", "TEST_CT", "FAILURE_CT", "AVG_RUNTIME", "", "DEPENDENCIES"]]
 
         for t in tests:
             row = []
@@ -670,6 +680,9 @@ class CommitContext(Context.Context):
 
             row.append(str(t.totalRuns))
 
+            if not builds:
+                row.append(self.renderIncreaseSuiteTargetCount(t))
+
             if t.totalRuns:
                 if not builds:
                     if t.totalRuns == 1:
@@ -697,8 +710,10 @@ class CommitContext(Context.Context):
 
             runButtons = []
 
-            for testRun in all_noncanceled_tests:
+            for testRun in all_noncanceled_tests[:5]:
                 runButtons.append(self.renderer.testLogsButton(testRun._identity).render())
+            if len(all_noncanceled_tests) > 5:
+                runButtons.append(" and %s more" % (len(all_noncanceled_tests) - 5))
 
             row.append(" ".join(runButtons))
             row.append(self.testDependencySummary(t))
@@ -707,6 +722,35 @@ class CommitContext(Context.Context):
 
         return HtmlGeneration.grid(grid)
     
+    def renderIncreaseSuiteTargetCount(self, suite):
+        menus = []
+        for count in [1,5,10,100]:
+            menus.append(
+                '<a class="dropdown-item" href="{link}">{contents}</a>'.format(
+                    link=self.withOptions(action="update_suite_runs", suite=suite.testDefinitionSummary.name, targetRuns=str(count)).urlString(),
+                    contents=str(count)
+                    )
+                )
+
+        return """
+                <div class="btn-group">
+                  <a role="button" class="btn btn-xs {btnstyle}" title="{title}">{elt}</a>
+                  <button class="btn btn-xs {btnstyle} dropdown-toggle dropdown-toggle-split" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                  </button>
+                  <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+                    {dd_items}
+                  </div>
+                  
+                </div>
+                """.format(
+                    elt=max(suite.runsDesired, 1),
+                    title="Total number of runs of this test we want.",
+                    dd_items = "".join(menus),
+                    btnstyle="btn-outline-secondary"
+                    )
+
+
+
     def testDependencySummary(self, t):
         """Return a single cell displaying all the builds this test depends on"""
         return TestSummaryRenderer.TestSummaryRenderer(

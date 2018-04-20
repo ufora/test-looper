@@ -68,14 +68,23 @@ class IndividualTestContext(Context.Context):
                         items.append('<span class="dropdown-item disabled text-muted">{contents}</span>'.format(contents=contents))
             return "".join(items)
         else:
-            grid = [["Test Run", "File", "Size"]]
+            grid = [["Test Run", "Failure", "File", "Size"]]
 
             for testRun in self.database.TestRun.lookupAll(test=self.test):
-                for path, sz in self.renderer.artifactStorage.testResultKeysAndSizesForIndividualTest(
+                try:
+                    index = testRun.testNames.test_names.index(self.individualTestName)
+                    passFail = testRun.testFailures[index]
+                except:
+                    passFail = None
+
+                pathsAndSizes = self.renderer.artifactStorage.testResultKeysAndSizesForIndividualTest(
                         testRun.test.hash, testRun._identity, self.individualTestName
-                        ):
+                        )
+
+                for path, sz in pathsAndSizes:
                     grid.append([
                         self.contextFor(testRun).renderLink(False, False),
+                        "FAIL" if passFail is True else "OK" if passFail is False else "",
                         HtmlGeneration.link(
                             os.path.basename(path), 
                             self.renderer.testResultDownloadUrl(testRun._identity, path)
@@ -83,7 +92,15 @@ class IndividualTestContext(Context.Context):
                         HtmlGeneration.bytesToHumanSize(sz)
                         ])
 
-            return HtmlGeneration.grid(grid)
+                if not pathsAndSizes:
+                    grid.append([
+                        self.contextFor(testRun).renderLink(False, False),
+                        "FAIL" if passFail is True else "OK" if passFail is False else "",
+                        '<span class="text-muted">%s</span>' % "No artifacts",
+                        ""
+                        ])
+
+            return HtmlGeneration.grid(grid,dataTables=True)
 
     def childContexts(self, currentChild):
         return []

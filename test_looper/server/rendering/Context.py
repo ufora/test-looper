@@ -11,6 +11,7 @@ class Context(object):
         self.testManager = renderer.testManager
         self.database = renderer.testManager.database
         self.options = options
+        self._contextCache = {}
 
     def __cmp__(self, other):
         return cmp(self.primaryObject(), other.primaryObject())
@@ -193,7 +194,15 @@ class Context(object):
             )
 
     def contextFor(self, entity, **kwargs):
-        return self.renderer.contextFor(entity, kwargs)
+        if entity in self._contextCache and not kwargs:
+            return self._contextCache[entity]
+
+        res = self.renderer.contextFor(entity, kwargs)
+
+        if not kwargs:
+            self._contextCache[entity] = res
+
+        return res
 
     def withOptionsReset(self, **options):
         options = {k:v for k,v in options.iteritems() if v is not None}

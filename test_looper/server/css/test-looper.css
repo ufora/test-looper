@@ -97,7 +97,7 @@ th {
 .test-result-cell-success {
 }
 .test-result-cell-partial {
-    background-color: #0ff;
+    background-color: #f99;
 }
 .test-result-cell-fail {
     background-color: #f00;

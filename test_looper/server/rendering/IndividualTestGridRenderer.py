@@ -90,7 +90,14 @@ class IndividualTestGridRenderer:
     def individualTestsForRowFun(self, row):
         res = {}
         for t in self.testsForRowFun(row):
-            for run in self.database.TestRun.lookupAll(test=t):
+            if isinstance(t, self.database.Test):
+                runs = list(self.database.TestRun.lookupAll(test=t))
+            elif isinstance(t, self.database.TestRun):
+                runs = [t]
+            else:
+                assert False, "Can't handle %s" % t
+
+            for run in runs:
                 if run.testNames:
                     testNames = run.testNames.test_names
                     testFailures = run.testFailures
@@ -98,13 +105,13 @@ class IndividualTestGridRenderer:
                     testSuiteName = run.test.testDefinitionSummary.name
                     
                     for i in xrange(len(testNames)):
-                        cur_runs, cur_successes, testIfHasLogs = res.get(testNames[i], (0,0,None))
+                        cur_runs, cur_successes, testIfHasLogs = res.get(IndividualTest(testSuiteName, testNames[i]), (0,0,None))
 
                         cur_runs += 1
                         cur_successes += 1 if testFailures[i] else 0
 
                         if testHasLogs and testHasLogs[i] and not testIfHasLogs:
-                            testIfHasLogs = t
+                            testIfHasLogs = run.test
 
                         res[IndividualTest(testSuiteName, testNames[i])] = (cur_runs, cur_successes, testIfHasLogs)
         
@@ -157,16 +164,23 @@ class IndividualTestGridRenderer:
                                 tooltip += " over %s runs" % run_count
                             contentsDetail="OK"
 
+                            if run_count > 1:
+                                contentsDetail += " (%s runs)" % run_count
+
                         elif success_count:
                             cellClass = "test-result-cell-partial"
                             tooltip = "Test %s succeeded %s / %s times" % (individualTest.name, success_count, run_count)
-                            contentsDetail="MIXED"
+                            contentsDetail="FLAKEY (%s/%s runs failed)" % (run_count-success_count, run_count)
                         else:
                             cellClass = "test-result-cell-fail"
                             tooltip = "Test %s failed" % individualTest.name
                             if run_count > 1:
                                 tooltip += " over %s runs" % run_count
                             contentsDetail="FAIL"
+
+                            if run_count > 1:
+                                contentsDetail += " (%s runs)" % run_count
+
                     else:
                         url = ""
                         cellClass = "test-result-cell-notrun"

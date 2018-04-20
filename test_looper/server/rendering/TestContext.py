@@ -1,6 +1,7 @@
 import test_looper.server.rendering.Context as Context
 import test_looper.server.rendering.ComboContexts as ComboContexts
 import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
+import test_looper.server.rendering.IndividualTestGridRenderer as IndividualTestGridRenderer
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.core.algebraic_to_json as algebraic_to_json
 import time
@@ -40,27 +41,29 @@ class TestContext(Context.Context):
         prefix = "repos/" + self.repo.name + "/-/commits/"
         return prefix + self.commit.hash + "/tests/" + self.testName
 
-    def renderLink(self, includeCommit=True):
+    def renderLink(self, includeCommit=True, nameOverride=None):
         if includeCommit:
-            res = self.contextFor(self.commit).renderLink() + "/"
+            res = self.contextFor(self.commit).renderLink()
         else:
             res = ''
 
-        return res + HtmlGeneration.link(self.testName, self.urlString())
+        return res + HtmlGeneration.link(nameOverride or self.testName, self.urlString())
 
     def bootTestOrEnvUrl(self):
         return "/bootDeployment?testHash=" + self.test.hash
 
     def contextViews(self):
-        return ["test_runs", "test_dependencies", "test_definition"]
+        return ["test_results", "test_runs", "test_dependencies", "test_definition"]
 
     def renderViewMenuItem(self, view):
         if view == "test_runs":
-            return "Runs"
+            return "Jobs"
         if view == "test_definition":
             return "Test Definition"
         if view == "test_dependencies":
             return "Dependencies"
+        if view == "test_results":
+            return "Test Results"
         return view
 
     def renderViewMenuMouseoverText(self, view):
@@ -70,10 +73,61 @@ class TestContext(Context.Context):
             return "A view of the actual test definition used by the looper"
         if view == "test_dependencies":
             return "Info on the dependencies this test has"
+        if view == "test_results":
+            return "Individual test results over the different runs"
         return ""
+
+    def renderIndividualTestResults(self):
+        #show broken out tests over the last N commits
+        rows = self.testManager.database.TestRun.lookupAll(test=self.test)
+
+        def rowLinkFun(row):
+            return self.contextFor(row).renderLink(includeCommit=False, includeTest=False)
+
+        def testFun(row):
+            return [row]
+
+        def cellUrlFun(testGroup, row):
+            return None
+
+        renderer = IndividualTestGridRenderer.IndividualTestGridRenderer(
+            rows,
+            self, 
+            testFun,
+            cellUrlFun,
+            breakOutIndividualTests=True
+            )
+
+        grid = [["Test Run","Logs", "Elapsed (Min)", "Status", ""] + renderer.headers()]
+
+        for testRun in rows:
+            row = [rowLinkFun(testRun),self.renderer.testLogsButton(testRun._identity)]
+
+            if testRun.endTimestamp > 0.0:
+                elapsed = (testRun.endTimestamp - testRun.startedTimestamp) / 60.0
+            else:
+                elapsed = (time.time() - testRun.startedTimestamp) / 60.0
+
+            row.append("%.2f" % elapsed)
+
+            if testRun.endTimestamp > 0.0:
+                row.append("passed" if testRun.success else "failed")
+            else:
+                row.append("running")
+
+            row.append("&nbsp;")
+
+            grid.append(row + renderer.gridRow(testRun))
+
+        grid = HtmlGeneration.transposeGrid(grid)
+
+        return HtmlGeneration.grid(grid, dataTables=True, header_rows=5)
 
     def renderPageBody(self):
         test = self.test
+
+        if self.currentView() == "test_results":
+            return self.renderIndividualTestResults()
 
         if self.currentView() == "test_runs":
             testRuns = self.testManager.database.TestRun.lookupAll(test=test)
