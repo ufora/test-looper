@@ -1213,19 +1213,6 @@ class WorkerState(object):
             withTime(log_function)("Error: path %s isn't visible outside of the docker container", intendedDirectory)
             return False
 
-        if isTestArtifact:
-            try:
-                self.artifactStorage.uploadTestArtifacts(
-                    testDefHash, 
-                    testNameOrId, 
-                    artifact.name + "/" if artifact.name else "", 
-                    artifactDirectory
-                    )
-                return True
-            except:
-                withTime(log_function)("ERROR: failed to upload test artifacts for %s:\n%s", artifact.name, traceback.format_exc())
-                return False
-
         #upload all the data in our directory
         full_name = testNameOrId + ("/" + artifact.name if artifact.name else "")
 
