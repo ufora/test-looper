@@ -240,7 +240,7 @@ class WorkerState(object):
             self.directories.command_dir: "/test_looper/command"
             }
 
-    def _run_deployment(self, env, workerCallback, docker_image, working_directory, extraPorts=None):
+    def _run_deployment(self, env, workerCallback, docker_image, extra_commands, working_directory, extraPorts=None):
         build_log = StringIO.StringIO()
 
         self.dumpPreambleLog(build_log, env, docker_image, "", working_directory)
@@ -268,6 +268,7 @@ class WorkerState(object):
                 print >> cmd_file, "echo 'HERE ARE AVAILABLE SERVICES:'"
                 print >> cmd_file, "Get-Service | Format-Table -Property Name, Status, StartType, DisplayName"
                 print >> cmd_file, "echo '********************************'"
+                print >> cmd_file, extra_commands
 
             if workerCallback.localTerminal:
                 try:
@@ -356,8 +357,12 @@ class WorkerState(object):
                         logging.info("Failed to terminate subprocess: %s", traceback.format_exc())
                     readthreadStop.set()
         else:
+            with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
+                print >> f, extra_commands
+
             with open(os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w") as f:
                 print >> f, "hostname testlooperworker"
+                print >> f, "bash /test_looper/command/cmd.sh"
                 print >> f, "export PS1='${debian_chroot:+($debian_chroot)}\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ '"
                 print >> f, "bash --noprofile --norc"
 
@@ -866,6 +871,8 @@ class WorkerState(object):
 
         except:
             log_function("ERROR: Failed to upload the testlooper logfile to artifactStorage:\n\n%s" % traceback.format_exc())
+        finally:
+            withTime(log_function)("Finished uploading artifacts.")
 
         return success, individualTestSuccesses
 
@@ -1074,7 +1081,9 @@ class WorkerState(object):
                 working_directory = "/test_looper/test_inputs"
 
             if isDeploy:
-                self._run_deployment(test_definition.variables, workerCallback, image, working_directory, extraPorts=extraPorts)
+                extra_commands = "\n\n".join([s.command for s in stages])
+
+                self._run_deployment(test_definition.variables, workerCallback, image, extra_commands, working_directory, extraPorts=extraPorts)
                 return False, {}
             else:
                 for stage in stages:
@@ -1177,7 +1186,7 @@ class WorkerState(object):
                     individualTestSuccesses = {str(k): processTestSuccess(k, v) for k,v in individualTestSuccesses.iteritems()}
 
                     if pathsToUpload:
-                        self.artifactStorage.uploadIndividualTestArtifacts(test_definition.hash, testId, pathsToUpload)
+                        self.artifactStorage.uploadIndividualTestArtifacts(test_definition.hash, testId, pathsToUpload, withTime(log_function))
 
                 except Exception as e:
                     individualTestSuccesses = {}

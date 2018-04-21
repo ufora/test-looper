@@ -2,6 +2,7 @@ import boto3
 import botocore
 import threading
 import os
+import time
 import logging
 import traceback
 import tempfile
@@ -9,6 +10,7 @@ import tarfile
 import shutil
 import gzip
 import re
+import Queue
 import test_looper.core.algebraic as algebraic
 import test_looper.core.TimerQueue as TimerQueue
 
@@ -63,8 +65,10 @@ class ArtifactStorage(object):
         
         return res
 
-    def uploadIndividualTestArtifacts(self, testHash, testId, pathsToUpload):
-        def uploadArtifact(testName, path, semaphore):
+    def uploadIndividualTestArtifacts(self, testHash, testId, pathsToUpload, logger=None):
+        queue = Queue.Queue()
+
+        def uploadArtifact(testName, path):
             try:
                 testName = self.sanitizeName(testName)
                 filename = os.path.basename(path)
@@ -78,18 +82,29 @@ class ArtifactStorage(object):
             except:
                 logging.error("Failed to upload %s:\n%s", path, traceback.format_exc())
             finally:
-                semaphore.release()
+                queue.put(filename)
 
-        sem = threading.Semaphore(0)
         counts = 0
 
         for testName, paths in pathsToUpload.iteritems():
             for path in paths:
-                timerQueue.enqueueWorkItem(uploadArtifact, (testName, path, sem))
+                timerQueue.enqueueWorkItem(uploadArtifact, (testName, path))
                 counts += 1
 
-        for _ in xrange(counts):
-            sem.acquire()
+        try:
+            if logger:
+                logger("Uploading a total of %s artifacts" % counts)
+
+            while counts:
+                item = queue.get(timeout=360)
+                counts -= 1
+                if counts % 10 == 0 and logger:
+                    logger("%s artifacts remaining" % counts)
+        except Queue.Empty:
+            if logger:
+                logger("Timed out uploading individual artifacts. %s remaining" % counts)
+            raise Exception("Timed out uploading individual artifacts")
+
 
     def uploadTestArtifacts(self, testHash, testId, prefix, testOutputDir):
         """Upload all the files in 'testOutputDir'.
