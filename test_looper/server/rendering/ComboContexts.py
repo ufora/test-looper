@@ -20,17 +20,30 @@ class BranchAndFilter(ComboContext):
 class CommitAndFilter(ComboContext):
     def __init__(self, commit, configurationName, projectName):
         self.commit = commit
+        
+        assert isinstance(configurationName, str) or configurationName is None
+        assert isinstance(projectName, str) or projectName is None
+
         self.configurationName = configurationName
         self.projectName = projectName
 
     def toTuple(self):
         return (self.commit, self.configurationName, self.projectName)
 
+    def shouldIncludeTest(self, test):
+        if self.projectName and test.testDefinitionSummary.project != self.projectName:
+            return False
+        if self.configurationName and test.testDefinitionSummary.configuration != self.configurationName:
+            return False
+        return True
+
+
 class IndividualTest(ComboContext):
-    def __init__(self, test, individualTestName):
-        self.test = test
+    def __init__(self, context, individualTestName):
+        """Represents an individually named test in the context of a Commit, Test, or TestRun"""
+        self.context = context
         self.individualTestName = individualTestName
 
     def toTuple(self):
-        return (self.test, self.individualTestName)
+        return (self.context, self.individualTestName)
 

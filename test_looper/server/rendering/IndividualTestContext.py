@@ -11,47 +11,53 @@ octicon = HtmlGeneration.octicon
 card = HtmlGeneration.card
 
 class IndividualTestContext(Context.Context):
-    def __init__(self, renderer, individualTest, options):
+    def __init__(self, renderer, context, options):
         Context.Context.__init__(self, renderer, options)
-        self.test = individualTest.test
-        self.individualTestName = individualTest.individualTestName
-
-        self.commit = self.testManager.oldestCommitForTest(self.test)
-        self.repo = self.commit.repo
-        self.testName = self.test.testDefinitionSummary.name
+        self.context = context.context
+        self.individualTestName = context.individualTestName
         
     def consumePath(self, path):
         return None, path
 
     def primaryObject(self):
-        return ComboContexts.IndividualTest(test=self.test, individualTestName=self.individualTestName)
+        return ComboContexts.IndividualTest(context=self.context, individualTestName=self.individualTestName)
 
     def urlBase(self):
-        prefix = "repos/" + self.repo.name + "/-/commits/"
-        return prefix + self.commit.hash + "/tests/" + self.testName + "/-/test/" + self.individualTestName
+        return self.contextFor(self.context).urlBase() + "/-/individualTest/" + self.individualTestName
 
     def renderBreadcrumbPrefixes(self):
         return ["Tests"]
 
-    def renderLink(self, includeCommit=True, includeTest=True):
-        res = ""
-        if includeCommit:
-            res += self.contextFor(self.commit).renderLink()
+    def renderLink(self):
+        return HtmlGeneration.link(self.individualTestName, self.urlString())
 
-        if includeTest:
-            if res:
-                res += "/"
-            res += HtmlGeneration.link(self.testName, self.contextFor(self.test).urlString())
+    def relevantTestRuns(self):
+        if isinstance(self.context, self.database.Test):
+            return self.database.TestRun.lookupAll(test=self.context)
+        if isinstance(self.context, self.database.TestRun):
+            return [self.context]
+        if isinstance(self.context, ComboContexts.CommitAndFilter):
+            res = []
+            for test in self.context.commit.data.tests.values():
+                if self.context.shouldIncludeTest(test):
+                    for run in self.database.TestRun.lookupAll(test=test):
+                        if run.testNames and self.individualTestName in run.testNames.test_names:
+                            res.append(run)
+            return res
 
-        if res:
-            res += '/'
-
-        return res + HtmlGeneration.link(self.individualTestName, self.urlString())
+        if isinstance(self.context, self.database.Commit):
+            res = []
+            for test in self.context.data.tests.values():
+                for run in self.database.TestRun.lookupAll(test=test):
+                    if run.testNames and self.individualTestName in run.testNames.test_names:
+                        res.append(run)
+            return res
+        return []
 
     def renderPageBody(self):
         if self.options.get("context","") == "dropdown-menu":
             items = []
-            for testRun in self.database.TestRun.lookupAll(test=self.test):
+            for testRun in self.relevantTestRuns():
                 for path, sz in self.renderer.artifactStorage.testResultKeysAndSizesForIndividualTest(
                         testRun.test.hash, testRun._identity, self.individualTestName
                         ):
@@ -70,7 +76,7 @@ class IndividualTestContext(Context.Context):
         else:
             grid = [["Test Run", "Failure", "File", "Size"]]
 
-            for testRun in [t for t in self.database.TestRun.lookupAll(test=self.test) if not t.canceled and t.endTimestamp]:
+            for testRun in [t for t in self.relevantTestRuns() if not t.canceled and t.endTimestamp]:
                 try:
                     index = testRun.testNames.test_names.index(self.individualTestName)
                     passFail = True if testRun.testFailures[index] else False
@@ -107,13 +113,12 @@ class IndividualTestContext(Context.Context):
         return []
 
     def parentContext(self):
-        return self.contextFor(self.test)
-
+        return self.contextFor(self.context)
 
     def renderMenuItemText(self, isHeader):
-        return (octicon("beaker") if isHeader else "") + self.testName
+        return (octicon("beaker") if isHeader else "") + self.individualTestName
 
     def renderNavbarLink(self):
-        return self.renderLink(includeCommit=False, includeTest=False)
+        return self.renderLink()
 
         

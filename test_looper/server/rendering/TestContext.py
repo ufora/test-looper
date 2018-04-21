@@ -19,6 +19,12 @@ class TestContext(Context.Context):
         self.testName = test.testDefinitionSummary.name
         
     def consumePath(self, path):
+        while path and path[0] == "-":
+            path = path[1:]
+
+        if path and path[0] == "individualTest":
+            return self.contextFor(ComboContexts.IndividualTest(self.test, "/".join(path[1:]))), []
+
         if path and path[0] == "test":
             items, remainder = self.popToDash(path[1:])
 
@@ -90,12 +96,15 @@ class TestContext(Context.Context):
         def cellUrlFun(testGroup, row):
             return None
 
+        def rowContextFun(row):
+            return row
+
         renderer = IndividualTestGridRenderer.IndividualTestGridRenderer(
             rows,
             self, 
             testFun,
             cellUrlFun,
-            breakOutIndividualTests=True
+            rowContextFun
             )
 
         grid = [["Test Run","Logs", "Elapsed (Min)", "Status", ""] + renderer.headers()]

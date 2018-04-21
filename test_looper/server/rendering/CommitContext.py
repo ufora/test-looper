@@ -74,6 +74,12 @@ class CommitContext(Context.Context):
             return False
     
     def consumePath(self, path):
+        while path and path[0] == "-":
+            path = path[1:]
+
+        if path and path[0] == "individualTest":
+            return self.contextFor(ComboContexts.IndividualTest(self.primaryObject(), "/".join(path[1:]))), []
+
         if path and path[0] == "configurations":
             groupPath, remainder = self.popToDash(path[1:])
 
@@ -422,24 +428,21 @@ class CommitContext(Context.Context):
     def individualTests(self, test):
         res = {}    
 
-        prefix = self.options.get("testGroup","")
-
         for run in self.database.TestRun.lookupAll(test=test):
             if run.testNames:
                 testNames = run.testNames.test_names
                 testHasLogs = run.testHasLogs
 
                 for i in xrange(len(run.testNames.test_names)):
-                    if testNames[i].startswith(prefix):
-                        cur_runs, cur_successes, hasLogs = res.get(testNames[i], (0,0,False))
+                    cur_runs, cur_successes, hasLogs = res.get(testNames[i], (0,0,False))
 
-                        cur_runs += 1
-                        cur_successes += 1 if run.testFailures[i] else 0
-                        if testHasLogs[i]:
-                            hasLogs = True
+                    cur_runs += 1
+                    cur_successes += 1 if run.testFailures[i] else 0
+                    if testHasLogs[i]:
+                        hasLogs = True
 
-                        res[run.testNames.test_names[i]] = (cur_runs, cur_successes, hasLogs)
-        
+                    res[run.testNames.test_names[i]] = (cur_runs, cur_successes, hasLogs)
+    
         return res
 
     def allTests(self):
@@ -563,6 +566,9 @@ class CommitContext(Context.Context):
                 return self.contextFor(
                     ComboContexts.CommitAndFilter(row, configFilter, projectFilter)
                     ).withOptions(**self.options).withOptions(testGroup=testGroup).urlString()
+
+            def rowContextFun(row):
+                return ComboContexts.CommitAndFilter(row, configFilter, projectFilter)
         else:
             #show tests over configurations
             rows = sorted(configurations)
@@ -582,12 +588,15 @@ class CommitContext(Context.Context):
                     ComboContexts.CommitAndFilter(self.commit, row, projectFilter)
                     ).withOptions(**self.options).withOptions(testGroup=testGroup).urlString()
 
+            def rowContextFun(row):
+                return ComboContexts.CommitAndFilter(self.commit, row, projectFilter)
+
         renderer = IndividualTestGridRenderer.IndividualTestGridRenderer(
             rows,
             self, 
             testFun,
             cellUrlFun,
-            breakOutIndividualTests=True#self.options.get("testGroup","") != ""
+            rowContextFun
             )
 
         grid = [[""] + renderer.headers()]

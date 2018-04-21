@@ -1,6 +1,7 @@
 import test_looper.server.rendering.Context as Context
 import test_looper.server.rendering.ComboContexts as ComboContexts
 import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
+import test_looper.server.rendering.IndividualTestGridRenderer as IndividualTestGridRenderer
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.core.ArtifactStorage as ArtifactStorage
 import logging
@@ -16,7 +17,62 @@ class TestRunContext(Context.Context):
         self.repo = self.commit.repo
 
     def consumePath(self, path):
+        while path and path[0] == "-":
+            path = path[1:]
+
+        if path and path[0] == "individualTest":
+            return self.contextFor(ComboContexts.IndividualTest(self.testRun, "/".join(path[1:]))), []
+
         return None, path
+
+    def renderIndividualTestResults(self):
+        #show broken out tests over the last N commits
+        rows = [self.testRun]
+
+        def rowLinkFun(row):
+            return self.contextFor(row).renderLink(includeCommit=False, includeTest=False)
+
+        def testFun(row):
+            return [row]
+
+        def cellUrlFun(testGroup, row):
+            return None
+
+        def rowContextFun(row):
+            return row
+
+        renderer = IndividualTestGridRenderer.IndividualTestGridRenderer(
+            rows,
+            self, 
+            testFun,
+            cellUrlFun,
+            rowContextFun
+            )
+
+        grid = [["Test Run", "Logs", "Elapsed (Min)", "Status", ""] + renderer.headers()]
+
+        for testRun in rows:
+            row = [rowLinkFun(testRun),self.renderer.testLogsButton(testRun._identity)]
+
+            if testRun.endTimestamp > 0.0:
+                elapsed = (testRun.endTimestamp - testRun.startedTimestamp) / 60.0
+            else:
+                elapsed = (time.time() - testRun.startedTimestamp) / 60.0
+
+            row.append("%.2f" % elapsed)
+
+            if testRun.endTimestamp > 0.0:
+                row.append("passed" if testRun.success else "failed")
+            else:
+                row.append("running")
+
+            row.append("&nbsp;")
+
+            grid.append(row + renderer.gridRow(testRun))
+
+        grid = HtmlGeneration.transposeGrid(grid)
+
+        return HtmlGeneration.grid(grid, dataTables=True, header_rows=5)
 
     def primaryObject(self):
         return self.testRun
@@ -76,25 +132,8 @@ class TestRunContext(Context.Context):
         if self.currentView() == "artifacts":
             return self.artifactsForTestRunGrid()
         if self.currentView() == "tests":
-            return self.individualTestReport()
+            return self.renderIndividualTestResults()
         
-    def individualTestReport(self):
-        testRun = self.testRun
-
-        if testRun.totalTestCount:
-            individual_tests_grid = [["TEST_NAME", "PASSED"]]
-            pass_dict = {}
-
-            for ix in xrange(len(testRun.testNames.test_names)):
-                pass_dict[testRun.testNames.test_names[ix]] = "PASS" if testRun.testFailures[ix] else "FAIL"
-
-            for k,v in sorted(pass_dict.items()):
-                individual_tests_grid.append((k,v))
-
-            return HtmlGeneration.grid(individual_tests_grid)
-        else:
-            return card("No Individual Tests Reported")
-
     def artifactsForTestRunGrid(self):
         testRun = self.testRun
 

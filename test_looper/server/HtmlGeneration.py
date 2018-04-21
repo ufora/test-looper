@@ -502,8 +502,7 @@ def tabs(name, tabSeq):
 def urlDropdown(contents, url):
     return '''
         <div class="btn-group" data-poload="{url}" data-poload-target="#{guid}">
-        <button class="btn btn-xs dropdown-toggle" type="button"
-            data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+        <button class="btn btn-xs btn-outline-secondary dropdown-toggle" type="button" data-toggle="dropdown">
             {contents}
         </button>
         <div class="dropdown-menu" aria-labelledby="dropdownMenuButton" id="{guid}">
