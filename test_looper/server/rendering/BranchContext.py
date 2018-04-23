@@ -328,7 +328,7 @@ class BranchContext(Context.Context):
         return lines
     
     def renderPinUpdateLink(self, branch, reference_name, repoRef):
-        if repoRef.auto:
+        if repoRef.auto and repoRef.auto != "false":
             return HtmlGeneration.lightGrey("marked auto")
         else:
             commit = branch.head

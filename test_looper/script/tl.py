@@ -906,12 +906,29 @@ class TestLooperCtl:
 
         toPrint = [
             "name", "hash","environment_name","configuration","project",
-            "testCommand" if testDef.matches.Test else "buildCommand", "cleanupCommand",
             "timeout", "max_cores","min_cores", "min_ram_gb"
             ]
 
         for key in toPrint:
             kvprint(key, getattr(testDef, key), "  ")
+
+        print "  stages:"
+        stage_ix = 0
+        for stage in testDef.stages:
+            print "    stage %s:" % stage_ix
+            for key in ["order","command","cleanup"]:
+                kvprint(key, getattr(stage, key), "      ")
+
+            if stage.artifacts:
+                print "      artifacts:"
+            for artifact in stage.artifacts:
+                print "        " + artifact.name + ":"
+
+                kvprint("directory", artifact.name, "          ")
+                kvprint("include_patterns", str(artifact.include_patterns), "          ")
+                kvprint("exclude_patterns", str(artifact.exclude_patterns), "          ")
+                kvprint("format", str(artifact.format), "          ")
+
 
 
     def infoForRepo(self, reponame):

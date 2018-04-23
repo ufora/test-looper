@@ -42,7 +42,7 @@ def withTime(logger):
         if args:
             msg = msg % args
 
-        msg = time.asctime() + " TestLooper> " + msg + ("\n" if msg[-1] != "\n" else "")
+        msg = time.asctime() + " TestLooper> " + msg + ("\n" if msg[-1:] != "\n" else "")
         logger(msg)
     return logWithTime
 
