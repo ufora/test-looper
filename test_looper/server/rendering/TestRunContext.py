@@ -4,6 +4,7 @@ import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
 import test_looper.server.rendering.IndividualTestGridRenderer as IndividualTestGridRenderer
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.core.ArtifactStorage as ArtifactStorage
+import time
 import logging
 
 card = HtmlGeneration.card

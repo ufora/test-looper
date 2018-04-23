@@ -541,6 +541,17 @@ class MacroExpander(object):
 
                 raise Exception("Arguments to squash need to be dicts, not %s" % children)
 
+            if sorted(json.keys()) == ["case", "in"]:
+                to_lookup = self.expand_macros(json["case"], variables, isVarDef)
+                lookup_in = self.expand_macros(json["in"], variables, isVarDef)
+                
+                if to_lookup not in lookup_in:
+                    raise Exception("Can't find lookup key '%s' amongst:\n%s" % (
+                        str(to_lookup),
+                        "\n".join(["  " + str(x) for x in lookup_in])
+                        ))
+                return lookup_in[to_lookup]
+
             if sorted(json.keys()) == ["merge"]:
                 to_merge = json["merge"]
 
@@ -645,6 +656,18 @@ def extract_postprocessed_test_definitions(extension, text, variable_definitions
         test_defs_json = simplejson.loads(text)
     else:
         raise Exception("Can't load testDefinitions from file ending in '%s'. Use json or yml." % extension)
+
+    variable_definitions = dict(variable_definitions or {})
+
+    #process any 'define' clauses at the top of the chain.
+    while isinstance(test_defs_json, dict) and sorted(test_defs_json.keys()) == ["define","in"]:
+        for k,v in MacroExpander().expand_macros(test_defs_json["define"], variable_definitions, True).iteritems():
+            if k in variable_definitions:
+                raise Exception("Can't redefine variable %s" % k)
+            variable_definitions[k] = v
+
+        test_defs_json = test_defs_json["in"]
+    
 
     def expandKey(k):
         if k in ("environments", "builds", "tests", "deployments", "repos"):

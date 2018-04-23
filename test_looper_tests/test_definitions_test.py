@@ -16,6 +16,7 @@ import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import test_looper.data_model.VariableSubstitution as VariableSubstitution
 import unittest
+import textwrap
 import yaml
 
 basic_yaml_file = """
@@ -164,7 +165,7 @@ class TestDefinitionScriptTests(unittest.TestCase):
         self.assertEqual(env.image.setup_script_contents, "\nTestFileContents\n\nChildContents\n")
 
     def test_includes_and_variables(self):
-        _,_,_, includes = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", includes_yaml_file)
+        _,_,_, includes, _ = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", includes_yaml_file)
 
         self.assertTrue(len(includes) == 8)
 
@@ -248,6 +249,28 @@ class TestDefinitionScriptTests(unittest.TestCase):
             'test/G2/T3': 'P2 T3.test',
             'test/G2/T4': 'P2 T4.test'
           })
+
+    def test_casing(self):
+        case_yaml = textwrap.dedent("""
+            define:
+              lookup_table:
+                a: A_res
+                b: B_res
+                c: C_res
+            in:
+              - case: a
+                in: ${lookup_table}
+              - case: c
+                in: ${lookup_table}
+              - case: b
+                in: ${lookup_table}
+            """)
+
+        res = TestDefinitionScript.MacroExpander().expand_macros(yaml.load(case_yaml), {})
+        
+        self.assertEqual(
+            res, ["A_res","C_res","B_res"]
+            )
 
 
     def test_variable_substitution(self):
