@@ -449,6 +449,9 @@ class CommitContext(Context.Context):
         return self.testManager.allTestsForCommit(self.commit)
 
     def shouldIncludeTest(self, test):
+        if test.testDefinitionSummary.disabled:
+            return False
+
         if self.projectFilter and test.testDefinitionSummary.project != self.projectFilter:
             return False
         if self.configFilter and test.testDefinitionSummary.configuration != self.configFilter:
@@ -466,7 +469,7 @@ class CommitContext(Context.Context):
 
         renderer = TestGridRenderer.TestGridRenderer(
             sorted(projects), 
-            lambda p: [t for t in self.allTests() if t.testDefinitionSummary.project == p],
+            lambda p: [t for t in self.allTests() if t.testDefinitionSummary.project == p and self.shouldIncludeTest(t)],
             lambda group: self.contextFor(ComboContexts.CommitAndFilter(self.commit, group, "")).renderNavbarLink(textOverride=group),
             lambda group, row: self.contextFor(ComboContexts.CommitAndFilter(self.commit, group, row)).urlString(),
             lambda test: test.testDefinitionSummary.configuration
@@ -500,7 +503,7 @@ class CommitContext(Context.Context):
             def makeRenderer(commit):
                 return TestGridRenderer.TestGridRenderer(
                     sorted(projects),
-                    lambda p: [t for t in self.allTests() if t.testDefinitionSummary.project == p and t.testDefinitionSummary.configuration == configFilter],
+                    lambda p: [t for t in self.allTests() if self.shouldIncludeTest(t) and t.testDefinitionSummary.project == p and t.testDefinitionSummary.configuration == configFilter],
                     lambda group: self.contextFor(ComboContexts.CommitAndFilter(commit, configFilter, group)).renderLink(textOverride=group,includeRepo=False, includeBranch=False),
                     lambda group, row: self.contextFor(ComboContexts.CommitAndFilter(commit, group, row)).urlString(),
                     lambda test: ""

@@ -4,6 +4,7 @@ import test_looper.core.GraphUtil as GraphUtil
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import fnmatch
 import re
+import test_looper.core.algebraic_to_json as algebraic_to_json
 from test_looper.core.hash import sha_hash
 
 sha_pattern = re.compile("^[a-f0-9]{40}$")
@@ -169,6 +170,7 @@ class TestDefinitionResolver:
             return self.postIncludeDefinitionsCache[repoName, commitHash]
 
         tests, envs, repos, includes, prioritizeGlobs = self.unprocessedTestsEnvsAndReposFor_(repoName, commitHash)
+        original_tests = dict(tests)
 
         repos = self.resolveRepoDefinitions_(repoName, repos)
 
@@ -215,7 +217,7 @@ class TestDefinitionResolver:
                             )
                         )
 
-                new_tests, new_envs, new_repos, new_includes, prioritizeGlobs = TestDefinitionScript.extract_tests_from_str(
+                new_tests, new_envs, new_repos, new_includes, subPrioritizeGlobs = TestDefinitionScript.extract_tests_from_str(
                     includeRepo, 
                     includeHash, 
                     os.path.splitext(includePath)[1], 
@@ -224,7 +226,7 @@ class TestDefinitionResolver:
                     externally_defined_repos=repos
                     )
 
-                if prioritizeGlobs:
+                if subPrioritizeGlobs:
                     raise TestResolutionException("include targets can't prioritize individual tests")
 
                 for reponame in new_repos:
@@ -251,11 +253,10 @@ class TestDefinitionResolver:
                             test, includeRepo, includeHash, includePath
                             ))
                 tests.update(new_tests)
+                original_tests.update(new_tests)
 
                 for i in new_includes:
                     includes.append((includeSourceRepo, includeSourceHash,i))
-
-        self.postIncludeDefinitionsCache[repoName, commitHash] = (tests, envs, repos, includes)
 
         for t in list(tests.keys()):
             tests[t] = tests[t]._withReplacement(
@@ -265,6 +266,20 @@ class TestDefinitionResolver:
                             or not prioritizeGlobs
                         )
                 )
+
+        def ensureChildrenNotDisabled(testname):
+            for child_dep in original_tests[testname].dependencies.values():
+                if child_dep.matches.InternalBuild:
+                    childName = self.resolveTestNameToTestAndArtifact(child_dep.name, tests, ignoreArtifactResolution=True)[0]
+                    if tests[childName].disabled:
+                        tests[childName] = tests[childName]._withReplacement(disabled=False)
+                        ensureChildrenNotDisabled(childName)
+
+        for t in list(tests.keys()):
+            if not tests[t].disabled:
+                ensureChildrenNotDisabled(t)
+
+        self.postIncludeDefinitionsCache[repoName, commitHash] = (tests, envs, repos, includes)
 
         return self.postIncludeDefinitionsCache[repoName, commitHash]
 
@@ -523,7 +538,7 @@ class TestDefinitionResolver:
         if cycle:
             raise TestResolutionException("Circular test dependency found: %s" % (" -> ".join(cycle)))
 
-    def resolveTestNameToTestAndArtifact(self, testName, testSet):
+    def resolveTestNameToTestAndArtifact(self, testName, testSet, ignoreArtifactResolution=False):
         """Given a name like 'test/artifact', search for it amongst testSet
 
         a shorter name will always match first. E.g. if we have tests "A" and
@@ -537,15 +552,17 @@ class TestDefinitionResolver:
             if "/".join(parts[:i]) in testSet:
                 name, artifact = "/".join(parts[:i]), "/".join(parts[i:])
 
-                validArtifacts = set()
-                for stage in testSet[name].stages:
-                    for a in stage.artifacts:
-                        validArtifacts.add(a.name)
+                if not ignoreArtifactResolution:
+                    validArtifacts = set()
+                    for stage in testSet[name].stages:
+                        for a in stage.artifacts:
+                            validArtifacts.add(a.name)
 
-                if artifact not in validArtifacts:
-                    raise UserWarning("Can't resolve artifact '%s' in test %s. Valid are %s" % (
-                        artifact, name, sorted(validArtifacts)
-                        ))
+                    if artifact not in validArtifacts:
+                        raise UserWarning("Can't resolve artifact '%s' in test %s. Valid are %s. Full def is\n%s" % (
+                            artifact, name, sorted(validArtifacts),
+                            algebraic_to_json.encode_and_dump_as_yaml(testSet[name])
+                            ))
 
                 return name, artifact
 

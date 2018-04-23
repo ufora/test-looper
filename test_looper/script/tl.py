@@ -858,11 +858,11 @@ class TestLooperCtl:
                 if any([fnmatch.fnmatchcase(t, p) for p in args.testpattern]) or not args.testpattern:
                     self.infoForTest(t, byName[t][0], args.all)
         else:
-            grid = [["Name","Type","Project","Configuration","Environment"]]
+            grid = [["Name","Type","Project","Configuration","Environment", "Disabled"]]
 
             for t in sorted(byName):
                 if any([fnmatch.fnmatchcase(t, p) for p in args.testpattern]) or not args.testpattern:
-                    grid.append([t, byName[t][0]._which, byName[t][0].project, byName[t][0].configuration, byName[t][0].environment_name])
+                    grid.append([t, byName[t][0]._which, byName[t][0].project, byName[t][0].configuration, byName[t][0].environment_name, byName[t][0].disabled])
 
             printGrid(grid)
 

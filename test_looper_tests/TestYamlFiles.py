@@ -230,9 +230,11 @@ environments:
       dockerfile: "test_looper/Dockerfile.txt"
 builds:
   build2/e1:
+    command: hi
     dependencies:
      input: build1/e1
   build1/e1:
+    command: hi
     dependencies:
      input: build2/e1
 """
@@ -256,9 +258,11 @@ builds:
   build/repo0_env:
     command: hi
   build/repo1_env:
+    command: hi
     dependencies:
      input: repo1c0_ref/build/linux
   build/repo2_env:
+    command: hi
     dependencies:
      input: repo2_ref/build_without_deps/linux
 """
