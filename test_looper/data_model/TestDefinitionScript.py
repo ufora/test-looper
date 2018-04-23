@@ -600,6 +600,8 @@ class MacroExpander(object):
                 for sub_replacements in items:
                     to_use = dict(variables)
 
+                    if isinstance(sub_replacements, str):
+                        raise Exception("Can't repeat a string: '%s'" % sub_replacements)
                     for k,v in sub_replacements.iteritems():
                         if k in to_use:
                             raise Exception("Can't redefine variable %s" % k)
@@ -686,6 +688,9 @@ def parseRepoReference(encoder, value):
     return algebraic_to_json.Encoder().from_json(value, RepoReference)
 
 def parseVariableDict(encoder, value):
+    if value is None:
+        return {}
+
     def convert(k):
         if isinstance(k,str):
             return k

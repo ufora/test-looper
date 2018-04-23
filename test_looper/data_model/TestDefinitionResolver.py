@@ -524,11 +524,14 @@ class TestDefinitionResolver:
 
     def assertTestsNoncircular_(self, tests):
         def children(t):
-            return (
-                [self.resolveTestNameToTestAndArtifact(dep.name, tests)[0] 
-                    for dep in tests[t].dependencies.values() if dep.matches.InternalBuild]
-                    if t in tests else []
-                )
+            try:
+                return (
+                    [self.resolveTestNameToTestAndArtifact(dep.name, tests)[0] 
+                        for dep in tests[t].dependencies.values() if dep.matches.InternalBuild]
+                        if t in tests else []
+                    )
+            except UserWarning as e:
+                raise UserWarning("While processing test %s:\n%s" % (t, e))
 
         cycle = GraphUtil.graphFindCycleMultipleRoots(
             tests,
@@ -559,16 +562,15 @@ class TestDefinitionResolver:
                             validArtifacts.add(a.name)
 
                     if artifact not in validArtifacts:
-                        raise UserWarning("Can't resolve artifact '%s' in test %s. Valid are %s. Full def is\n%s" % (
-                            artifact, name, sorted(validArtifacts),
-                            algebraic_to_json.encode_and_dump_as_yaml(testSet[name])
+                        raise UserWarning("Can't resolve artifact '%s' in test %s. Valid are %s." % (
+                            artifact, name, sorted(validArtifacts)
                             ))
 
                 return name, artifact
 
         raise UserWarning("Can't resolve %s to a valid name amongst:\n%s" % (
             testName,
-            "\n".join(["  " + x for x in testSet])
+            "\n".join(["  " + x for x in sorted(testSet)])
             ))
 
     def testDefinitionsFor(self, repoName, commitHash):
@@ -674,20 +676,24 @@ class TestDefinitionResolver:
 
         def resolveTest(testName):
             if testName not in resolved_tests:
-                if testName not in tests:
-                    raise TestResolutionException(
-                        "Can't find build %s in\n%s" % (testName, "\n".join(["\t" + x for x in sorted(tests)]))
+                try:
+                    if testName not in tests:
+                        raise TestResolutionException(
+                            "Can't find build %s in\n%s" % (testName, "\n".join(["\t" + x for x in sorted(tests)]))
+                            )
+                    testDef = tests[testName]
+
+                    self.assertArtifactSetValid(testDef)
+
+                    resolved_tests[testName] = testDef._withReplacement(
+                        dependencies={k:resolveTestDep(v) for k,v in testDef.dependencies.iteritems()},
+                        stages=self.sortTestStages(testDef.stages)
                         )
-                testDef = tests[testName]
 
-                self.assertArtifactSetValid(testDef)
+                    resolved_tests[testName]._withReplacement(hash=sha_hash(resolved_tests[testName]).hexdigest)
+                except UserWarning as e:
+                    raise UserWarning("While processing test %s:\n%s" % (testName, e))
 
-                resolved_tests[testName] = testDef._withReplacement(
-                    dependencies={k:resolveTestDep(v) for k,v in testDef.dependencies.iteritems()},
-                    stages=self.sortTestStages(testDef.stages)
-                    )
-
-                resolved_tests[testName]._withReplacement(hash=sha_hash(resolved_tests[testName]).hexdigest)
 
             return resolved_tests[testName]
 

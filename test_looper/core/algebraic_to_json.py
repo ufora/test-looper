@@ -135,7 +135,10 @@ class Encoder(object):
                 value = value.encode('ascii',errors='ignore')
 
             if value is None:
-                return value
+                if isinstance(algebraic_type, algebraic.Dict):
+                    return {}
+                else:
+                    return value
 
             if isinstance(algebraic_type, algebraic.NullableAlternative):
                 if value is None:
@@ -180,6 +183,8 @@ class Encoder(object):
                     value = "true" if value else "false"
                 if algebraic_type is str and isinstance(value, int):
                     value = str(value)
+                if algebraic_type is float and isinstance(value, int):
+                    value = float(value)
                 
                 return value
 
