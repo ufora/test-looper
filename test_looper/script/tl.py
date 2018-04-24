@@ -218,7 +218,7 @@ class DummyArtifactStorage(object):
     def uploadSingleTestArtifact(self, testHash, testId, artifact_name, path):
         pass
 
-    def uploadIndividualTestArtifacts(self, testHash, testId, pathsToUpload):
+    def uploadIndividualTestArtifacts(self, testHash, testId, pathsToUpload, logger=None):
         pass
 
     def uploadTestArtifacts(self, *args, **kwargs):
@@ -252,7 +252,7 @@ class WorkerStateOverride(WorkerState.WorkerState):
             #don't remove everything!
             self.clearDirectoryAsRoot(
                 self.directories.scratch_dir,
-                self.directories.test_inputs_dir,
+                #self.directories.test_inputs_dir,
                 self.directories.command_dir
                 )
         else:
@@ -284,11 +284,15 @@ class WorkerStateOverride(WorkerState.WorkerState):
             return os.path.join(self.worker_directory, expose_as)
         else:
             assert expose_as.startswith("test_inputs/")
-            tgt = os.path.join("/test_looper/mountpoints", expose_as)
+            tgt = os.path.join("/test_looper/mountpoints", expose_as[len("test_inputs/"):])
 
             target_linkpoint = os.path.join(self.directories.test_inputs_dir, expose_as[len("test_inputs/"):])
             if not os.path.exists(os.path.dirname(target_linkpoint)):
                 os.makedirs(os.path.dirname(target_linkpoint))
+            
+            if os.path.islink(target_linkpoint):
+                os.unlink(target_linkpoint)
+            
             os.symlink(tgt, target_linkpoint)
             return tgt
 
