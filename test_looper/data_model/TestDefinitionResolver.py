@@ -218,8 +218,10 @@ class TestDefinitionResolver:
                         )
 
                 new_tests, new_envs, new_repos, new_includes, subPrioritizeGlobs = TestDefinitionScript.extract_tests_from_str(
-                    includeRepo, 
-                    includeHash, 
+                    #pass the current reponame and commit hash, not the repo/commit of the source file
+                    #because we want the environments to be constructed as if they were part of this file's text.
+                    repoName,
+                    commitHash, 
                     os.path.splitext(includePath)[1], 
                     contents,
                     variable_definitions=variable_defs,

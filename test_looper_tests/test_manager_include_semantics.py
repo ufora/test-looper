@@ -108,6 +108,39 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         
         self.assertEqual(sorted(resolver.repoReferencesFor("repo0", "c0").keys()), [])
 
+    def test_env_inheritance_in_included_files(self):
+        lowest = textwrap.dedent("""
+            looper_version: 4
+            environments:
+              root_env:
+                platform: linux
+                image:
+                  dockerfile_contents: hi
+              derived:
+                base: [root_env]
+            """)
+
+        repo = textwrap.dedent("""
+            looper_version: 4
+            repos:
+              r: repo0/c0
+            includes:
+              - r/lowest.yml
+            environments:
+              really_derived:
+                base: [ derived ]
+            """
+            )
+
+        harness = TestManagerTestHarness.getHarness()
+
+        harness.manager.source_control.addCommit("repo0/c0", [], "looper_version: 4", {"lowest.yml": lowest})
+        harness.manager.source_control.addCommit("repo0/c1", [], repo)
+
+        resolver = harness.resolver()
+        
+        self.assertEqual(sorted(resolver.environmentsFor("repo0", "c1").keys()), ["derived", "really_derived", "root_env"])
+
     def test_recursive_includes_with_variables_that_expand_forever(self):
         envdef2 = textwrap.dedent("""
             looper_version: 4

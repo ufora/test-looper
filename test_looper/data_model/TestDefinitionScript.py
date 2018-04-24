@@ -239,9 +239,6 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
 
                 if len(import_parts) == 1:
                     #this is a local import
-                    if import_parts[0] not in testScript.environments:
-                        raise Exception("Unknown environment '%s'" % import_parts[0])
-
                     imports.append(
                         TestDefinition.EnvironmentReference(
                             repo=curRepoName,
