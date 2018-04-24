@@ -820,13 +820,15 @@ class WorkerState(object):
         def executeTest():
             try:
                 artifactNames = [artifact.name for stage in testDefinition.stages for artifact in stage.artifacts]
-                artifactNames = [testName + ("/" if name else "") + name for name in artifactNames]
+                fullArtifactNames = [testName + ("/" if name else "") + name for name in artifactNames]
 
                 allExist = all([self.artifactStorage.build_exists(testDefinition.hash, self.artifactKeyForBuild(name))
-                    for name in artifactNames])
+                    for name in fullArtifactNames])
 
                 if not isDeploy and testDefinition.matches.Build and allExist:
                     log_function("Build already exists\n")
+                    for a in artifactNames:
+                        workerCallback.recordArtifactUploaded(a)
                     return True, {}
                 
                 return self._run_task(testId, testDefinition, log_function, workerCallback, isDeploy, extraPorts, command_override)
