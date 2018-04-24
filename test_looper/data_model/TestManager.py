@@ -1314,6 +1314,12 @@ class TestManager(object):
         if branch.branchname.startswith("svn-"):
             return False
 
+        if not template.suffix:
+            return False
+
+        if branch.branchname.endswith(template.suffix):
+            return False
+
         for exclude in template.globsToExclude:
             if fnmatch.fnmatchcase(branch.branchname, exclude):
                 return False
@@ -1352,7 +1358,7 @@ class TestManager(object):
             for defname in list(newRepoDefs):
                 pin = newRepoDefs[defname]
                 if pin.matches.Pin and defname != template.def_to_replace:
-                    pin = pin._withReplacement(auto="")
+                    pin = pin._withReplacement(auto=False)
                 newRepoDefs[defname] = pin
 
         newRepoDefs[template.def_to_replace] = (

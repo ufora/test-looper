@@ -1,13 +1,13 @@
 import unittest
 import os
 import logging
+import textwrap
 
 import test_looper_tests.common as common
 import test_looper_tests.TestYamlFiles as TestYamlFiles
 import test_looper_tests.TestManagerTestHarness as TestManagerTestHarness
 import test_looper.data_model.BranchPinning as BranchPinning
 import test_looper.data_model.ImportExport as ImportExport
-
 common.configureLogging()
 
 class TestManagerTests(unittest.TestCase):
@@ -792,7 +792,19 @@ class TestManagerTests(unittest.TestCase):
         harness.manager.source_control.addCommit("repo6/c1", ["repo6/c0"], "")
         harness.manager.source_control.setBranch("repo6/master", "repo6/c0")
 
-        harness.manager.source_control.addCommit("repo6/c0_test", [], TestYamlFiles.repo6.replace("__branch__", "master"))
+        harness.manager.source_control.addCommit("repo6/c0_test", [], 
+            textwrap.dedent("""
+            looper_version: 4
+            repos:
+              child: 
+                reference: repo6/c0
+                branch: master
+                auto: true
+              other_child: 
+                reference: repo6/c0
+                branch: something_random
+                auto: true
+            """))
         harness.manager.source_control.setBranch("repo6/master-looper", "repo6/c0_test")
 
         harness.markRepoListDirty()
