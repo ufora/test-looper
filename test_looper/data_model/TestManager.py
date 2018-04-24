@@ -1176,8 +1176,8 @@ class TestManager(object):
             testDef = task.task
 
         try:
-            with self.transaction_and_lock():
-                self._processTask(testDef, curTimestamp)
+            with self.transaction_and_lock() as curLock:
+                self._processTask(testDef, curTimestamp, curLock)
         except KeyboardInterrupt:
             raise
         except:
@@ -1241,11 +1241,11 @@ class TestManager(object):
 
         return defText, extension
 
-    def _processTask(self, task, curTimestamp):
+    def _processTask(self, task, curTimestamp, curLock):
         if task.matches.RefreshRepos:
             self._refreshRepos()
         elif task.matches.RefreshBranches:
-            self._refreshBranches(task.repo, curTimestamp)
+            self._refreshBranches(task.repo, curTimestamp, curLock)
         elif task.matches.UpdateBranchPins:
             branch = task.branch
 
@@ -1411,13 +1411,19 @@ class TestManager(object):
                     )
                 )
 
-    def _refreshBranches(self, db_repo, curTimestamp):
+    def _refreshBranches(self, db_repo, curTimestamp, curLock):
         repo = self.source_control.getRepo(db_repo.name)
+        reponame = db_repo.name
 
+        if curLock:
+            #temporarily release the lock, since all we're doing is
+            #interacting with the git server
+            curLock.__exit__(None, None, None)
+        
         try:
-            if not self.source_control.isWebhookInstalled(db_repo.name, self.server_port_config):
+            if not self.source_control.isWebhookInstalled(reponame, self.server_port_config):
                 self.source_control.installWebhook(
-                    db_repo.name, 
+                    reponame,
                     self.server_port_config
                     )
         except:
@@ -1427,6 +1433,10 @@ class TestManager(object):
                 )
 
         repo.source_repo.fetchOrigin()
+
+        if curLock:
+            #reaquire the lock now that we've called 'git fetch'
+            curLock.__enter__()
 
         branchnamesAndHashes = repo.source_repo.listBranchesForRemote("origin")
 
