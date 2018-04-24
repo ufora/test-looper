@@ -1277,7 +1277,7 @@ class TestManager(object):
         elif task.matches.UpdateTestPriority:
             self._updateTestPriority(task.test, curTimestamp)
         elif task.matches.BootMachineCheck:
-            self._bootMachinesIfNecessary(curTimestamp)
+            self._bootMachinesIfNecessary(curTimestamp, curLock)
         elif task.matches.CheckBranchAutocreate:
             self._checkBranchAutocreate(task.branch, curTimestamp)
         elif task.matches.UpdateCommitPriority:
@@ -1919,7 +1919,7 @@ class TestManager(object):
             except:
                 logging.error("Couldn't get an environment for test %s" % test.testDefinitionSummary.hash)
 
-    def _bootMachinesIfNecessary(self, curTimestamp):
+    def _bootMachinesIfNecessary(self, curTimestamp, curLock):
         #repeatedly check if we can boot any machines. If we can't,
         #but we want to, we need to check whether there are any machines we can
         #shut down
@@ -1969,7 +1969,7 @@ class TestManager(object):
             c = canBoot()
 
             if c:
-                return self._boot(c, curTimestamp)
+                return self._boot(c, curTimestamp, curLock)
             else:
                 return False
 
@@ -1977,7 +1977,7 @@ class TestManager(object):
             pass
 
 
-    def _boot(self, category, curTimestamp):
+    def _boot(self, category, curTimestamp, curLock):
         """Try to boot a machine from 'category'. Returns True if booted."""
         try:
             logging.info("Trying to boot %s/%s to meet requirements of %s desired (%s booted now)", 
@@ -1986,8 +1986,13 @@ class TestManager(object):
                 category.desired, 
                 category.booted
                 )
-
-            machineId = self.machine_management.boot_worker(category.hardware, category.os)
+            try:
+                if curLock:
+                    curLock.__exit__(None, None, None)
+                machineId = self.machine_management.boot_worker(category.hardware, category.os)
+            finally:
+                if curLock:
+                    curLock.__enter__()
         except MachineManagement.UnbootableWorkerCombination as e:
             category.hardwareComboUnbootable=True
             category.hardwareComboUnbootableReason="Invalid hardware/os combination"

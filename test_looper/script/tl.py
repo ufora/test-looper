@@ -299,7 +299,7 @@ class WorkerStateOverride(WorkerState.WorkerState):
     def grabDependency(self, log_function, expose_as, dep, worker_callback):
         if dep.matches.Build:
             self.extra_mappings[
-                os.path.join(self.looperCtl.build_path(dep.repo, dep.name), "build_output")
+                os.path.join(self.looperCtl.build_path(dep.name), "build_output")
                 ] = self.exposeAsDir(expose_as)
 
             return None
@@ -511,12 +511,9 @@ class TestLooperCtl:
     def sanitize(self, name):
         return name.replace("/","_").replace(":","_").replace("~", "--")
 
-    def build_path(self, reponame, buildname):
-        if reponame == ROOT_CHECKOUT_NAME:
-            return os.path.abspath(os.path.join(self.root_path, "builds", self.sanitize(buildname)))
-        else:
-            return os.path.abspath(os.path.join(self.root_path, "builds", reponame.split(":")[:-1], self.sanitize(buildname)))
-
+    def build_path(self, buildname):
+        return os.path.abspath(os.path.join(self.root_path, "builds", self.sanitize(buildname)))
+    
     def checkout_root_path(self, reponame):
         """Return the checkout location of a given repo. 
 
@@ -782,7 +779,7 @@ class TestLooperCtl:
     def runBuildOrTest(self, all_tests, reponame, testDef, cores, nologcapture, nodeps, interactive, seen_already, explicit_cmd = None):
         #walk all the repo definitions and make sure everything is up-to-date
 
-        path = self.build_path(reponame, testDef.name)
+        path = self.build_path(testDef.name)
 
         if path in seen_already:
             return True
