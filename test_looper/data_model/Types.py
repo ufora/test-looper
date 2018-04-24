@@ -202,8 +202,7 @@ def setup_types(database):
         pinned_to_repo=str,
         pinned_to_branch=str,
         auto=bool,
-        auto_policy=str,
-        prioritize=algebraic.List(str)
+        prioritize=bool
         )
 
     database.MachineCategory.define(

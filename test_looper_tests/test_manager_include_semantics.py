@@ -373,6 +373,66 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         resolver = harness.resolver()
         
         self.assertEqual(sorted(resolver.testDefinitionsFor("repo0", "c0")), ["t1/e", "t2/e"])
+         
+    def test_bad_include_preserves_pins(self):
+        envdef = textwrap.dedent("""
+            looper_version: 4
+            environments:
+              e: 
+                platform: not_valid
+                image:
+                  dockerfile_contents: hi
+            tests:
+              t1/e:
+                command: "./script.py 1"
+            """)
+
+        repo = textwrap.dedent("""
+            looper_version: 4
+            repos:
+              r: 
+                reference: repo0/c0
+                branch: master
+                auto: true
+            includes:
+              - r/envdef.yml
+            """
+            )
+
+        harness = TestManagerTestHarness.getHarness()
+
+        harness.manager.source_control.addCommit("repo0/c0", [], None, {"envdef.yml": envdef})
+        harness.manager.source_control.addCommit("repo0/c1", ["repo0/c0"], None, {"envdef.yml": envdef.replace("not_valid","linux")})
+        harness.manager.source_control.addCommit("repo0/test", [], repo)
+
+        harness.manager.source_control.setBranch("repo0/master", "repo0/c0")
+        harness.manager.source_control.setBranch("repo0/tester", "repo0/test")
+
+        harness.markRepoListDirty()
+        harness.consumeBackgroundTasks()
+
+        with harness.database.view():
+            commit = harness.getCommit("repo0/test")
+            self.assertEqual(len(commit.data.repos), 1)
+            self.assertEqual(len(commit.data.tests), 0)
+
+            branch = harness.database.Branch.lookupOne(reponame_and_branchname=("repo0","tester"))
+            pins = harness.database.BranchPin.lookupAll(branch=branch)
+
+            self.assertEqual(len(pins),1)
+            self.assertTrue(pins[0].auto)
+
+        harness.manager.source_control.setBranch("repo0/master", "repo0/c1")
+        harness.markRepoListDirty()
+
+        harness.consumeBackgroundTasks()
+
+        with harness.database.view():
+            commit = branch.head
+            self.assertEqual(len(commit.data.repos), 1)
+            self.assertEqual(len(commit.data.tests), 1)
+
+
         
     def test_environment_overrides(self):
         envdef = textwrap.dedent("""

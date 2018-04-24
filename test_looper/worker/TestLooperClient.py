@@ -184,6 +184,7 @@ class TestLooperClient(object):
                         workerState=TestLooperServer.WorkerState.TestFinished(
                             testId=self._curTestId,
                             success=self._curTestResults['success'],
+                            artifacts=self._curArtifacts,
                             testSuccesses=self._curTestResults['testSuccesses']
                             )
                     elif self._curTestId is not None:
@@ -343,7 +344,7 @@ class TestLooperClient(object):
         assert self._curTestId is not None
 
         self._curTestResults = {'success': succeeded, 'testSuccesses': individualTestSuccesses}
-        self._send(TestLooperServer.ClientToServerMsg.TestFinished(testId=self._curTestId, success=succeeded, testSuccesses=individualTestSuccesses))
+        self._send(TestLooperServer.ClientToServerMsg.TestFinished(testId=self._curTestId, success=succeeded, artifacts=self._curArtifacts, testSuccesses=individualTestSuccesses))
 
         while self._curTestId is not None:
             self.consumeMessages()

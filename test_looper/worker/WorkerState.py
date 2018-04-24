@@ -890,11 +890,11 @@ class WorkerState(object):
             full_name = dep.name + ("/" if dep.artifact else "") + dep.artifact
 
             if not self.artifactStorage.build_exists(dep.buildHash, self.artifactKeyForBuild(full_name)):
-                return "can't run tests because dependent external build %s doesn't exist" % (dep.repo + "/" + dep.buildHash + "/" + full_name)
+                return "can't run tests because dependent external build %s doesn't exist" % (dep.buildHash + "/" + full_name)
 
             path = self._download_build(dep.buildHash, full_name, log_function)
             
-            log_function(time.asctime() + " TestLooper> Extracting tarball for %s/%s/%s.\n" % (dep.repo, dep.buildHash, full_name))
+            log_function(time.asctime() + " TestLooper> Extracting tarball for %s/%s.\n" % (dep.buildHash, full_name))
 
             self.ensureDirectoryExists(target_dir)
             self.extract_package(path, target_dir)
@@ -1125,14 +1125,14 @@ class WorkerState(object):
             if is_success:
                 for artifact in stage.artifacts:
                     with self.callHeartbeatInBackground(log_function, "Uploading build artifact for %s/%s." % (test_definition.name, artifact.name)):
-                        if not self._upload_artifact(test_definition.hash, test_definition.name, artifact, False, log_function, image):
+                        if not self._upload_artifact(test_definition.hash, testId, test_definition.name, artifact, False, log_function, image):
                             is_success = False
                         else:
                             workerCallback.recordArtifactUploaded(artifact.name)
         else:
             for artifact in stage.artifacts:
                 with self.callHeartbeatInBackground(log_function, "Uploading build artifact for %s/%s." % (test_definition.name, artifact.name)):
-                    if not self._upload_artifact(test_definition.hash, testId, artifact, True, log_function, image):
+                    if not self._upload_artifact(test_definition.hash, testId, test_definition.name, artifact, True, log_function, image):
                         is_success = False
                     else:
                         workerCallback.recordArtifactUploaded(artifact.name)
@@ -1213,7 +1213,7 @@ class WorkerState(object):
             else:
                 return "/test_looper/build_output"
 
-    def _upload_artifact(self, testDefHash, testNameOrId, artifact, isTestArtifact, log_function, image):
+    def _upload_artifact(self, testDefHash, testId, testName, artifact, isTestArtifact, log_function, image):
         intendedDirectory = self.mapArtifactDirectoryToAbspath(artifact.directory, isTestArtifact, image is NAKED_MACHINE)
 
         artifactDirectory = self.mapInternalToExternalPath(intendedDirectory, image is not NAKED_MACHINE)
@@ -1223,8 +1223,8 @@ class WorkerState(object):
             return False
 
         #upload all the data in our directory
-        full_name = testNameOrId + ("/" + artifact.name if artifact.name else "")
-
+        full_name = testName + ("/" + artifact.name if artifact.name else "")
+        
         tarball_name = self._buildCachePathFor(testDefHash, full_name)
 
         if os.path.exists(tarball_name):
@@ -1271,7 +1271,7 @@ class WorkerState(object):
             withTime(log_function)("Uploading %s", tarball_name)
 
             if isTestArtifact:
-                self.artifactStorage.uploadSingleTestArtifact(testDefHash, testNameOrId, self.artifactKeyForBuild(artifact.name), tarball_name)
+                self.artifactStorage.uploadSingleTestArtifact(testDefHash, testId, self.artifactKeyForBuild(full_name), tarball_name)
             else:
                 self.artifactStorage.upload_build(testDefHash, self.artifactKeyForBuild(full_name), tarball_name)
 

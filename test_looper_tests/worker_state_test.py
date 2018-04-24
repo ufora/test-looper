@@ -7,6 +7,8 @@ import logging
 import sys
 import gzip
 import threading
+import tarfile
+import StringIO
 
 import test_looper_tests.common as common
 import test_looper.worker.WorkerState as WorkerState
@@ -166,7 +168,7 @@ class WorkerStateTests(unittest.TestCase):
         testHash = self.get_fully_resolved_definition(worker, repoName, commitHash, "bad/linux").hash
 
         keys = worker.artifactStorage.testResultKeysFor(testHash, "testId3")
-        self.assertTrue(len(keys) == 2, keys)
+        self.assertEqual(sorted(keys), ["bad_s_linux.tar.gz", "test_looper_log.txt", "test_result.json"])
 
         data = worker.artifactStorage.testContents(testHash, "testId3", keys[0])
 
@@ -184,22 +186,29 @@ class WorkerStateTests(unittest.TestCase):
         
         self.assertTrue(self.runWorkerTest(worker, "testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
 
-        self.assertTrue(self.runWorkerTest(worker, "testId", repoName, commitHash, "check_build_output/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
+        self.assertTrue(
+            self.runWorkerTest(worker, "testId2", repoName, commitHash, "check_build_output/linux", WorkerState.DummyWorkerCallbacks(), False)[0],
+            self.get_failure_log(worker, repoName, commitHash, "testId2")
+            )
 
     def test_worker_doesnt_leak_fds(self):
         repo, repoName, commitHash, worker = self.get_worker("simple_project")
 
         self.assertTrue(self.runWorkerTest(worker, "testId", repoName, commitHash, "build/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
 
+        testIx = 0
+
         #need to use the connection pools because they can leave some sockets open
         for _ in xrange(3):
-            self.assertTrue(self.runWorkerTest(worker, "testId2", repoName, commitHash, "good/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
+            testIx += 1
+            self.assertTrue(self.runWorkerTest(worker, "testId%s"%testIx, repoName, commitHash, "good/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
 
         fds = len(self.get_fds())
 
         #but want to verify we're not actually leaking FDs once we're in a steadystate
         for _ in xrange(3):
-            self.assertTrue(self.runWorkerTest(worker, "testId2", repoName, commitHash, "good/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
+            testIx += 1
+            self.assertTrue(self.runWorkerTest(worker, "testId%s"%testIx, repoName, commitHash, "good/linux", WorkerState.DummyWorkerCallbacks(), False)[0])
         
         fds2 = len(self.get_fds())
         
@@ -288,7 +297,9 @@ class WorkerStateTests(unittest.TestCase):
             testHash = resolver.testDefinitionsFor(repoName, commitHash)[name].hash
 
             if not name.startswith("build/"):
-                return [x.strip() for x in worker.artifactStorage.testContents(testHash, testName, "results.txt").split("\n") if x.strip()]
+                contents = worker.artifactStorage.testContents(testHash, testName, worker.artifactStorage.sanitizeName(name + ".tar.gz"))
+                with tarfile.open(fileobj=StringIO.StringIO(contents)) as tf:
+                    return [x.strip() for x in tf.extractfile("./results.txt").read().split("\n") if x.strip()]
 
         runTest("build/k0")
         runTest("build/k1")

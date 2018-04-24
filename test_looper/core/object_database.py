@@ -8,6 +8,7 @@ import traceback
 import time
 
 _encoder = algebraic_to_json.Encoder()
+_encoder.allowExtraFields = True
 
 _cur_view = threading.local()
 

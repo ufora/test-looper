@@ -39,7 +39,7 @@ WorkerState = algebraic.Alternative("WorkerState")
 WorkerState.Waiting = {}
 WorkerState.WorkingOnDeployment = {'deploymentId': str, 'logs_so_far': str}
 WorkerState.WorkingOnTest = {'testId': str, 'logs_so_far': str, 'artifacts': algebraic.List(str)}
-WorkerState.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,(bool, bool))} #testSuccess: name->(success,hasLogs)
+WorkerState.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,(bool, bool)), 'artifacts': algebraic.List(str)} #testSuccess: name->(success,hasLogs)
 
 ClientToServerMsg.CurrentState = {'machineId': str, 'state': WorkerState}
 ClientToServerMsg.WaitingHeartbeat = {}
@@ -49,7 +49,7 @@ ClientToServerMsg.TestLogOutput = {'testId': str, 'log': str}
 ClientToServerMsg.DeploymentHeartbeat = {'deploymentId': str}
 ClientToServerMsg.DeploymentExited = {'deploymentId': str}
 ClientToServerMsg.DeploymentTerminalOutput = {'deploymentId': str, 'data': str}
-ClientToServerMsg.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,(bool, bool))} #testSuccess: name->(success,hasLogs)
+ClientToServerMsg.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,(bool, bool)), 'artifacts': algebraic.List(str)} #testSuccess: name->(success,hasLogs)
 ClientToServerMsg.RequestPermissionToHitGitRepo = {'requestUniqueId': str, 'curTestOrDeployId': str}
 ClientToServerMsg.GitRepoPullCompleted = {'requestUniqueId': str}
 
@@ -132,7 +132,7 @@ class Session(object):
                 else:
                     self.currentTestId = msg.state.testId
             elif msg.state.matches.TestFinished:
-                self.testManager.recordTestResults(msg.state.success, msg.state.testId, msg.state.testSuccesses, time.time())
+                self.testManager.recordTestResults(msg.state.success, msg.state.testId, msg.state.testSuccesses, msg.state.artifacts, time.time())
                 self.send(ServerToClientMsg.AcknowledgeFinishedTest(msg.state.testId))
         elif msg.matches.RequestPermissionToHitGitRepo:
             if self.currentDeploymentId != msg.curTestOrDeployId and self.currentTestId != msg.curTestOrDeployId:
@@ -206,7 +206,7 @@ class Session(object):
                     self.send(ServerToClientMsg.ShutdownDeployment(msg.deploymentId))
                     self.currentDeploymentId = None
         elif msg.matches.TestFinished:
-            self.testManager.recordTestResults(msg.success, msg.testId, msg.testSuccesses, time.time())
+            self.testManager.recordTestResults(msg.success, msg.testId, msg.testSuccesses, msg.artifacts, time.time())
             self.currentTestId = None
             self.send(ServerToClientMsg.AcknowledgeFinishedTest(msg.testId))
 

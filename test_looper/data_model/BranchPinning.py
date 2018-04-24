@@ -530,7 +530,7 @@ class BranchPinning:
         newVal.append("  reference: " + yamlQuoteIfNeeded(newPinVal.reference))
         newVal.append("  branch: " + yamlQuoteIfNeeded(newPinVal.branch))
         if newPinVal.auto:
-            newVal.append("  auto: " + yamlQuoteIfNeeded(newPinVal.auto))
+            newVal.append("  auto: true")
         if newPinVal.prioritize:
             newVal.append("  prioritize: true")
 

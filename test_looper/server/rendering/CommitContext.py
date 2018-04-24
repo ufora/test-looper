@@ -321,6 +321,9 @@ class CommitContext(Context.Context):
             suite.runsDesired = max(1, min(int(self.options.get("targetRuns")), 100))
             self.testManager._triggerTestPriorityUpdate(suite)
 
+        if self.options.get("action", "") == "force_reparse":
+            self.testManager._forceTriggerCommitTestParse(self.commit)
+
     def renderPageBody(self):
         if self.options.get("action", ""):
             self.handleAction()
@@ -614,10 +617,16 @@ class CommitContext(Context.Context):
     def renderCommitTestDefinitionsInfo(self):
         raw_text, extension = self.testManager.getRawTestFileForCommit(self.commit)
 
+        post_text = HtmlGeneration.Link(self.withOptions(action="force_reparse").urlString(),
+                   "Force Test Reparse",
+                   is_button=True,
+                   button_style=self.renderer.disable_if_cant_write('btn-primary btn-xs mt-4')
+                   ).render()
+                
         if raw_text:
-            return card('<pre class="language-yaml"><code class="line-numbers">%s</code></pre>' % cgi.escape(raw_text))
+            return card('<pre class="language-yaml"><code class="line-numbers">%s</code></pre>' % cgi.escape(raw_text)) + post_text
         else:
-            return card("No test definitions found")
+            return card("No test definitions found") + post_text
 
     def renderTestSuitesSummary(self, builds=False):
         commit = self.commit

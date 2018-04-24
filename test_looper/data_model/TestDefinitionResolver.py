@@ -47,6 +47,11 @@ class TestDefinitionResolver:
         #(repo, hash) -> test_name -> test_definition
         self.testDefinitionCache = {}
 
+    def unprocessedRepoPinsFor(self, repoName, commitHash):
+        repos = self.unprocessedTestsEnvsAndReposFor_(repoName, commitHash)[2]
+
+        return {k:v for k,v in repos.iteritems() if v.matches.Pin}
+
     def unprocessedTestsEnvsAndReposFor_(self, repoName, commitHash):
         if (repoName, commitHash) in self.rawDefinitionsCache:
             return self.rawDefinitionsCache[repoName, commitHash]
@@ -170,8 +175,7 @@ class TestDefinitionResolver:
             return self.postIncludeDefinitionsCache[repoName, commitHash]
 
         tests, envs, repos, includes, prioritizeGlobs = self.unprocessedTestsEnvsAndReposFor_(repoName, commitHash)
-        original_tests = dict(tests)
-
+        
         repos = self.resolveRepoDefinitions_(repoName, repos)
 
         if any([r.commitHash() == "HEAD" for r in repos.values()]):
@@ -255,8 +259,7 @@ class TestDefinitionResolver:
                             test, includeRepo, includeHash, includePath
                             ))
                 tests.update(new_tests)
-                original_tests.update(new_tests)
-
+                
                 for i in new_includes:
                     includes.append((includeSourceRepo, includeSourceHash,i))
 
@@ -268,18 +271,6 @@ class TestDefinitionResolver:
                             or not prioritizeGlobs
                         )
                 )
-
-        def ensureChildrenNotDisabled(testname):
-            for child_dep in original_tests[testname].dependencies.values():
-                if child_dep.matches.InternalBuild:
-                    childName = self.resolveTestNameToTestAndArtifact(child_dep.name, tests, ignoreArtifactResolution=True)[0]
-                    if tests[childName].disabled:
-                        tests[childName] = tests[childName]._withReplacement(disabled=False)
-                        ensureChildrenNotDisabled(childName)
-
-        for t in list(tests.keys()):
-            if not tests[t].disabled:
-                ensureChildrenNotDisabled(t)
 
         self.postIncludeDefinitionsCache[repoName, commitHash] = (tests, envs, repos, includes)
 
@@ -604,6 +595,8 @@ class TestDefinitionResolver:
 
         self.assertTestsNoncircular_(tests)
 
+        self.ensureAllAppropriateChildrenEnabled_(tests)
+
         resolved_tests = {}
         
         def resolveTestDep(testDep):
@@ -626,7 +619,6 @@ class TestDefinitionResolver:
                 name,artifact = self.resolveTestNameToTestAndArtifact(testDep.name, tests)
 
                 return TestDefinition.TestDependency.Build(
-                    repo=repoName,
                     buildHash=resolveTest(name).hash,
                     name=name,
                     artifact=artifact
@@ -640,7 +632,6 @@ class TestDefinitionResolver:
                 name, artifact = self.resolveTestNameToTestAndArtifact(testDep.name, externalTests)
 
                 return TestDefinition.TestDependency.Build(
-                    repo=testDep.repo,
                     buildHash=externalTests[name].hash,
                     name=name,
                     artifact=artifact
@@ -705,6 +696,22 @@ class TestDefinitionResolver:
         self.testDefinitionCache[repoName, commitHash] = resolved_tests
 
         return resolved_tests
+
+    def ensureAllAppropriateChildrenEnabled_(self, tests):
+        """Given a set of tests, make sure that any internally-defined tests that an enabled
+        test depends on are marked enabled."""
+
+        def ensureChildrenNotDisabled(testname):
+            for child_dep in tests[testname].dependencies.values():
+                if child_dep.matches.InternalBuild:
+                    childName = self.resolveTestNameToTestAndArtifact(child_dep.name, tests, ignoreArtifactResolution=True)[0]
+                    if tests[childName].disabled:
+                        tests[childName] = tests[childName]._withReplacement(disabled=False)
+                        ensureChildrenNotDisabled(childName)
+
+        for t in list(tests.keys()):
+            if not tests[t].disabled:
+                ensureChildrenNotDisabled(t)
 
     def sortTestStages(self, stages):
         """A stable sort of 'stages' by 'order'"""

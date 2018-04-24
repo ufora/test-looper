@@ -20,7 +20,7 @@ Image.Dockerfile = {"repo": str, "commitHash": str, "dockerfile": str}
 Image.AMI = {"base_ami": str, "setup_script_contents": str}
 
 TestDependency = algebraic.Alternative("TestDependency")
-TestDependency.Build = {"repo": str, "name": str, "buildHash": str, "artifact": str }
+TestDependency.Build = {"name": str, "buildHash": str, "artifact": str }
 TestDependency.Source = {"repo": str, "commitHash": str, "path": str }
 
 #these are intermediate parse states. Resolved builds won't have them.
@@ -70,13 +70,10 @@ RepoReference.Reference = {"reference": str}
 RepoReference.Pin = {
     "reference": str,
     "branch": str,
-
-    #true, false/blank, or "every N (second(s)|minute(s)|hour(s)|day(s))"
-    "auto": str,
+    "auto": bool,
             
     #if we update this commit and the branch is prioritized, do we want the commit prioritized also?
-    #if empty, then no. If one element of 'true', or 'all', then yes. 
-    "prioritize": algebraic.List(str)
+    "prioritize": bool
     }
 
 def RepoReference_reponame(ref):

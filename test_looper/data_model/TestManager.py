@@ -642,6 +642,10 @@ class TestManager(object):
         with self.transaction_and_lock():
             testRun = self.database.TestRun(str(testId))
 
+            if not testRun.exists():
+                logging.warn("Test run %s doesn't exist but we tried to register results for it.", testId)
+                return
+
             if not isCumulative:
                 artifactIx = len(testRun.artifactsCompleted)
 
@@ -681,7 +685,9 @@ class TestManager(object):
                 self._updateTestPriority(dep.test, curTimestamp)
 
 
-    def recordTestResults(self, success, testId, testSuccesses, curTimestamp):
+    def recordTestResults(self, success, testId, testSuccesses, artifacts, curTimestamp):
+        self.recordTestArtifactUploaded(testId, artifacts, curTimestamp, True)
+
         with self.transaction_and_lock():
             testRun = self.database.TestRun(str(testId))
 
@@ -693,7 +699,10 @@ class TestManager(object):
 
             if success:
                 if testRun.artifactsCompleted != testRun.test.testDefinitionSummary.artifacts:
-                    logging.warn("Test %s didn't get the right list of completed artifacts!", testId)
+                    logging.warn("Test %s didn't get the right list of completed artifacts: %s != %s", testId,
+                        testRun.artifactsCompleted,
+                        testRun.test.testDefinitionSummary.artifacts
+                        )
                     assert False
 
             testRun.endTimestamp = curTimestamp
@@ -1348,8 +1357,8 @@ class TestManager(object):
 
         newRepoDefs[template.def_to_replace] = (
             newRepoDefs[template.def_to_replace]
-                ._withReplacement(auto="true")
-                ._withReplacement(prioritize=["true"])
+                ._withReplacement(auto=True)
+                ._withReplacement(prioritize=True)
                 ._withReplacement(branch=branch.branchname)
                 ._withReplacement(reference="%s/%s" % (branch.repo.name, "HEAD"))
             )
@@ -1533,6 +1542,13 @@ class TestManager(object):
                 knownNoTestFile=knownNoTestFile
                 )
 
+    def _forceTriggerCommitTestParse(self, commit):
+        commit.data.testsParsed=False
+        commit.data.noTestsFound=False
+        self._parseCommitTests(commit)
+
+        for branch in self.database.Branch.lookupAll(head=commit):
+            self._recalculateBranchPins(branch)
 
     def _updateCommitDataForHash(self, repo, hash, timestamp, subject, body, author, authorEmail, parentHashes, knownNoTestFile=False):
         source_control_repo = self.source_control.getRepo(repo.name)
@@ -1585,7 +1601,7 @@ class TestManager(object):
             ref = parents[0].data.repos.get(refname_updated)
 
             #currently, we only support enabling everything or nothing by pin.
-            if ref and not ('all' in ref.prioritize or 'true' in ref.prioritize):
+            if ref and not ref.prioritize:
                 priority = 0
 
         commit.userPriority = max(commit.userPriority, priority)
@@ -1673,6 +1689,10 @@ class TestManager(object):
 
             resolver = TestDefinitionResolver.TestDefinitionResolver(getRepo)
 
+            #make sure we at least get the repo pins if they're available.
+            #otherwise, if we have a bad test we won't be able to roll repo pins forward
+            commit.data.repos = resolver.unprocessedRepoPinsFor(commit.repo.name, commit.hash)
+            
             try:
                 all_tests, all_environments, all_repo_defs = \
                     resolver.testEnvironmentAndRepoDefinitionsFor(
@@ -1871,8 +1891,7 @@ class TestManager(object):
                         repo_def=repo_def, 
                         pinned_to_repo=reponame,
                         pinned_to_branch=target.branch,
-                        auto=target.auto != "" and target.auto != "false",
-                        auto_policy=target.auto,
+                        auto=target.auto,
                         prioritize=target.prioritize
                         )
 

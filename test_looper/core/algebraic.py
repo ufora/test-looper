@@ -275,6 +275,7 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
         _fields_are_unique = fields_are_unique
         def __init__(self, *args, **fields):
             _fill_in_missing = fields.pop("_fill_in_missing", False)
+            _allow_extra = fields.pop("_allow_extra", False)
 
             AlternativeInstance.__init__(self)
 
@@ -291,9 +292,13 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
                 else:
                     raise TypeError("constructing %s with an extra unnamed argument" % (alternative._name + "." + which))
 
-            for f in fields:
-                if f not in typedict:
-                    raise TypeError("constructing with unused argument %s: %s vs %s" % (f, fields.keys(), typedict.keys()))
+            if _allow_extra:
+                #ignore extra arguments
+                fields = {f:fields[f] for f in fields if f in typedict}
+            else:
+                for f in fields:
+                    if f not in typedict:
+                        raise TypeError("constructing with unused argument %s: %s vs %s" % (f, fields.keys(), typedict.keys()))
 
             for k in typedict:
                 if k not in fields:

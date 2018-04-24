@@ -87,6 +87,9 @@ class Encoder(object):
         self.mergeListsIntoDicts = mergeListsIntoDicts
         self.overrides = {}
 
+        #if True, then we ignore extra fields that don't correspond to valid fields
+        self.allowExtraFields=False
+
     def to_json(self, value):
         if isinstance(value, unicode):
             value = value.encode('ascii',errors='ignore')
@@ -227,9 +230,18 @@ class Encoder(object):
                     else:
                         possible = list(algebraic_type._types)
                         for fname in value:
-                            possible = [p for p in possible if fname in algebraic_type._types[p]]
-                            if not possible:
-                                raise UserWarning("Can't find a type with fieldnames " + str(sorted(value)))
+                            #check to see which types are still possible with this field in play
+                            possible_here = [p for p in possible if fname in algebraic_type._types[p]]
+
+                            if self.allowExtraFields:
+                                #if we allow extra fields (say, from a legacy database entry) and that
+                                #would rule _everything_ out, we can ignore it
+                                if possible_here:
+                                    possible = possible_here
+                            else:
+                                possible = possible_here
+                                if not possible:
+                                    raise UserWarning("Can't find a type with fieldnames " + str(sorted(value)))
 
                         if len(possible) > 1:
                             possible = [p for p in possible if len(algebraic_type._types[p]) == len(value)]
@@ -240,10 +252,10 @@ class Encoder(object):
                         which_alternative = getattr(algebraic_type, possible[0])
 
                     subs = dict([(k, self.from_json(value[k], which_alternative._typedict[k])) 
-                                    for k in value if k != '_type'])
+                                    for k in value if k != '_type' if k in which_alternative._typedict])
 
                     try:
-                        return which_alternative(_fill_in_missing=True, **subs)
+                        return which_alternative(_fill_in_missing=True, _allow_extra=self.allowExtraFields, **subs)
                     except:
                         raise
             

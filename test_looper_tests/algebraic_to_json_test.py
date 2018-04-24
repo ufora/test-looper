@@ -78,6 +78,23 @@ class AlgebraicToJsonTests(unittest.TestCase):
             X.A(A_str="hi", A_int=0)
             )
 
+    def test_allow_extra(self):
+        e = Encoder()
+        e.allowExtraFields=True
+
+        e_strict = Encoder()
+
+        X = Alternative("X")
+        X.A = {'A_str': str, "A_int": int}
+
+        self.assertEqual(
+            e.from_json({"A_str":"hi", "nonsense": 10}, X),
+            X.A(A_str="hi", A_int=0)
+            )
+
+        with self.assertRaises(Exception):
+            e_strict.from_json({"A_str":"hi", "nonsense": 10}, X)
+
     def test_roundtrip(self):
         e = Encoder()
 
