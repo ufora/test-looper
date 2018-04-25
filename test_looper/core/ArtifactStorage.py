@@ -38,6 +38,8 @@ class ArtifactStorage(object):
             return ("text/plain", key, False)
         if key.endswith(".stdout") or key.endswith(".stderr"):
             return ("text/plain", key, False)
+        if key.endswith(".png"):
+            return ("image/png", key, False)
         return ("application/octet-stream", key, False)
 
     @staticmethod
@@ -225,7 +227,7 @@ class AwsArtifactStorage(ArtifactStorage):
             if is_gzipped:
                 kwargs["ContentEncoding"] = "gzip"
 
-            if content_type != "text/plain":
+            if content_type not in ("text/plain", "image/png"):
                 kwargs["ContentDisposition"]="attachment; filename=\"" + keyname + "\";"
 
             self._bucket.put_object(
@@ -242,7 +244,7 @@ class AwsArtifactStorage(ArtifactStorage):
         if is_gzipped:
             Params["ResponseContentEncoding"] = "gzip"
         Params["ResponseContentType"] = content_type
-        if content_type != "text/plain":
+        if content_type not in ("text/plain", "image/png"):
             Params["ResponseContentDisposition"] = "attachment; filename=\"" + keyname + "\";"
         else:
             Params["ResponseContentDisposition"] = "inline"
@@ -262,7 +264,7 @@ class AwsArtifactStorage(ArtifactStorage):
         if is_gzipped:
             Params["ResponseContentEncoding"] = "gzip"
         Params["ResponseContentType"] = content_type
-        if content_type != "text/plain":
+        if content_type not in ("text/plain", "image/png"):
             Params["ResponseContentDisposition"] = "attachment; filename=\"" + keyname + "\";"
         else:
             Params["ResponseContentDisposition"] = "inline"
