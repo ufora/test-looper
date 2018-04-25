@@ -452,7 +452,7 @@ class CommitContext(Context.Context):
         return self.testManager.allTestsForCommit(self.commit)
 
     def shouldIncludeTest(self, test):
-        if test.testDefinitionSummary.disabled:
+        if test.testDefinitionSummary.disabled and not self.options.get("show_disabled"):
             return False
 
         if self.projectFilter and test.testDefinitionSummary.project != self.projectFilter:
@@ -663,6 +663,10 @@ class CommitContext(Context.Context):
         else:
             grid = [["SUITE", "HASH", "", "PROJECT", "CONFIGURATION", "STATUS", "RUNS", "TARGET_RUNS", "TEST_CT", "FAILURE_CT", "AVG_RUNTIME", "", "DEPENDENCIES"]]
 
+        if self.options.get("show_disabled"):
+            grid[0].append("Disabled")
+            grid[0].append("Calculated Priority")
+
         for t in tests:
             row = []
 
@@ -738,6 +742,10 @@ class CommitContext(Context.Context):
 
             row.append(" ".join(runButtons))
             row.append(self.testDependencySummary(t))
+
+            if self.options.get("show_disabled"):
+                row.append("Disabled" if t.testDefinitionSummary.disabled else "")
+                row.append(str(t.calculatedPriority))
 
             grid.append(row)
 

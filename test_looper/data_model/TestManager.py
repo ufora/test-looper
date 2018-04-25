@@ -2124,6 +2124,10 @@ class TestManager(object):
             logging.warn("Can't boot test %s because the hardware combo is unbootable.", test.hash)
             test.priority = self.database.TestPriority.HardwareComboUnbootable()
             test.targetMachineBoot = 0
+            test.calculatedPriority = 0
+        elif test.testDefinitionSummary.type != "Deployment" and test.testDefinitionSummary.disabled and not anyTestsReferencingUs:
+            test.priority = self.database.TestPriority.NoMoreTests()
+            test.calculatedPriority = 0
         elif self._testHasUnresolvedDependencies(test):
             test.priority = self.database.TestPriority.UnresolvedDependencies()
             test.targetMachineBoot = 0
@@ -2135,9 +2139,7 @@ class TestManager(object):
             test.targetMachineBoot = 0
         else:
             #sets test.targetMachineBoot
-            if test.testDefinitionSummary.type != "Deployment" and test.testDefinitionSummary.disabled and not anyTestsReferencingUs:
-                test.priority = self.database.TestPriority.NoMoreTests()
-            elif self._updateTestTargetMachineCountAndReturnIsDone(test, curTimestamp):
+            if self._updateTestTargetMachineCountAndReturnIsDone(test, curTimestamp):
                 if self._testWantsRetries(test):
                     if test.activeRuns:
                         #if we have an active test, then it is itself a retry and we don't
