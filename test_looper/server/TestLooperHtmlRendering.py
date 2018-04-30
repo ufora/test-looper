@@ -375,7 +375,7 @@ class Renderer:
     def allTestsForCommit(self, commit):
         if not commit.data:
             return []
-        return self.testManager.allTestsForCommit(commit)
+        return [x for x in self.testManager.allTestsForCommit(commit) if not x.testDefinitionSummary.disabled]
 
     def bestCommitForBranch(self, branch):
         if not branch or not branch.head or not branch.head.data:
@@ -413,7 +413,7 @@ class Renderer:
             return False
 
         for test in tests:
-            if not test.testDefinitionSummary.type == "Deployment":
+            if not test.testDefinitionSummary.type == "Deployment" and not test.testDefinitionSummary.disabled:
                 if test.totalRuns == 0 or test.priority.matches.WaitingToRetry:
                     if not test.priority.matches.DependencyFailed:
                         return False
