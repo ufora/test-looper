@@ -79,6 +79,8 @@ HEARTBEAT_INTERVAL=3
 
 PASSTHROUGH_KEYS = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"]
 
+EARLY_STOP = "EARLY_STOP"
+
 class NAKED_MACHINE:
     pass
 
@@ -1090,6 +1092,11 @@ class WorkerState(object):
             else:
                 for stage in stages:
                     is_success = self._runStage(testId, stage, image, test_definition, working_directory, log_function, workerCallback)
+                    
+                    if is_success == EARLY_STOP:
+                        is_success = True
+                        break
+
                     if not is_success:
                         break
 
@@ -1130,7 +1137,8 @@ class WorkerState(object):
                         if not self._upload_artifact(test_definition.hash, testId, test_definition.name, artifact, False, log_function, image):
                             is_success = False
                         else:
-                            workerCallback.recordArtifactUploaded(artifact.name)
+                            if workerCallback.recordArtifactUploaded(artifact.name):
+                                is_success = EARLY_STOP
         else:
             for artifact in stage.artifacts:
                 with self.callHeartbeatInBackground(log_function, "Uploading build artifact for %s/%s." % (test_definition.name, artifact.name)):

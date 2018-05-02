@@ -748,6 +748,9 @@ class TestLooperCtl:
 
         return allTestsByName
 
+    def artifactsInTestDef(self, testDef):
+        return [a.name for stage in testDef.stages for a in stage.artifacts]
+
     def run(self, args):
         if args.interactive:
             if not args.nodeps:
@@ -773,10 +776,51 @@ class TestLooperCtl:
             if args.cmd and len(possible_tests) != 1:
                 raise UserWarning("Explicit commands can only be passed to one target.")
 
+            buildToArtifactsNeeded = {}
             for test in sorted(possible_tests):
-                self.runBuildOrTest(all_tests, possible_tests[test][1], possible_tests[test][0], args.cores, args.nologcapture, args.nodeps, args.interactive, set(), args.cmd)
+                testDef = possible_tests[test][0]
 
-    def runBuildOrTest(self, all_tests, reponame, testDef, cores, nologcapture, nodeps, interactive, seen_already, explicit_cmd = None):
+                if testDef.matches.Build:
+                    buildToArtifactsNeeded[testDef.name] = self.artifactsInTestDef(testDef)
+
+            for test in sorted(possible_tests):
+                self.walkGraphAndFillOutTestArtifacts(all_tests, possible_tests[test][0], buildToArtifactsNeeded)
+
+            for test in sorted(possible_tests):
+                self.runBuildOrTest(all_tests, possible_tests[test][1], possible_tests[test][0], args.cores, args.nologcapture, args.nodeps, args.interactive, set(), args.cmd, buildToArtifactsNeeded)
+
+    def walkGraphAndFillOutTestArtifacts(self, all_tests, testDef, buildToArtifactsNeeded, seen_already=None):
+        """Walk all the dependent tests needed by 'testDef' and get a list of the artifacts we really need to build."""
+        if not seen_already:
+            seen_already = set()
+
+        path = self.build_path(testDef.name)
+
+        if path in seen_already:
+            return
+
+        seen_already.add(path)
+
+        for depname, dep in testDef.dependencies.iteritems():
+            if dep.matches.Build:
+                test_and_repo = None
+
+                for t in all_tests:
+                    if all_tests[t][0].hash == dep.buildHash:
+                        test_and_repo = all_tests[t]
+
+                if test_and_repo:
+                    subdef, subrepo = test_and_repo
+
+                    if subdef.name not in buildToArtifactsNeeded:
+                        buildToArtifactsNeeded[subdef.name] = []
+
+                    if dep.artifact not in buildToArtifactsNeeded[subdef.name]:
+                        buildToArtifactsNeeded[subdef.name].append(dep.artifact)
+
+                    self.walkGraphAndFillOutTestArtifacts(all_tests, subdef, buildToArtifactsNeeded, seen_already)
+
+    def runBuildOrTest(self, all_tests, reponame, testDef, cores, nologcapture, nodeps, interactive, seen_already, explicit_cmd=None, artifactSubsetByBuildName=None):
         #walk all the repo definitions and make sure everything is up-to-date
 
         path = self.build_path(testDef.name)
@@ -788,9 +832,6 @@ class TestLooperCtl:
 
         if not nodeps:
             for depname, dep in testDef.dependencies.iteritems():
-                if dep.matches.Source:
-                    pass
-
                 if dep.matches.Build:
                     test_and_repo = None
 
@@ -800,12 +841,23 @@ class TestLooperCtl:
 
                     if test_and_repo:
                         subdef, subrepo = test_and_repo
-                        if not self.runBuildOrTest(all_tests, subrepo, subdef, cores, nologcapture, nodeps, interactive, seen_already):
+                        if not self.runBuildOrTest(all_tests, subrepo, subdef, cores, nologcapture, nodeps, interactive, seen_already, artifactSubsetByBuildName=artifactSubsetByBuildName):
                             print "Dependent build ", self.repoShortname(subrepo.split(":")[-1]), subdef.name, " failed"
                             return False
             
-        print "Building ", self.repoShortname(reponame.split(":")[-1]), testDef.name
+        print "Building", self.repoShortname(reponame.split(":")[-1]), testDef.name
 
+        artifactsNeeded = None
+
+        if testDef.matches.Build:
+            artifactsDefined = self.artifactsInTestDef(testDef)
+            artifactsRequested = artifactSubsetByBuildName[testDef.name]
+
+            #determine if we just want to run a subset of the stages in the build.
+            if artifactsDefined and set(artifactsRequested) != set(artifactsDefined) and artifactsDefined[-1] not in artifactsRequested:
+                print "\tOnly building until we've produced the following: ", artifactSubsetByBuildName[testDef.name]
+                artifactsNeeded = artifactSubsetByBuildName[testDef.name]
+            
         worker_state = WorkerStateOverride("test_looper_interactive_", path, self, cores)
 
         if nologcapture:
@@ -826,7 +878,7 @@ class TestLooperCtl:
                     self.total_lines = 0
 
                 def recordArtifactUploaded(self, artifact):
-                    print "Finished stage ", artifact
+                    pass
 
                 def heartbeat(self, logMessage=None):
                     if logMessage:
@@ -847,9 +899,22 @@ class TestLooperCtl:
         else:
             callbacks = WorkerState.DummyWorkerCallbacks(localTerminal=True)
 
+        def onStageFinished(artifact):
+            print "\tFinished producing artifact", artifact
+            if artifactsNeeded is not None:
+                if artifact in artifactsNeeded:
+                    artifactsNeeded.remove(artifact)
+                if not artifactsNeeded:
+                    #condition for early stopping
+                    print "Stopping build early after artifact", artifact,"completed."
+                    return True
+
+        callbacks.recordArtifactUploaded = onStageFinished
+
         if not worker_state.runTest("interactive", callbacks, testDef, interactive, command_override=explicit_cmd)[0]:
             print "Build failed. Exiting."
             return False
+
         return True
 
     def info(self, args):
