@@ -2,6 +2,7 @@ import test_looper.server.rendering.Context as Context
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.server.rendering.TestGridRenderer as TestGridRenderer
 import test_looper.server.rendering.ComboContexts as ComboContexts
+import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
 import time
 import cgi
 
@@ -229,60 +230,35 @@ class RepoContext(Context.Context):
         
         branches = sorted(branches, key=lambda b: (not self.branchHasTests(b), b.branchname))
 
-        test_rows = {}
-        best_commit = {}
-        best_commit_name = {}
+        LOOKBACK = 5
 
-        for b in branches:
-            best_commit[b],best_commit_name[b] = self.renderer.bestCommitForBranch(b)
-
-            test_rows[b] = self.renderer.allTestsForCommit(best_commit[b]) if best_commit[b] else []
-
-        gridRenderer = TestGridRenderer.TestGridRenderer(
-            branches, 
-            lambda b: test_rows.get(b, []),
-            lambda group: "",
-            lambda group, row: "",
-            lambda t: ""
-            )
-
-        def interlace(h):
-            return [
-                [{"content": x, "colspan": 2} for x in h[::2]],
-                [""] + [{"content": x, "colspan": 2} for x in h[1::2]]
-                ]
-
-        grid_headers = [gridRenderer.headers()]
-        if sum([len(x) for x in grid_headers[0]]) > 100:
-            grid_headers = interlace(grid_headers[0])
-
-        if grid_headers:
-            for additionalHeader in reversed(["TEST", "BRANCH NAME", "TOP TESTED COMMIT"]):
-                grid_headers = [[""] + g for g in grid_headers]
-                grid_headers[-1][0] = additionalHeader
-        else:
-            grid_headers = [["TEST", "BRANCH NAME", "TOP TESTED COMMIT"]]
+        grid_headers = [["", "BRANCH"] + [""] * LOOKBACK]
 
         grid = []
 
-        lastBranch = None
+        secondPass = []
+
         for branch in branches:
-            if lastBranch is not None and not self.branchHasTests(branch) and self.branchHasTests(lastBranch):
-                grid.append(["&nbsp;"])
-            lastBranch = branch
+            if self.branchHasTests(branch):
+                testRow = [
+                    self.renderer.toggleBranchUnderTestLink(branch),
+                    self.contextFor(branch).renderLink(includeRepo=False)
+                    ]
 
-            row = []
-            grid.append(row)
-
-            row.append(self.renderer.toggleBranchUnderTestLink(branch))
-            row.append(self.contextFor(branch).renderLink(includeRepo=False))
-
-            if best_commit[branch]:
-                row.append(self.contextFor(best_commit[branch]).renderLink(includeRepo=False, includeBranch=False))
+                testRow = testRow + self.contextFor(branch).topNCommitTestSummaryRow(LOOKBACK)
+            
+                grid.append(testRow)
             else:
-                row.append("")
+                secondPass.append(branch)
 
-            row.extend(gridRenderer.gridRow(branch))
+        if secondPass != branches and secondPass:
+            grid.append(["&nbsp;"])
+            for branch in secondPass:
+                grid.append([
+                    "",
+                    self.contextFor(branch).renderLink(includeRepo=False)
+                    ] + [""] * LOOKBACK
+                    )
 
         return grid_headers, grid
 

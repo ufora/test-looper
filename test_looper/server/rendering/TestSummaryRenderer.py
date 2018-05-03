@@ -37,7 +37,7 @@ class TestSummaryRenderer:
     def allTests(self):
         return [t for t in self.tests if t.testDefinitionSummary.type == "Test"]
 
-    def renderSummary(self):
+    def renderSummary(self, label="", extraStyle=""):
         #first, see whether we have any tests
         activeTests = sum(t.activeRuns for t in self.allTests())
         activeBuilds = sum(t.activeRuns for t in self.allBuilds())
@@ -57,6 +57,9 @@ class TestSummaryRenderer:
                 '<span class="badge badge-info pl-1">{workers}{icon}</span>'.format(workers=max(activeBuilds,0), icon=octicon("tools"))
                 )
 
+        if label:
+            button_text = label + "&nbsp;" + button_text
+
         summary = self.tooltipSummary()
 
         if summary:
@@ -71,19 +74,19 @@ class TestSummaryRenderer:
         if summary:
             if self.url:
                 button_text = (
-                    '<div onclick="location.href=\'{url}\';" class="clickable-div" data-toggle="tooltip" title="{summary}" data-html="true">{text}</div>'
-                        .format(summary=cgi.escape(summary), text=button_text,url=self.url)
+                    '<div onclick="location.href=\'{url}\';" class="clickable-div {extraStyle}" data-toggle="tooltip" title="{summary}" data-html="true">{text}</div>'
+                        .format(summary=cgi.escape(summary), text=button_text,url=self.url, extraStyle=extraStyle)
                     )
             else:
                 button_text = (
-                    '<span data-toggle="tooltip" title="{summary}" data-html="true">{text}</span>'
-                        .format(summary=cgi.escape(summary), text=button_text)
+                    '<span data-toggle="tooltip" title="{summary}" data-html="true" class="{extraStyle}">{text}</span>'
+                        .format(summary=cgi.escape(summary), text=button_text, extraStyle=extraStyle)
                     )
 
         elif self.url:
             button_text = (
-                '<div onclick="location.href=\'{url}\';" class="clickable-div" title="{summary}" data-html="true">{text}</div>'
-                    .format(summary=cgi.escape(summary), text=button_text,url=self.url)
+                '<div onclick="location.href=\'{url}\';" class="clickable-div {extraStyle}" title="{summary}" data-html="true">{text}</div>'
+                    .format(summary=cgi.escape(summary), text=button_text,url=self.url,extraStyle=extraStyle)
                 )
         
         return button_text

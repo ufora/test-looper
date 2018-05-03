@@ -293,7 +293,9 @@ class CommitContext(Context.Context):
                 if len(name) < 5:
                     name += "&nbsp;" * max(0, 5 - len(name))
 
-        return (res if not textOverride else "") + HtmlGeneration.link(textOverride or name, self.urlString())
+        hover_text = cgi.escape(self.commit.data.commitMessage) if self.commit.data else None
+
+        return (res if not textOverride else "") + HtmlGeneration.link(textOverride or name, self.urlString(),hover_text=hover_text)
 
     def primaryObject(self):
         if not (self.configFilter or self.projectFilter):

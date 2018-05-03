@@ -2,6 +2,7 @@ import test_looper.server.rendering.Context as Context
 import test_looper.server.rendering.TestGridRenderer as TestGridRenderer
 import test_looper.server.rendering.ComboContexts as ComboContexts
 import test_looper.server.HtmlGeneration as HtmlGeneration
+import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
 
 class ReposContext(Context.Context):
     def __init__(self, renderer, options):
@@ -54,52 +55,26 @@ class ReposContext(Context.Context):
                 (repo.commitsWithTests == 0, repo.name)
             )
 
-        best_branch = {}
-        test_rows = {}
-        best_commit = {}
-        best_commit_name = {}
+        LOOKBACK = 5
 
-        for r in repos:
-            best_branch[r] = self.primaryBranchForRepo(r)
-
-            best_commit[r],best_commit_name[r] = self.renderer.bestCommitForBranch(best_branch[r])
-
-            test_rows[r] = self.renderer.allTestsForCommit(best_commit[r]) if best_commit[r] and best_commit[r].userPriority else []
-
-        gridRenderer = TestGridRenderer.TestGridRenderer(
-            repos, 
-            lambda r: test_rows.get(r, []),
-            lambda group: "",
-            lambda group, row: 
-                self.contextFor(best_branch[row]).urlString()
-                if best_branch[row] else "",
-            lambda test: ""
-            )
-
-        grid_headers = [gridRenderer.headers()]
-
-        for additionalHeader in reversed(["REPO NAME", "TOP TESTED COMMIT"]):
-            grid_headers = [[""] + g for g in grid_headers]
-            grid_headers[-1][0] = additionalHeader
+        grid_headers = [["REPO NAME", "PRIMARY TEST BRANCH"] + [""] * (LOOKBACK)]
 
         grid = []
-        last_repo = None
+
         for repo in repos:
-            if last_repo and last_repo.commitsWithTests and not repo.commitsWithTests:
-                grid.append([""])
-            last_repo = repo
+            if repo.commitsWithTests:
+                branch = self.primaryBranchForRepo(repo)
 
-            branches = self.database.Branch.lookupAll(repo=repo)
+                if branch:
+                    testRow = [self.contextFor(branch).renderLink(includeRepo=False)]
 
-            if best_commit[repo] and best_commit[repo].userPriority:
-                testRow = gridRenderer.gridRow(repo)
-            else:
-                testRow = [""] * len(gridRenderer.groups)
+                    testRow += self.contextFor(branch).topNCommitTestSummaryRow(LOOKBACK)
+                else:
+                    testRow = []
 
-            grid.append([
-                self.contextFor(repo).renderLink(),
-                self.contextFor(best_commit[repo]).renderLink(includeRepo=False) if best_commit[repo] else ""
-                ] + testRow)
+                grid.append([
+                    self.contextFor(repo).renderLink()
+                    ] + testRow)
 
         return grid_headers, grid
 

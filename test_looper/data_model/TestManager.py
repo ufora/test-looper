@@ -380,6 +380,21 @@ class TestManager(object):
 
         return commits[1:]
 
+    def topNPrioritizedCommitsForBranch(self, branch, commitCount, maxLookback=500):
+        res = []
+        head = branch.head
+
+        while head and len(res) < commitCount and maxLookback > 0:
+            maxLookback -= 1
+
+            if head.userPriority:
+                res.append(head)
+            if head.data and head.data.parents:
+                head = head.data.parents[0]
+            else:
+                head = None
+
+        return res
 
     def commitsToDisplayForBranch(self, branch, max_commits):
         commits = set()

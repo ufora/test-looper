@@ -327,6 +327,25 @@ class BranchContext(Context.Context):
 
         return lines
     
+    def topNCommitTestSummaryRow(self, N):
+        testRow = []
+        
+        for commit in self.renderer.testManager.topNPrioritizedCommitsForBranch(self.branch, N):
+            testRow.append(
+                TestSummaryRenderer.TestSummaryRenderer(
+                    self.renderer.allTestsForCommit(commit),
+                    testSummaryUrl=self.contextFor(commit).urlString()
+                    ).renderSummary(
+                    label='<span style="display: inline-block; width:60px">%s</span>' % (
+                        self.contextFor(commit).renderLink(False,False).render()
+                        ),
+                    extraStyle="border"
+                    )
+                )
+
+        return testRow
+
+
     def renderPinUpdateLink(self, branch, reference_name, repoRef):
         if repoRef.auto and repoRef.auto != "false":
             return HtmlGeneration.lightGrey("marked auto")
