@@ -827,13 +827,35 @@ class TestManager(object):
                 for test in self.database.Test.lookupAll(priority=priorityType(priority)):
                     if test.activeRuns < 0:
                         return True
-
         return False
 
     def _checkAllTestPriorities(self, curTimestamp):
         logging.info("Checking all test priorities to ensure they are correct")
 
         total = 0
+
+        if False:
+            categories = set()
+    
+            commitsWithTests = self._allCommitsWithPossibilityOfTests()
+
+            for c in commitsWithTests:
+                for test in self.allTestsForCommit(c):
+                    categories.add(test.machineCategory)
+
+            changed = set()
+            for category in categories:
+                if category.hardwareComboUnbootable:
+                    logging.info("Category %s/%s marked unbootable because %s", category.hardware, category.os, category.hardwareComboUnbootableReason)
+                    category.hardwareComboUnbootable = False
+                    changed.add(category)
+
+            for c in commitsWithTests:
+                for test in self.allTestsForCommit(c):
+                    if test.machineCategory in changed and test.priority.matches.HardwareComboUnbootable:
+                        logging.info("Updating mispriorizited test %s", test)
+                        self._updateTestPriority(test, curTimestamp)
+
 
         if self._checkActiveRunsLooksCorrupt():
             logging.warn("Active runs looks corrupt. Rebuilding.")
@@ -843,9 +865,11 @@ class TestManager(object):
                 for test in self.allTestsForCommit(c):
                     test.activeRuns = 0
 
+
             for runningTest in self.database.TestRun.lookupAll(isRunning=True):
                 runningTest.test.activeRuns += 1
 
+    
         for priorityType in [
                 self.database.TestPriority.FirstBuild,
                 self.database.TestPriority.FirstTest,
@@ -2015,6 +2039,7 @@ class TestManager(object):
 
             for t in self.database.Test.lookupAll(machineCategoryAndPrioritized=category):
                 self._triggerTestPriorityUpdate(t)
+
             return False
         except:
             logging.error("Failed to boot a worker (%s,%s):\n%s", category.hardware, category.os, traceback.format_exc())
