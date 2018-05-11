@@ -29,6 +29,7 @@ TEST_TIMEOUT_SECONDS = 60
 IDLE_TIME_BEFORE_SHUTDOWN = 180
 MAX_LOG_MESSAGES_PER_TEST = 100000
 MACHINE_TIMEOUT_SECONDS = 600
+MACHINE_TIMEOUT_SECONDS_FIRST_HEARTBEAT = 1200
 DISABLE_MACHINE_TERMINATION = False
 DEAD_WORKER_PRUNE_INTERVAL = 600
 AMI_CHECK_INTERVAL = 30
@@ -1081,7 +1082,12 @@ class TestManager(object):
             for m in self.database.Machine.lookupAll(isAlive=True):
                 heartbeat = max(m.lastHeartbeat, m.bootTime)
 
-                if heartbeat < curTimestamp - MACHINE_TIMEOUT_SECONDS and \
+                if m.lastHeartbeat == 0:
+                    timeout = MACHINE_TIMEOUT_SECONDS_FIRST_HEARTBEAT
+                else:
+                    timeout = MACHINE_TIMEOUT_SECONDS
+
+                if heartbeat < curTimestamp - timeout and \
                         curTimestamp - self.initialTimestamp > MACHINE_TIMEOUT_SECONDS:
                     logging.info("Shutting down machine %s because it has not heartbeat in a long time",
                         m.machineId

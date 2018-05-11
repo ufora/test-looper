@@ -53,6 +53,7 @@ ClientToServerMsg.TestFinished = {'testId': str, 'success': bool, 'testSuccesses
 ClientToServerMsg.RequestPermissionToHitGitRepo = {'requestUniqueId': str, 'curTestOrDeployId': str}
 ClientToServerMsg.GitRepoPullCompleted = {'requestUniqueId': str}
 
+SOCKET_CLEANUP_TIMEOUT = 360
 
 class Session(object):
     def __init__(self, server, testManager, machine_management, socket, address):
@@ -72,8 +73,8 @@ class Session(object):
     def stillLooksAlive(self):
         """Close socket if no traffic in a long time. Returns whether to keep polling..."""
         try:
-            if time.time() - self.lastMessageTimestamp > 360:
-                logging.info("Clearing out socket for machine %s as we have not heard from it in 360 seconds.", self.machineId)
+            if time.time() - self.lastMessageTimestamp > SOCKET_CLEANUP_TIMEOUT:
+                logging.info("Clearing out socket for machine %s as we have not heard from it in %s seconds.", self.machineId, SOCKET_CLEANUP_TIMEOUT)
 
                 self.socket.shutdown(socket.SHUT_RDWR)
                 self.socket.close()
