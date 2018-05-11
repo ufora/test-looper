@@ -126,7 +126,13 @@ class API:
         for id in self.machineIdsOfAllWorkers(producingAmis=True):
             instance = self.ec2.Instance(id)
 
-            if instance.state["Name"] != "terminated":
+            instanceState = None
+            try:
+                instanceState = instance.state["Name"]
+            except:
+                logging.error("Instance %s produced an error asking for its name.", id)
+
+            if instanceState != "terminated" and instanceState is not None:
                 tags = {t["Key"]: t["Value"] for t in instance.tags}
 
                 if 'BaseAmi' in tags and 'SetupScriptHash' in tags:
