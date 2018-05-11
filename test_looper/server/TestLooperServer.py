@@ -170,6 +170,7 @@ class Session(object):
                             self.send(ServerToClientMsg.TerminalInput(deploymentId=deploymentId,msg=msg))
                     self.testManager.subscribeToClientMessages(deploymentId, onMessage)
                 else:
+                    t0 = time.time()
                     testId, testDefinition = self.testManager.startNewTest(self.machineId, time.time())
                     if testId is not None:
                         self.currentTestId = testId
@@ -179,6 +180,7 @@ class Session(object):
                                 testDefinition=testDefinition
                                 )
                             )
+                    logging.info("Allocated new test %s to machine %s in %s seconds.", testId, self.machineId, time.time() - t0)
         elif msg.matches.ArtifactUploaded:
             if msg.testId == self.currentTestId:
                 self.testManager.recordTestArtifactUploaded(self.currentTestId, msg.artifact, time.time(), isCumulative=False)

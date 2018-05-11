@@ -215,6 +215,8 @@ class TestManager(object):
 
         self.deploymentStreams = {}
 
+        self.commitTestCache_ = {}
+
     def allTestsForCommit(self, commit):
         if not commit.data:
             return []
@@ -1686,6 +1688,9 @@ class TestManager(object):
             )
 
     def testsForCommit(self, commit):
+        if commit in self.commitTestCache_:
+            return self.commitTestCache_[commit]
+
         raw_text, extension = self.getRawTestFileForCommit(commit)
 
         def getRepo(reponame):
@@ -1695,10 +1700,17 @@ class TestManager(object):
 
         resolver = TestDefinitionResolver.TestDefinitionResolver(getRepo)
 
-        return resolver.testEnvironmentAndRepoDefinitionsFor(
+        tests = resolver.testEnvironmentAndRepoDefinitionsFor(
             commit.repo.name, 
             commit.hash
             )[0]
+
+        self.commitTestCache_[commit] = tests
+
+        if len(self.commitTestCache_) > 1000:
+            self.commitTestCache_ = {}
+
+        return tests
 
 
     def environmentForTest(self, test):
