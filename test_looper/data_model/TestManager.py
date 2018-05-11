@@ -556,6 +556,7 @@ class TestManager(object):
     def machineHeartbeat(self, machineId, curTimestamp, msg=None):
         if msg:
             logging.info("Machine %s heartbeating %s", machineId, msg)
+
         with self.transaction_and_lock():
             machine = self.database.Machine.lookupAny(machineId=machineId)
             if machine:
@@ -793,9 +794,9 @@ class TestManager(object):
 
                 return True
 
-    def checkAllTestPriorities(self, curTimestamp):
+    def checkAllTestPriorities(self, curTimestamp, resetUnbootable):
         with self.transaction_and_lock():
-            self._checkAllTestPriorities(curTimestamp)
+            self._checkAllTestPriorities(curTimestamp, resetUnbootable)
 
     def _commitMightHaveTests(self, c):
         return c.data and c.data.timestamp > OLDEST_TIMESTAMP_WITH_TESTS        
@@ -832,12 +833,12 @@ class TestManager(object):
                         return True
         return False
 
-    def _checkAllTestPriorities(self, curTimestamp):
+    def _checkAllTestPriorities(self, curTimestamp, resetUnbootable):
         logging.info("Checking all test priorities to ensure they are correct")
 
         total = 0
 
-        if False:
+        if resetUnbootable:
             categories = set()
     
             commitsWithTests = self._allCommitsWithPossibilityOfTests()
@@ -1998,9 +1999,7 @@ class TestManager(object):
                         if setupContents:
                             self.machine_management.ensureOsConfigAvailable(c.os, setupContents)
                         else:
-                            c.hardwareComboUnbootable=True
-                            c.hardwareComboUnbootableReason="Couldn't find setup contents."
-                            c.desired=0
+                            logging.warn("Can't find setup contents for %s/%s", c.os, c.hardware)
                     elif self.machine_management.isOsConfigInvalid(c.os):
                         c.hardwareComboUnbootable=True
                         c.hardwareComboUnbootableReason="Ami creation failed"
