@@ -288,7 +288,7 @@ class TestLooperServer(SimpleServer.SimpleServer):
             logging.error("Server had an exception during initialization:\n%s", traceback.format_exc())
 
         try:
-            self.testManager.checkAllTestPriorities(time.time(), resetUnbootable=True)
+            self.testManager.checkAllTestPriorities(time.time(), resetUnbootable=False)
         except:
             logging.error("Server had an exception during initialization:\n%s", traceback.format_exc())
         

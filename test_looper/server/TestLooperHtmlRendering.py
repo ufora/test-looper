@@ -438,7 +438,12 @@ class Renderer:
 
     def default(self, *args, **kwargs):
         if args:
-            with self.testManager.transaction_and_lock():
+            if 'action' in kwargs:
+                database_scope = self.testManager.transaction_and_lock()
+            else:
+                database_scope = self.testManager.database.view()
+
+            with database_scope:
                 context = self.getFromEncoding(args, kwargs)
                 if context:
                     t0 = time.time()
