@@ -275,13 +275,16 @@ class AwsMachineManagement(MachineManagement):
             config = OsConfig.WindowsVM(ami=ami, setupHash=hash)
 
             if status in ("In progress", "Awaiting snapshot", "Snapshotting"):
+                logging.info("Ami %s with hash %s is in-process", ami, hash)
                 self.windowsOsConfigsBeingCreated.add(config)
             elif status == "Failed":
+                logging.info("Ami %s with hash %s failed", ami, hash)
                 self.invalidWindowsOsConfigs.add(config)
             elif status == "Complete":
+                logging.info("Ami %s with hash %s is complete", ami, hash)
                 self.windowsOsConfigsAvailable.add(config)
             else:
-                logging.error("Invalid status for os config %s: %s", config, status)
+                logging.error("Ami %s with hash %s has an invalid state: %s", ami, hash, status)
 
     def all_hardware_configs(self):
         return sorted(self.instance_types.keys(), key=lambda hw: hw.cores)
@@ -300,8 +303,8 @@ class AwsMachineManagement(MachineManagement):
             if osConfig.matches.WindowsVM:
                 if osConfig in self.invalidWindowsOsConfigs:
                     return False
-                if osConfig not in self.windowsOsConfigsAvailable:
-                    return True
+                if osConfig in self.windowsOsConfigsAvailable:
+                    return False
                 if osConfig not in self.windowsOsConfigsBeingCreated:
                     return True
 

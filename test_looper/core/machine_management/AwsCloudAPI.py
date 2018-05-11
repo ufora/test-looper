@@ -288,10 +288,17 @@ class API:
     def bootAmiCreator(self, platform, instanceType, baseAmi, setupScript):
         assert platform == "windows"
 
-        if (baseAmi, setupScript) in self.imagesBeingProducedByWorkers():
-            logging.warn("We tried to boot an image creator for %s/%s, but one is already up", (baseAmi, setupScript))
+        setupScriptHash = sha_hash(setupScript).hexdigest
+
+        if (baseAmi, setupScriptHash) in self.imagesBeingProducedByWorkers():
+            logging.warn("We tried to boot an image creator for %s/%s, but one is already up", (baseAmi, setupScriptHash))
             return
 
+        if (baseAmi, setupScriptHash) in self.listWindowsImages(availableOnly=True):
+            logging.warn("We tried to boot an image creator for %s/%s, but the image already exists!", (baseAmi, setupScriptHash))
+            return
+
+        logging.info("Booting an AMI creator for ami %s and hash %s", baseAmi, setupScriptHash)
 
         to_json = algebraic_to_json.Encoder().to_json
 
@@ -342,7 +349,7 @@ class API:
             amiOverride=baseAmi, 
             bootScriptOverride=boot_script,
             nameValueOverride=self.config.machine_management.worker_name+"_ami_creator",
-            extraTags={"BaseAmi": baseAmi, "SetupScriptHash": sha_hash(setupScript).hexdigest},
+            extraTags={"BaseAmi": baseAmi, "SetupScriptHash": setupScriptHash},
             wantsTerminateOnShutdown=False
             )
 
