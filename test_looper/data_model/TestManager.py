@@ -1982,7 +1982,10 @@ class TestManager(object):
         #repeatedly check if we can boot any machines. If we can't,
         #but we want to, we need to check whether there are any machines we can
         #shut down
-        logging.info("Entering _bootMachinesIfNecessary:")
+        logging.info("Entering _bootMachinesIfNecessary with %s cores currently booted across %s machines.", 
+            self.machine_management.cores_booted, 
+            len(self.machine_management.runningMachines)
+            )
         for cat in (self.database.MachineCategory.lookupAll(want_more=True) +  
                             self.database.MachineCategory.lookupAll(want_less=True)):
             logging.info("\t%s/%s: %s desired vs %s booted. Bootable=%s", cat.hardware, cat.os, cat.desired, cat.booted, not cat.hardwareComboUnbootable)
