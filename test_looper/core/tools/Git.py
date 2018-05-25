@@ -9,6 +9,7 @@ import threading
 import errno
 import time
 import tempfile
+import tarfile
 import shutil
 import re
 import test_looper.core.DirectoryScope as DirectoryScope
@@ -61,6 +62,10 @@ class Git(object):
 
         self.testDefinitionLocationCache_ = {}
 
+    def setCoreAutocrlf(self, shouldBeTrue):
+        with self.git_repo_lock:
+            self.subprocessCheckCall(['git', 'config', 'core.autocrlf', 'true' if shouldBeTrue else 'false'])
+
     @staticmethod
     def versionCheck():
         version = Git(".").subprocessCheckOutput(["git", "--version"]).strip().split(" ")[2].split(".")
@@ -106,6 +111,7 @@ class Git(object):
 
     def resetToCommit(self, revision):
         logging.info("Resetting to revision %s", revision)
+        self.setCoreAutocrlf(False)
 
         if not self.pullLatest():
             return False
@@ -118,9 +124,10 @@ class Git(object):
         if not self.commitExists(revision):
             return False
 
+        self.setCoreAutocrlf(False)
         return self.subprocessCheckCall(['git', 'checkout', revision]) == 0
 
-    def resetToCommitInDirectory(self, revision, directory):
+    def resetToCommitInDirectory(self, revision, directory, setCoreAutocrlf=False):
         with self.git_repo_lock:
 
             assert isinstance(revision, str), revision
@@ -134,16 +141,26 @@ class Git(object):
             if not self.pullLatest():
                 raise Exception("Couldn't pull latest from origin")
 
-            if self.subprocessCheckCall(
-                    ['git', 'worktree', 'add', '--detach', directory, revision]
-                    ):
-                raise Exception("Failed to create working tree at %s" % directory)
+            if setCoreAutocrlf:
+                self.setCoreAutocrlf(True)
 
-            if self.subprocessCheckCallAltDir(
-                    directory,
-                    ["git", "reset", "--hard", revision]
-                    ):
-                raise Exception("Failed to checkout revision %s" % revision)
+            if not self.commitExists(revision):
+                raise Exception("Can't find commit %s at %s" % (revision, self.path_to_repo))
+
+            try:
+                if self.subprocessCheckCall(
+                        ['git', 'worktree', 'add', '--detach', directory, revision]
+                        ):
+                    raise Exception("Failed to create working tree at %s" % directory)
+
+                if self.subprocessCheckCallAltDir(
+                        directory,
+                        ["git", "reset", "--hard", revision]
+                        ):
+                    raise Exception("Failed to checkout revision %s" % revision)
+            finally:
+                self.setCoreAutocrlf(False)
+
 
     def ensureDirectoryExists(self, path):
         if os.path.exists(path):
@@ -226,6 +243,8 @@ class Git(object):
 
     def createInitialCommit(self, commitMessage="Initial commit"):
         with self.git_repo_lock:
+            self.setCoreAutocrlf(False)
+
             branchname = str(uuid.uuid4())
             
             curHash = self.subprocessCheckOutput(["git", "log", "-n", "1", '--format=format:%H']).strip()
@@ -245,6 +264,8 @@ class Git(object):
     def commit(self, msg, timestamp_override=None, author="test_looper <test_looper@test_looper.com>", dir_override=None):
         """Commit the current state of the repo and return the commit id"""
         with self.git_repo_lock:
+            self.setCoreAutocrlf(False)
+
             if dir_override is None:
                 dir_override = self.path_to_repo
 
@@ -269,6 +290,7 @@ class Git(object):
         return os.path.exists(os.path.join(self.path_to_repo, ".git"))
 
     def ensureDetached(self):
+        self.setCoreAutocrlf(False)
         self.subprocessCheckCall(["git", "checkout", "--detach", "HEAD"])
 
     def init(self):
@@ -418,6 +440,7 @@ class Git(object):
 
     def resetHard(self):
         with self.git_repo_lock:
+            self.setCoreAutocrlf(False)
             self.subprocessCheckOutput(
                 ["git", "reset", "--hard"]
                 )
@@ -434,6 +457,7 @@ class Git(object):
 
     def getFileContents(self, commit, path):
         with self.git_repo_lock:
+            self.setCoreAutocrlf(False)
             try:
                 return self.subprocessCheckOutput(["git", "show", "%s:%s" % (commit,path)])
             except:
@@ -524,6 +548,48 @@ class Git(object):
                 SubprocessCheckOutput(dir, args, kwds)
                 )
             )
+
+    def createRepoTarball(self, commitHash, pathWithinRepo, targetTarball, setCoreAutocrlf):
+        """Checkout and tarball the subpath 'pathWithinRepo' from commit commitHash and place at targetTarball."""
+        workingDir = targetTarball + ".tmpdir"
+
+        try:
+            self.resetToCommitInDirectory(commitHash, workingDir, setCoreAutocrlf=setCoreAutocrlf)
+            os.unlink(os.path.join(workingDir, ".git"))
+
+            if pathWithinRepo:
+                #we want to checkout path A/B/C (or something like that), which we assume
+                #is a directory. If not, the checkout will be empty except for the commit
+                subdir = os.path.join(workingDir, pathWithinRepo)
+
+                #if it exists, move the subdirectory to a safe location
+                if os.path.isdir(subdir):
+                    guid = str(uuid.uuid4()).replace("-","")
+                    movedPath = os.path.join(os.path.dirname(targetTarball), guid)
+
+                    shutil.move(subdir, movedPath)
+                else:
+                    movedPath = None
+
+                shutil.rmtree(workingDir)
+
+                if movedPath:
+                    shutil.move(movedPath, workingDir)
+                else:
+                    os.makedirs(workingDir)
+            
+            with open(os.path.join(workingDir, ".git_commit"), "w") as f:
+                f.write(self.standardCommitMessageFor(commitHash))
+
+            with tarfile.open(targetTarball, "w:gz", compresslevel=1) as tf:
+                tf.add(workingDir, ".")
+        finally:
+            try:
+                if os.path.exists(workingDir):
+                    shutil.rmtree(workingDir)
+            except:
+                logging.error("Failed to remove working tree at %s:\n%s", workingDir, traceback.format_exc())
+
 
 class LockedGit(Git):
     def __init__(self, path):

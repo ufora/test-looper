@@ -23,7 +23,6 @@ for name in ["boto3", "requests", "urllib"]:
     logging.getLogger(name).setLevel(logging.CRITICAL)
 
 import test_looper.core.SubprocessRunner as SubprocessRunner
-import test_looper.core.tools.Git as Git
 
 if sys.platform != "win32":
     import docker
@@ -67,13 +66,8 @@ class DummyWorkerCallbacks:
     def subscribeToTerminalInput(self, callback):
         pass
 
-    def scopedReadLockAroundGitRepo(self):
-        class Scope:
-            def __enter__(self, *args):
-                pass
-            def __exit__(self, *args):
-                pass
-        return Scope()
+    def requestSourceTarballUpload(self, repoName, commitHash, path, platform):
+        pass
 
 HEARTBEAT_INTERVAL=3
 
@@ -103,7 +97,7 @@ class TestLooperDirectories:
                 self.build_cache_dir, self.ccache_dir, self.test_output_dir, self.build_output_dir, self.repo_cache]
 
 class WorkerState(object):
-    def __init__(self, name_prefix, worker_directory, source_control, artifactStorage, machineId, hardwareConfig, verbose=False, docker_image_repo=None):
+    def __init__(self, name_prefix, worker_directory, artifactStorage, machineId, hardwareConfig, verbose=False, docker_image_repo=None):
         import test_looper.worker.TestLooperWorker
 
         self.name_prefix = name_prefix
@@ -129,8 +123,6 @@ class WorkerState(object):
         self.max_build_cache_depth = 10
 
         self.artifactStorage = artifactStorage
-
-        self.source_control = source_control
 
         self.docker_image_repo = docker_image_repo
 
@@ -172,15 +164,6 @@ class WorkerState(object):
 
         return Scope()
     
-    def getRepoCacheByName(self, name):
-        if name not in self.repos_by_name:
-            self.repos_by_name[name] = Git.Git(str(os.path.join(self.directories.repo_cache, name)))
-
-            if not self.repos_by_name[name].isInitialized():
-                self.repos_by_name[name].cloneFrom(self.source_control.getRepo(name).cloneUrl())
-
-        return self.repos_by_name[name]
-
     def cleanup(self):
         if Docker is not None:
             Docker.DockerImage.removeDanglingDockerImages()
@@ -716,39 +699,6 @@ class WorkerState(object):
             if tail_proc is not None:
                 tail_proc.stop()
 
-    def resetToCommitInDir(self, repoName, commitHash, pathWithinRepo, targetDir):
-        git_repo = self.getRepoCacheByName(repoName)
-
-        if not git_repo.isInitialized():
-            git_repo.cloneFrom(self.source_control.getRepo(repoName).cloneUrl())
-
-        git_repo.resetToCommitInDirectory(commitHash, targetDir)
-        os.unlink(os.path.join(targetDir, ".git"))
-
-        if pathWithinRepo:
-            #we want to checkout path A/B/C (or something like that), which we assume
-            #is a directory. If not, the checkout will be empty except for the commit
-            subdir = os.path.join(targetDir, pathWithinRepo)
-
-            #if it exists, move the subdirectory to a safe location
-            if os.path.isdir(subdir):
-                guid = str(uuid.uuid4()).replace("-","")
-                movedPath = os.path.join(self.directories.scratch_dir, guid)
-
-                shutil.move(subdir, movedPath)
-            else:
-                movedPath = None
-
-            shutil.rmtree(targetDir)
-
-            if movedPath:
-                shutil.move(movedPath, targetDir)
-            else:
-                os.makedirs(targetDir)
-                
-        with open(os.path.join(targetDir, ".git_commit"), "w") as f:
-            f.write(git_repo.standardCommitMessageFor(commitHash))
-
     @staticmethod
     def ensureDirectoryExists(path):
         if os.path.exists(path):
@@ -920,41 +870,31 @@ class WorkerState(object):
             log_function(time.asctime() + " TestLooper> Target tarball for %s/%s source is %s\n" 
                         % (dep.repo, dep.commitHash, tarball_name))
 
-            if not self.artifactStorage.build_exists(dep.commitHash, sourceArtifactName):
-                log_function(time.asctime() + " TestLooper> Building source cache for %s/%s at %s\n" 
-                        % (dep.repo, dep.commitHash, target_dir))
+            if not os.path.exists(tarball_name):
+                isFirstRequest = True
+                lastLogTime = time.time()
+                while not self.artifactStorage.build_exists(dep.commitHash, sourceArtifactName):
+                    if isFirstRequest:
+                        withTime(log_function)("Requesting tarball for %s/%s path %s", dep.repo, dep.commitHash, dep.path)
+                        isFirstRequest = False
 
-                if os.path.exists(target_dir):
-                    shutil.rmtree(target_dir)
+                    worker_callback.requestSourceTarballUpload(dep.repo, dep.commitHash, dep.path, 'linux' if sys.platform != 'win32' else 'win')
+                    time.sleep(10.0)
 
-                with worker_callback.scopedReadLockAroundGitRepo():
-                    self.resetToCommitInDir(dep.repo, dep.commitHash, dep.path, target_dir)
+                    if time.time() - lastLogTime > 55.0:
+                        withTime(log_function)("Still waiting for server to upload %s/%s path %s", dep.repo, dep.commitHash, dep.path)
+                        lastLogTime = time.time()
 
-                with tarfile.open(tarball_name, "w:gz", compresslevel=1) as tf:
-                    tf.add(target_dir, ".")
+                if not isFirstRequest:
+                    withTime(log_function)("Source tarball for %s/%s path %s was created.", dep.repo, dep.commitHash, dep.path)
 
-                log_function(time.asctime() + " TestLooper> Resulting tarball at %s is %.2f MB.\n" %(tarball_name, os.stat(tarball_name).st_size / 1024.0**2))
+                log_function(time.asctime() + " TestLooper> Downloading source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
+            
+                self.artifactStorage.download_build(dep.commitHash, sourceArtifactName, tarball_name)
 
-                try:
-                    log_function(
-                        time.asctime() + " TestLooper> Uploading %s to %s/%s/%s\n" % 
-                            (tarball_name, dep.repo, dep.commitHash, sourceArtifactName)
-                        )
-                    self.artifactStorage.upload_build(dep.commitHash, sourceArtifactName, tarball_name)
-                except:
-                    log_function(time.asctime() + " TestLooper> Failed to upload package '%s':\n%s" % (
-                          tarball_name,
-                          traceback.format_exc()
-                          ))
-            else:
-                if not os.path.exists(tarball_name):
-                    log_function(time.asctime() + " TestLooper> Downloading source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
-                
-                    self.artifactStorage.download_build(dep.commitHash, sourceArtifactName, tarball_name)
+            log_function(time.asctime() + " TestLooper> Extracting source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
 
-                log_function(time.asctime() + " TestLooper> Extracting source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
-
-                self.extract_package(tarball_name, target_dir)
+            self.extract_package(tarball_name, target_dir)
 
             return None
 

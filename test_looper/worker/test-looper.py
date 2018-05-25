@@ -17,7 +17,6 @@ import test_looper.core.Config as Config
 import test_looper.worker.TestLooperClient as TestLooperClient
 import test_looper.worker.TestLooperWorker as TestLooperWorker
 import test_looper.worker.WorkerState as WorkerState
-import test_looper.core.source_control.SourceControlFromConfig as SourceControlFromConfig
 import test_looper.core.ArtifactStorage as ArtifactStorage
 
 
@@ -52,15 +51,19 @@ def configureLogging(verbose=False):
 
 
 def createTestWorker(config, worker_path, machineId):
+    #older versions of the looper may have cached AMIs with source-control
+    #information hardcoded. we don't need it any more, but we dont want to fail
+    #just because we're passed such data.
+    if "source_control" in config:
+        del config["source_control"]
+
     config = algebraic_to_json.Encoder().from_json(config, Config.WorkerConfig)
     
-    source_control = SourceControlFromConfig.getFromConfig(os.path.join(worker_path,"worker_repo_cache"), config.source_control)
     artifact_storage = ArtifactStorage.storageFromConfig(config.artifacts)
     
     workerState = WorkerState.WorkerState(
         name_prefix="test_looper_worker",
         worker_directory=worker_path,
-        source_control=source_control,
         artifactStorage=artifact_storage,
         machineId=machineId,
         hardwareConfig=Config.HardwareConfig(

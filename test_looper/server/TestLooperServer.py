@@ -2,6 +2,7 @@ import collections
 import json
 import logging
 import threading
+import Queue
 import traceback
 import base64
 import time
@@ -50,8 +51,7 @@ ClientToServerMsg.DeploymentHeartbeat = {'deploymentId': str}
 ClientToServerMsg.DeploymentExited = {'deploymentId': str}
 ClientToServerMsg.DeploymentTerminalOutput = {'deploymentId': str, 'data': str}
 ClientToServerMsg.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,(bool, bool)), 'artifacts': algebraic.List(str)} #testSuccess: name->(success,hasLogs)
-ClientToServerMsg.RequestPermissionToHitGitRepo = {'requestUniqueId': str, 'curTestOrDeployId': str}
-ClientToServerMsg.GitRepoPullCompleted = {'requestUniqueId': str}
+ClientToServerMsg.RequestSourceTarballUpload = {'repo': str, 'commitHash': str, 'path': str, 'platform': str} #platform is 'linux' or 'win'
 
 SOCKET_CLEANUP_TIMEOUT = 360
 
@@ -135,21 +135,6 @@ class Session(object):
             elif msg.state.matches.TestFinished:
                 self.testManager.recordTestResults(msg.state.success, msg.state.testId, msg.state.testSuccesses, msg.state.artifacts, time.time())
                 self.send(ServerToClientMsg.AcknowledgeFinishedTest(msg.state.testId))
-        elif msg.matches.RequestPermissionToHitGitRepo:
-            if self.currentDeploymentId != msg.curTestOrDeployId and self.currentTestId != msg.curTestOrDeployId:
-                allowed = False
-                logging.warn("Denying git repo hit for unknown test/deploy id %s", msg.curTestOrDeployId)
-            else:
-                try:
-                    allowed = self.testManager.tryToAllocateGitRepoLock(msg.requestUniqueId, self.currentDeploymentId or self.currentTestId)
-                except:
-                    logging.error("Allocating git repo lock failed!\n:%s", traceback.format_exc())
-                    allowed = False
-
-            self.send(ServerToClientMsg.GrantOrDenyPermissionToHitGitRepo(requestUniqueId=msg.requestUniqueId, allowed=allowed))
-
-        elif msg.matches.GitRepoPullCompleted:
-            self.testManager.gitRepoLockReleased(msg.requestUniqueId)
         elif msg.matches.WaitingHeartbeat:
             if self.machineId is None:
                 return
@@ -212,6 +197,8 @@ class Session(object):
             self.testManager.recordTestResults(msg.success, msg.testId, msg.testSuccesses, msg.artifacts, time.time())
             self.currentTestId = None
             self.send(ServerToClientMsg.AcknowledgeFinishedTest(msg.testId))
+        elif msg.matches.RequestSourceTarballUpload:
+            self.server.sourceTarballsRequested.put(msg)
 
     def readString(self):
         return socket_util.readString(self.socket)
@@ -238,10 +225,53 @@ class TestLooperServer(SimpleServer.SimpleServer):
         self.port_ = server_ports.server_worker_port
         self.testManager = testManager
         self.httpServer = httpServer
+        self.artifactStorage = httpServer.artifactStorage
         self.machine_management = machine_management
+        self.artifactStorageUploadThread = threading.Thread(target=self.uploadArtifactsInBackground)
+        self.artifactStorageUploadThread.daemon = True
+        self.sourceTarballsRequested = Queue.Queue()
+
         self.workerThread = threading.Thread(target=self.executeManagerWork)
         self.workerThread.daemon=True
         self.sessions = []
+
+    def uploadArtifactsInBackground(self):
+        """A worker thread that uploads source tarballs to the artifactStorge as they're requested
+        by the workers."""
+        try:
+            previousUploadTimestamps = {}
+
+            while not self.shouldStop():
+                try:
+                    toUpload = self.sourceTarballsRequested.get(timeout=5.0)
+
+                    lastUploaded = previousUploadTimestamps.get(toUpload, 0.0)
+                    if time.time() - lastUploaded < 60 * 2:
+                        #just ignore it - we uploaded it but there' a natural race condition
+                        #where the workers can be repeatedly requesting the same items over and
+                        #over
+                        pass
+                    else:
+                        try:
+                            self.uploadSourceTarball(toUpload)
+                        except:
+                            logging.critical("Failed to upload %s because:\n%s", toUpload, traceback.format_exc())
+
+                        previousUploadTimestamps[toUpload] = time.time()
+                except Queue.Empty:
+                    pass
+        except:
+            logging.critical("Manager source tarball upload thread exiting:\n%s", traceback.format_exc())
+        finally:
+            logging.info("Manager source tarball upload thread exited")
+
+    def uploadSourceTarball(self, message):
+        self.artifactStorage.uploadSourceTarball(
+            self.testManager.source_control.getRepo(message.repo).source_repo,
+            message.commitHash,
+            message.path,
+            message.platform
+            )
 
     def executeManagerWork(self):
         try:
@@ -307,7 +337,8 @@ class TestLooperServer(SimpleServer.SimpleServer):
             logging.info("TestLooper initialized")
 
             self.workerThread.start()
-
+            self.artifactStorageUploadThread.start()
+            
             super(TestLooperServer, self).runListenLoop()
         finally:
             self.httpServer.stop()
@@ -319,7 +350,8 @@ class TestLooperServer(SimpleServer.SimpleServer):
         logging.info("waiting for worker thread...")
 
         self.workerThread.join()
-
+        self.artifactStorageUploadThread.join()
+        
         logging.info("successfully stopped TestLooperServer")
 
     def _onConnect(self, socket, address):

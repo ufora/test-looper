@@ -239,7 +239,6 @@ class LocalMachineManagement(MachineManagement):
                     WorkerState.WorkerState(
                         self.config.machine_management.docker_scope + "_" + machineId,
                         os.path.join(self.config.machine_management.local_storage_path, machineId),
-                        self.source_control,
                         self.artifactStorage,
                         machineId,
                         hardware_config

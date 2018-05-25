@@ -8,6 +8,7 @@ import threading
 import fnmatch
 import textwrap
 import re
+import os
 from test_looper.core.hash import sha_hash
 import test_looper.core.Bitstring as Bitstring
 import test_looper.core.object_database as object_database
@@ -931,83 +932,6 @@ class TestManager(object):
                     return (deployment._identity, self.definitionForTest(test))
 
             return None, None
-
-    def _cleanupGitRepoLocks(self):
-        cleaned = 0
-
-        for lock in self.database.AllocatedGitRepoLocks.lookupAll(alive=True):
-            if lock.testOrDeployId is None:
-                logging.info("Deleted an invalid GitRepoLock.")
-                lock.delete()
-                cleaned += 1
-            else:                
-                testRun = self.database.TestRun(lock.testOrDeployId)
-                if testRun.exists() and (testRun.canceled or testRun.endTimestamp > 0.0):
-                    logging.info("Deleted a GitRepoLock because test %s is dead.", lock.testOrDeployId)
-                    lock.delete()
-                    cleaned += 1
-                else:
-                    deployment = self.database.Deployment(lock.testOrDeployId)
-                    if deployment.exists() and not deployment.isAlive:
-                        logging.info("Deleted a GitRepoLock because deployment %s is dead", lock.testOrDeployId)
-                        lock.delete()
-                        cleaned += 1
-
-        if cleaned:
-            logging.info("Cleaned up %s git dead repo locks. %s remaining.", 
-                cleaned, 
-                len(self.database.AllocatedGitRepoLocks.lookupAll(alive=True))
-                )
-
-    def tryToAllocateGitRepoLock(self, requestId, testOrDeployId):
-        with self.transaction_and_lock():
-            self._cleanupGitRepoLocks()
-
-            if self.database.AllocatedGitRepoLocks.lookupAny(requestUniqueId=requestId):
-                #lock already exists
-                logging.info(
-                    "Reiterating to %s that it has a git repo lock. There are still %s locks.",
-                    testOrDeployId,
-                    len(self.database.AllocatedGitRepoLocks.lookupAll(alive=True))
-                    )
-                return True
-
-            if self.database.TestRun(testOrDeployId).exists():
-                testHash = self.database.TestRun(testOrDeployId).test.hash
-            elif self.database.Deployment(testOrDeployId).exists():
-                testHash = self.database.Deployment(testOrDeployId).test.hash
-            else:
-                return False
-
-            if len(self.database.AllocatedGitRepoLocks.lookupAll(alive=True)) > MAX_GIT_CONNECTIONS:
-                return False
-            if len(self.database.AllocatedGitRepoLocks.lookupAll(testOrDeployId=testOrDeployId)) > 1:
-                return False
-            if len(self.database.AllocatedGitRepoLocks.lookupAll(testHash=testHash)) > 1:
-                return False
-
-            self.database.AllocatedGitRepoLocks.New(requestUniqueId=requestId,testOrDeployId=testOrDeployId, testHash=testHash)
-
-            logging.info(
-                "Allocating a git repo lock to test/deploy %s. There are now %s",
-                testOrDeployId,
-                len(self.database.AllocatedGitRepoLocks.lookupAll(alive=True))
-                )
-            return True
-
-    def gitRepoLockReleased(self, requestId):
-        with self.transaction_and_lock():
-            lock = self.database.AllocatedGitRepoLocks.lookupAny(requestUniqueId=requestId)
-            if lock:
-                testOrDeployId = lock.testOrDeployId
-
-                lock.delete()
-
-                logging.info(
-                    "Released a git repo lock to test/deploy %s. There are now %s",
-                    testOrDeployId,
-                    len(self.database.AllocatedGitRepoLocks.lookupAll(alive=True))
-                    )
 
     def isDeployment(self, deploymentId):
         with self.database.view():
@@ -2430,6 +2354,7 @@ class TestManager(object):
                     return True
                 if self._testWantsRetries(dep.dependsOn):
                     return True
+
         return False
 
     def _testHasArtifactAnywhere(self, test, artifact):
@@ -2553,8 +2478,6 @@ class TestManager(object):
                 self._createTestDep(test, dep.buildHash, dep.artifact)
             elif dep.matches.Source:
                 pass
-
-
 
     def _createSourceDep(self, commit, reponame, commitHash):
         repo = self.database.Repo.lookupAny(name=reponame)

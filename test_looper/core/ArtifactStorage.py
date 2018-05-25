@@ -108,44 +108,6 @@ class ArtifactStorage(object):
             raise Exception("Timed out uploading individual artifacts")
 
 
-    def uploadTestArtifacts(self, testHash, testId, prefix, testOutputDir):
-        """Upload all the files in 'testOutputDir'.
-        """
-        all_paths = set(os.listdir(testOutputDir))
-
-        def uploadFile(path, semaphore):
-            try:
-                full_path = os.path.join(testOutputDir, path)
-
-                if os.path.isdir(full_path):
-                    with tarfile.open(full_path + ".tar.gz", "w:gz") as tf:
-                        tf.add(full_path, arcname=path)
-
-                    path += ".tar.gz"
-                    full_path += ".tar.gz"
-                elif path.endswith(('.log', '.out', ".stdout", ".stderr")):
-                    with gzip.open(full_path + ".gz", "wb") as gzip_f:
-                        with open(full_path, "rb") as f:
-                            shutil.copyfileobj(f, gzip_f)
-
-                    full_path = full_path + ".gz"
-                    path = path + ".gz"
-
-                self.uploadSingleTestArtifact(testHash, testId, prefix + path, full_path)
-            except:
-                logging.error("Failed to upload %s:\n%s", path, traceback.format_exc())
-            finally:
-                semaphore.release()
-
-        sem = threading.Semaphore(0)
-        counts = 0
-        for logFile in os.listdir(testOutputDir):
-            timerQueue.enqueueWorkItem(uploadFile, (logFile, sem))
-            counts += 1
-
-        for _ in xrange(counts):
-            sem.acquire()
-
     def testResultKeysFor(self, testHash, testId):
         """Return a list of test results for a given testId.
 
@@ -181,6 +143,34 @@ class ArtifactStorage(object):
     def build_exists(self, testHash, key_name):
         """Returns true if a build with 'key_name' exists. False otherwise."""
         assert False, "Subclasses implement"
+
+    def uploadSourceTarball(self, git_repo, commitHash, subpath, platform):
+        assert platform in ['linux', 'win']
+
+        source_platform_name = "source-" + platform
+    
+        if subpath:            
+            source_platform_name = source_platform_name + "/" + subpath
+
+        artifact_key = self.sanitizeName(source_platform_name) + ".tar.gz"
+            
+        if not self.build_exists(commitHash, artifact_key):
+            tarballs_dir = tempfile.mkdtemp()
+
+            try:
+                tarball_name = os.path.join(tarballs_dir, artifact_key)
+
+                git_repo.createRepoTarball(commitHash, subpath, tarball_name, setCoreAutocrlf=platform=="win")
+
+                logging.info("ArtifactStorage uploading %s/%s", commitHash, artifact_key)
+                self.upload_build(commitHash, artifact_key, tarball_name)
+            finally:
+                try:
+                    shutil.rmtree(tarballs_dir)
+                except:
+                    logging.error("ArtifactStorage: Failed to remove dir %s:\n%s", tarballs_dir, traceback.format_exc())
+        else:
+            logging.info("ArtifactStorage already had a build for %s/%s", commitHash, artifact_key)
 
 class AwsArtifactStorage(ArtifactStorage):
     def __init__(self, config):

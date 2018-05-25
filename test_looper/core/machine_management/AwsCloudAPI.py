@@ -340,7 +340,6 @@ class API:
         reboot_script = (
             windows_bootstrap_script.replace("__test_config__", json.dumps({
                     "server_ports": to_json(self.config.server_ports),
-                    "source_control": to_json(self.config.source_control),
                     "artifacts": to_json(self.config.artifacts)
                     }, indent=4))
                 .replace("__testlooper_server_and_port__", looper_server_and_port)
@@ -381,7 +380,6 @@ class API:
                     .replace("__test_config__", json.dumps(
                         {
                         "server_ports": to_json(self.config.server_ports),
-                        "source_control": to_json(self.config.source_control),
                         "artifacts": to_json(self.config.artifacts)
                         },
                         indent=4

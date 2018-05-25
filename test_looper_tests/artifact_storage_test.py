@@ -49,35 +49,6 @@ class Mixin:
 
         self.assertEqual(open(os.path.join(self.scratchdir, "worker", "out2.tar.gz"), "rb").read(), "some_tarball")
 
-    def test_upload_test_artifacts(self):
-        put_into(self.scratchdir, 
-            {"worker": {
-                "f1": "f1 contents", 
-                "f2": "f2 contents", 
-                "f3.log": "f3 contents",
-                "f4": {
-                    "a": "a contents",
-                    "b": "b contents"
-                    },
-                "0_f4.tar.gz": "a"
-            }})
-
-        self.assertEqual(self.artifactStorage.testResultKeysFor("testhash", "testid"), [])
-        self.artifactStorage.uploadTestArtifacts("testhash", "testid", os.path.join(self.scratchdir, "worker"), ["f4.tar.gz"])
-        self.assertEqual(
-            set(self.artifactStorage.testResultKeysFor("testhash", "testid")), 
-            set(["f1", "f2", "f3.log.gz", "1_f4.tar.gz", "0_f4.tar.gz"])
-            )
-
-        tarball_contents = self.contentsOfTestArtifact("testhash", "testid", "1_f4.tar.gz")
-
-        self.assertEqual(tarball_contents.content_type, "application/octet-stream")
-
-        with tarfile.open(fileobj=StringIO.StringIO(tarball_contents.content), mode="r:gz") as tf:
-            self.assertEqual(tf.extractfile("f4/a").read(), "a contents")
-            self.assertEqual(tf.extractfile("f4/b").read(), "b contents")
-
-        
 
 class LocalArtifactStorageTest(unittest.TestCase, Mixin):
     def setUp(self):
@@ -103,7 +74,7 @@ class LocalArtifactStorageTest(unittest.TestCase, Mixin):
         test("a:  s/df_")
         test("a:  s/df_")
 
-test_with_real_aws = True
+test_with_real_aws = False
 if test_with_real_aws:
     class AwsArtifactStorageTest(unittest.TestCase, Mixin):
         def setUp(self):

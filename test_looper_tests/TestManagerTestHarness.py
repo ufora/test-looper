@@ -25,6 +25,7 @@ class MockSourceControl(SourceControl.SourceControl):
         self.branch_to_commitId = {}
         self.created_commits = 0
         self.prepushHooks = {}
+        self.path_to_local_repo_cache = "/repos"
 
     def clearContents(self):
         self.repos = set()
@@ -95,6 +96,9 @@ class MockGitRepo:
     def fetchOrigin(self):
         pass
 
+    def ensureDirectoryExists(self, dirname):
+        pass
+
     def listBranchesForRemote(self, remote):
         if remote != "origin":
             return {}
@@ -152,6 +156,9 @@ class MockGitRepo:
         self.repo.source_control.commit_test_defs[newCommitId] = fileContents['testDefinitions.yml']
 
         return newCommitHash
+
+    def createRepoTarball(self, commitHash, pathWithinRepo, targetTarball, setCoreAutocrlf):
+        pass
 
     def allAncestors(self, c):
         ancestors = set()
@@ -292,6 +299,7 @@ class TestManagerTestHarness:
         while True:
             self.timestamp += 1.0
             task = self.manager.performBackgroundWork(self.timestamp)
+
             if task is None:
                 if not cleanedup:
                     cleanedup=True
@@ -421,7 +429,6 @@ class TestManagerTestHarness:
 
 FakeConfig = algebraic.Alternative("FakeConfig")
 FakeConfig.Config = {"machine_management": Config.MachineManagementConfig}
-
 
 def getHarness(max_workers=1000):
     return TestManagerTestHarness(

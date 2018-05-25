@@ -4,6 +4,7 @@ import logging
 import unittest
 import tempfile
 import shutil
+import tarfile
 import os
 
 class GitTests(unittest.TestCase):
@@ -96,4 +97,46 @@ class GitTests(unittest.TestCase):
         h7 = base_repo.createMerge(h6_left_2, [h6_right_2], "merge commit")
         self.assertEqual(base_repo.mostRecentHashForSubpath(h7, "dir1"), h6_left_2)
         
+    def test_create_sub_tarball(self):
+        base_repo = Git.Git(os.path.join(self.testdir, "base_repo"))
+        base_repo.init()
 
+        h1 = base_repo.commit("message1")
+        h2 = base_repo.createCommit(h1, {'file1': "hi", "dir1/file2": "contents", "dir2/file3": "contents"}, "message2")
+        h3 = base_repo.createCommit(h1, {'file1': "hi", "dir1/file2": "contents", "dir2/file3": "contents\ncontents_second_line"}, "message2")
+
+        tarball_dir2 = os.path.join(self.testdir, "output_dir2.tar.gz")
+        tarball = os.path.join(self.testdir, "output.tar.gz")
+        tarball_crlf = os.path.join(self.testdir, "output_crlf.tar.gz")
+        tarball_h3_crlf = os.path.join(self.testdir, "output_h3_crlf.tar.gz")
+        tarball_h3 = os.path.join(self.testdir, "output_h3.tar.gz")
+
+        base_repo.createRepoTarball(h2, "", tarball, False)
+        base_repo.createRepoTarball(h2, "dir2", tarball_dir2, False)
+        base_repo.createRepoTarball(h2, "", tarball_crlf, True)
+        base_repo.createRepoTarball(h3, "", tarball_h3_crlf, True)
+        base_repo.createRepoTarball(h3, "", tarball_h3, False)
+
+        self.assertTrue(os.path.exists(tarball))
+        self.assertTrue(os.path.exists(tarball_dir2))
+        self.assertTrue(os.path.exists(tarball_crlf))
+        self.assertTrue(os.path.exists(tarball_h3_crlf))
+        self.assertTrue(os.path.exists(tarball_h3))
+
+        self.assertTrue(os.stat(tarball_dir2).st_size < os.stat(tarball))
+
+        with tarfile.open(tarball) as tf:
+            self.assertEqual(sorted(tf.getnames()), sorted(['.', './.git_commit', './file1', './dir1', './dir1/file2', './dir2', './dir2/file3']))
+
+        with tarfile.open(tarball_dir2) as tf:
+            self.assertEqual(sorted(tf.getnames()), sorted(['.', './file3']))
+        
+        with tarfile.open(tarball_crlf) as tf:
+            self.assertEqual(tf.extractfile("./dir2/file3").read(), "contents")
+        with tarfile.open(tarball) as tf:
+            self.assertEqual(tf.extractfile("./dir2/file3").read(), "contents")
+
+        with tarfile.open(tarball_h3) as tf:
+            self.assertEqual(tf.extractfile("./dir2/file3").read(), "contents\ncontents_second_line")
+        with tarfile.open(tarball_h3_crlf) as tf:
+            self.assertEqual(tf.extractfile("./dir2/file3").read(), "contents\r\ncontents_second_line")

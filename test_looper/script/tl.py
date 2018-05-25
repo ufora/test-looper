@@ -221,9 +221,6 @@ class DummyArtifactStorage(object):
     def uploadIndividualTestArtifacts(self, testHash, testId, pathsToUpload, logger=None):
         pass
 
-    def uploadTestArtifacts(self, *args, **kwargs):
-        pass
-
 class WorkerStateOverride(WorkerState.WorkerState):
     def __init__(self, name_prefix, worker_directory, looperCtl, cores):
         hwConfig = Config.HardwareConfig(cores=cores, ram_gb=8)
@@ -894,6 +891,10 @@ class TestLooperCtl:
 
                 def subscribeToTerminalInput(self, callback):
                     pass
+
+                def requestSourceTarballUpload(self, repoName, commitHash, path, platform):
+                    pass
+
 
             callbacks = Callbacks()
         else:

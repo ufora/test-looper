@@ -503,7 +503,7 @@ class TestManagerTests(unittest.TestCase):
             assert test2 is not None
             assert test3 is not None
 
-            assert test1.priority.matches.NoMoreTests
+            assert test1.priority.matches.NoMoreTests, test1.priority
             assert test2.priority.matches.WaitingOnBuilds, test2.priority
             assert test3.priority.matches.WaitingOnBuilds, test3.priority
 
