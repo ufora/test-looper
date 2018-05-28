@@ -177,9 +177,12 @@ class TestDefinitionScriptTests(unittest.TestCase):
 
         computedRes = []
         for v1 in ['v1_val1', 'v1_val2']:
-          for v2 in ['v2_val1', 'v2_val2']:
-            computedRes.append({"path": "repo1/path", "v1": v1, "v2": v2})
-            computedRes.append({"path": "repo2/path", "v1": v1, "v2": v2, "v3": "v3_val1", "v4": "v4_val1"})
+            for v2 in ['v2_val1', 'v2_val2']:
+                computedRes.append({"path": "repo1/path", "v1": v1, "v2": v2})
+                computedRes.append({"path": "repo2/path", "v1": v1, "v2": v2, "v3": "v3_val1", "v4": "v4_val1"})
+
+        self.assertEqual(res, computedRes)
+
 
     def test_expansion(self):
         res = TestDefinitionScript.MacroExpander().expand_macros(

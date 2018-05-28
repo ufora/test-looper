@@ -244,7 +244,9 @@ class Encoder(object):
                                     raise UserWarning("Can't find a type with fieldnames " + str(sorted(value)))
 
                         if len(possible) > 1:
-                            possible = [p for p in possible if len(algebraic_type._types[p]) == len(value)]
+                            #pick the smallest one. If it's unique, thats OK.
+                            smallestCount = min([len(algebraic_type._types[p]) for p in possible])
+                            possible = [p for p in possible if len(algebraic_type._types[p]) == smallestCount]
                         
                         if len(possible) > 1:
                             raise UserWarning("Type is ambiguous: %s could be any of %s" % (sorted(value), possible))

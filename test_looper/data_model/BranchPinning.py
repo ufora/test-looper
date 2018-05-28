@@ -48,12 +48,12 @@ class BranchPinning:
 
         repo_def = pin.repo_def
 
-        curCommitRef = pin.branch.head.data.repos[repo_def].reference
-
-        target = curCommitRef.split("/")
+        curRef = pin.branch.head.data.repos[repo_def]
 
         #this is what we're currently referencing
-        repoName, commitHash = ("/".join(target[:-1]), target[-1])
+        repoName = curRef.reponame()
+        commitHash = curRef.commitHash()
+
         assert repoName == pin.pinned_to_repo
 
         repo = self.database.Repo.lookupAny(name=repoName)
@@ -423,7 +423,7 @@ class BranchPinning:
 
             target_repo_name = pin.pinned_to_repo
 
-            curCommitHash = pin.branch.head.data.repos[pin.repo_def].reference.split("/")[-1]
+            curCommitHash = pin.branch.head.data.repos[pin.repo_def].commitHash()
 
             if curCommitHash != newCommitHash:
                 pat_text = r"\b({r})(\s*:\s*reference\s*:\s*)({tr}/{h})\b".format(r=pin.repo_def,h=curCommitHash, tr=target_repo_name)

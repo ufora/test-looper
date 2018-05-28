@@ -64,11 +64,12 @@ Artifact.Artifact = {
     }
 
 RepoReference = algebraic.Alternative("RepoReference")
-RepoReference.Import = {"import": str} # /-separated sequence of repo refs
-RepoReference.ImportedReference = {"reference": str, "import_source": str, "orig_reference": str}
-RepoReference.Reference = {"reference": str}
+RepoReference.Import = {"import": str, "path": str} # /-separated sequence of repo refs
+RepoReference.ImportedReference = {"reference": str, "import_source": str, "orig_reference": str, "path": str}
+RepoReference.Reference = {"reference": str, "path": str}
 RepoReference.Pin = {
     "reference": str,
+    "path": str,
     "branch": str,
     "auto": bool,
             
@@ -76,14 +77,19 @@ RepoReference.Pin = {
     "prioritize": bool
     }
 
+
 def RepoReference_reponame(ref):
     if ref.matches.Import:
         return None
+    
     return "/".join(ref.reference.split("/")[:-1])
+
 def RepoReference_commitHash(ref):
     if ref.matches.Import:
         return None
+    
     return ref.reference.split("/")[-1]
+
 def RepoReference_branchname(ref):
     if ref.matches.Pin:
         return ref.branch

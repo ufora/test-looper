@@ -352,17 +352,17 @@ class BranchContext(Context.Context):
         else:
             commit = branch.head
 
-            targetRepoName = "/".join(repoRef.reference.split("/")[:-1])
+            targetRepoName = repoRef.reponame()
 
             target_branch = self.testManager.database.Branch.lookupAny(reponame_and_branchname=(targetRepoName,repoRef.branch))
             
             if not target_branch:
                 return HtmlGeneration.lightGrey("unknown branch %s" % repoRef.branch)
 
-            if target_branch.head.hash == repoRef.reference.split("/")[-1]:
+            if target_branch.head.hash == repoRef.commitHash():
                 return HtmlGeneration.lightGrey("up to date")
 
-            message = "push commit updating pin of %s from %s to %s" % (reference_name, target_branch.head.hash, repoRef.reference.split("/")[-1])
+            message = "push commit updating pin of %s from %s to %s" % (reference_name, target_branch.head.hash, repoRef.commitHash())
 
             params = {
                 "redirect": self.redirect(), 
@@ -381,8 +381,8 @@ class BranchContext(Context.Context):
         else:
             preamble = ""
 
-        repoName = "/".join(repoRef.reference.split("/")[:-1])
-        commitHash = repoRef.reference.split("/")[-1]
+        repoName = repoRef.reponame()
+        commitHash = repoRef.commitHash()
 
         repo = self.testManager.database.Repo.lookupAny(name=repoName)
         if not repo:

@@ -108,6 +108,9 @@ class MockGitRepo:
     def commitExists(self, branchOrHash):
         return self.repo.commitExists(branchOrHash)
 
+    def mostRecentHashForSubpath(self, commitHash, subpath):
+        return commitHash
+
     def standardCommitMessageFor(self, hash):
         assert self.repo.commitExists(hash)
 

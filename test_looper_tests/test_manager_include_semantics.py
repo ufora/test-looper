@@ -80,6 +80,51 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         
         self.assertEqual(sorted(resolver.repoReferencesFor("repo0", "c0").keys()), ["r"])
 
+    def test_repos_with_paths(self):
+        yaml_with_repo_paths = textwrap.dedent("""
+          looper_version: 4
+          repos:
+            self_with_path: 
+              reference: HEAD
+              path: dir1/dir2
+            self_without_path: 
+              reference: HEAD
+          environments:
+            test_linux:
+              platform: linux
+              image:
+                dockerfile: "test_looper/Dockerfile.txt"
+          builds:
+            way_1:
+              environment: test_linux
+              command: "src/build.sh $TEST_INPUTS/child"
+              dependencies:
+                src: self_with_path
+            way_2:
+              environment: test_linux
+              command: "src/build.sh $TEST_INPUTS/child"
+              dependencies:
+                src: self_without_path/source/dir1/dir2
+          """)
+      
+        harness = TestManagerTestHarness.getHarness()
+
+        harness.manager.source_control.addCommit("repo0/c0", [], yaml_with_repo_paths)
+
+        resolver = harness.resolver()
+        
+        tests = resolver.testDefinitionsFor("repo0", "c0")
+
+        self.assertTrue('way_1' in tests, tests.keys())
+        self.assertTrue('way_2' in tests, tests.keys())
+
+        self.assertEqual(
+          tests['way_1'].dependencies['test_inputs/src'],
+          tests['way_2'].dependencies['test_inputs/src']
+          )
+
+
+
     def test_recursive_includes(self):
         envdef2 = textwrap.dedent("""
             looper_version: 4

@@ -373,8 +373,8 @@ class CommitContext(Context.Context):
         else:
             preamble = ""
 
-        repoName = "/".join(repoRef.reference.split("/")[:-1])
-        commitHash = repoRef.reference.split("/")[-1]
+        repoName = repoRef.reponame()
+        commitHash = repoRef.commitHash()
 
         repo = self.testManager.database.Repo.lookupAny(name=repoName)
         if not repo:

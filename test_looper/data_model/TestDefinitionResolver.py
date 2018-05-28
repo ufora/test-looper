@@ -13,6 +13,14 @@ def isValidCommitRef(committish):
 
 MAX_INCLUDE_ATTEMPTS = 128
 
+def pathJoin(path1, path2):
+    """Given two /-separated relative filesystem paths, join them."""
+    if not path1:
+        return path2
+    if not path2:
+        return path1
+    return "/".join(path1.split("/") + path2.split("/"))
+
 class TestResolutionException(Exception):
     def __init__(self, msg):
         Exception.__init__(self, msg)
@@ -77,12 +85,23 @@ class TestDefinitionResolver:
         """
         return actualRef
 
-    def resolveRepoDefinitions_(self, curRepoName, repos):
+    def resolveRepoDefinitions_(self, curRepoName, curCommitHash, raw_repos):
         """Given a set of raw repo references, resolve local names and includes.
 
         Every resulting repo is an RepoReference.Pin, RepoReference.Reference or an RepoReference.ImportedReference
         """
         resolved_repos = {}
+
+        #first, replace any 'HEAD' references with references to the current commit.
+        repos = {}
+        for r in raw_repos:
+            if raw_repos[r].matches.Import:
+                repos[r] = raw_repos[r]
+            else:
+                if raw_repos[r].reference == "HEAD":
+                    repos[r] = raw_repos[r]._withReplacement(reference=curRepoName + "/" + curCommitHash)
+                else:
+                    repos[r] = raw_repos[r]
 
         if any([r.commitHash() == "HEAD" for r in repos.values()]):
             return {r: v for r,v in repos.iteritems() if v.matches.Pin or v.matches.Reference}
@@ -123,6 +142,7 @@ class TestDefinitionResolver:
             #make sure it's not a pin - we don't want to create a pin for it!
             subref = TestDefinition.RepoReference.ImportedReference(
                 reference=subref.reference,
+                path=pathJoin(subref.path, ref.path),
                 import_source=getattr(ref, "import"),
                 orig_reference="" if subref.matches.Reference
                     else subref.orig_reference if subref.matches.ImportedReference 
@@ -176,7 +196,7 @@ class TestDefinitionResolver:
 
         tests, envs, repos, includes, prioritizeGlobs = self.unprocessedTestsEnvsAndReposFor_(repoName, commitHash)
         
-        repos = self.resolveRepoDefinitions_(repoName, repos)
+        repos = self.resolveRepoDefinitions_(repoName, commitHash, repos)
 
         if any([r.commitHash() == "HEAD" for r in repos.values()]):
             #this is not a _real_ commit, so don't try to follow it. We do want the repo
@@ -244,7 +264,7 @@ class TestDefinitionResolver:
                         raise TestResolutionException("Included repo %s can't be marked 'auto'" % reponame)
 
                 repos.update(new_repos)
-                repos = self.resolveRepoDefinitions_(repoName, repos)
+                repos = self.resolveRepoDefinitions_(repoName, commitHash, repos)
 
                 for env in new_envs:
                     if env in envs or env in repos:
@@ -333,7 +353,7 @@ class TestDefinitionResolver:
                 return TestDefinition.TestDependency.Source(
                     repo=ref.reponame(), 
                     commitHash=real_hash,
-                    path=testDep.path
+                    path=pathJoin(ref.path, testDep.path)
                     )
 
             return testDep
@@ -625,7 +645,7 @@ class TestDefinitionResolver:
                     )
 
             if testDep.matches.ExternalBuild:
-                assert not (testDep.repo == repoName and testDep.commitHash == commitHash)
+                assert not (testDep.repo == repoName and testDep.commitHash == commitHash), testDep
 
                 externalTests = self.testDefinitionsFor(testDep.repo, testDep.commitHash)
 
@@ -644,6 +664,13 @@ class TestDefinitionResolver:
                 ref = resolved_repos[testDep.repo_name]
                 
                 if testDep.matches.UnresolvedExternalBuild:
+                    if ref.path:
+                        raise TestResolutionException(
+                            ("Can't depend on build %s from a repo-def that's" +
+                                " a slice of a repo (%s has path %s)")
+                             % (testDep.name, testDep.repo_name, ref.path)
+                            )
+
                     return resolveTestDep(
                         TestDefinition.TestDependency.ExternalBuild(
                             repo=ref.reponame(), 
@@ -654,6 +681,7 @@ class TestDefinitionResolver:
                 else:
                     if testDep.path:
                         real_hash = self.git_repo_lookup(ref.reponame()).mostRecentHashForSubpath(
+                            ref.commitHash(),
                             testDep.path
                             )
                     else:
@@ -662,7 +690,7 @@ class TestDefinitionResolver:
                     return TestDefinition.TestDependency.Source(
                         repo=ref.reponame(), 
                         commitHash=real_hash,
-                        path=testDep.path
+                        path=pathJoin(ref.path, testDep.path)
                         )
 
             return testDep

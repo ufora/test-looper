@@ -162,17 +162,20 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
         if repoPin.matches.Reference or repoPin.matches.Pin or repoPin.matches.ImportedReference:
             repoDef = repoPin.reference
 
-            assert len(repoDef.split("/")) >= 2, "Improperly formed repo definition: %s" % repoDef
+            if repoDef == "HEAD":
+                pass
+            else:
+                assert len(repoDef.split("/")) >= 2, "Improperly formed repo definition: %s" % repoDef
 
-            parts = repoDef.split("/")
+                parts = repoDef.split("/")
 
-            assert len(parts) >= 2, "Improperly formed repo definition: %s" % repoDef
+                assert len(parts) >= 2, "Improperly formed repo definition: %s" % repoDef
 
-            repoName = "/".join(parts[:-1])
-            commitHash = parts[-1]
+                repoName = "/".join(parts[:-1])
+                commitHash = parts[-1]
 
-            if commitHash == "":
-                raise Exception("Can't have an empty commitHash")
+                if commitHash == "":
+                    raise Exception("Can't have an empty commitHash")
 
     all_repos = set(externally_defined_repos) if externally_defined_repos else set()
     for reponame in testScript.repos:
@@ -681,7 +684,7 @@ def extract_postprocessed_test_definitions(extension, text, variable_definitions
 
 def parseRepoReference(encoder, value):
     if isinstance(value, (str, unicode)):
-        return RepoReference.Reference(reference=str(value))
+        return RepoReference.Reference(reference=str(value),path="")
     return algebraic_to_json.Encoder().from_json(value, RepoReference)
 
 def parseVariableDict(encoder, value):

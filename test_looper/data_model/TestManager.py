@@ -1948,7 +1948,7 @@ class TestManager(object):
 
         if branch.head and branch.head.data:
             for repo_def, target in branch.head.data.repos.iteritems():
-                reponame = "/".join(target.reference.split("/")[:-1])
+                reponame = target.reponame()
 
                 if target.matches.Pin:
                     self.database.BranchPin.New(
@@ -2678,4 +2678,3 @@ class TestManager(object):
             existing.isHead = False
             task.prior = existing
             task.prior_ct = existing.prior_ct + 1
-
