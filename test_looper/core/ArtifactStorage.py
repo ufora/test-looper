@@ -57,8 +57,8 @@ class ArtifactStorage(object):
         result[1::2] = [lookup[val] for val in result[1::2]]
         return "".join(result)
 
-    def testResultKeysAndSizesForIndividualTest(self, testHash, testId, testName):
-        subPrefix = TEST_LOG_NAME_PREFIX + self.sanitizeName(testName)
+    def testResultKeysAndSizesForIndividualTest(self, testHash, testId, testName, testRunIx):
+        subPrefix = TEST_LOG_NAME_PREFIX + self.sanitizeName(testName) + "/" + str(testRunIx)
 
         res = []
 
@@ -70,7 +70,7 @@ class ArtifactStorage(object):
     def uploadIndividualTestArtifacts(self, testHash, testId, pathsToUpload, logger=None):
         queue = Queue.Queue()
 
-        def uploadArtifact(testName, path):
+        def uploadArtifact(testName, runIx, path):
             try:
                 testName = self.sanitizeName(testName)
                 filename = os.path.basename(path)
@@ -78,7 +78,7 @@ class ArtifactStorage(object):
                 self.uploadSingleTestArtifact(
                     testHash, 
                     testId, 
-                    TEST_LOG_NAME_PREFIX + testName + "/" + filename, 
+                    TEST_LOG_NAME_PREFIX + testName + "/" + str(runIx) + "/" + filename, 
                     path
                     )
             except:
@@ -88,9 +88,9 @@ class ArtifactStorage(object):
 
         counts = 0
 
-        for testName, paths in pathsToUpload.iteritems():
+        for (testName, runIx), paths in pathsToUpload.iteritems():
             for path in paths:
-                timerQueue.enqueueWorkItem(uploadArtifact, (testName, path))
+                timerQueue.enqueueWorkItem(uploadArtifact, (testName, runIx, path))
                 counts += 1
 
         try:

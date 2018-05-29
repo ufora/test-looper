@@ -154,7 +154,6 @@ def createArgumentParser():
     info_parser.set_defaults(command="info")
     info_parser.add_argument("testpattern", help="Subset of tests to look at in particular", default=[], nargs='*')
     info_parser.add_argument("-d", "--detail", help="Dump full test detail, not just the name", default=False, action="store_true")
-    info_parser.add_argument("--include_disabled", help="Show all tests and builds including disabled ones", default=False, action="store_true")
     info_parser.add_argument("--all", help="Show all repos (even hidden ones) when displaying dependencies", default=False, action="store_true")
 
     return parser
@@ -926,13 +925,11 @@ class TestLooperCtl:
                 if any([fnmatch.fnmatchcase(t, p) for p in args.testpattern]) or not args.testpattern:
                     self.infoForTest(t, byName[t][0], args.all)
         else:
-            grid = [["Name","Type","Project","Configuration","Environment"] + (["Disabled"] if args.include_disabled else [])]
+            grid = [["Name","Type","Project","Configuration","Environment"]]
 
             for t in sorted(byName):
-                if args.include_disabled or not byName[t][0].disabled:
-                    if any([fnmatch.fnmatchcase(t, p) for p in args.testpattern]) or not args.testpattern:
-                        grid.append([t, byName[t][0]._which, byName[t][0].project, byName[t][0].configuration, byName[t][0].environment_name]
-                            + ([byName[t][0].disabled] if args.include_disabled else []))
+                if any([fnmatch.fnmatchcase(t, p) for p in args.testpattern]) or not args.testpattern:
+                    grid.append([t, byName[t][0]._which, byName[t][0].project, byName[t][0].configuration, byName[t][0].environment_name])
 
             printGrid(grid)
 

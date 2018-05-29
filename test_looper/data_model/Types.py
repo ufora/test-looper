@@ -4,6 +4,8 @@ import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.core.Config as Config
 import test_looper.core.machine_management.MachineManagement as MachineManagement
 
+
+
 BackgroundTaskStatus = algebraic.Alternative("BackgroundTaskStatus")
 BackgroundTaskStatus.PendingVeryHigh = {}
 BackgroundTaskStatus.PendingHigh = {}
@@ -54,8 +56,11 @@ def setup_types(database):
         hash=str,
         repo=database.Repo,
         data=database.CommitData,
-        userPriority=int,
-        calculatedPriority=int,
+        #which testSets have been enabled by a user
+        userEnabledTestSets=algebraic.List(str),
+        #the test sets that are enabled, assuming that the commit is still visible from a 
+        #branch
+        calculatedTestSets=algebraic.List(str),
         anyBranch=database.Branch
         )
 
@@ -69,6 +74,14 @@ def setup_types(database):
         authorEmail=str,
         tests=algebraic.Dict(str, database.Test),
         repos=algebraic.Dict(str, TestDefinition.RepoReference),
+        #map from test_set name to a list of test/build names. Includes all tests that are internal
+        #to this commit that are dependencies. This is mostly for display purposes. Prioritization
+        #flows from 'testSetsTopLevel'
+        testSets=algebraic.Dict(str, algebraic.List(str)),
+        #map from test_set name to a list of test/build names that match at the top level (ie. not dependencies)
+        testSetsTopLevel=algebraic.Dict(str, algebraic.List(str)),
+        #list of triggered test sets
+        triggeredTestSets=algebraic.List(str), 
         testDefinitionsError=str,
         testsParsed=bool,
         noTestsFound=bool
@@ -92,7 +105,6 @@ def setup_types(database):
         "configuration": str,
         "artifacts": algebraic.List(str),
         "project": str,
-        "disabled": bool, #disabled by default?
         "timeout": int, #max time, in seconds, for the test
         "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
         "max_cores": int, #maximum number of cores we can take advantage of, or zero
@@ -102,16 +114,41 @@ def setup_types(database):
         "retry_wait_seconds": int, #minimum number of seconds to wait before retrying a build
         }
 
+    database.TestResultSummary.define(
+        test=database.Test, #the test we belong to
+        testNames=database.IndividualTestNameSet, #unique set of test names across this test
+        testTotalRuns=algebraic.List(int), #for each test, by index, the total number of times it ran
+        testHasLogs=algebraic.List(int), #for each test, by index, how many runs have logs
+        testTotalFailures=algebraic.List(int), #for each test, by index, the total number of failures
+        avgFailureRate=float, #sum of failures/runs for all tests with runs>0
+        totalTestCount=int, #total number of unique tests we have a run for
+        testLooksGood=Bitstring.Bitstring, #for each test, does it look good (good now, good last commit, or new)
+        testLooksBad=Bitstring.Bitstring, #for each test, does it look bad (bad now, bad last commit, or new)
+        testLooksFlakey=Bitstring.Bitstring, #for each test, does it look flakey (flakey now, flakey last commit)
+        testLooksBroken=Bitstring.Bitstring, #for each test, does it look broken (bad now, good last commit)
+        testLooksFixed=Bitstring.Bitstring, #for each test, does it look fixed (good now, bad/flakey last commit)
+        testLooksNew=Bitstring.Bitstring, #for each test, is it new?
+        removedTests=database.IndividualTestNameSet, #names of tests that look like they were removed
+        testLooksGoodTotal=int,
+        testLooksBadTotal=int,
+        testLooksFlakeyTotal=int,
+        testLooksBrokenTotal=int,
+        testLooksFixedTotal=int,
+        testLooksNewTotal=int
+        )
+
     database.Test.define(
         hash=str,
+        parent=database.Test, #closest test-suite by the same name/configuration/project in a parent commit
+        parentChecked=bool, #have we actually been able to check the parent?
         testDefinitionSummary=database.TestDefinitionSummary,
         machineCategory=database.MachineCategory,
         successes=int,
         totalRuns=int,
         activeRuns=int,
         lastTestEndTimestamp=float,
-        totalTestCount=float,
-        totalFailedTestCount=float,
+        testResultSummary=database.TestResultSummary,
+        #1 if this test is prioritized
         calculatedPriority=int,
         priority=database.TestPriority,
         targetMachineBoot=int, #the number of machines we want to boot to achieve this
@@ -156,11 +193,14 @@ def setup_types(database):
         artifactsCompleted=algebraic.List(str),
         machine=database.Machine,
         canceled=bool,
-        testNames=database.IndividualTestNameSet,
-        testFailures=Bitstring.Bitstring, #encoded as an 8-bit bitstring, True if successful, False if failed
-        testHasLogs=Bitstring.Bitstring, #True if there are individual test logs for this test
+        testNames=database.IndividualTestNameSet, #for this run, a lookup table of test names
+        testStepNameIndex=algebraic.List(int), #for each step in the run, which test was it
+        testStepTimeStarted=algebraic.List(algebraic.Nullable(float)), #for each step in the run, how long did it take.
+        testStepTimeElapsed=algebraic.List(algebraic.Nullable(float)), #for each step in the run, how long did it take.
+        testStepSucceeded=Bitstring.Bitstring, #for each step in the run, did it succeed?
+        testStepHasLogs=Bitstring.Bitstring, #for each step in the run, did it produce individual logs?
         totalTestCount=int,
-        totalFailedTestCount=int
+        totalFailedTestCount=float
         )
 
     database.IndividualTestNameSet.define(
@@ -207,8 +247,7 @@ def setup_types(database):
         repo_def=str,
         pinned_to_repo=str,
         pinned_to_branch=str,
-        auto=bool,
-        prioritize=bool
+        auto=bool
         )
 
     database.MachineCategory.define(

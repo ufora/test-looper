@@ -229,6 +229,9 @@ class Git(object):
     def currentFileDiff(self):
         return [x.strip() for x in self.subprocessCheckOutput(["git", "diff", "--name-only"]).split("\n") if x.strip()]
 
+    def filesChangedBetweenCommits(self, firstCommit, secondCommit):
+        return [x.strip() for x in self.subprocessCheckOutput(["git", "diff", "--name-only", firstCommit, secondCommit]).split("\n") if x.strip()]
+
     def currentFileNumStat(self):
         """Return a dict from path -> (added,removed) diff"""
         pat = re.compile("\s*(\d+)\s+(\d+)\s+(.*)\s*")
@@ -410,6 +413,9 @@ class Git(object):
                     ) or None
 
     def gitCommitData(self, commitHash):
+        """For a commit or revision, returns a tuple
+            (hash, [parent hashes], timestamp, commit_summary, author, authorEmail)
+        """
         return self.gitCommitDataMulti(commitHash, depth=1)[0]
 
     def gitCommitDataMulti(self, commitHash, depth):

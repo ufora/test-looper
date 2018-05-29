@@ -9,6 +9,7 @@ import test_looper.data_model.TestDefinitionResolver as TestDefinitionResolver
 import test_looper.core.Config as Config
 import test_looper.core.machine_management.MachineManagement as MachineManagement
 import test_looper.core.InMemoryJsonStore as InMemoryJsonStore
+import test_looper.data_model.SingleTestRunResult as SingleTestRunResult
 import test_looper.core.tools.Git as Git
 import test_looper.core.algebraic as algebraic
 import test_looper.core.source_control.SourceControl as SourceControl
@@ -122,6 +123,19 @@ class MockGitRepo:
 
     def getTestDefinitionsPath(self, hash):
         return "testDefinitions.yml"
+
+    def filesChangedBetweenCommits(self, firstCommit, secondCommit):
+        common = ["testDefinitions.yml", "test_looper/Dockerfile.txt"]
+        files1 = set(self.repo.source_control.commit_files.get(firstCommit, []) + common)
+        files2 = set(self.repo.source_control.commit_files.get(secondCommit, []) + common)
+
+        res = []
+        for f in set(list(files1) + list(files2)):
+            if f not in files1 or f not in files2 or \
+                    self.getFileContents(firstCommit, f) != self.getFileContents(secondCommit, f):
+                res.append(f)
+
+        return sorted(res)
 
     def getFileContents(self, commit, path):
         if path == "test_looper/Dockerfile.txt":
@@ -287,11 +301,14 @@ class TestManagerTestHarness:
     def markRepoListDirty(self):
         self.manager.markRepoListDirty(self.timestamp)
 
-    def getUnusedMachineId(self):
+    def getUnusedMachineIds(self):
+        res = []
+
         with self.manager.database.view():
             for m in self.manager.database.Machine.lookupAll(isAlive=True):
                 if not self.manager.database.TestRun.lookupAny(runningOnMachine=m):
-                    return m.machineId
+                    res.append(m.machineId)
+        return res
 
     def consumeBackgroundTasks(self):
         cleanedup = False
@@ -303,6 +320,7 @@ class TestManagerTestHarness:
             if task is None:
                 if not cleanedup:
                     cleanedup=True
+                    self.manager.performCleanupTasks(self.timestamp)
                     self.manager.performCleanupTasks(self.timestamp)
                 else:
                     return
@@ -327,14 +345,14 @@ class TestManagerTestHarness:
         with self.manager.database.transaction():
             b = self.manager.database.Branch.lookupOne(reponame_and_branchname=(reponame,branchname))
             self.manager.toggleBranchUnderTest(b)
-            self.manager.prioritizeAllCommitsUnderBranch(b, 1, 100)
+            self.manager.prioritizeAllCommitsUnderBranch(b, 100)
         
     def disableBranchTesting(self, reponame, branchname):
         with self.manager.database.transaction():
             b = self.manager.database.Branch.lookupOne(reponame_and_branchname=(reponame,branchname))
             if b.isUnderTest:
                 self.manager.toggleBranchUnderTest(b)
-            self.manager.prioritizeAllCommitsUnderBranch(b, 0, 100)
+            self.manager.deprioritizeAllCommitsUnderBranch(b, 100)
         
     def machinesThatRan(self, fullname):
         return [x[0] for x in self.test_record.get(fullname,())]
@@ -369,26 +387,29 @@ class TestManagerTestHarness:
     def startAllNewTests(self):
         tests = []
         while len(tests) < 1000:
-            machineId = self.getUnusedMachineId()
+            machineIds = self.getUnusedMachineIds()
 
-            if machineId is None:
+            if not machineIds:
                 return tests
 
-            testId, testDefinition = self.manager.startNewTest(machineId, self.timestamp)
+            foundOne = False
+            for machineId in machineIds:
+                testId, testDefinition, _ = self.manager.startNewTest(machineId, self.timestamp)
 
-            if testId:
-                if testDefinition.hash not in self.test_record:
-                    self.test_record[testDefinition.hash] = []
-                self.test_record[testDefinition.hash].append((machineId, testId))
-                if machineId not in self.machine_record:
-                    self.machine_record[machineId] = []
-                self.machine_record[machineId].append((testDefinition.hash, testId))
+                if testId:
+                    if testDefinition.hash not in self.test_record:
+                        self.test_record[testDefinition.hash] = []
+                    self.test_record[testDefinition.hash].append((machineId, testId))
+                    if machineId not in self.machine_record:
+                        self.machine_record[machineId] = []
+                    self.machine_record[machineId].append((testDefinition.hash, testId))
 
-                tests.append((testId, testDefinition))
-            else:
+                    tests.append((testId, testDefinition))
+
+                    foundOne = True
+
+            if not foundOne:
                 return tests
-
-            self.timestamp
 
         assert False
 
@@ -424,7 +445,29 @@ class TestManagerTestHarness:
                     self.manager.recordTestArtifactUploaded(testId, artifact.name, self.timestamp, False)
                     artifacts.append(artifact.name)
 
-                self.manager.recordTestResults(True, testId, {"ATest": (True,False), "AnotherTest": (False, False)}, artifacts, self.timestamp)
+                self.manager.recordTestResults(
+                    True, 
+                    testId, 
+                    [SingleTestRunResult.SingleTestRunResult(
+                        testName="ATest",
+                        startTimestamp=None,
+                        elapsed=None,
+                        testSucceeded=True,
+                        hasLogs=True,
+                        testPassIx=0
+                        ),
+                    SingleTestRunResult.SingleTestRunResult(
+                        testName="AnotherTest",
+                        startTimestamp=None,
+                        elapsed=None,
+                        testSucceeded=False,
+                        hasLogs=True,
+                        testPassIx=0
+                        )], 
+                    artifacts, 
+                    self.timestamp
+                    )
+
                 self.timestamp += .1
 
 FakeConfig = algebraic.Alternative("FakeConfig")

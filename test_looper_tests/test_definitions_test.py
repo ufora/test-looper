@@ -20,7 +20,7 @@ import textwrap
 import yaml
 
 basic_yaml_file = """
-looper_version: 4
+looper_version: 5
 repos:
   child: child-repo-name/repo_hash
 environments:
@@ -55,7 +55,7 @@ tests:
 """
 
 circular_yaml_file = """
-looper_version: 4
+looper_version: 5
 environments:
   linux:
     platform: linux
@@ -101,7 +101,7 @@ tests:
 
 environment_yaml_file = """
 environments:
-looper_version: 4
+looper_version: 5
 environments:
   env_root:
     platform: windows
@@ -122,7 +122,7 @@ environments:
 """
 
 includes_yaml_file = """
-looper_version: 4
+looper_version: 5
 includes:
   foreach:
     v1: [v1_val1, v1_val2]
@@ -140,7 +140,7 @@ def apply_and_merge(vars, extras=None):
 
 class TestDefinitionScriptTests(unittest.TestCase):
     def test_basic(self):
-        tests, environments, repos, includes, prioritizes = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", basic_yaml_file)
+        tests, environments, repos, includes, test_sets, triggers = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", basic_yaml_file)
 
         for name in ['build/linux', 'build/test_linux', 'test/linux', 'test/test_linux']:
             self.assertTrue(name in tests, name)
@@ -150,7 +150,7 @@ class TestDefinitionScriptTests(unittest.TestCase):
         self.assertEqual(environments["test_linux"].variables["A_BOOL_VAR"], "true")
 
     def test_environment_inheritance(self):
-        tests, environments, repos, includes, prioritizes = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", environment_yaml_file)
+        tests, environments, repos, includes, test_sets, triggers = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", environment_yaml_file)
 
         Ref = TestDefinition.EnvironmentReference.Reference
 
@@ -165,7 +165,7 @@ class TestDefinitionScriptTests(unittest.TestCase):
         self.assertEqual(env.image.setup_script_contents, "\nTestFileContents\n\nChildContents\n")
 
     def test_includes_and_variables(self):
-        _,_,_, includes, _ = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", includes_yaml_file)
+        _,_,_, includes, _, _ = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", includes_yaml_file)
 
         self.assertTrue(len(includes) == 8)
 

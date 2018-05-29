@@ -8,7 +8,6 @@ import threading
 import psutil
 
 import test_looper.core.ManagedThread as ManagedThread
-import test_looper.data_model.TestResult as TestResult
 import test_looper.worker.TestLooperClient as TestLooperClient
 
 def kill_proc_tree(pid, including_parent=True):
@@ -86,8 +85,8 @@ class TestLooperWorker(object):
             while not self.stopEvent.is_set():
                 work = self.testLooperClient.checkoutWork(self.timeToSleepWhenThereIsNoWork)
                 if work is not None:
-                    testOrDeployId, testDefinition, isDeploy = work
-                    self.run_task(testOrDeployId, testDefinition, isDeploy)
+                    testOrDeployId, testDefinition, historicalTestFailureRates, isDeploy = work
+                    self.run_task(testOrDeployId, testDefinition, historicalTestFailureRates, isDeploy)
         except:
             logging.critical("Unhandled error in TestLooperWorker socket loop:\n%s", traceback.format_exc())
         finally:
@@ -98,7 +97,7 @@ class TestLooperWorker(object):
             else:
                 logging.info("Machine %s is exiting the TestLooperWorker but not the process.", self.machineId)
 
-    def run_task(self, testId, testDefinition, isDeploy):
+    def run_task(self, testId, testDefinition, historicalTestFailureRates, isDeploy):
         logging.info("Machine %s is working on %s %s, which is %s with hash %s",
                      self.machineId,
                      "test" if not isDeploy else "deployment",
@@ -109,7 +108,13 @@ class TestLooperWorker(object):
 
         self.workerState.purge_build_cache()
 
-        result = self.workerState.runTest(testId, self.testLooperClient, testDefinition, isDeploy)
+        result = self.workerState.runTest(
+            testId, 
+            self.testLooperClient, 
+            testDefinition, 
+            isDeploy, 
+            historicalTestFailureRates=historicalTestFailureRates
+            )
         
         if not self.stopEvent.is_set():
             if isDeploy:

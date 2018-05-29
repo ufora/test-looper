@@ -31,8 +31,6 @@ class CommitAndFilter(ComboContext):
         return (self.commit, self.configurationName, self.projectName)
 
     def shouldIncludeTest(self, test):
-        if test.testDefinitionSummary.disabled:
-            return False
         if self.projectName and test.testDefinitionSummary.project != self.projectName:
             return False
         if self.configurationName and test.testDefinitionSummary.configuration != self.configurationName:

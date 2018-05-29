@@ -83,20 +83,21 @@ class IndividualTestGridRenderer:
             for run in runs:
                 if run.testNames:
                     testNames = run.testNames.test_names
-                    testFailures = run.testFailures
-                    testHasLogs = run.testHasLogs  
+                    testNameIndices = run.testStepNameIndex
+                    testSucceeded = run.testStepSucceeded
+                    testHasLogs = run.testStepHasLogs
                     testSuiteName = run.test.testDefinitionSummary.name
-                    
-                    for i in xrange(len(testNames)):
-                        cur_runs, cur_successes, testIfHasLogs = res.get(IndividualTest(testSuiteName, testNames[i]), (0,0,None))
+
+                    for i in xrange(len(run.testStepNameIndex)):
+                        cur_runs, cur_successes, testIfHasLogs = res.get(IndividualTest(testSuiteName, testNames[testNameIndices[i]]), (0,0,None))
 
                         cur_runs += 1
-                        cur_successes += 1 if testFailures[i] else 0
+                        cur_successes += 1 if testSucceeded[i] else 0
 
                         if testHasLogs and testHasLogs[i] and not testIfHasLogs:
                             testIfHasLogs = run.test
 
-                        res[IndividualTest(testSuiteName, testNames[i])] = (cur_runs, cur_successes, testIfHasLogs)
+                        res[IndividualTest(testSuiteName, testNames[testNameIndices[i]])] = (cur_runs, cur_successes, testIfHasLogs)
         
         return res
 

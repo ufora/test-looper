@@ -114,8 +114,15 @@ cd $TEST_LOOPER_INSTALL/repos/simple_project_3
 git init .
 cp $PROJ_ROOT/test_looper_tests/test_projects/simple_project_3/* -r .
 sed -i -e "s/__replace_this_hash__/$PROJ_2_COMMIT_POSTMERGE/g" testDefinitions.yml
+echo "0" > file.txt
 git add .
 git commit -m "initial commit in simple_project_3"
+echo "1" > file.txt
+git add .
+git commit -m "second commit in simple_project_3"
+echo "2" > file.txt
+git add .
+git commit -m "third commit in simple_project_3"
 
 git checkout HEAD --detach
 

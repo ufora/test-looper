@@ -217,8 +217,6 @@ class BranchContext(Context.Context):
         configFilter = self.configurationFilter
 
         def shouldIncludeTest(test):
-            if test.testDefinitionSummary.disabled:
-                return False
             if self.projectFilter and test.testDefinitionSummary.project != self.projectFilter:
                 return False
             if self.configurationFilter and test.testDefinitionSummary.configuration != self.configurationFilter:

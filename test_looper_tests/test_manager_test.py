@@ -30,7 +30,9 @@ class TestManagerTests(unittest.TestCase):
             "repo1/c1/build/linux",
             "repo1/c0/build/linux",
             "repo1/c1/test/windows",
-            "repo1/c0/test/windows"
+            "repo1/c0/test/windows",
+            "repo2/c0/build_without_deps/linux",
+            "repo2/c1/build_without_deps/linux"
             ]), phases)
 
         self.assertEqual(sorted(phases[1]), sorted([
@@ -63,6 +65,8 @@ class TestManagerTests(unittest.TestCase):
         
         self.assertEqual(sorted(phases[0]), sorted([
             "repo1/c0/build/linux",
+            "repo2/c0/build_without_deps/linux",
+            "repo2/c1/build_without_deps/linux"
             ]), phases)
 
         self.assertEqual(sorted(phases[1]), sorted([
@@ -257,7 +261,7 @@ class TestManagerTests(unittest.TestCase):
 
             merged_branch.isUnderTest = True
 
-        #push to the left branch and nothing happens
+        #push to the left branch and we don't get prioritized
         harness.manager.source_control.addCommit("repo6/c1", [], TestYamlFiles.repo6_nopin)
         harness.manager.source_control.setBranch("repo6/underlying_left", "repo6/c1")
 
@@ -265,7 +269,7 @@ class TestManagerTests(unittest.TestCase):
         harness.consumeBackgroundTasks()
 
         with harness.database.transaction():
-            self.assertEqual(merged_branch.head.userPriority, 0)
+            self.assertFalse(merged_branch.head.userEnabledTestSets)
 
         harness.manager.source_control.addCommit("repo6/c2", [], TestYamlFiles.repo6_nopin)
         harness.manager.source_control.setBranch("repo6/underlying_right", "repo6/c2")
@@ -274,7 +278,7 @@ class TestManagerTests(unittest.TestCase):
         harness.consumeBackgroundTasks()
 
         with harness.database.transaction():
-            self.assertEqual(merged_branch.head.userPriority, 1)
+            self.assertTrue(merged_branch.head.userEnabledTestSets)
 
     
     def test_manager_pin_resolution_ordering(self):
@@ -409,7 +413,7 @@ class TestManagerTests(unittest.TestCase):
         
         phases = harness.doTestsInPhases()
 
-        self.assertEqual(len(phases), 10)
+        self.assertEqual(len(phases), 12, phases)
         harness.assertOneshotMachinesDoOneTest()
 
 
@@ -519,7 +523,7 @@ class TestManagerTests(unittest.TestCase):
 
         self.assertEqual(len(harness.manager.machine_management.runningMachines), 4)
 
-        harness.manager.startNewTest(harness.getUnusedMachineId(), harness.timestamp)
+        harness.manager.startNewTest(harness.getUnusedMachineIds()[0], harness.timestamp)
 
         with harness.database.view():
             runs = harness.database.TestRun.lookupAll(isRunning=True)
@@ -674,12 +678,10 @@ class TestManagerTests(unittest.TestCase):
                 harness.manager.source_control.addCommit("repo1/c0", [], TestYamlFiles.repo1)
                 harness.manager.source_control.setBranch("repo1/master", "repo1/c0")
             if whichRepo == 2:
-                harness.manager.source_control.addCommit("repo2/c0", [], 
-                    TestYamlFiles.repo2.replace("disabled: true", "disabled: false"))
+                harness.manager.source_control.addCommit("repo2/c0", [], TestYamlFiles.repo2)
                 harness.manager.source_control.setBranch("repo2/master", "repo2/c0")
             if whichRepo == 3:
-                harness.manager.source_control.addCommit("repo3/c0", [], 
-                    TestYamlFiles.repo3.replace("disabled: true", "disabled: false"))
+                harness.manager.source_control.addCommit("repo3/c0", [], TestYamlFiles.repo3)
                 harness.manager.source_control.setBranch("repo3/master", "repo3/c0")
 
         for ordering in [
@@ -794,7 +796,7 @@ class TestManagerTests(unittest.TestCase):
 
         harness.manager.source_control.addCommit("repo6/c0_test", [], 
             textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             repos:
               child: 
                 reference: repo6/c0

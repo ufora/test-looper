@@ -12,7 +12,11 @@ import json
 import simplejson 
 import logging
 
-VALID_VERSIONS = [4]
+#versions we could read
+COMPATIBLE_VERSIONS = [4,5]
+
+#versions we'll acknowledge as entrypoints
+VALID_VERSIONS = [5]
 
 Platform = TestDefinition.Platform
 
@@ -71,7 +75,6 @@ DefineBuild.Build = {
     'dependencies': algebraic.Dict(str,str),
     'variables': VariableDict,
     "timeout": int, #max time, in seconds, for the build
-    "disabled": bool, #disabled by default?
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
     "max_cores": int, #maximum number of cores we can take advantage of, or zero
     "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
@@ -90,7 +93,6 @@ DefineTest.Test = {
     'project': str,
     'dependencies': algebraic.Dict(str,str),
     'variables': VariableDict,
-    "disabled": bool, #disabled by default?
     "timeout": int, #max time, in seconds, for the test
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
     "max_cores": int, #maximum number of cores we can take advantage of, or zero
@@ -118,6 +120,15 @@ RepoReference = TestDefinition.RepoReference
 DefineInclude = algebraic.Alternative("DefineInclude")
 DefineInclude.Include = {"path": str, "variables": algebraic.Dict(str, str)}
 
+PrioritizationTrigger = algebraic.Alternative("PrioritizationTrigger")
+PrioritizationTrigger.Trigger = {
+    #list of globs that cause the trigger to fire. For each input repo (including HEAD), we look
+    #at each file that changed since the last commit and match 'repo/path' against the glob.
+    'paths': algebraic.List(str), 
+    #list of test_set globs to trigger if we match
+    'test_sets': algebraic.List(str) 
+    }
+
 TestDefinitionScript = algebraic.Alternative("TestDefinitionScript")
 TestDefinitionScript.Definition = {
     "looper_version": int,
@@ -127,10 +138,12 @@ TestDefinitionScript.Definition = {
     "builds": algebraic.Dict(str, DefineBuild),
     "tests": algebraic.Dict(str, DefineTest),
     "deployments": algebraic.Dict(str, DefineDeployment),
+    #defines a set of tests that we're interested in by name. there is an implicit 'all' group
+    #that doesn't need to be explicitly defined by the script
+    "test_sets": algebraic.Dict(str, algebraic.List(str)), 
 
-    #policy for which tests/builds to run if this commit gets explicitly prioritized.
-    #if empty, everything. Otherwise, a list of globs selecting tests/builds by name
-    "prioritize": algebraic.List(str) 
+    #list of prioritization triggers. If empty, then '*' -> 'all'
+    "triggers": algebraic.List(PrioritizationTrigger)
     }
 
 reservedNames = ["data", "source", "HEAD"]
@@ -393,7 +406,6 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 environment_mixins=[x for x in d.mixins if x],
                 environment=TestDefinition.TestEnvironment.Unresolved(),
                 timeout=d.timeout,
-                disabled=d.disabled,
                 min_cores=d.min_cores,
                 max_cores=d.max_cores,
                 min_ram_gb=d.min_ram_gb,
@@ -410,7 +422,6 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 name=name,
                 variables=d.variables,
                 dependencies=deps,
-                disabled=d.disabled,
                 environment_name=curEnv,
                 environment_mixins=[x for x in d.mixins if x],
                 environment=TestDefinition.TestEnvironment.Unresolved(),
@@ -455,7 +466,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
 
         allTests[name] = convert_def(name, definition)
 
-    return allTests, environments, testScript.repos, testScript.includes, testScript.prioritize
+    return allTests, environments, testScript.repos, testScript.includes, testScript.test_sets, testScript.triggers
 
 def flatten(l):
     if not isinstance(l, list):
@@ -672,7 +683,7 @@ def extract_postprocessed_test_definitions(extension, text, variable_definitions
     
 
     def expandKey(k):
-        if k in ("environments", "builds", "tests", "deployments", "repos"):
+        if k in ("environments", "builds", "tests", "deployments", "repos", "test_sets", "triggers"):
             return MacroExpander().expand_macros(test_defs_json[k], variable_definitions or {})
 
         if k == "includes":
@@ -705,16 +716,18 @@ encoder = algebraic_to_json.Encoder()
 encoder.overrides[VariableDict] = parseVariableDict
 encoder.overrides[RepoReference] = parseRepoReference
 
-def extract_tests_from_str(repoName, commitHash, extension, text, variable_definitions=None, externally_defined_repos=None):
+def extract_tests_from_str(repoName, commitHash, extension, text, variable_definitions=None, externally_defined_repos=None, allowEarlierCompatibleVersions=False):
     test_defs_json = extract_postprocessed_test_definitions(extension, text, variable_definitions)
     
+    usableVersions = (VALID_VERSIONS if not allowEarlierCompatibleVersions else COMPATIBLE_VERSIONS)
+
     if 'looper_version' not in test_defs_json:
-        raise Exception("No looper version specified. Valid versions for this build are %s" % (repr(VALID_VERSIONS),))
+        raise Exception("No looper version specified. Valid versions for this build are %s" % (repr(usableVersions),))
 
     version = test_defs_json['looper_version']
     del test_defs_json['looper_version']
 
-    if version not in VALID_VERSIONS:
-        raise Exception("Can't handle looper version %s. Valid versions are %s" % (version, repr(VALID_VERSIONS,)))
+    if version not in usableVersions:
+        raise Exception("Can't handle looper version %s. Valid versions are %s" % (version, repr(usableVersions)))
 
     return extract_tests(repoName, commitHash, encoder.from_json(test_defs_json, TestDefinitionScript), version, externally_defined_repos)

@@ -10,6 +10,7 @@ import random
 import socket
 
 import test_looper.data_model.TestDefinition as TestDefinition
+import test_looper.data_model.SingleTestRunResult as SingleTestRunResult
 import test_looper.core.SimpleServer as SimpleServer
 import test_looper.core.socket_util as socket_util
 import test_looper.core.algebraic as algebraic
@@ -24,7 +25,11 @@ TerminalInputMsg.Resize = {"cols": int, "rows": int}
 ServerToClientMsg = algebraic.Alternative("ServerToClientMsg")
 ServerToClientMsg.IdentifyCurrentState = {}
 ServerToClientMsg.TerminalInput = {'deploymentId': str, 'msg': TerminalInputMsg}
-ServerToClientMsg.TestAssignment = {'testId': str, 'testDefinition': TestDefinition.TestDefinition }
+ServerToClientMsg.TestAssignment = {
+    'testId': str, 
+    'testDefinition': TestDefinition.TestDefinition,
+    'historicalTestFailureRates': algebraic.Dict(str, (int, int)) #testname->(failures,totalRuns)
+    }
 ServerToClientMsg.CancelTest = {'testId': str}
 ServerToClientMsg.AcknowledgeFinishedTest = {'testId': str}
 
@@ -35,12 +40,16 @@ ServerToClientMsg.GrantOrDenyPermissionToHitGitRepo = {'requestUniqueId': str, "
 
 ClientToServerMsg = algebraic.Alternative("ClientToServerMsg")
 
-
 WorkerState = algebraic.Alternative("WorkerState")
 WorkerState.Waiting = {}
 WorkerState.WorkingOnDeployment = {'deploymentId': str, 'logs_so_far': str}
 WorkerState.WorkingOnTest = {'testId': str, 'logs_so_far': str, 'artifacts': algebraic.List(str)}
-WorkerState.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,(bool, bool)), 'artifacts': algebraic.List(str)} #testSuccess: name->(success,hasLogs)
+WorkerState.TestFinished = {
+    'testId': str, 
+    'success': bool, 
+    'testSuccesses': algebraic.List(SingleTestRunResult.SingleTestRunResult), 
+    'artifacts': algebraic.List(str)
+    } #testSuccess: (name,(timeElapsed, success,hasLogs))
 
 ClientToServerMsg.CurrentState = {'machineId': str, 'state': WorkerState}
 ClientToServerMsg.WaitingHeartbeat = {}
@@ -50,7 +59,12 @@ ClientToServerMsg.TestLogOutput = {'testId': str, 'log': str}
 ClientToServerMsg.DeploymentHeartbeat = {'deploymentId': str}
 ClientToServerMsg.DeploymentExited = {'deploymentId': str}
 ClientToServerMsg.DeploymentTerminalOutput = {'deploymentId': str, 'data': str}
-ClientToServerMsg.TestFinished = {'testId': str, 'success': bool, 'testSuccesses': algebraic.Dict(str,(bool, bool)), 'artifacts': algebraic.List(str)} #testSuccess: name->(success,hasLogs)
+ClientToServerMsg.TestFinished = {
+    'testId': str, 
+    'success': bool, 
+    'testSuccesses': algebraic.List(SingleTestRunResult.SingleTestRunResult), 
+    'artifacts': algebraic.List(str)
+    }
 ClientToServerMsg.RequestSourceTarballUpload = {'repo': str, 'commitHash': str, 'path': str, 'platform': str} #platform is 'linux' or 'win'
 
 SOCKET_CLEANUP_TIMEOUT = 360
@@ -157,13 +171,14 @@ class Session(object):
                     self.testManager.subscribeToClientMessages(deploymentId, onMessage)
                 else:
                     t0 = time.time()
-                    testId, testDefinition = self.testManager.startNewTest(self.machineId, time.time())
+                    testId, testDefinition,historicalTestFailureRates = self.testManager.startNewTest(self.machineId, time.time())
                     if testId is not None:
                         self.currentTestId = testId
                         self.send(
                             ServerToClientMsg.TestAssignment(
                                 testId=testId,
-                                testDefinition=testDefinition
+                                testDefinition=testDefinition,
+                                historicalTestFailureRates=historicalTestFailureRates
                                 )
                             )
                         logging.info("Allocated new test %s to machine %s in %s seconds.", testId, self.machineId, time.time() - t0)

@@ -1,4 +1,4 @@
-looper_version: 4
+looper_version: 5
 environments:
   linux:
     platform: linux

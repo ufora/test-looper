@@ -117,7 +117,7 @@ class CommitContext(Context.Context):
     def toggleCommitUnderTestLink(self):
         commit = self.commit
 
-        actual_priority = commit.userPriority > 0
+        actual_priority = len(commit.userEnabledTestSets) > 0
 
         icon = "octicon-triangle-right"
         hover_text = "%s tests for this commit" % ("Enable" if not actual_priority else "Disable")
@@ -454,8 +454,8 @@ class CommitContext(Context.Context):
         return self.testManager.allTestsForCommit(self.commit)
 
     def shouldIncludeTest(self, test):
-        if test.testDefinitionSummary.disabled and not self.options.get("show_disabled"):
-            return False
+        #if test.testDefinitionSummary.disabled and not self.options.get("show_disabled"):
+        #    return False
 
         if self.projectFilter and test.testDefinitionSummary.project != self.projectFilter:
             return False
@@ -666,7 +666,7 @@ class CommitContext(Context.Context):
             grid = [["SUITE", "HASH", "", "PROJECT", "CONFIGURATION", "STATUS", "RUNS", "TARGET_RUNS", "TEST_CT", "FAILURE_CT", "AVG_RUNTIME", "", "DEPENDENCIES"]]
 
         if self.options.get("show_disabled"):
-            grid[0].append("Disabled")
+            #grid[0].append("Disabled")
             grid[0].append("Calculated Priority")
 
         for t in tests:
@@ -712,13 +712,8 @@ class CommitContext(Context.Context):
 
             if t.totalRuns:
                 if not builds:
-                    if t.totalRuns == 1:
-                        #don't want to convert these to floats
-                        row.append("%d" % t.totalTestCount)
-                        row.append("%d" % t.totalFailedTestCount)
-                    else:
-                        row.append(str(t.totalTestCount / float(t.totalRuns)))
-                        row.append(str(t.totalFailedTestCount / float(t.totalRuns)))
+                    row.append(t.testResultSummary.totalTestCount)
+                    row.append(t.testResultSummary.avgFailureRate)
 
                 if finished_tests:
                     row.append(HtmlGeneration.secondsUpToString(sum([testRun.endTimestamp - testRun.startedTimestamp for testRun in finished_tests]) / len(finished_tests)))
@@ -746,7 +741,7 @@ class CommitContext(Context.Context):
             row.append(self.testDependencySummary(t))
 
             if self.options.get("show_disabled"):
-                row.append("Disabled" if t.testDefinitionSummary.disabled else "")
+                #row.append("Disabled" if t.testDefinitionSummary.disabled else "")
                 row.append(str(t.calculatedPriority))
 
             grid.append(row)

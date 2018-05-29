@@ -390,41 +390,47 @@ class WorkerStateTests(unittest.TestCase):
         repo2, _, commit2 = self.get_repo("simple_project_2")
         commit2Name, commit2Hash = commit2[0]
 
-        self.assertEqual(
-            self.runWorkerTest(worker, 
+        results = self.runWorkerTest(worker, 
                 "testId1", 
                 commit2Name, commit2Hash, 
                 "test_with_individual_failures/linux", 
                 self.callbacksWithUploader(worker), 
                 isDeploy=False
-                )[1],
+                )[1]
+
+        self.assertEqual(
+            {r.testName: (r.testSucceeded, r.hasLogs) for r in results},
             {"Test1": (True, False), "Test2": (False, False)}
             )
 
     def test_individual_test_results(self):
         repo, repoName, commitHash, worker = self.get_worker("simple_project")
         
+        callbacks = self.callbacksWithUploader(worker)
+
         success, results = self.runWorkerTest(worker, 
                 "testId1", 
                 repoName, commitHash, 
                 "test_with_individual_failures_1/linux", 
-                self.callbacksWithUploader(worker), 
+                callbacks, 
                 isDeploy=False
                 )
 
         self.assertTrue(success)
 
-        testsWithLogs = [t for t in results if results[t][1]]
+        testsWithLogs = [t for t in results if t.hasLogs]
+
         self.assertTrue(
             testsWithLogs,
-            self.get_failure_log(worker, repoName, commitHash, "testId1")
+            "".join(callbacks.logMessages)
             )
+
+        self.get_failure_log(worker, repoName, commitHash, "testId1")
 
         test_def = self.get_fully_resolved_definition(worker, repoName, commitHash, "test_with_individual_failures_1/linux")
         
-
         for t in testsWithLogs:
-            keysAndSizes = worker.artifactStorage.testResultKeysAndSizesForIndividualTest(test_def.hash, "testId1", t)
+            keysAndSizes = worker.artifactStorage.testResultKeysAndSizesForIndividualTest(test_def.hash, "testId1", t.testName, t.testPassIx)
             self.assertTrue(keysAndSizes)
 
             for k,s in keysAndSizes:

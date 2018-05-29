@@ -15,7 +15,7 @@ common.configureLogging()
 class TestManagerIncludeSemanticsTests(unittest.TestCase):
     def test_basic_includes(self):
         repo_include_envdef = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             environments:
               ${env_name}: 
                 platform: linux
@@ -26,7 +26,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             repos:
               include_from: 
                 reference: repo0/base
@@ -54,19 +54,19 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_include_includes(self):
         envdef2 = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             repos:
               r: repo0/base
             """)
 
         envdef = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             includes:
               - ./envdef2.yml
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             includes:
               - ./envdef.yml
             """
@@ -82,7 +82,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_repos_with_paths(self):
         yaml_with_repo_paths = textwrap.dedent("""
-          looper_version: 4
+          looper_version: 5
           repos:
             self_with_path: 
               reference: HEAD
@@ -127,19 +127,19 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_recursive_includes(self):
         envdef2 = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             includes:
               - ./envdef.yml
             """)
 
         envdef = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             includes:
               - ./envdef2.yml
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             includes:
               - ./envdef.yml
             """
@@ -155,7 +155,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_env_inheritance_in_included_files(self):
         lowest = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             environments:
               root_env:
                 platform: linux
@@ -166,7 +166,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             repos:
               r: repo0/c0
             includes:
@@ -179,7 +179,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
         harness = TestManagerTestHarness.getHarness()
 
-        harness.manager.source_control.addCommit("repo0/c0", [], "looper_version: 4", {"lowest.yml": lowest})
+        harness.manager.source_control.addCommit("repo0/c0", [], "looper_version: 5", {"lowest.yml": lowest})
         harness.manager.source_control.addCommit("repo0/c1", [], repo)
 
         resolver = harness.resolver()
@@ -188,7 +188,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_recursive_includes_with_variables_that_expand_forever(self):
         envdef2 = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             includes:
               - path: ./envdef.yml
                 variables:
@@ -196,7 +196,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         envdef = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             includes:
               - path: ./envdef2.yml
                 variables:
@@ -204,7 +204,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             includes:
               - path: ./envdef.yml
                 variables:
@@ -223,19 +223,19 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_includes_cant_redefine_repos(self):
         envdef2 = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             repos:
               r: repo0/base
             """)
 
         envdef = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             repos:
               r: repo0/base2
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             includes:
               - ./envdef.yml
               - ./envdef2.yml
@@ -256,7 +256,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_includes_cant_redefine_environments(self):
         envdef2 = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             environments:
               e: 
                 platform: linux
@@ -265,7 +265,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         envdef = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             environments:
               e: 
                 platform: linux
@@ -274,7 +274,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             includes:
               - ./envdef.yml
               - ./envdef2.yml
@@ -295,7 +295,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_includes_cant_redefine_tests(self):
         envdef2 = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             environments:
               e1: 
                 platform: linux
@@ -308,7 +308,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         envdef = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             environments:
               e2: 
                 platform: linux
@@ -321,7 +321,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             includes:
               - ./envdef.yml
               - ./envdef2.yml
@@ -343,7 +343,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
     def test_includes_can_share_environments(self):
         envdef = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             environments:
               e: 
                 platform: linux
@@ -355,14 +355,14 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         envdef2 = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             tests:
               t2/e:
                 command: "./script.py 1"
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             includes:
               - ./envdef.yml
               - ./envdef2.yml
@@ -382,7 +382,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         
     def test_includes_use_correct_repo(self):
         envdef = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             environments:
               e: 
                 platform: linux
@@ -394,14 +394,14 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         envdef2 = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             tests:
               t2/e:
                 command: "./script.py 1"
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             includes:
               - ./envdef.yml
               - ./envdef2.yml
@@ -421,7 +421,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
          
     def test_bad_include_preserves_pins(self):
         envdef = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             environments:
               e: 
                 platform: not_valid
@@ -433,7 +433,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
             """)
 
         repo = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             repos:
               r: 
                 reference: repo0/c0
@@ -481,7 +481,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         
     def test_environment_overrides(self):
         envdef = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             environments:
               e: 
                 platform: linux
@@ -510,7 +510,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         
     def test_configuration_override(self):
         envdef = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             environments:
               e: 
                 platform: linux
@@ -549,7 +549,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         
     def test_prioritization_filters(self):
         envdef = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             environments:
               e: 
                 platform: linux
@@ -584,7 +584,7 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
  
     def test_environment_mixins(self):
         envdef = textwrap.dedent("""
-            looper_version: 4
+            looper_version: 5
             environments:
               e: 
                 platform: linux
@@ -616,5 +616,3 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
 
         self.assertEqual([s.command for s in test.stages], ["preCommand" ,"preCommand2", "actualCommand - v=e2"])
         
-        print test
-

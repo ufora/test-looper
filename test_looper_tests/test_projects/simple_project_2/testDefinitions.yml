@@ -1,4 +1,4 @@
-looper_version: 4
+looper_version: 5
 repos:
   simple: 
     reference: simple_project/__replace_this_hash__

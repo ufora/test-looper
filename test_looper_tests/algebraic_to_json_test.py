@@ -14,7 +14,7 @@
 
 from test_looper.core.algebraic import Alternative, List, Nullable
 from test_looper.core.algebraic_to_json import Encoder
-
+import json
 import unittest
 
 opcode = Alternative("Opcode")
@@ -36,6 +36,9 @@ a = expr.Add(l=c10,r=c20)
 bin_a = expr.Binop(opcode=opcode.Sub(), l=c10, r=c20)
 
 several = expr.Many([c10, c20, a, expr.Possibly(None), expr.Possibly(c20), bin_a])
+
+int_list = Alternative("int_list")
+int_list.someints = {'ints': List(int)}
 
 
 class AlgebraicToJsonTests(unittest.TestCase):
@@ -66,6 +69,14 @@ class AlgebraicToJsonTests(unittest.TestCase):
              "l": {'value': 10},
              "r": {'value': 20}}
             )
+
+    def test_intlist(self):
+        #verify that a list of ints serializes in an efficient way
+        e = Encoder()
+        for length in [10,20,100,1000, 10000]:
+            some_ints = int_list.someints([1]*length)
+            rep = json.dumps(e.to_json(some_ints))
+            self.assertTrue(len(rep) < length * 3 + 50)
 
     def test_default_encoding(self):
         e = Encoder()

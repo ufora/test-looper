@@ -335,7 +335,7 @@ class Renderer:
             repo = self.testManager.database.Repo.lookupOne(name=reponame)
             commit = self.testManager.database.Commit.lookupAny(repo_and_hash=(repo, hash))
 
-            self.testManager._setCommitUserPriority(commit, 1 if not commit.userPriority else 0)
+            self.testManager._setCommitUserEnabledTestSets(commit, ["all"] if not commit.userEnabledTestSets else [])
 
         raise cherrypy.HTTPRedirect(redirect)
 
@@ -375,7 +375,7 @@ class Renderer:
     def allTestsForCommit(self, commit):
         if not commit.data:
             return []
-        return [x for x in self.testManager.allTestsForCommit(commit) if not x.testDefinitionSummary.disabled]
+        return [x for x in self.testManager.allTestsForCommit(commit)]
 
     def bestCommitForBranch(self, branch):
         if not branch or not branch.head or not branch.head.data:
@@ -413,7 +413,7 @@ class Renderer:
             return False
 
         for test in tests:
-            if not test.testDefinitionSummary.type == "Deployment" and not test.testDefinitionSummary.disabled:
+            if not test.testDefinitionSummary.type == "Deployment":
                 if test.totalRuns == 0 or test.priority.matches.WaitingToRetry:
                     if not test.priority.matches.DependencyFailed:
                         return False

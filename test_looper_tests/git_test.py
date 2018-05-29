@@ -129,7 +129,7 @@ class GitTests(unittest.TestCase):
             self.assertEqual(sorted(tf.getnames()), sorted(['.', './.git_commit', './file1', './dir1', './dir1/file2', './dir2', './dir2/file3']))
 
         with tarfile.open(tarball_dir2) as tf:
-            self.assertEqual(sorted(tf.getnames()), sorted(['.', './file3']))
+            self.assertEqual(sorted(tf.getnames()), sorted(['.', './.git_commit', './file3']))
         
         with tarfile.open(tarball_crlf) as tf:
             self.assertEqual(tf.extractfile("./dir2/file3").read(), "contents")

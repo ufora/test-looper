@@ -19,6 +19,8 @@ import tempfile
 import cStringIO as StringIO
 import uuid
 
+MAX_UNIQUE_TESTS = 100000
+
 for name in ["boto3", "requests", "urllib"]:
     logging.getLogger(name).setLevel(logging.CRITICAL)
 
@@ -33,7 +35,9 @@ else:
     Docker = None
     DockerWatcher = None
 
+import test_looper.core.algebraic_to_json as algebraic_to_json
 import test_looper.data_model.TestDefinition as TestDefinition
+import test_looper.data_model.SingleTestRunResult as SingleTestRunResult
 import test_looper
 
 def withTime(logger):
@@ -750,7 +754,7 @@ class WorkerState(object):
 
         return None
 
-    def runTest(self, testId, workerCallback, testDefinition, isDeploy, extraPorts=None, command_override=None):
+    def runTest(self, testId, workerCallback, testDefinition, isDeploy, extraPorts=None, command_override=None, historicalTestFailureRates=None):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
         self.cleanup()
 
@@ -783,7 +787,7 @@ class WorkerState(object):
                         workerCallback.recordArtifactUploaded(a)
                     return True, {}
                 
-                return self._run_task(testId, testDefinition, log_function, workerCallback, isDeploy, extraPorts, command_override)
+                return self._run_task(testId, testDefinition, log_function, workerCallback, isDeploy, extraPorts, command_override, historicalTestFailureRates)
             except KeyboardInterrupt:
                 log_function("\nInterrupted by Ctrl-C\n")
                 return False, {}
@@ -809,7 +813,7 @@ class WorkerState(object):
                     f.write(
                         json.dumps(
                             {"success": success,
-                             "individualTests": individualTestSuccesses,
+                             "individualTests": algebraic_to_json.Encoder().to_json(individualTestSuccesses),
                              "start_timestamp": t0,
                              "end_timestamp": time.time()
                             })
@@ -879,6 +883,7 @@ class WorkerState(object):
                         isFirstRequest = False
 
                     worker_callback.requestSourceTarballUpload(dep.repo, dep.commitHash, dep.path, 'linux' if sys.platform != 'win32' else 'win')
+
                     time.sleep(10.0)
 
                     if time.time() - lastLogTime > 55.0:
@@ -978,7 +983,7 @@ class WorkerState(object):
         
         return environment, all_dependencies, test_definition, image[0]
 
-    def _run_task(self, testId, test_definition, log_function, workerCallback, isDeploy, extraPorts, command_override):
+    def _run_task(self, testId, test_definition, log_function, workerCallback, isDeploy, extraPorts, command_override, historicalTestFailureRates):
         try:
             environment, all_dependencies, test_definition, image = \
                 self.getEnvironmentAndDependencies(testId, test_definition, log_function, workerCallback)
@@ -1008,6 +1013,8 @@ class WorkerState(object):
 
         is_success = True
 
+        individualTestSuccesses = []
+
         if image is None:
             is_success = False
             if isDeploy:
@@ -1031,8 +1038,13 @@ class WorkerState(object):
                 return False, {}
             else:
                 for stage in stages:
-                    is_success = self._runStage(testId, stage, image, test_definition, working_directory, log_function, workerCallback)
+                    is_success, test_successes = self._runStage(
+                            testId, stage, image, test_definition, working_directory, 
+                            log_function, workerCallback, historicalTestFailureRates
+                            )
                     
+                    individualTestSuccesses += test_successes
+
                     if is_success == EARLY_STOP:
                         is_success = True
                         break
@@ -1040,22 +1052,154 @@ class WorkerState(object):
                     if not is_success:
                         break
 
-        individualTestSuccesses = self.finalTestArtifactUpload(image, testId, test_definition, log_function)
-
         return is_success, individualTestSuccesses
 
-    def _runStage(self, testId, stage, image, test_definition, working_directory, log_function, workerCallback):
+    def computeTestPlan(self, startTime, timeElapsedPerPriorPass, testsSoFar, all_tests, historicalTestFailureRates):
+        #decide which tests to run in our next pass. We are trying to learn as much as possible about
+        #the tests in this suite.
+        historicalTestFailureRates = historicalTestFailureRates or {}
+
+        historicallyCompletelyBroken = set()
+        for testName, (failures, runs) in historicalTestFailureRates.iteritems():
+            if runs >= 3 and failures == runs:
+                historicallyCompletelyBroken.add(testName)
+
+        if not testsSoFar:
+            return all_tests
+
+        broken = set([t.testName for t in testsSoFar if not t.testSucceeded and t.testName in all_tests])
+        brokenHere = set(broken)
+
+        #keep any test that has failed in the past in the roster of flakey tests
+        for t in historicalTestFailureRates:
+            failureCount, totalCount = historicalTestFailureRates[t]
+            if failureCount > 1 and t in all_tests:
+                broken.add(t)
+
+        bad_count = {t:0 for t in all_tests}
+        good_count = {t:0 for t in all_tests}
+
+        for t in testsSoFar:
+            if not t.testSucceeded:
+                bad_count[t.testName] += 1
+            else:
+                good_count[t.testName] += 1
+
+        def testIsSoBadWeCanStop(testname):
+            if bad_count[testname] >= 3:
+                return True
+            if bad_count[testname] and good_count[testname] == 0 and testname in historicallyCompletelyBroken:
+                return True
+            return False
+
+        print "HERE with "
+        for t in sorted(all_tests):
+            print t, bad_count[t], good_count[t], historicalTestFailureRates.get(t,None), \
+                ", historically broken" if t in historicallyCompletelyBroken else "", \
+                ", so bad we can stop" if testIsSoBadWeCanStop(t) else "" \
+
+        #remove all tests which have failed three times. we know they're flakey at this point.
+        #or, if they failed 
+        broken = set([b for b in broken if not testIsSoBadWeCanStop(b)])
+
+        if len(brokenHere) > len(all_tests) * .5:
+            #no reason to search for flakey tests when half the tests don't work!
+            return []
+
+        #short circuit if the passes after the first pass are taking as much as the remaining pass
+        if len(timeElapsedPerPriorPass) > 1:
+            timeInSubPasses = sum(timeElapsedPerPriorPass[1:])
+            if timeInSubPasses > timeElapsedPerPriorPass[0]:
+                return []
+
+        #don't run more than 10 passes
+        if len(timeElapsedPerPriorPass) < 10:
+            return sorted(broken)
+
+        return []
+
+    def _runStage(self, testId, stage, image, test_definition, working_directory, log_function, workerCallback, historicalTestFailureRates):
         withTime(log_function)("Starting Test Run")
 
-        is_success = self._run_test_command(
-            stage.command,
-            test_definition.timeout or 60 * 60, #1 hour if unspecified
-            test_definition.variables,
-            log_function,
-            image,
-            working_directory, 
-            dumpPreambleLog=True
-            )
+        if stage.matches.TestStage:
+            def runCmd(cmd, timeout, **extras):
+                testvars = dict(test_definition.variables)
+                testvars.update(extras)
+
+                return self._run_test_command(
+                    cmd,
+                    timeout or test_definition.timeout or 60 * 60, #1 hour if unspecified
+                    testvars,
+                    log_function,
+                    image,
+                    working_directory, 
+                    dumpPreambleLog=True
+                    )
+
+            internalCmd = self.getCommandDirPath(test_definition.environment, True)
+            externalCmd = self.getCommandDirPath(test_definition.environment, False)
+
+            is_success = runCmd(
+                stage.list_tests_command,
+                60,
+                TEST_LOOPER_TEST_LIST_OUTPUT=os.path.join(internalCmd,"testlist.txt")
+                )
+
+            with open(os.path.join(externalCmd, "testlist.txt"), "r") as testlist_file:
+                all_tests = set()
+                count = 0
+                while count < MAX_UNIQUE_TESTS:
+                    count += 1
+                    line = testlist_file.readline()
+                    if line:
+                        all_tests.add(line[:-1])
+                    else:
+                        break
+
+            individualTestSuccesses = []
+
+            startTime = time.time()
+
+            totalTimeout = test_definition.timeout or 60*60
+
+            timeElapsedPerPriorPass = []
+
+            while is_success:
+                testsToRun = self.computeTestPlan(startTime, timeElapsedPerPriorPass, individualTestSuccesses, all_tests, historicalTestFailureRates)
+                
+                if not testsToRun:
+                    break
+
+                with open(os.path.join(externalCmd,"tests_to_run.txt"), "w") as testlist_file:
+                    for t in testsToRun:
+                        print >> testlist_file, t
+
+                passT0 = time.time()
+                
+                is_success = runCmd(
+                    stage.run_tests_command,
+                    totalTimeout - (time.time() - startTime),
+                    TEST_LOOPER_TESTS_TO_RUN=os.path.join(internalCmd,"tests_to_run.txt")
+                    )
+
+                timeElapsedPerPriorPass.append(time.time() - passT0)
+
+                individualTestSuccesses.extend(
+                    self.individualTestArtifactUpload(image, testId, test_definition, log_function)
+                    )
+        else:
+            is_success = self._run_test_command(
+                stage.command,
+                test_definition.timeout or 60 * 60, #1 hour if unspecified
+                test_definition.variables,
+                log_function,
+                image,
+                working_directory, 
+                dumpPreambleLog=True
+                )
+
+            individualTestSuccesses = self.individualTestArtifactUpload(image, testId, test_definition, log_function)
+
 
         #run the cleanup_command if necessary
         if self.wants_to_run_cleanup() and stage.cleanup.strip():
@@ -1081,17 +1225,17 @@ class WorkerState(object):
                                 is_success = EARLY_STOP
         else:
             for artifact in stage.artifacts:
-                with self.callHeartbeatInBackground(log_function, "Uploading build artifact for %s/%s." % (test_definition.name, artifact.name)):
+                with self.callHeartbeatInBackground(log_function, "Uploading test artifact for %s/%s." % (test_definition.name, artifact.name)):
                     if not self._upload_artifact(test_definition.hash, testId, test_definition.name, artifact, True, log_function, image):
                         is_success = False
                     else:
                         workerCallback.recordArtifactUploaded(artifact.name)
 
-        return is_success
+        return is_success, individualTestSuccesses
 
 
-    def finalTestArtifactUpload(self, image, testId, test_definition, log_function):
-        individualTestSuccesses = {}
+    def individualTestArtifactUpload(self, image, testId, test_definition, log_function):
+        individualTestSuccesses = []
 
         with self.callHeartbeatInBackground(log_function, "Uploading test artifacts."):
             testSummaryJsonPath = os.path.join(self.directories.test_output_dir, "testSummary.json")
@@ -1099,41 +1243,98 @@ class WorkerState(object):
             if os.path.exists(testSummaryJsonPath):
                 try:
                     contents = open(testSummaryJsonPath,"r").read()
+
+                    #remove the file, so that future runs won't accidentally replace this!
+                    os.remove(testSummaryJsonPath)
+
                     individualTestSuccesses = json.loads(contents)
 
-                    if not isinstance(individualTestSuccesses, dict):
+                    if isinstance(individualTestSuccesses, dict):
+                        res = []
+                        for testname, data in sorted(individualTestSuccesses.iteritems()):
+                            if not isinstance(data, dict):
+                                data = {'success': data}
+                            else:
+                                data = dict(data)
+
+                            data['testName'] = testname
+                            res.append(data)
+
+                        individualTestSuccesses = res
+
+                    if not isinstance(individualTestSuccesses, list):
                         raise Exception("testSummary.json should be a dict from str to bool")
 
                     pathsToUpload = {}
 
-                    def processTestSuccess(keyname, entry):
-                        if isinstance(entry, dict) and 'logs' not in entry:
-                            entry['logs'] = []
-                        
-                        if isinstance(entry, bool):
-                            return (entry, False)
-                        elif (isinstance(entry, dict) and
-                                'success' in entry and
-                                isinstance(entry['success'], bool) and
-                                'logs' in entry and
-                                not [x for x in entry['logs'] if not isinstance(x, (str, unicode))]
-                                ):
+                    times_seen = {}
+
+                    def processTestSuccess(entry):
+                        try:
+                            testname = str(entry.get("testName"))
+
+                            if testname in times_seen:
+                                times_seen[testname] += 1
+                            else:
+                                times_seen[testname] = 0
+
+                            keyname = (testname, times_seen[testname])
+
+                            logs = []
+                            success = False
+                            elapsed = None
+                            started = None
+
+                            for k in entry:
+                                assert isinstance(k, (str, unicode)) and k in ['testName', 'success', 'logs', 'elapsed', 'startTimestamp']
                             
-                            for path in entry['logs']:
-                                pathVisibleToWorker = self.mapInternalToExternalPath(path, image is not NAKED_MACHINE)
+                            if 'success' in entry:
+                                success = bool(entry['success'])
+                            if 'elapsed' in entry:
+                                elapsed = float(entry['elapsed'])
+                            if 'startTimestamp' in entry:
+                                started = float(entry['startTimestamp'])
+                            if 'logs' in entry:
+                                logs = entry['logs']
+                                for l in logs:
+                                    assert isinstance(l, (str, unicode))
 
-                                if not pathVisibleToWorker:
-                                    withTime(log_function)("Test output path %s not visible outside of the docker container!" % path)
-                                    return {'success': False, 'logs': False}
+                                for path in entry['logs']:
+                                    pathVisibleToWorker = self.mapInternalToExternalPath(path, image is not NAKED_MACHINE)
 
-                                pathsToUpload[keyname] = pathsToUpload.get(keyname,()) + (pathVisibleToWorker,)
+                                    if not pathVisibleToWorker:
+                                        withTime(log_function)("Test output path %s not visible outside of the docker container!" % path)
+                                        return SingleTestRunResult.SingleTestRunResult(
+                                            testName=testname,
+                                            testSucceeded=False,
+                                            hasLogs=False,
+                                            startTimestamp=None,
+                                            elapsed=None,
+                                            testPassIx=times_seen[testname]
+                                            )
 
-                            return (entry['success'], True)
-                        else:
-                            withTime(log_function)("testSummary.json entries should be bools or {'success': Bool, 'logs': ['str']}, not %s" % entry)
-                            return (False, False)
+                                    pathsToUpload[keyname] = pathsToUpload.get(keyname,()) + (pathVisibleToWorker,)
 
-                    individualTestSuccesses = {str(k): processTestSuccess(k, v) for k,v in individualTestSuccesses.iteritems()}
+                            return SingleTestRunResult.SingleTestRunResult(
+                                testName=testname,
+                                testSucceeded=success,
+                                hasLogs=bool(logs),
+                                startTimestamp=started,
+                                elapsed=elapsed,
+                                testPassIx=times_seen[testname]
+                                )
+                        except:
+                            withTime(log_function)("testSummary.json entries should be {'testName': str, 'success': bool, 'logs': ['str'], 'elapsed': float, 'startTimestamp': float}, not %s." % (entry))
+                            return SingleTestRunResult.SingleTestRunResult(
+                                testName=testname, 
+                                testSucceeded=False,
+                                hasLogs=False,
+                                startTimestamp=None,
+                                elapsed=None,
+                                testPassIx=times_seen[testname]
+                                )
+
+                    individualTestSuccesses = [processTestSuccess(e) for e in individualTestSuccesses]
 
                     if pathsToUpload:
                         self.artifactStorage.uploadIndividualTestArtifacts(test_definition.hash, testId, pathsToUpload, withTime(log_function))
@@ -1256,6 +1457,15 @@ class WorkerState(object):
         for path in os.getenv("PATH").split(";"):
             if os.path.exists(os.path.join(path, "git.exe")):
                 return os.path.dirname(path)
+
+    def getCommandDirPath(self, environment, internalToContainer):
+        if environment.image.matches.AMI:
+            return self.directories.command_dir
+        else:
+            if internalToContainer:
+                return "/test_looper/command"
+            else:
+                return self.directories.command_dir
 
     def environment_variables(self, testId, environment, test_definition):
         res = {}

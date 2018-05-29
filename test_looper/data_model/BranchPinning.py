@@ -531,9 +531,7 @@ class BranchPinning:
         newVal.append("  branch: " + yamlQuoteIfNeeded(newPinVal.branch))
         if newPinVal.auto:
             newVal.append("  auto: true")
-        if newPinVal.prioritize:
-            newVal.append("  prioritize: true")
-
+        
         newVal = [" " * indentLevel(subsequentLines[0]) + line for line in newVal]
 
         subsequentLines[:blockEnds] = newVal

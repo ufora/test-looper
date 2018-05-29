@@ -14,7 +14,7 @@ common.configureLogging()
 
 
 basic_repo_text = """
-looper_version: 4
+looper_version: 5
 environments:
   linux:
     platform: linux

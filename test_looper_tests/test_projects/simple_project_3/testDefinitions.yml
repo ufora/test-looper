@@ -1,4 +1,4 @@
-looper_version: 4
+looper_version: 5
 repos:
   simple_2: 
     reference: simple_project_2/__replace_this_hash__
@@ -62,16 +62,24 @@ builds:
       command: |
         echo ${K} > $TEST_BUILD_OUTPUT_DIR/build_output.txt
 tests:
-  foreach:
-    env: [env, env_1, env_2, env_12, env_21]
-  repeat:
-    test/${env}:
+  - foreach:
+      env: [env, env_1, env_2, env_12, env_21]
+    repeat:
+      test/${env}:
+        stages:
+        - command: |
+            echo "${OVERRIDE_OUTPUT}" >> $TEST_OUTPUT_DIR/results.txt
+            cat $TEST_INPUTS/build/build_output.txt >> $TEST_OUTPUT_DIR/results.txt
+          artifacts:
+            - directory: ${TEST_OUTPUT_DIR}
+              format: Files
+        dependencies:
+          build: build/${BUILD_KIND}
+  - test/test_with_repeating:
+      environment: linux
       stages:
-      - command: |
-          echo "${OVERRIDE_OUTPUT}" >> $TEST_OUTPUT_DIR/results.txt
-          cat $TEST_INPUTS/build/build_output.txt >> $TEST_OUTPUT_DIR/results.txt
-        artifacts:
-          - directory: ${TEST_OUTPUT_DIR}
-            format: Files
+      - list_tests_command: python $TEST_INPUTS/src/testRunner.py --list > $TEST_LOOPER_TEST_LIST_OUTPUT
+        run_tests_command: python $TEST_INPUTS/src/testRunner.py --run $TEST_LOOPER_TESTS_TO_RUN > $TEST_OUTPUT_DIR/testSummary.json
       dependencies:
-        build: build/${BUILD_KIND}
+        src: HEAD
+

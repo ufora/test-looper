@@ -13,6 +13,9 @@ def isValidCommitRef(committish):
 
 MAX_INCLUDE_ATTEMPTS = 128
 
+class EVERYTHING:
+    pass
+
 def pathJoin(path1, path2):
     """Given two /-separated relative filesystem paths, join them."""
     if not path1:
@@ -55,6 +58,9 @@ class TestDefinitionResolver:
         #(repo, hash) -> test_name -> test_definition
         self.testDefinitionCache = {}
 
+        #(repo, hash) -> (test_set_name -> [test_name], {triggered_test_set_names})
+        self.triggeredTestSetsCache = {}
+
     def unprocessedRepoPinsFor(self, repoName, commitHash):
         repos = self.unprocessedTestsEnvsAndReposFor_(repoName, commitHash)[2]
 
@@ -67,7 +73,7 @@ class TestDefinitionResolver:
         textAndExtension = self.testDefinitionTextAndExtensionFor(repoName, commitHash)
 
         if textAndExtension is None or textAndExtension[1] is None:
-            self.rawDefinitionsCache[repoName, commitHash] = ({}, {}, {}, {}, [])
+            self.rawDefinitionsCache[repoName, commitHash] = ({}, {}, {}, {}, {}, [])
         else:
             self.rawDefinitionsCache[repoName, commitHash] = \
                 TestDefinitionScript.extract_tests_from_str(repoName, commitHash, textAndExtension[1], textAndExtension[0])
@@ -187,14 +193,107 @@ class TestDefinitionResolver:
 
         if items[0] in repos:
             repoRef = repos[items[0]]
-            return repoRef.reponame(), repoRef.commitHash(), "/".join(items[1:])
+            return repoRef.reponame(), repoRef.commitHash(), pathJoin(repoRef.path, "/".join(items[1:]))
 
+    def _computeAllDiffs(self, repoName, commitHash):
+        """Compute a set of all 'changed paths' for a given commit.
+
+        In the current commit, everything is HEAD/path. In referenced repos, when
+        referenced repos changed, it's repo_name/path.
+        """
+        repo = self.git_repo_lookup(repoName)
+
+        parents = repo.gitCommitData(commitHash)[1]
+        
+        if not parents:
+            #this is wrong - we should be listing _all_ the files
+            return EVERYTHING
+
+        try:
+            if self.repoReferencesFor(repoName, commitHash) != self.repoReferencesFor(repoName, parents[0]):
+                return EVERYTHING
+        except:
+            return EVERYTHING
+
+        return ["HEAD/" + x for x in repo.filesChangedBetweenCommits(commitHash, parents[0])]
+
+    def _triggerApplies(self, allDiffs, trigger):
+        for changed in allDiffs:
+            for p in trigger.paths:
+                if fnmatch.fnmatchcase(changed, p):
+                    return True
+        return False
+
+    def testSetsFor(self, repoName, commitHash):
+        """Compute the actual list of test_sets and the set test_sets triggered by this commit"""
+        if (repoName, commitHash) in self.triggeredTestSetsCache:
+            return self.triggeredTestSetsCache[repoName, commitHash]
+
+        repos,_,_,_,test_sets_with_globs, triggers = self.postIncludeDefinitions_(repoName, commitHash)
+
+        if "all" not in test_sets_with_globs:
+            test_sets_with_globs["all"] = "*"
+
+        if not triggers:
+            triggers = [
+                TestDefinitionScript.PrioritizationTrigger.Trigger(paths=["*"], test_sets=["all"])
+                ]
+
+        tests = self.testDefinitionsFor(repoName, commitHash)
+
+        def testsMatching(globList):
+            res = set()
+            for t in tests:
+                for g in globList:
+                    if fnmatch.fnmatchcase(t,g):
+                        res.add(t)
+                        break
+
+            return sorted(res)
+
+        testSets = {k: testsMatching(v) for k,v in test_sets_with_globs.iteritems()}
+        triggeredTestSets = set()
+
+        allDiffs = self._computeAllDiffs(repoName, commitHash)
+
+        if allDiffs is EVERYTHING:
+            triggeredTestSets.add("all")
+        else:
+            for t in triggers:
+                if self._triggerApplies(allDiffs, t):
+                    for glob in t.test_sets:
+                        for s in testSets:
+                            if fnmatch.fnmatchcase(s, glob):
+                                triggeredTestSets.add(s)
+
+        def expanded(testList):
+            #get the closure of all internal builds
+            testList = set(testList)
+            while True:
+                changed = False
+
+                for t in testList:
+                    for d in tests[t].dependencies.values():
+                        if d.matches.InternalBuild:
+                            name = d.name
+                            if name not in testList:
+                                changed = True
+                                testList.add(name)
+
+                if not changed:
+                    return sorted(testList)
+
+        fullTestSets = {setname: expanded(testSets[setname]) for setname in testSets}
+
+        self.triggeredTestSetsCache[repoName, commitHash] = (fullTestSets, testSets, triggeredTestSets)
+
+        return self.triggeredTestSetsCache[repoName, commitHash]
 
     def postIncludeDefinitions_(self, repoName, commitHash):
         if (repoName, commitHash) in self.postIncludeDefinitionsCache:
             return self.postIncludeDefinitionsCache[repoName, commitHash]
 
-        tests, envs, repos, includes, prioritizeGlobs = self.unprocessedTestsEnvsAndReposFor_(repoName, commitHash)
+        tests, envs, repos, includes, test_sets, triggers = self.unprocessedTestsEnvsAndReposFor_(repoName, commitHash)
         
         repos = self.resolveRepoDefinitions_(repoName, commitHash, repos)
 
@@ -241,7 +340,7 @@ class TestDefinitionResolver:
                             )
                         )
 
-                new_tests, new_envs, new_repos, new_includes, subPrioritizeGlobs = TestDefinitionScript.extract_tests_from_str(
+                new_tests, new_envs, new_repos, new_includes, subTestSets, subPrioritizeTriggers = TestDefinitionScript.extract_tests_from_str(
                     #pass the current reponame and commit hash, not the repo/commit of the source file
                     #because we want the environments to be constructed as if they were part of this file's text.
                     repoName,
@@ -249,11 +348,12 @@ class TestDefinitionResolver:
                     os.path.splitext(includePath)[1], 
                     contents,
                     variable_definitions=variable_defs,
-                    externally_defined_repos=repos
+                    externally_defined_repos=repos,
+                    allowEarlierCompatibleVersions=True
                     )
 
-                if subPrioritizeGlobs:
-                    raise TestResolutionException("include targets can't prioritize individual tests")
+                if subTestSets or subPrioritizeTriggers:
+                    raise TestResolutionException("include targets can't have test_sets or triggers")
 
                 for reponame in new_repos:
                     if reponame in repos:
@@ -283,16 +383,7 @@ class TestDefinitionResolver:
                 for i in new_includes:
                     includes.append((includeSourceRepo, includeSourceHash,i))
 
-        for t in list(tests.keys()):
-            tests[t] = tests[t]._withReplacement(
-                disabled=
-                    tests[t].disabled or not (
-                        any([fnmatch.fnmatchcase(t, pat) for pat in prioritizeGlobs])
-                            or not prioritizeGlobs
-                        )
-                )
-
-        self.postIncludeDefinitionsCache[repoName, commitHash] = (tests, envs, repos, includes)
+        self.postIncludeDefinitionsCache[repoName, commitHash] = (tests, envs, repos, includes, test_sets, triggers)
 
         return self.postIncludeDefinitionsCache[repoName, commitHash]
 
@@ -615,8 +706,6 @@ class TestDefinitionResolver:
 
         self.assertTestsNoncircular_(tests)
 
-        self.ensureAllAppropriateChildrenEnabled_(tests)
-
         resolved_tests = {}
         
         def resolveTestDep(testDep):
@@ -706,6 +795,10 @@ class TestDefinitionResolver:
 
                     self.assertArtifactSetValid(testDef)
 
+                    for stage in testDef.stages:
+                        if stage.matches.TestStage and not testDef.matches.Test:
+                            raise TestResolutionException("Can't have a 'TestStage' in a build. (%s)" % testName)
+
                     resolved_tests[testName] = testDef._withReplacement(
                         dependencies={k:resolveTestDep(v) for k,v in testDef.dependencies.iteritems()},
                         stages=self.sortTestStages(testDef.stages)
@@ -724,22 +817,6 @@ class TestDefinitionResolver:
         self.testDefinitionCache[repoName, commitHash] = resolved_tests
 
         return resolved_tests
-
-    def ensureAllAppropriateChildrenEnabled_(self, tests):
-        """Given a set of tests, make sure that any internally-defined tests that an enabled
-        test depends on are marked enabled."""
-
-        def ensureChildrenNotDisabled(testname):
-            for child_dep in tests[testname].dependencies.values():
-                if child_dep.matches.InternalBuild:
-                    childName = self.resolveTestNameToTestAndArtifact(child_dep.name, tests, ignoreArtifactResolution=True)[0]
-                    if tests[childName].disabled:
-                        tests[childName] = tests[childName]._withReplacement(disabled=False)
-                        ensureChildrenNotDisabled(childName)
-
-        for t in list(tests.keys()):
-            if not tests[t].disabled:
-                ensureChildrenNotDisabled(t)
 
     def sortTestStages(self, stages):
         """A stable sort of 'stages' by 'order'"""

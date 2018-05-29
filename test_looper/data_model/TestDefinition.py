@@ -46,6 +46,24 @@ Stage.Stage = {
     "artifacts": algebraic.List(Artifact)
     }
 
+#stage to expose for test that know how to unbundle their tests individually. We may re-run tests
+#several times to explore their flakeyness, and we may only run a subset of tests
+Stage.TestStage = {
+    "list_tests_command": str, #command to run to get a list of tests we could run. This should only
+                               #depend on artifacts already on disk (no state) as we can run this
+                               #at any time. The command should write the tests to the file pointed to
+                               #by TEST_LOOPER_TEST_LIST_OUTPUT
+    "run_tests_command": str,  #command to run a list of tests, which are passed in a file pointed to by 
+                               #the TEST_LOOPER_TESTS_TO_RUN environment variable. Tests
+                               #may appear multiple times. We expect that there will be one entry in the testSummary.json
+                               #for each test run, in order. You should expect this command to be called multiple times.
+                               #final artifact collection only happens once at the end when we're done interrogating the test assembly
+                               #testResults.json and any individual test artifacts will collected and cleared between runs.
+    "cleanup": str,            #command to prepare for artifact setup
+    "order": float,
+    "artifacts": algebraic.List(Artifact)
+    }
+
 ArtifactFormat = algebraic.Alternative("ArtifactFormat")
 ArtifactFormat.Tar = {}
 ArtifactFormat.Zip = {}
@@ -71,12 +89,8 @@ RepoReference.Pin = {
     "reference": str,
     "path": str,
     "branch": str,
-    "auto": bool,
-            
-    #if we update this commit and the branch is prioritized, do we want the commit prioritized also?
-    "prioritize": bool
+    "auto": bool
     }
-
 
 def RepoReference_reponame(ref):
     if ref.matches.Import:
@@ -151,7 +165,6 @@ TestDefinition.Build = {
     "environment": TestEnvironment,
     "dependencies": algebraic.Dict(str, TestDependency),
     "variables": algebraic.Dict(str,str),
-    "disabled": bool, #disabled by default?
     "timeout": int, #max time, in seconds, for the test
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
     "max_cores": int, #maximum number of cores we can take advantage of, or zero
@@ -171,7 +184,6 @@ TestDefinition.Test = {
     "environment": TestEnvironment,
     "dependencies": algebraic.Dict(str, TestDependency),
     "variables": algebraic.Dict(str,str),
-    "disabled": bool, #disabled by default?
     "timeout": int, #max time, in seconds, for the test
     "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
     "max_cores": int, #maximum number of cores we can take advantage of, or zero
@@ -427,12 +439,21 @@ def apply_variable_substitution_to_artifact(artifact, vardefs):
         )
 
 def apply_variable_substitutions_to_stage(stage, vardefs):
-    return Stage.Stage(
-        command=VariableSubstitution.substitute_variables(stage.command, vardefs),
-        cleanup=VariableSubstitution.substitute_variables(stage.cleanup, vardefs),
-        order=stage.order,
-        artifacts=[apply_variable_substitution_to_artifact(a, vardefs) for a in stage.artifacts],
-        )
+    if stage.matches.Stage:
+        return Stage.Stage(
+            command=VariableSubstitution.substitute_variables(stage.command, vardefs),
+            cleanup=VariableSubstitution.substitute_variables(stage.cleanup, vardefs),
+            order=stage.order,
+            artifacts=[apply_variable_substitution_to_artifact(a, vardefs) for a in stage.artifacts],
+            )
+    else:
+        return Stage.TestStage(
+            run_tests_command=VariableSubstitution.substitute_variables(stage.run_tests_command, vardefs),
+            list_tests_command=VariableSubstitution.substitute_variables(stage.list_tests_command, vardefs),
+            cleanup=VariableSubstitution.substitute_variables(stage.cleanup, vardefs),
+            order=stage.order,
+            artifacts=[apply_variable_substitution_to_artifact(a, vardefs) for a in stage.artifacts]
+            )
 
 def apply_variable_substitution_to_stages(stages, vardefs):
     return [apply_variable_substitutions_to_stage(s, vardefs) for s in stages]
@@ -490,14 +511,12 @@ def apply_environment_to_test(test, env, input_var_defs):
             TestDefinition.Build,
             stages=stages,
             max_retries=test.max_retries,
-            retry_wait_seconds=test.retry_wait_seconds,
-            disabled=test.disabled
+            retry_wait_seconds=test.retry_wait_seconds
             )
     elif test.matches.Test:
         return make(
             TestDefinition.Test,
-            stages=stages,
-            disabled=test.disabled
+            stages=stages
             )
     elif test.matches.Deployment:
         return make(

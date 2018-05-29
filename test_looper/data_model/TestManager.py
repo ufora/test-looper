@@ -10,6 +10,7 @@ import textwrap
 import re
 import os
 from test_looper.core.hash import sha_hash
+import test_looper.data_model.SingleTestRunResult as SingleTestRunResult
 import test_looper.core.Bitstring as Bitstring
 import test_looper.core.object_database as object_database
 import test_looper.core.algebraic as algebraic
@@ -391,7 +392,7 @@ class TestManager(object):
         while head and len(res) < commitCount and maxLookback > 0:
             maxLookback -= 1
 
-            if head.userPriority:
+            if head.userEnabledTestSets:
                 res.append(head)
             if head.data and head.data.parents:
                 head = head.data.parents[0]
@@ -519,7 +520,7 @@ class TestManager(object):
     def totalRunningCountForTest(self, test):
         return test.activeRuns
 
-    def prioritizeAllCommitsUnderBranch(self, branch, priority, depth):
+    def prioritizeAllCommitsUnderBranch(self, branch, depth, prioritize=True):
         commits = {}
         def check(c):
             if not c or c in commits or len(commits) >= depth:
@@ -527,17 +528,20 @@ class TestManager(object):
 
             commits[c] = True
 
-            self._setCommitUserPriority(c, priority)
+            self._setCommitUserEnabledTestSets(c, ["all"] if prioritize else [])
 
             for r in self.database.CommitRelationship.lookupAll(child=c):
                 check(r.parent)
 
         check(branch.head)
         
+    def deprioritizeAllCommitsUnderBranch(self, branch, depth):
+        self.prioritizeAllCommitsUnderBranch(branch, depth, prioritize=False)
+        
     def toggleBranchUnderTest(self, branch):
         branch.isUnderTest = not branch.isUnderTest
-        if branch.head and branch.head.userPriority == 0 and branch.isUnderTest:
-            self._setCommitUserPriority(branch.head, 1)
+        if branch.head and not branch.head.userEnabledTestSets and branch.isUnderTest:
+            self._setCommitUserEnabledTestSets(branch.head, branch.head.data.triggeredTestSets)
         
     def getTestRunById(self, testIdentity):
         testIdentity = str(testIdentity)
@@ -618,14 +622,42 @@ class TestManager(object):
             testRun.test.totalRuns = testRun.test.totalRuns - 1
             if testRun.success:
                 testRun.test.successes = testRun.test.successes - 1
-                testRun.test.totalTestCount = testRun.test.totalTestCount - testRun.totalTestCount
-                testRun.test.totalFailedTestCount = testRun.test.totalFailedTestCount - testRun.totalFailedTestCount
+
+            self._addIndividualTestRecordsTo(
+                testRun.test, 
+                self._singleTestRecordsForRun(testRun),
+                remove=True
+                )
+
             testRun.canceled = True
 
             self._triggerTestPriorityUpdate(testRun.test)
 
+    def _singleTestRecordsForRun(self, testRun):
+        """Convert the compacted representation of tests we have in a TestRun back to a list of SingleTestRunResult"""
+        _timesseen = {}
+        def timesSeen(x):
+            _timesseen[x] = _timesseen.get(x,-1) + 1
+            return _timesseen[x]
+
+        return [SingleTestRunResult.SingleTestRunResult(
+                testName=testRun.testNames.test_names[testRun.testStepNameIndex[i]],
+                startTimestamp=testRun.testStepTimeStarted[i],
+                elapsed=testRun.testStepTimeElapsed[i],
+                testSucceeded=testRun.testStepSucceeded[i],
+                hasLogs=testRun.testStepHasLogs[i],
+                testPassIx=timesSeen(testRun.testStepNameIndex[i])
+                ) for i in xrange(len(testRun.testStepNameIndex))
+                ]
+
     def _importTestRun(self, test, identity, startedTimestamp, lastHeartbeat, endTimestamp, success, 
-                      canceled, testNameList, testFailureBits, testHasLogsBits, testCount, failedTestCount):
+                      canceled, testNameList, 
+                      testStepNameIndex,
+                      testStepTimeStarted,
+                      testStepTimeElapsed,
+                      testStepSucceeded,
+                      testStepHasLogs,
+                      testCount, failedTestCount):
         
         testRun = self.database.TestRun.New(
             _identity=identity,
@@ -636,16 +668,22 @@ class TestManager(object):
             canceled=canceled,
             success=success,
             testNames=self._testNameSet(testNameList),
-            testFailures=Bitstring.Bitstring(testFailureBits),
-            testHasLogs=Bitstring.Bitstring(testHasLogsBits),
+            testStepNameIndex=testStepNameIndex,
+            testStepTimeStarted=testStepTimeStarted,
+            testStepTimeElapsed=testStepTimeElapsed,
+            testStepSucceeded=Bitstring.Bitstring(testStepSucceeded),
+            testStepHasLogs=Bitstring.Bitstring(testStepHasLogs),
             totalTestCount=testCount,
             totalFailedTestCount=failedTestCount
             )
 
+        self._addIndividualTestRecordsTo(
+            testRun.test, 
+            self._singleTestRecordsForRun(testRun)
+            )
+
         if success:
             test.successes += 1
-            test.totalTestCount += testCount
-            test.totalFailedTestCount += failedTestCount
 
         if not canceled:
             if endTimestamp > 0.0:
@@ -707,6 +745,10 @@ class TestManager(object):
 
 
     def recordTestResults(self, success, testId, testSuccesses, artifacts, curTimestamp):
+        """record test results for a run.
+
+        testSuccesses - a list of SingleTestRunResult objects.
+        """
         self.recordTestArtifactUploaded(testId, artifacts, curTimestamp, True)
 
         with self.transaction_and_lock():
@@ -732,15 +774,32 @@ class TestManager(object):
             testRun.test.totalRuns = testRun.test.totalRuns + 1
             testRun.test.lastTestEndTimestamp = curTimestamp
 
-            names = sorted(testSuccesses.keys())
-            testRun.testNames = self._testNameSet(names)
-            testRun.testFailures = Bitstring.Bitstring.fromBools([testSuccesses[n][0] for n in names])
-            testRun.testHasLogs = Bitstring.Bitstring.fromBools([testSuccesses[n][1] for n in names])
-            testRun.totalTestCount = len(names)
-            testRun.totalFailedTestCount = len([n for n in names if not testSuccesses[n][0]])
+            names = sorted(set([s.testName for s in testSuccesses]))
+            name_to_ix = {n:ix for ix,n in enumerate(names)}
 
-            testRun.test.totalTestCount = testRun.test.totalTestCount + testRun.totalTestCount
-            testRun.test.totalFailedTestCount = testRun.test.totalFailedTestCount + testRun.totalFailedTestCount
+            testRun.testNames = self._testNameSet(names)
+            testRun.testStepNameIndex = [name_to_ix[s.testName] for s in testSuccesses]
+            testRun.testStepTimeElapsed = [s.elapsed for s in testSuccesses]
+            testRun.testStepTimeStarted = [s.startTimestamp for s in testSuccesses]
+            testRun.testStepSucceeded = Bitstring.Bitstring.fromBools([s.testSucceeded for s in testSuccesses])
+            testRun.testStepHasLogs = Bitstring.Bitstring.fromBools([s.hasLogs for s in testSuccesses])
+
+            runs_by_name = {n:0 for n in names}
+            failures_by_name = {n: 0 for n in names}
+
+            for record in testSuccesses:
+                runs_by_name[record.testName] += 1
+                if not record.testSucceeded:
+                    failures_by_name[record.testName] += 1
+
+            avgFC = 0.0
+            for name in runs_by_name:
+                if runs_by_name[name] > 0:
+                    avgFC += float(failures_by_name[name]) / float(runs_by_name[name])
+            testRun.totalFailedTestCount = avgFC
+            testRun.totalTestCount = len(names)
+
+            self._addIndividualTestRecordsTo(testRun.test, testSuccesses)
 
             testRun.success = success
             self.heartbeatHandler.testFinished(testId)
@@ -763,6 +822,140 @@ class TestManager(object):
             self._updateTestPriority(testRun.test, curTimestamp)
 
             return True
+
+    def _addIndividualTestRecordsTo(self, test, testRunResults, remove=False):
+        self._setTestParentIfPossible(test)
+
+        summary = test.testResultSummary
+
+        self._expandTestNameSet(summary, testRunResults)
+
+        name_to_ix = {n:ix for ix,n in enumerate(summary.testNames.test_names)}
+
+        testTotalRuns = list(summary.testTotalRuns)
+
+        runs = list(summary.testTotalRuns)
+        failures = list(summary.testTotalFailures)
+        hasLogs = list(summary.testHasLogs)
+        
+        for result in testRunResults:
+            ix = name_to_ix[result.testName]
+            runs[ix] += 1 if not remove else -1
+            if not result.testSucceeded:
+                failures[ix] += 1 if not remove else -1
+            if result.hasLogs:
+                hasLogs[ix] += 1
+
+        avgFailureRate = 0.0
+        totalTestCount = 0
+        for ix in xrange(len(runs)):
+            if runs[ix] > 0:
+                avgFailureRate += float(failures[ix]) / float(runs[ix])
+                totalTestCount += 1
+
+        summary.testTotalRuns = runs
+        summary.testTotalFailures = failures
+        summary.testHasLogs = hasLogs
+        summary.avgFailureRate = avgFailureRate
+        summary.totalTestCount = totalTestCount
+
+        self._recalculateTestSummaryStatistics(summary)
+
+    def _classifyTestByIndex(self, summary, ix):
+        failures, runs = summary.testTotalFailures[ix], summary.testTotalRuns[ix]
+
+        if runs > 1 and failures > 0 and failures < runs:
+            return 'flakey'
+        elif failures == runs:
+            return 'bad'
+        else:
+            return 'good'
+
+    def _recalculateTestSummaryStatistics(self, summary):
+        index_in_parent = {}
+
+        testCount = len(summary.testNames.test_names)
+
+        look_good = [False] * testCount
+        look_bad = [False] * testCount
+        look_flakey = [False] * testCount
+        look_broken = [False] * testCount
+        look_fixed = [False] * testCount
+        look_new = [False] * testCount
+
+        hasParentButNotRunYet = summary.test.parent and summary.test.parent.totalRuns == 0
+
+        if summary.test.parent and summary.test.parent.testResultSummary.testNames:
+            summary.removedTests = self._testNameSet(
+                sorted(set(summary.test.parent.testResultSummary.testNames.test_names) 
+                                - set(summary.testNames.test_names))
+                )
+            
+            for ix, name in enumerate(summary.test.parent.testResultSummary.testNames.test_names):
+                index_in_parent[name] = ix
+        
+        for ix, name in enumerate(summary.testNames.test_names):
+            classify = self._classifyTestByIndex(summary, ix)
+
+            if name in index_in_parent:
+                parent_classify = self._classifyTestByIndex(summary.test.parent.testResultSummary, index_in_parent[name])
+
+                if classify == 'good' and parent_classify == 'good':
+                    look_good[ix] = True
+                elif classify == 'bad' and parent_classify == 'bad':
+                    look_bad[ix] = True
+                elif classify == 'flakey':
+                    look_flakey[ix] = True
+                elif classify == 'good':
+                    look_fixed[ix] = True
+                elif classify == "bad":
+                    look_broken[ix] = True
+                else:
+                    assert False, "should never happen"
+
+            else:
+                if classify == 'good':
+                    look_good[ix] = True
+                elif classify == 'bad':
+                    look_bad[ix] = True
+                elif classify == 'flakey':
+                    look_flakey[ix] = True
+
+                if not hasParentButNotRunYet:
+                    look_new[ix] = True
+
+        summary.testLooksGood = Bitstring.Bitstring.fromBools(look_good)
+        summary.testLooksBad = Bitstring.Bitstring.fromBools(look_bad)
+        summary.testLooksFlakey = Bitstring.Bitstring.fromBools(look_flakey)
+        summary.testLooksBroken = Bitstring.Bitstring.fromBools(look_broken)
+        summary.testLooksFixed = Bitstring.Bitstring.fromBools(look_fixed)
+        summary.testLooksNew = Bitstring.Bitstring.fromBools(look_new)
+
+        summary.testLooksGoodTotal = sum([1 if x else 0 for x in look_good])
+        summary.testLooksBadTotal = sum([1 if x else 0 for x in look_bad])
+        summary.testLooksFlakeyTotal = sum([1 if x else 0 for x in look_flakey])
+        summary.testLooksBrokenTotal = sum([1 if x else 0 for x in look_broken])
+        summary.testLooksFixedTotal = sum([1 if x else 0 for x in look_fixed])
+        summary.testLooksNewTotal = sum([1 if x else 0 for x in look_new])
+
+    def _expandTestNameSet(self, summary, testRunResults):
+        existingNamesSet = set()
+        existingNames = []
+        if summary.testNames:
+            existingNames = summary.testNames.test_names
+            existingNamesSet = set(existingNames)
+
+        allNames = sorted(set([t.testName for t in testRunResults]))
+        new_names = []
+        for n in sorted(allNames):
+            if n not in existingNamesSet:
+                new_names.append(n)
+
+        if new_names or not summary.testNames:
+            summary.testNames = self._testNameSet(existingNames + new_names)
+            summary.testTotalRuns = summary.testTotalRuns + (0,) * len(new_names)
+            summary.testTotalFailures = summary.testTotalRuns + (0,) * len(new_names)
+            summary.testHasLogs = summary.testTotalRuns + (0,) * len(new_names)
 
     def handleTestConnectionReinitialized(self, testId, timestamp, allLogs, allArtifacts):
         self.heartbeatHandler.testHeartbeatReinitialized(testId, timestamp, allLogs)
@@ -963,7 +1156,7 @@ class TestManager(object):
             machine = self.database.Machine.lookupAny(machineId=machineId)
 
             if not machine or not machine.isAlive:
-                return None, None
+                return None, None, None
 
             self._machineHeartbeat(machine, timestamp)
 
@@ -974,7 +1167,7 @@ class TestManager(object):
                 logging.warn("Took %s to get priority", time.time() - t0)
 
             if not test:
-                return None, None
+                return None, None, None
 
             test.activeRuns = test.activeRuns + 1
 
@@ -989,7 +1182,28 @@ class TestManager(object):
 
             self._updateTestPriority(test, timestamp)
 
-            return (runningTest._identity, self.definitionForTest(test))
+            return (runningTest._identity, self.definitionForTest(test), self.historicalTestFailureRate(test))
+
+    def historicalTestFailureRate(self, test, maxCount=10):
+        """look back over test history and assemble test failure rates. try to get 'maxCount' runs
+        per test. Exit after maxCount prior tests have been seen."""
+        result = {}
+
+        lookback = 0
+        while lookback < maxCount and test:
+            self._setTestParentIfPossible(test)
+
+            if test.testResultSummary.testNames:
+                for ix, name in enumerate(test.testResultSummary.testNames.test_names):
+                    failures, totalRuns = result.get(name,(0,0))
+                    if totalRuns < maxCount:
+                        totalRuns += test.testResultSummary.testTotalRuns[ix]
+                        failures += test.testResultSummary.testTotalFailures[ix]
+                        result[name] = (failures,totalRuns)
+            test = test.parent
+            lookback += 1
+
+        return result
 
     def performCleanupTasks(self, curTimestamp):
         #check all tests to see if we've exceeded the timeout and the test is dead
@@ -1068,7 +1282,7 @@ class TestManager(object):
         return count
 
     def performBackgroundWorkSynchronously(self, curTimestamp, count):
-        with self.transaction_and_lock():
+        with self.transaction_and_lock() as curLock:
             logging.info("Tasks pending: %s", self._taskCount())
             logging.info("Total commits: %s",
                 sum([r.commits for r in  self.database.Repo.lookupAll(isActive=True)])
@@ -1092,7 +1306,7 @@ class TestManager(object):
                 task.status = running
 
                 try:
-                    self._processTask(task.task, curTimestamp)
+                    self._processTask(task.task, curTimestamp, curLock)
                 except KeyboardInterrupt:
                     raise
                 except:
@@ -1337,7 +1551,6 @@ class TestManager(object):
         newRepoDefs[template.def_to_replace] = (
             newRepoDefs[template.def_to_replace]
                 ._withReplacement(auto=True)
-                ._withReplacement(prioritize=True)
                 ._withReplacement(branch=branch.branchname)
                 ._withReplacement(reference="%s/%s" % (branch.repo.name, "HEAD"))
             )
@@ -1579,12 +1792,6 @@ class TestManager(object):
 
             ref = parents[0].data.repos.get(refname_updated)
 
-            #currently, we only support enabling everything or nothing by pin.
-            if ref and not ref.prioritize:
-                priority = 0
-
-        commit.userPriority = max(commit.userPriority, priority)
-
         if knownNoTestFile:
             commit.data.noTestsFound = True
 
@@ -1600,6 +1807,9 @@ class TestManager(object):
 
             commit.data.noTestsFound = True
             commit.data.testDefinitionsError = "Commit old enough that we won't check for test definitions."
+
+        if priority:
+            commit.userEnabledTestSets = commit.data.triggeredTestSets
 
         for branch in self.database.Branch.lookupAll(head=commit):
             self._recalculateBranchPins(branch)
@@ -1694,6 +1904,11 @@ class TestManager(object):
                 return
 
             commit.data.repos = all_repo_defs
+
+            testSets, testSetsTopLevel, triggeredTestSets = resolver.testSetsFor(commit.repo.name, commit.hash)
+            commit.data.testSets = testSets
+            commit.data.testSetsTopLevel = testSetsTopLevel
+            commit.data.triggeredTestSets = triggeredTestSets
             
             tests_by_name = {}
 
@@ -1799,9 +2014,9 @@ class TestManager(object):
 
     def _computeCommitPriority(self, commit):
         if commit.anyBranch:
-            return commit.userPriority
+            return commit.userEnabledTestSets
         else:
-            return 0
+            return ()
 
     def _updateCommitPriority(self, commit):
         branch = self._calcCommitAnybranch(commit)
@@ -1816,24 +2031,24 @@ class TestManager(object):
             commit.anyBranch = branch
             changed = True
 
-        priority = self._computeCommitPriority(commit)
+        testSets = self._computeCommitPriority(commit)
         
-        if priority != commit.calculatedPriority:
-            logging.info("Commit %s/%s changed priority from %s to %s", 
+        if testSets != commit.calculatedTestSets:
+            logging.info("Commit %s/%s changed testSets from %s to %s", 
                 commit.repo.name,
                 commit.hash,
-                commit.calculatedPriority,
-                priority
+                commit.calculatedTestSets,
+                testSets
                 )
 
-            commit.calculatedPriority = priority
+            commit.calculatedTestSets = testSets
             changed = True
 
         if commit.data and changed:
             for p in commit.data.parents:
                 self._triggerCommitPriorityUpdate(p)
 
-            #trigger priority updates of all builds in other commits
+            #trigger testSets updates of all builds in other commits
             for test in self.allTestsForCommit(commit):
                 for dep in self.database.TestDependency.lookupAll(test=test):
                     self._triggerTestPriorityUpdate(dep.dependsOn)
@@ -1880,8 +2095,7 @@ class TestManager(object):
                         repo_def=repo_def, 
                         pinned_to_repo=reponame,
                         pinned_to_branch=target.branch,
-                        auto=target.auto,
-                        prioritize=target.prioritize
+                        auto=target.auto
                         )
 
         self._scheduleBranchPinNeedsUpdating(branch)
@@ -2056,16 +2270,16 @@ class TestManager(object):
 
         self._machineTerminated(machine.machineId, curTimestamp)
 
-    def _setCommitUserPriority(self, commit, priority):
-        if priority != commit.userPriority:
-            logging.info("Commit %s/%s has new priority %s (old=%s)", 
+    def _setCommitUserEnabledTestSets(self, commit, testSets):
+        if testSets != commit.userEnabledTestSets:
+            logging.info("Commit %s/%s has new enabled test sets %s (old=%s)", 
                 commit.repo.name, 
                 commit.hash, 
-                priority,
-                commit.userPriority
+                testSets,
+                commit.userEnabledTestSets
                 )
 
-            commit.userPriority = priority
+            commit.userEnabledTestSets = testSets
             self._triggerCommitPriorityUpdate(commit)
 
     def oldestCommitForTest(self, test):
@@ -2080,18 +2294,20 @@ class TestManager(object):
     def _updateTestPriority(self, test, curTimestamp):
         oldCalcPri = test.calculatedPriority
 
-        test.calculatedPriority = max(
-            commit.calculatedPriority for commit in self.commitsReferencingTest(test)
-            )
+        test.calculatedPriority = 0
 
-        anyTestsReferencingUs = False
+        #compute the direct prioritization
+        for commit in self.commitsReferencingTest(test):
+            if commit.data:
+                for testSet in commit.calculatedTestSets:
+                    tests = commit.data.testSetsTopLevel.get(testSet, [])
+                    if test.testDefinitionSummary.name in tests:
+                        test.calculatedPriority = 1
 
-        #now check all tests that depend on us
+        #now check all tests that depend on us and see if any of them is prioritized
         for dep in self.database.TestDependency.lookupAll(dependsOn=test):
-            if dep.test.calculatedPriority:
-                anyTestsReferencingUs = True
-
-            test.calculatedPriority = max(dep.test.calculatedPriority, test.calculatedPriority)
+            if dep.test.calculatedPriority > 0:
+                test.calculatedPriority = 1
 
         #cancel any runs already going if this gets deprioritized
         if test.calculatedPriority == 0:
@@ -2109,9 +2325,6 @@ class TestManager(object):
             logging.warn("Can't boot test %s because the hardware combo is unbootable.", test.hash)
             test.priority = self.database.TestPriority.HardwareComboUnbootable()
             test.targetMachineBoot = 0
-            test.calculatedPriority = 0
-        elif test.testDefinitionSummary.type != "Deployment" and test.testDefinitionSummary.disabled and not anyTestsReferencingUs:
-            test.priority = self.database.TestPriority.NoMoreTests()
             test.calculatedPriority = 0
         elif self._testHasUnresolvedDependencies(test):
             test.priority = self.database.TestPriority.UnresolvedDependencies()
@@ -2149,6 +2362,7 @@ class TestManager(object):
                 category.desired = category.desired + net_change
                 self._scheduleBootCheck()
 
+        
         if test.priority != oldPriority or test.calculatedPriority != oldCalcPri:
             for dep in self.database.TestDependency.lookupAll(test=test):
                 self._triggerTestPriorityUpdate(dep.dependsOn)
@@ -2156,11 +2370,10 @@ class TestManager(object):
                 self._triggerTestPriorityUpdate(dep.test)
 
         logging.info(
-            "test priority for test %s is now %s. targetBoot=%s. disabled=%s", 
+            "test priority for test %s is now %s. targetBoot=%s", 
             test.hash, 
             test.priority, 
-            test.targetMachineBoot,
-            test.testDefinitionSummary.disabled
+            test.targetMachineBoot
             )
       
 
@@ -2396,6 +2609,49 @@ class TestManager(object):
 
         return False
 
+    def _setTestParentIfPossible(self, test):
+        if test.parentChecked:
+            return
+
+        commits = self.commitsReferencingTest(test)
+        if not commits:
+            return
+
+        for c in commits:
+            if not c.data:
+                return
+
+        #pick the oldest commit
+        commit = sorted(commits, key=lambda c: c.data.timestamp)[0]
+
+
+        testName = test.testDefinitionSummary.name
+        while True:
+            if not commit.data:
+                #we're not done parsing tests
+                return
+
+            #a test by the same name in a parent commit but with different content is
+            #our actual parent commit
+            if testName in commit.data.tests and commit.data.tests.get(testName) != test:
+                test.parent = commit.data.tests.get(testName)
+                test.parentChecked = True
+                return
+
+            #if it's not in the parent commit, then we bail early. no reaon to check back
+            #over some enormous history.
+            if testName not in commit.data.tests:
+                #this set of tests isn't present
+                test.parentChecked = True
+                return
+
+            #if the commit history ends, we also bail
+            if not commit.data.parents:
+                test.parentChecked=True
+                return
+
+            commit = commit.data.parents[0]
+    
     def _createTest(self, commit, testDefinition):
         #make sure it's new
         test = self.database.Test.lookupAny(hash=testDefinition.hash)
@@ -2403,6 +2659,7 @@ class TestManager(object):
         if not test:
             test = self.database.Test.New(
                 hash=testDefinition.hash,
+                testResultSummary=self.database.TestResultSummary.New(),
                 testDefinitionSummary=self.database.TestDefinitionSummary.Summary(
                     machineOs=self._machineOsForEnv(testDefinition.environment),
                     artifacts=[a.name for stage in testDefinition.stages for a in stage.artifacts],
@@ -2410,7 +2667,6 @@ class TestManager(object):
                     type=testDefinition._which,
                     configuration=testDefinition.configuration,
                     project=testDefinition.project,
-                    disabled=testDefinition.disabled,
                     timeout=testDefinition.timeout,
                     min_cores=testDefinition.min_cores,
                     max_cores=testDefinition.max_cores,
@@ -2421,6 +2677,7 @@ class TestManager(object):
                     ),
                 priority=self.database.TestPriority.NoMoreTests()
                 )
+            test.testResultSummary.test = test
 
             self._checkAllTestDependencies(test, testDefinition)
             self._markTestCreated(test)

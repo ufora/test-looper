@@ -4,12 +4,10 @@ import cgi
 octicon = HtmlGeneration.octicon
 
 
-def convertToIntIfClose(x):
+def formatFloatToStringWithRoundoff(x):
     if abs(x - round(x, 0)) < .01:
-        return int(round(x, 0))
-    return x
-
-
+        return str(int(round(x, 0)))
+    return "%.1f" % x
 
 def cached(f):
     def function(self):
@@ -56,6 +54,19 @@ class TestSummaryRenderer:
             button_text = button_text + ("&nbsp;" if button_text else "") + (
                 '<span class="badge badge-info pl-1">{workers}{icon}</span>'.format(workers=max(activeBuilds,0), icon=octicon("tools"))
                 )
+
+        testLooksBrokenTotal = sum([t.testResultSummary.testLooksBrokenTotal for t in self.tests])
+        testLooksFixedTotal = sum([t.testResultSummary.testLooksBrokenTotal for t in self.tests])
+
+        if testLooksBrokenTotal:
+            button_text = button_text + ("&nbsp;" if button_text else "") + (
+                '<span class="badge badge-info pl-1">{broken}{icon}</span>'.format(broken=testLooksBrokenTotal, icon=octicon("bug"))
+                )
+        if testLooksFixedTotal:
+            button_text = button_text + ("&nbsp;" if button_text else "") + (
+                '<span class="badge badge-info pl-1">{fixed}{icon}</span>'.format(fixed=testLooksFixedTotal, icon=octicon("thumbsup"))
+                )
+
 
         if label:
             button_text = label + "&nbsp;" + button_text
@@ -161,14 +172,13 @@ class TestSummaryRenderer:
             elif t.successes == 0:
                 suitesFailed += 1
             else:
-                if t.totalTestCount == 0:
+                if t.testResultSummary.totalTestCount == 0:
                     suitesWithNoIndividualTests += 1
                 else:
                     suitesSucceeded += 1
 
-            if t.totalRuns:
-                totalTests += t.totalTestCount / t.totalRuns if t.totalRuns != 1 else t.totalTestCount
-                totalFailedTestCount += t.totalFailedTestCount / t.totalRuns if t.totalRuns != 1 else t.totalFailedTestCount
+            totalTests += t.testResultSummary.totalTestCount
+            totalFailedTestCount += t.testResultSummary.avgFailureRate
 
         if suitesWithNoIndividualTests:
             res += "<div>%s test suites succeeded but dumped no individual tests</div>" % suitesWithNoIndividualTests
@@ -191,14 +201,30 @@ class TestSummaryRenderer:
         if suitesFailed:
             res += "<div>%s test suites failed</div>" % suitesFailed
 
-        totalTests = convertToIntIfClose(totalTests)
-        totalFailedTestCount = convertToIntIfClose(totalFailedTestCount)
+        totalTests = formatFloatToStringWithRoundoff(totalTests)
+        totalFailedTestCount = formatFloatToStringWithRoundoff(totalFailedTestCount)
 
         if totalTests:
             res += "<div>%s / %s individual test runs failed.</div>" % (
                 totalFailedTestCount,
                 totalTests
                 )
+
+            testLooksGoodTotal = sum([t.testResultSummary.testLooksGoodTotal for t in self.tests])
+            testLooksBadTotal = sum([t.testResultSummary.testLooksBadTotal for t in self.tests])
+            testLooksFlakeyTotal = sum([t.testResultSummary.testLooksFlakeyTotal for t in self.tests])
+            testLooksBrokenTotal = sum([t.testResultSummary.testLooksBrokenTotal for t in self.tests])
+            testLooksFixedTotal = sum([t.testResultSummary.testLooksFixedTotal for t in self.tests])
+            testLooksNewTotal = sum([t.testResultSummary.testLooksNewTotal for t in self.tests])
+
+            if testLooksFlakeyTotal:
+                res += "<div>%s individual tests look flakey.</div>" % testLooksFixedTotal
+            if testLooksNewTotal:
+                res += "<div>%s individual tests are new.</div>" % testLooksNewTotal
+            if testLooksBrokenTotal:
+                res += "<div>%s individual tests are broken in this commit.</div>" % testLooksBrokenTotal
+            if testLooksFixedTotal:
+                res += "<div>%s individual tests are fixed in this commit.</div>" % testLooksFixedTotal
 
         return res
 
@@ -234,9 +260,8 @@ class TestSummaryRenderer:
             else:
                 suitesSucceeded += 1
 
-            if t.totalRuns > 0:
-                totalTests += t.totalTestCount / float(t.totalRuns)
-                totalFailedTestCount += t.totalFailedTestCount / float(t.totalRuns)
+            totalTests += t.testResultSummary.totalTestCount
+            totalFailedTestCount += t.testResultSummary.avgFailureRate
 
 
         build_summary = ""
@@ -302,14 +327,14 @@ class TestSummaryRenderer:
 
     @staticmethod
     def renderFailureCount(totalFailedTestCount, totalTests, verbose=False):
-        totalFailedTestCount = convertToIntIfClose(totalFailedTestCount)
-        totalTests = convertToIntIfClose(totalTests)
+        totalFailedTestCount = formatFloatToStringWithRoundoff(totalFailedTestCount)
+        totalTests = formatFloatToStringWithRoundoff(totalTests)
         
         if not verbose:
             if totalTests == 0:
                 return '<span class="text-muted">%s</span>' % octicon("check")
 
         if verbose:
-            return '<span class="text-danger">%d</span>%s%d' % (totalFailedTestCount, '<span class="text-muted px-1"> failed out of </span>', totalTests)
+            return '<span class="text-danger">%s</span>%s%s' % (totalFailedTestCount, '<span class="text-muted px-1"> failed out of </span>', totalTests)
         else:
-            return '<span class="text-danger">%d</span>%s%d' % (totalFailedTestCount, '<span class="text-muted px-1">/</span>', totalTests)
+            return '<span class="text-danger">%s</span>%s%s' % (totalFailedTestCount, '<span class="text-muted px-1">/</span>', totalTests)

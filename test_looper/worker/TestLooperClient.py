@@ -163,14 +163,14 @@ class TestLooperClient(object):
                     self._curOutputs = []
                     self._curArtifacts = []
                     logging.info("New TestID is %s", self._curTestId)
-                    return msg.testId, msg.testDefinition, False
+                    return msg.testId, msg.testDefinition, msg.historicalTestFailureRates, False
 
                 if msg.matches.DeploymentAssignment:
                     self._curDeploymentId = msg.deploymentId
                     self._curOutputs = []
                     self._curArtifacts = []
                     logging.info("New deploymentId is %s", self._curDeploymentId)
-                    return msg.deploymentId, msg.testDefinition, True
+                    return msg.deploymentId, msg.testDefinition, None, True
 
     def consumeMessages(self):
         try:

@@ -91,8 +91,11 @@ class ImportExport(object):
                             success=run.success,
                             canceled=run.canceled,
                             testNames=run.testNames.shaHash if run.testNames else "",
-                            testFailures=run.testFailures.bits,
-                            testHasLogs=run.testHasLogs.bits,
+                            testStepNameIndex=run.testStepNameIndex,
+                            testStepTimeStarted=[x.val if x.matches.Value else None for x in run.testStepTimeStarted],
+                            testStepTimeElapsed=[x.val if x.matches.Value else None for x in run.testStepTimeElapsed],
+                            testStepSucceeded=run.testStepSucceeded.bits,
+                            testStepHasLogs=run.testStepHasLogs.bits,
                             totalTestCount=run.totalTestCount,
                             totalFailedTestCount=run.totalFailedTestCount
                             ))
@@ -132,7 +135,7 @@ class ImportExport(object):
                         commitsToCheck.add(parent)
 
                     repos[c.repo.name]["commits"][c.hash] = {
-                        "priority": c.userPriority, 
+                        "userEnabledTestSets": c.userEnabledTestSets, 
                         "tests": testDict, 
                         "hasTestFile": self.testManager._commitMightHaveTests(c) and not c.data.noTestsFound,
                         "parents": [p.hash for p in c.data.parents]
@@ -193,7 +196,7 @@ class ImportExport(object):
                         commitInfoCache=commitInfoCache
                         )
 
-                    commit.userPriority=commitdef.priority
+                    commit.userEnabledTestSets=commitdef.userEnabledTestSets
 
                     for testname, testdef in commitdef.tests.iteritems():
                         test = commit.data.tests.get(testname)
@@ -231,8 +234,11 @@ class ImportExport(object):
             run.success,
             run.canceled,
             testNameSets[run.testNames] if run.testNames else [],
-            run.testFailures,
-            run.testHasLogs,
+            run.testStepNameIndex,
+            run.testStepTimeStarted,
+            run.testStepTimeElapsed,
+            run.testStepSucceeded,
+            run.testStepHasLogs,
             run.totalTestCount,
             run.totalFailedTestCount
             )

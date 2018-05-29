@@ -77,35 +77,34 @@ class IndividualTestContext(Context.Context):
             grid = [["Test Run", "Failure", "File", "Size"]]
 
             for testRun in [t for t in self.relevantTestRuns() if not t.canceled and t.endTimestamp]:
-                try:
-                    index = testRun.testNames.test_names.index(self.individualTestName)
-                    passFail = True if testRun.testFailures[index] else False
-                except:
-                    passFail = None
+                timesSeen = -1
+                for ix in xrange(len(testRun.testStepNameIndex)):
+                    name = testRun.testNames.test_names[testRun.testStepNameIndex[ix]]
+                    if name == self.individualTestName:
+                        timesSeen += 1
 
-                if passFail is not None:
-                    pathsAndSizes = self.renderer.artifactStorage.testResultKeysAndSizesForIndividualTest(
-                            testRun.test.hash, testRun._identity, self.individualTestName
-                            )
+                        pathsAndSizes = self.renderer.artifactStorage.testResultKeysAndSizesForIndividualTest(
+                                testRun.test.hash, testRun._identity, self.individualTestName, timesSeen
+                                )
 
-                    for path, sz in pathsAndSizes:
-                        grid.append([
-                            self.contextFor(testRun).renderLink(False, False),
-                            "OK" if passFail is True else "FAIL" if passFail is False else "",
-                            HtmlGeneration.link(
-                                os.path.basename(path), 
-                                self.renderer.testResultDownloadUrl(testRun._identity, path)
-                                ),
-                            HtmlGeneration.bytesToHumanSize(sz)
-                            ])
+                        for path, sz in sorted(pathsAndSizes):
+                            grid.append([
+                                self.contextFor(testRun).renderLink(False, False),
+                                "OK" if testRun.testStepSucceeded[ix] is True else "FAIL",
+                                HtmlGeneration.link(
+                                    os.path.basename(path), 
+                                    self.renderer.testResultDownloadUrl(testRun._identity, path)
+                                    ),
+                                HtmlGeneration.bytesToHumanSize(sz)
+                                ])
 
-                    if not pathsAndSizes:
-                        grid.append([
-                            self.contextFor(testRun).renderLink(False, False),
-                            "FAIL" if passFail is True else "OK" if passFail is False else "",
-                            '<span class="text-muted">%s</span>' % "No artifacts",
-                            ""
-                            ])
+                        if not pathsAndSizes:
+                            grid.append([
+                                self.contextFor(testRun).renderLink(False, False),
+                                "FAIL" if passFail is True else "OK" if passFail is False else "",
+                                '<span class="text-muted">%s</span>' % "No artifacts",
+                                ""
+                                ])
 
             return HtmlGeneration.grid(grid,dataTables=True)
 
