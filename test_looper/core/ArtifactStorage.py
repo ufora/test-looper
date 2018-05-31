@@ -155,7 +155,7 @@ class ArtifactStorage(object):
         artifact_key = self.sanitizeName(source_platform_name) + ".tar.gz"
             
         if not self.build_exists(commitHash, artifact_key):
-            tarballs_dir = tempfile.mkdtemp()
+            tarballs_dir = tempfile.mkdtemp(dir=self.tempfileOverrideDir or None)
 
             try:
                 tarball_name = os.path.join(tarballs_dir, artifact_key)
@@ -180,6 +180,7 @@ class AwsArtifactStorage(ArtifactStorage):
         self.region = config.region
         self.build_artifact_key_prefix = config.build_artifact_key_prefix
         self.test_artifact_key_prefix = config.test_artifact_key_prefix
+        self.tempfileOverrideDir = None
 
     @property
     def _session(self):
@@ -298,6 +299,7 @@ class LocalArtifactStorage(ArtifactStorage):
         
         self.build_storage_path = config.path_to_build_artifacts
         self.test_artifacts_storage_path = config.path_to_test_artifacts
+        self.tempfileOverrideDir = None
 
     def _buildContents(self, testHash, key):  
         with open(os.path.join(self.build_storage_path, testHash, key), "r") as f:

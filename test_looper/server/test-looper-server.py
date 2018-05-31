@@ -11,6 +11,7 @@ import sys
 import threading
 import time
 import yaml
+import shutil
 import test_looper.core.algebraic_to_json as algebraic_to_json
 import test_looper.core.Config as Config
 import test_looper.core.machine_management.MachineManagement as MachineManagement
@@ -126,6 +127,20 @@ def main():
         sys.exit(0)
 
     artifact_storage = ArtifactStorage.storageFromConfig(config.artifacts)
+
+    artifact_storage.tempfileOverrideDir = os.path.join(config.server.path_to_local_repos, "tarballs")
+    if os.path.exists(artifact_storage.tempfileOverrideDir):
+        try:
+            shutil.rmtree(artifact_storage.tempfileOverrideDir)
+        except:
+            traceback.print_exc()
+
+        try:
+            os.makedirs(artifact_storage.tempfileOverrideDir)
+        except:
+            traceback.print_exc()
+
+
     machine_management = MachineManagement.fromConfig(config, src_ctrl, artifact_storage)
 
     testManager = TestManager.TestManager(config.server_ports, src_ctrl, machine_management, jsonStore)
