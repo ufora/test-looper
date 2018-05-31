@@ -285,7 +285,7 @@ class BranchContext(Context.Context):
         all_tests = self.testManager.allTestsForCommit(commit)
 
         if all_tests:
-            row[-1] += "&nbsp;" + self.contextFor(commit).toggleCommitUnderTestLink()
+            row[-1] += "&nbsp;" + self.contextFor(commit).dropdownForTestPrioritization()
         
         row.extend(renderer.gridRow(commit))
         

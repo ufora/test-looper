@@ -114,24 +114,52 @@ class CommitContext(Context.Context):
 
         return None, path
 
-    def toggleCommitUnderTestLink(self):
+    def dropdownForTestPrioritization(self):
         commit = self.commit
 
-        actual_priority = len(commit.userEnabledTestSets) > 0
+        if not commit.data:
+            return ""
 
-        icon = "octicon-triangle-right"
-        hover_text = "%s tests for this commit" % ("Enable" if not actual_priority else "Disable")
-        button_style = "btn-xs " + ("btn-primary active" if actual_priority else "btn-outline-dark")
-        
-        return HtmlGeneration.Link(
-            "/toggleCommitUnderTest?" + 
-                urllib.urlencode({'reponame': commit.repo.name, 'hash':commit.hash, 'redirect': self.redirect()}),
-            '<span class="octicon %s" aria-hidden="true"></span>' % icon,
-            is_button=True,
-            button_style=self.renderer.disable_if_cant_write(button_style),
-            hover_text=hover_text
-            )
-    
+        if len(commit.userEnabledTestSets):
+            elt = "testing " + ", ".join(sorted(commit.userEnabledTestSets))
+        else:
+            elt = '<span class="text-muted">not testing</span>'
+
+        menu_items =  []
+
+        sortedTestSets = sorted(commit.data.testSets)
+        if 'all' in sortedTestSets:
+            sortedTestSets.remove('all')
+            sortedTestSets = ['all'] + sortedTestSets
+
+        for test_set in sortedTestSets:
+            isEnabledNow = test_set in commit.userEnabledTestSets
+
+            menu_items.append(
+                '<a class="dropdown-item {active}" href="{link}">{contents}</a>'.format(
+                    link=self.withOptions(action="toggle_tests_on", test_set=test_set, redirect=self.renderer.redirect()).urlString(),
+                    contents=test_set,
+                    active='active' if isEnabledNow else ''
+                    )
+                )
+
+        return """
+            <div class="btn-group">
+              <a role="button" class="btn btn-xs {btnstyle}" title="{title}">{elt}</a>
+              <button class="btn btn-xs {btnstyle} dropdown-toggle dropdown-toggle-split" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+              </button>
+              <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+                {dd_items}
+              </div>
+              
+            </div>
+            """.format(
+                elt=elt,
+                title="Test subsets we want to run",
+                dd_items = "".join(menu_items),
+                btnstyle="btn-outline-secondary"
+                )
+
     def renderLinkToSCM(self):
         url = self.renderer.src_ctrl.commit_url(self.commit.repo.name, self.commit.hash)
         return HtmlGeneration.link(octicon("diff"), url, hover_text="View diff")
@@ -326,10 +354,28 @@ class CommitContext(Context.Context):
         if self.options.get("action", "") == "force_reparse":
             self.testManager._forceTriggerCommitTestParse(self.commit)
 
+        if self.options.get("action", "") == 'toggle_tests_on':
+            test_set = self.options.get('test_set')
+
+            new_sets = list(self.commit.userEnabledTestSets)
+            hasIt = test_set in new_sets
+
+            if not hasIt and test_set == 'all':
+                new_sets = ['all']
+            elif hasIt:
+                new_sets.remove(test_set)
+            else:
+                new_sets.append(test_set)
+
+            self.testManager._setCommitUserEnabledTestSets(self.commit, new_sets)
+
     def renderPageBody(self):
         if self.options.get("action", ""):
             self.handleAction()
-            return HtmlGeneration.Redirect(self.withOptionsReset(view=self.options.get("view")).urlString())
+            return HtmlGeneration.Redirect(
+                self.options.get("redirect", "") or 
+                    self.withOptionsReset(view=self.options.get("view")).urlString()
+                )
 
         view = self.currentView()
 
@@ -661,9 +707,9 @@ class CommitContext(Context.Context):
         tests = sorted(tests, key=lambda test: test.testDefinitionSummary.name)
         
         if builds:
-            grid = [["BUILD", "HASH", "", "PROJECT", "CONFIGURATION", "STATUS", "STAGE", "RUNS", "RUNTIME", "", "DEPENDENCIES"]]
+            grid = [["BUILD", "HASH", "", "PROJECT", "CONFIGURATION", "PRIORITIZED", "STATUS", "STAGE", "RUNS", "RUNTIME", "", "DEPENDENCIES"]]
         else:
-            grid = [["SUITE", "HASH", "", "PROJECT", "CONFIGURATION", "STATUS", "RUNS", "TARGET_RUNS", "TEST_CT", "FAILURE_CT", "AVG_RUNTIME", "", "DEPENDENCIES"]]
+            grid = [["SUITE", "HASH", "", "PROJECT", "CONFIGURATION", "PRIORITIZED", "STATUS", "RUNS", "TARGET_RUNS", "TEST_CT", "FAILURE_CT", "AVG_RUNTIME", "", "DEPENDENCIES"]]
 
         if self.options.get("show_disabled"):
             #grid[0].append("Disabled")
@@ -687,6 +733,7 @@ class CommitContext(Context.Context):
 
             row.append(t.testDefinitionSummary.project)
             row.append(t.testDefinitionSummary.configuration)
+            row.append(octicon("check") if t.calculatedPriority else "")
 
             row.append(TestSummaryRenderer.TestSummaryRenderer([t],"", ignoreIndividualTests=True).renderSummary())
 
@@ -858,7 +905,7 @@ class CommitContext(Context.Context):
 
         return (
             "Testing:&nbsp;" +
-            self.toggleCommitUnderTestLink().render() + 
+            self.dropdownForTestPrioritization() + 
             "&nbsp;&nbsp;Builds:&nbsp;&nbsp;" + 
             TestSummaryRenderer.TestSummaryRenderer(all_builds, "").renderSummary() +
             "&nbsp;&nbsp;Tests:&nbsp;" +

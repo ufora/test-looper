@@ -82,6 +82,7 @@ def setup_types(database):
         testSetsTopLevel=algebraic.Dict(str, algebraic.List(str)),
         #list of triggered test sets
         triggeredTestSets=algebraic.List(str), 
+        triggeredTriggers=algebraic.List(str), 
         testDefinitionsError=str,
         testsParsed=bool,
         noTestsFound=bool

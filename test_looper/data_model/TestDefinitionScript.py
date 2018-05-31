@@ -122,6 +122,8 @@ DefineInclude.Include = {"path": str, "variables": algebraic.Dict(str, str)}
 
 PrioritizationTrigger = algebraic.Alternative("PrioritizationTrigger")
 PrioritizationTrigger.Trigger = {
+    #the name of the trigger. If empty, won't be displayed in the UI
+    'name': str,
     #list of globs that cause the trigger to fire. For each input repo (including HEAD), we look
     #at each file that changed since the last commit and match 'repo/path' against the glob.
     'paths': algebraic.List(str), 

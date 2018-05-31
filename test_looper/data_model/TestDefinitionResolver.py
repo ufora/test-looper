@@ -229,6 +229,8 @@ class TestDefinitionResolver:
         if (repoName, commitHash) in self.triggeredTestSetsCache:
             return self.triggeredTestSetsCache[repoName, commitHash]
 
+        triggeredTriggerNames = set()
+
         repos,_,_,_,test_sets_with_globs, triggers = self.postIncludeDefinitions_(repoName, commitHash)
 
         if "all" not in test_sets_with_globs:
@@ -236,7 +238,7 @@ class TestDefinitionResolver:
 
         if not triggers:
             triggers = [
-                TestDefinitionScript.PrioritizationTrigger.Trigger(paths=["*"], test_sets=["all"])
+                TestDefinitionScript.PrioritizationTrigger.Trigger(name='', paths=["*"], test_sets=["all"])
                 ]
 
         tests = self.testDefinitionsFor(repoName, commitHash)
@@ -261,6 +263,9 @@ class TestDefinitionResolver:
         else:
             for t in triggers:
                 if self._triggerApplies(allDiffs, t):
+                    if t.name:
+                        triggeredTriggerNames.add(t.name)
+
                     for glob in t.test_sets:
                         for s in testSets:
                             if fnmatch.fnmatchcase(s, glob):
@@ -285,7 +290,7 @@ class TestDefinitionResolver:
 
         fullTestSets = {setname: expanded(testSets[setname]) for setname in testSets}
 
-        self.triggeredTestSetsCache[repoName, commitHash] = (fullTestSets, testSets, triggeredTestSets)
+        self.triggeredTestSetsCache[repoName, commitHash] = (fullTestSets, testSets, triggeredTestSets, triggeredTriggerNames)
 
         return self.triggeredTestSetsCache[repoName, commitHash]
 

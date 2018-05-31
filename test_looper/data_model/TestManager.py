@@ -1905,10 +1905,12 @@ class TestManager(object):
 
             commit.data.repos = all_repo_defs
 
-            testSets, testSetsTopLevel, triggeredTestSets = resolver.testSetsFor(commit.repo.name, commit.hash)
+            testSets, testSetsTopLevel, triggeredTestSets, triggeredTriggers = resolver.testSetsFor(commit.repo.name, commit.hash)
+
             commit.data.testSets = testSets
             commit.data.testSetsTopLevel = testSetsTopLevel
             commit.data.triggeredTestSets = triggeredTestSets
+            commit.data.triggeredTriggers = triggeredTriggers
             
             tests_by_name = {}
 

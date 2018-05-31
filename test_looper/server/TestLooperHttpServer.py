@@ -404,12 +404,6 @@ class TestLooperHttpServer(object):
         return self.renderer.testEnvironment(repoName, commitHash, environmentName)
 
     @cherrypy.expose
-    def toggleCommitUnderTest(self, reponame, hash, redirect):
-        self.authorize(read_only=False)
-
-        return self.renderer.toggleCommitUnderTest(reponame, hash, redirect)
-
-    @cherrypy.expose
     def toggleBranchUnderTest(self, repo, branchname, redirect):
         self.authorize(read_only=False)
 

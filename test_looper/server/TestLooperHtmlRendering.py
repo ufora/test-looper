@@ -330,15 +330,6 @@ class Renderer:
             hover_text=hover_text
             )
 
-    def toggleCommitUnderTest(self, reponame, hash, redirect):
-        with self.testManager.transaction_and_lock():
-            repo = self.testManager.database.Repo.lookupOne(name=reponame)
-            commit = self.testManager.database.Commit.lookupAny(repo_and_hash=(repo, hash))
-
-            self.testManager._setCommitUserEnabledTestSets(commit, ["all"] if not commit.userEnabledTestSets else [])
-
-        raise cherrypy.HTTPRedirect(redirect)
-
     def toggleBranchUnderTest(self, repo, branchname, redirect):
         with self.testManager.transaction_and_lock():
             branch = self.testManager.database.Branch.lookupOne(reponame_and_branchname=(repo, branchname))
