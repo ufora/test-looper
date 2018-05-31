@@ -865,7 +865,8 @@ class WorkerState(object):
             source_platform_name = "source-linux" if sys.platform != "win32" else "source-win"
 
             if dep.path:
-                source_platform_name = os.path.join(source_platform_name, dep.path)
+                #this is an encoded path in S3. So we really want the '/'
+                source_platform_name = source_platform_name + "/" + dep.path
 
             sourceArtifactName = self.artifactKeyForBuild(source_platform_name)
 
