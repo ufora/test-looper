@@ -837,7 +837,7 @@ class WorkerState(object):
 
 
     def extract_package(self, package_file, target_dir):
-        with tarfile.open(package_file, "r|gz") as tar:
+        with tarfile.open(package_file, "r:gz") as tar:
             logging.info("Extracting package %s to %s", package_file, target_dir)
             tar.extractall(target_dir)
 
