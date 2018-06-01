@@ -1093,12 +1093,6 @@ class WorkerState(object):
                 return True
             return False
 
-        print "HERE with "
-        for t in sorted(all_tests):
-            print t, bad_count[t], good_count[t], historicalTestFailureRates.get(t,None), \
-                ", historically broken" if t in historicallyCompletelyBroken else "", \
-                ", so bad we can stop" if testIsSoBadWeCanStop(t) else "" \
-
         #remove all tests which have failed three times. we know they're flakey at this point.
         #or, if they failed 
         broken = set([b for b in broken if not testIsSoBadWeCanStop(b)])

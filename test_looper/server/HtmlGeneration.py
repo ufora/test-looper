@@ -226,7 +226,10 @@ def makeHtmlElement(elt):
 
 class HtmlString(HtmlElement):
     def __init__(self, text):
-        self.text = text.encode('ascii', 'xmlcharrefreplace')
+        try:
+            self.text = text.encode('ascii', 'xmlcharrefreplace')
+        except UnicodeDecodeError:
+            self.text = "_bad unicode_"
 
     def render(self):
         return self.text
