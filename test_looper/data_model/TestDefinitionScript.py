@@ -392,7 +392,8 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                                 format=TestDefinition.ArtifactFormat.Tar()
                                 )
                             ],
-                        order=10.**9
+                        order=10.**9,
+                        always_run=False
                         )
                     )
 

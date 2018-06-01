@@ -226,7 +226,7 @@ class WorkerStateOverride(WorkerState.WorkerState):
 
         image_repo = os.getenv("TESTLOOPER_DOCKER_IMAGE_REPO") or None
 
-        WorkerState.WorkerState.__init__(self, name_prefix, worker_directory, None, DummyArtifactStorage(), "machine", hwConfig, docker_image_repo=image_repo)
+        WorkerState.WorkerState.__init__(self, name_prefix, worker_directory, DummyArtifactStorage(), "machine", hwConfig, docker_image_repo=image_repo)
         
         self.looperCtl = looperCtl
         self.extra_mappings = {}
@@ -301,9 +301,12 @@ class WorkerStateOverride(WorkerState.WorkerState):
             return None
 
         if dep.matches.Source:
-            self.extra_mappings[
-                self.looperCtl.checkout_root_path(dep.repo)
-                ] = self.exposeAsDir(expose_as)
+            subpath = self.looperCtl.checkout_root_path(dep.repo)
+            
+            if dep.path:
+                subpath = os.path.join(subpath, dep.path)
+            
+            self.extra_mappings[subpath] = self.exposeAsDir(expose_as)
 
             return None
 
@@ -355,7 +358,7 @@ class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolv
         self.looperCtl = looperCtl
         self.visitRepoRef = visitRepoRef
 
-    def resolveRefWithinRepo(self, curRepoName, nameOfRef, actualRef):
+    def resolveRefWithinRepo(self, curRepoName, curCommitHash, nameOfRef, actualRef):
         """
         Allows subclasses to modify how we name repositories. 
 
@@ -365,8 +368,12 @@ class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolv
         """
         path = ":".join(curRepoName.split(":")[:-1] + [nameOfRef])
 
-        actualRepoName = actualRef.reponame().split(":")[-1]
-        actualHash = actualRef.commitHash()
+        if actualRef.reference == "HEAD":
+            actualRepoName = curRepoName.split(":")[-1]
+            actualHash = curCommitHash
+        else:
+            actualRepoName = actualRef.reponame().split(":")[-1]
+            actualHash = actualRef.commitHash()
 
         res = actualRef._withReplacement(reference=path + ":" + actualRepoName + "/" + actualHash)
 
@@ -377,7 +384,7 @@ class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolv
 
     def getRepoContentsAtPath(self, repoName, commitHash, path):
         root_path = self.looperCtl.checkout_root_path(repoName)
-
+        
         if os.path.exists(root_path):
             final_path = os.path.join(root_path, path)
             if not os.path.exists(final_path):
@@ -526,7 +533,7 @@ class TestLooperCtl:
 
         The root commit is always encoded as ROOT_CHECKOUT_NAME and mapped to 'src'.
         """
-        if reponame is ROOT_CHECKOUT_NAME:
+        if reponame.split(":")[-1] == ROOT_CHECKOUT_NAME:
             return os.path.join(self.root_path, "src", "src")
 
         path = ".".join(reponame.split(":")[:-1])
@@ -632,6 +639,9 @@ class TestLooperCtl:
 
         paths_visited = set()
         def visitRepoRef(ref):
+            if ref.reponame().split(":")[-1] == ROOT_CHECKOUT_NAME and ref.commitHash() == "HEAD":
+                return
+
             path = self.checkout_root_path(ref.reponame())
 
             if path in paths_visited:

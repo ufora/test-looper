@@ -1008,7 +1008,8 @@ class WorkerState(object):
                     command=command_override,
                     cleanup="",
                     artifacts=[],
-                    order=0.0
+                    order=0.0,
+                    always_run=False
                     )
                 ]
 
@@ -1039,18 +1040,16 @@ class WorkerState(object):
                 return False, {}
             else:
                 for stage in stages:
-                    is_success, test_successes = self._runStage(
-                            testId, stage, image, test_definition, working_directory, 
-                            log_function, workerCallback, historicalTestFailureRates
-                            )
-                    
-                    individualTestSuccesses += test_successes
+                    if is_success or stage.always_run:
+                        is_success, test_successes = self._runStage(
+                                testId, stage, image, test_definition, working_directory, 
+                                log_function, workerCallback, historicalTestFailureRates
+                                )
+                        
+                        individualTestSuccesses += test_successes
 
                     if is_success == EARLY_STOP:
                         is_success = True
-                        break
-
-                    if not is_success:
                         break
 
         return is_success, individualTestSuccesses
@@ -1183,17 +1182,20 @@ class WorkerState(object):
                     self.individualTestArtifactUpload(image, testId, test_definition, log_function)
                     )
         else:
-            is_success = self._run_test_command(
-                stage.command,
-                test_definition.timeout or 60 * 60, #1 hour if unspecified
-                test_definition.variables,
-                log_function,
-                image,
-                working_directory, 
-                dumpPreambleLog=True
-                )
+            if stage.command:
+                is_success = self._run_test_command(
+                    stage.command,
+                    test_definition.timeout or 60 * 60, #1 hour if unspecified
+                    test_definition.variables,
+                    log_function,
+                    image,
+                    working_directory, 
+                    dumpPreambleLog=True
+                    )
 
-            individualTestSuccesses = self.individualTestArtifactUpload(image, testId, test_definition, log_function)
+                individualTestSuccesses = self.individualTestArtifactUpload(image, testId, test_definition, log_function)
+            else:
+                individualTestSuccesses = []
 
 
         #run the cleanup_command if necessary

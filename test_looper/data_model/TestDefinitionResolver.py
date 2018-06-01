@@ -82,7 +82,7 @@ class TestDefinitionResolver:
 
         return self.rawDefinitionsCache[repoName, commitHash]
 
-    def resolveRefWithinRepo(self, curRepoName, nameOfRef, actualRef):
+    def resolveRefWithinRepo(self, curRepoName, curCommitHash, nameOfRef, actualRef):
         """
         Allows subclasses to modify how we name repositories. 
 
@@ -105,12 +105,12 @@ class TestDefinitionResolver:
             if raw_repos[r].matches.Import:
                 repos[r] = raw_repos[r]
             else:
-                if raw_repos[r].reference == "HEAD":
+                if raw_repos[r].reference == "HEAD" and curRepoName != "__root":
                     repos[r] = raw_repos[r]._withReplacement(reference=curRepoName + "/" + curCommitHash)
                 else:
                     repos[r] = raw_repos[r]
 
-        if any([r.commitHash() == "HEAD" for r in repos.values()]):
+        if any([r.commitHash() == "HEAD" for r in repos.values()]) and curRepoName != "__root":
             return {r: v for r,v in repos.iteritems() if v.matches.Pin or v.matches.Reference}
 
         def resolveRepoRef(refName, ref, pathSoFar):
@@ -118,7 +118,7 @@ class TestDefinitionResolver:
                 raise TestResolutionException("Circular repo-refs: %s" % pathSoFar)
 
             if not ref.matches.Import:
-                return self.resolveRefWithinRepo(curRepoName, refName, ref)
+                return self.resolveRefWithinRepo(curRepoName, curCommitHash, refName, ref)
             
             if refName in resolved_repos:
                 return resolved_repos[refName]
@@ -306,11 +306,11 @@ class TestDefinitionResolver:
             return self.postIncludeDefinitionsCache[repoName, commitHash]
 
         tests, envs, repos, includes, test_sets, triggers = self.unprocessedTestsEnvsAndReposFor_(repoName, commitHash)
-        
+
         repos = self.resolveRepoDefinitions_(repoName, commitHash, repos)
 
-        if any([r.commitHash() == "HEAD" for r in repos.values()]):
-            #this is not a _real_ commit, so don't try to follow it. We do want the repo
+        if any([r.commitHash() == "HEAD" for r in repos.values()]) and repoName != "__root":
+            #this reference is not a reference to a _real_ commit, so don't try to follow it. We do want the repo
             #pins to be available, however, so we don't fail parsing.
             self.postIncludeDefinitionsCache[repoName, commitHash] = ({},{},repos,{})
             return self.postIncludeDefinitionsCache[repoName, commitHash]
@@ -345,7 +345,7 @@ class TestDefinitionResolver:
 
                 if contents is None:
                     raise TestResolutionException(
-                        "Can't find path %s in in %s/%s" % (
+                        "Can't find path %s in %s/%s" % (
                             includePath, 
                             includeRepo,
                             includeHash
@@ -490,7 +490,7 @@ class TestDefinitionResolver:
 
                 if contents is None:
                     raise TestResolutionException(
-                        "Can't find dockerfile %s in in %s/%s" % (
+                        "Can't find dockerfile %s in %s/%s" % (
                             image.dockerfile, 
                             image.repo, 
                             image.commitHash

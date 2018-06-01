@@ -43,7 +43,8 @@ Stage.Stage = {
     "command": str, #command to run
     "cleanup": str, #command to copy output to build output directory
     "order": float,
-    "artifacts": algebraic.List(Artifact)
+    "artifacts": algebraic.List(Artifact),
+    "always_run": bool #if true, run this even if an earlier stage failed
     }
 
 #stage to expose for test that know how to unbundle their tests individually. We may re-run tests
@@ -61,7 +62,8 @@ Stage.TestStage = {
                                #testResults.json and any individual test artifacts will collected and cleared between runs.
     "cleanup": str,            #command to prepare for artifact setup
     "order": float,
-    "artifacts": algebraic.List(Artifact)
+    "artifacts": algebraic.List(Artifact),
+    "always_run": bool #if true, run this even if an earlier stage failed
     }
 
 ArtifactFormat = algebraic.Alternative("ArtifactFormat")
@@ -445,6 +447,7 @@ def apply_variable_substitutions_to_stage(stage, vardefs):
             cleanup=VariableSubstitution.substitute_variables(stage.cleanup, vardefs),
             order=stage.order,
             artifacts=[apply_variable_substitution_to_artifact(a, vardefs) for a in stage.artifacts],
+            always_run=stage.always_run
             )
     else:
         return Stage.TestStage(
@@ -452,7 +455,8 @@ def apply_variable_substitutions_to_stage(stage, vardefs):
             list_tests_command=VariableSubstitution.substitute_variables(stage.list_tests_command, vardefs),
             cleanup=VariableSubstitution.substitute_variables(stage.cleanup, vardefs),
             order=stage.order,
-            artifacts=[apply_variable_substitution_to_artifact(a, vardefs) for a in stage.artifacts]
+            artifacts=[apply_variable_substitution_to_artifact(a, vardefs) for a in stage.artifacts],
+            always_run=stage.always_run
             )
 
 def apply_variable_substitution_to_stages(stages, vardefs):
