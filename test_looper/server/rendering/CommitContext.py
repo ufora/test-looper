@@ -229,10 +229,15 @@ class CommitContext(Context.Context):
             else:
                 logging.warn("Couldn't find pinned commit %s/%s/%s", repo, branch, hash)
 
+        triggerText = "".join(
+                    '<a class="badge badge-info">{trigger}</a>&nbsp;'
+                        .format(trigger=t) for t in self.commit.data.triggeredTriggers)
+
         text = self.commit.data.subject
         text = text if len(text) <= maxChars else text[:maxChars] + '...'
 
         return (
+            triggerText + 
             cgi.escape(text) +
             '&nbsp;&middot;&nbsp;<span class="text-muted">by</span> <span class="text-secondary">%s</span>' % self.commit.data.author +
             "&nbsp;&middot;&nbsp;" + 
@@ -269,7 +274,7 @@ class CommitContext(Context.Context):
             parents = ""
 
         return textwrap.dedent("""
-            <pre style="white-space: pre-wrap; margin-bottom:0px">commit <b>{commit_hash}</b>
+            <pre style="white-space: pre-wrap; margin-bottom:0px">commit <b>{commit_hash}</b>{scm_link}
             Author: {author} &lt;{author_email}&gt;
             Date:   {timestamp}{parents}
 
@@ -277,6 +282,7 @@ class CommitContext(Context.Context):
             </pre>
             """).format(
                 commit_hash=self.commit.hash,
+                scm_link=self.renderLinkToSCM(),
                 body="\n".join(["    " + x for x in cgi.escape(self.commit.data.commitMessage).split("\n")]),
                 parents=parents,
                 author=self.commit.data.author, 

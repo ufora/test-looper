@@ -3,6 +3,7 @@ import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.core.GraphUtil as GraphUtil
 import test_looper.data_model.TestDefinitionScript as TestDefinitionScript
 import fnmatch
+import logging
 import re
 import test_looper.core.algebraic_to_json as algebraic_to_json
 from test_looper.core.hash import sha_hash
@@ -209,11 +210,11 @@ class TestDefinitionResolver:
             #this is wrong - we should be listing _all_ the files
             return EVERYTHING
 
-        try:
-            if self.repoReferencesFor(repoName, commitHash) != self.repoReferencesFor(repoName, parents[0]):
-                return EVERYTHING
-        except:
-            return EVERYTHING
+        # try:
+        #     if self.repoReferencesFor(repoName, commitHash) != self.repoReferencesFor(repoName, parents[0]):
+        #         return EVERYTHING
+        # except:
+        #     pass
 
         return ["HEAD/" + x for x in repo.filesChangedBetweenCommits(commitHash, parents[0])]
 
@@ -259,9 +260,15 @@ class TestDefinitionResolver:
         allDiffs = self._computeAllDiffs(repoName, commitHash)
 
         if allDiffs is EVERYTHING:
+            logging.info("Commit %s is considered to have EVERYTHING as its diffs.", commitHash)
+        else:
+            logging.info("Commit %s has diffs:\n%s", commitHash, "\n".join(["    " + x for x in allDiffs]))
+
+        if allDiffs is EVERYTHING:
             triggeredTestSets.add("all")
         else:
             for t in triggers:
+                logging.info("On commit %s, trigger %s applies: %s with diffs %s", commitHash, t, self._triggerApplies(allDiffs, t), allDiffs)
                 if self._triggerApplies(allDiffs, t):
                     if t.name:
                         triggeredTriggerNames.add(t.name)
