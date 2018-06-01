@@ -1195,6 +1195,7 @@ class WorkerState(object):
 
                 individualTestSuccesses = self.individualTestArtifactUpload(image, testId, test_definition, log_function)
             else:
+                is_success = True
                 individualTestSuccesses = []
 
 
