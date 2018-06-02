@@ -15,6 +15,8 @@ import textwrap
 octicon = HtmlGeneration.octicon
 card = HtmlGeneration.card
 
+ENABLE_BOOT_BUTTONS = False
+
 class CommitContext(Context.Context):
     def __init__(self, renderer, commit, configFilter, projectFilter, options):
         Context.Context.__init__(self, renderer, options)
@@ -728,14 +730,18 @@ class CommitContext(Context.Context):
                 self.contextFor(t).renderLink(includeCommit=False)
                 )
             row.append(t.hash[:8])
-            row.append(
-                HtmlGeneration.Link(self.contextFor(t).bootTestOrEnvUrl(),
-                   "BOOT",
-                   is_button=True,
-                   new_tab=True,
-                   button_style=self.renderer.disable_if_cant_write('btn-primary btn-xs')
-                   )
-                )
+
+            if ENABLE_BOOT_BUTTONS:
+                row.append(
+                    HtmlGeneration.Link(self.contextFor(t).bootTestOrEnvUrl(),
+                       "BOOT",
+                       is_button=True,
+                       new_tab=True,
+                       button_style=self.renderer.disable_if_cant_write('btn-primary btn-xs')
+                       )
+                    )
+            else:
+                row.append("")
 
             row.append(t.testDefinitionSummary.project)
             row.append(t.testDefinitionSummary.configuration)

@@ -107,26 +107,30 @@ class TestSummaryRenderer:
         goodBuilds = []
         badBuilds = []
         waitingBuilds = []
+        unprioritizedBuilds = []
+        runningBuilds = []
 
         builds = self.allBuilds()
         for b in builds:
-            category = self.categorizeBuild(b)
-            if category == "OK":
-                goodBuilds += [b]
-            if category == "BAD":
-                badBuilds += [b]
-            if category == "PENDING":
-                waitingBuilds += [b]
+            if b.successes > 0:
+                goodBuilds.append(b)
+            elif b.totalRuns == 0 and b.activeRuns == 0 and b.calculatedPriority == 0:
+                unprioritizedBuilds.append(b)
+            elif b.activeRuns == 0 and b.priority.matches.WaitingToRetry:
+                waitingBuilds.append(b)
+            elif b.priority.matches.DependencyFailed or b.totalRuns > 0:
+                badBuilds.append(b)
+            elif b.activeRuns:
+                runningBuilds.append(b)
+            else:
+                waitingBuilds.append(b)
 
-        return goodBuilds,badBuilds,waitingBuilds
+        return goodBuilds,badBuilds,waitingBuilds,runningBuilds,unprioritizedBuilds
 
     def tooltipSummary(self):
         #first, see if all of our builds have completed
-        goodBuilds,badBuilds,waitingBuilds = self.categorizeAllBuilds()
+        goodBuilds,badBuilds,waitingBuilds,runningBuilds,unprioritizedBuilds = self.categorizeAllBuilds()
 
-        runningBuilds = [b for b in waitingBuilds if b.activeRuns]
-        waitingBuilds = [b for b in waitingBuilds if not b.activeRuns]
-        
         res = ""
         if badBuilds:
             res += "<div>%s builds failed</div>" % (len(badBuilds))
@@ -135,10 +139,9 @@ class TestSummaryRenderer:
         if runningBuilds:
             res += "<div>%s builds running</div>" % (len(runningBuilds))
         if waitingBuilds:
-            if waitingBuilds[0].calculatedPriority == 0:
-                res += "<div>%s builds waiting, but the commit is not prioritized</div>" % (len(waitingBuilds))
-            else:
-                res += "<div>%s builds waiting</div>" % (len(waitingBuilds))
+            res += "<div>%s builds waiting</div>" % (len(waitingBuilds))
+        if unprioritizedBuilds:
+            res += "<div>%s builds defined but not prioritized</div>" % (len(unprioritizedBuilds))
 
         tests = self.allTests()
 
@@ -228,18 +231,9 @@ class TestSummaryRenderer:
 
         return res
 
-    def categorizeBuild(self, b):
-        if b.successes > 0:
-            return "OK"
-        if b.priority.matches.WaitingToRetry:
-            return "PENDING"
-        if b.priority.matches.DependencyFailed or b.totalRuns > 0:
-            return "BAD"
-        return "PENDING"
-
     def renderButtonContents(self, activeCount):
         #first, see if all of our builds have completed
-        goodBuilds,badBuilds,waitingBuilds = self.categorizeAllBuilds()
+        goodBuilds,badBuilds,waitingBuilds,runningBuilds,unprioritizedBuilds = self.categorizeAllBuilds()
         tests = self.allTests()
 
 
@@ -251,7 +245,7 @@ class TestSummaryRenderer:
         depFailed = 0
         suitesSucceeded = 0
         suitesNotRunAndNotPrioritized = 0
-        
+
         for t in tests:
             if t.totalRuns == 0 and t.priority.matches.DependencyFailed:
                 depFailed += 1
@@ -274,15 +268,15 @@ class TestSummaryRenderer:
 
         if badBuilds:
             build_summary = """<span class="text-danger">%s</span>""" % octicon("x")
-        elif len(waitingBuilds):
+        elif waitingBuilds or runningBuilds:
             if activeCount:
                 return ""
-            if waitingBuilds[0].calculatedPriority == 0:
-                build_summary = '<span class="text-muted">%s</span>' % "..."
-            else:
-                build_summary = octicon("watch")
+            build_summary = octicon("watch")
         else:
-            build_summary = octicon("check")
+            if goodBuilds:
+                build_summary = octicon("check")
+            elif unprioritizedBuilds:
+                build_summary = '<span class="text-muted">...</span>'
             allBuildsGood = True
 
         if not tests:
@@ -306,9 +300,7 @@ class TestSummaryRenderer:
                         return '<span class="text-muted">%s</span>' % "..."
                     return octicon("watch")
                     
-                return octicon("check")
-            else:
-                return build_summary
+            return build_summary
         else:
             ratio_text = self.renderFailureCount(totalFailedTestCount, totalTests)
 
