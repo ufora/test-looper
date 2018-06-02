@@ -17,27 +17,6 @@ def groupBy(things, groupFun):
         result[g].append(t)
     return {g: sorted(result[g]) for g in result}
 
-class IndividualTest:
-    def __init__(self, testSuiteName, testName):
-        self.testSuiteName = testSuiteName
-        self.testName = testName
-
-        if "::" in self.testName:
-            self.group = self.testName[:self.testName.find("::")]
-            self.name = self.testName[self.testName.find("::")+2:]
-        else:
-            self.group = "/".join(testSuiteName.split("/")[:-1])
-            if ":" in self.group:
-                self.group = self.group.split(":")[-1]
-
-            self.name = self.testName
-
-    def __cmp__(self, other):
-        return cmp((self.group, self.name), (other.group, other.name))
-
-    def __hash__(self):
-        return hash((self.name, self.group))
-
 class IndividualTestGridRenderer:
     def __init__(self, rows, parentContext, testsForRowFun, cellUrlFun=lambda group, row: "", individualTestRunContextFor=lambda row: None):
         self.rows = rows
@@ -89,7 +68,7 @@ class IndividualTestGridRenderer:
                     testSuiteName = run.test.testDefinitionSummary.name
 
                     for i in xrange(len(run.testStepNameIndex)):
-                        cur_runs, cur_successes, testIfHasLogs = res.get(IndividualTest(testSuiteName, testNames[testNameIndices[i]]), (0,0,None))
+                        cur_runs, cur_successes, testIfHasLogs = res.get(testNames[testNameIndices[i]], (0,0,None))
 
                         cur_runs += 1
                         cur_successes += 1 if testSucceeded[i] else 0
@@ -97,7 +76,7 @@ class IndividualTestGridRenderer:
                         if testHasLogs and testHasLogs[i] and not testIfHasLogs:
                             testIfHasLogs = run.test
 
-                        res[IndividualTest(testSuiteName, testNames[testNameIndices[i]])] = (cur_runs, cur_successes, testIfHasLogs)
+                        res[testNames[testNameIndices[i]]] = (cur_runs, cur_successes, testIfHasLogs)
         
         return res
 
@@ -139,7 +118,7 @@ class IndividualTestGridRenderer:
                         context = self.individualTestRunContextFor(row)
                         if context:
                             url = self.parentContext.contextFor(
-                                ComboContexts.IndividualTest(context, individualTest.testName)
+                                ComboContexts.IndividualTest(context, individualTest)
                                 ).urlString()
                         else:
                             url = ""
@@ -148,7 +127,7 @@ class IndividualTestGridRenderer:
 
                     if run_count == success_count:
                         cellClass = "test-result-cell-success"
-                        tooltip = "Test %s succeeded" % individualTest.name
+                        tooltip = "Test %s succeeded" % individualTest
                         if run_count > 1:
                             tooltip += " over %s runs" % run_count
                         contentsDetail="OK"
@@ -158,11 +137,11 @@ class IndividualTestGridRenderer:
 
                     elif success_count:
                         cellClass = "test-result-cell-partial"
-                        tooltip = "Test %s succeeded %s / %s times" % (individualTest.name, success_count, run_count)
+                        tooltip = "Test %s succeeded %s / %s times" % (individualTest, success_count, run_count)
                         contentsDetail="FLAKEY (%s/%s runs failed)" % (run_count-success_count, run_count)
                     else:
                         cellClass = "test-result-cell-fail"
-                        tooltip = "Test %s failed" % individualTest.name
+                        tooltip = "Test %s failed" % individualTest
                         if run_count > 1:
                             tooltip += " over %s runs" % run_count
                         contentsDetail="FAIL"
@@ -173,7 +152,7 @@ class IndividualTestGridRenderer:
                 else:
                     url = ""
                     cellClass = "test-result-cell-notrun"
-                    tooltip = "Test %s didn't run" % individualTest.name
+                    tooltip = "Test %s didn't run" % individualTest
                     contentsDetail = ""
 
                 if urlIsDropdown:

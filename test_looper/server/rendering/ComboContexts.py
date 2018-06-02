@@ -37,7 +37,6 @@ class CommitAndFilter(ComboContext):
             return False
         return True
 
-
 class IndividualTest(ComboContext):
     def __init__(self, context, individualTestName):
         """Represents an individually named test in the context of a Commit, Test, or TestRun"""
