@@ -2367,9 +2367,11 @@ class TestManager(object):
         
         if test.priority != oldPriority or test.calculatedPriority != oldCalcPri:
             for dep in self.database.TestDependency.lookupAll(test=test):
-                self._triggerTestPriorityUpdate(dep.dependsOn)
+                self._updateTestPriority(dep.dependsOn, curTimestamp)
+                #self._triggerTestPriorityUpdate(dep.dependsOn)
             for dep in self.database.TestDependency.lookupAll(dependsOn=test):
-                self._triggerTestPriorityUpdate(dep.test)
+                self._updateTestPriority(dep.test, curTimestamp)
+                #self._triggerTestPriorityUpdate(dep.test)
 
         logging.info(
             "test priority for test %s is now %s. targetBoot=%s", 

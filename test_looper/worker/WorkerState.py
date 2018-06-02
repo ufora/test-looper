@@ -1080,10 +1080,11 @@ class WorkerState(object):
         good_count = {t:0 for t in all_tests}
 
         for t in testsSoFar:
-            if not t.testSucceeded:
-                bad_count[t.testName] += 1
-            else:
-                good_count[t.testName] += 1
+            if t.testName in bad_count:
+                if not t.testSucceeded:
+                    bad_count[t.testName] += 1
+                else:
+                    good_count[t.testName] += 1
 
         def testIsSoBadWeCanStop(testname):
             if bad_count[testname] >= 3:
