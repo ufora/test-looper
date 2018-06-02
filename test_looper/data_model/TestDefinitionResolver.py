@@ -448,8 +448,10 @@ class TestDefinitionResolver:
                 ref = resolved_repos[testDep.repo_name]
                 
                 if testDep.path:
-                    real_hash = self.mostRecentHashForSubpath(ref.reponame(), 
-                        testDep.path
+                    real_hash = self.mostRecentHashForSubpath(
+                        ref.reponame(),
+                        ref.commitHash(),
+                        pathJoin(ref.path, testDep.path)
                         )
                 else:
                     real_hash = ref.commitHash()
@@ -787,9 +789,10 @@ class TestDefinitionResolver:
                         )
                 else:
                     if testDep.path:
-                        real_hash = self.mostRecentHashForSubpath(ref.reponame(), 
+                        real_hash = self.mostRecentHashForSubpath(
+                            ref.reponame(), 
                             ref.commitHash(),
-                            testDep.path
+                            pathJoin(ref.path, testDep.path)
                             )
                     else:
                         real_hash = ref.commitHash()
