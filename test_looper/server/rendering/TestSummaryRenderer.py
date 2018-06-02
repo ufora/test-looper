@@ -250,11 +250,16 @@ class TestSummaryRenderer:
         suitesFailed = 0
         depFailed = 0
         suitesSucceeded = 0
+        suitesNotRunAndNotPrioritized = 0
+        
         for t in tests:
             if t.totalRuns == 0 and t.priority.matches.DependencyFailed:
                 depFailed += 1
             elif t.totalRuns == 0:
-                suitesNotRun += 1
+                if t.calculatedPriority:
+                    suitesNotRun += 1
+                else:
+                    suitesNotRunAndNotPrioritized += 1
             elif t.successes == 0:
                 suitesFailed += 1
             else:
