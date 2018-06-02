@@ -37,12 +37,12 @@ class IndividualTestGridRenderer:
             for t in self.individualTestsForRowFun(r):
                 self.testsByName.add(t)
 
-        return groupBy(self.testsByName, lambda t: t.group)
+        return groupBy(self.testsByName, lambda t: t.split(".")[0])
 
     def headers(self):
         headers = []
         for test in sorted(sum(self.groupsToTests.values(), [])):
-            headers.append(test.testName)
+            headers.append(test)
     
         return headers
 
