@@ -691,7 +691,12 @@ class TestDefinitionResolver:
             ))
 
     def mostRecentHashForSubpath(self, repo, commitHash, path):
-        return self.git_repo_lookup(repo).mostRecentHashForSubpath(commitHash, path)
+        res = self.git_repo_lookup(repo).mostRecentHashForSubpath(commitHash, path)
+
+        if not res:
+            raise UserWarning("Can't find a recent hash in %s/%s path %s" % (repo, commitHash, path))
+
+        return res
 
     def testDefinitionsFor(self, repoName, commitHash):
         if (repoName, commitHash) in self.testDefinitionCache:
