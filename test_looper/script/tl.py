@@ -382,6 +382,9 @@ class TestDefinitionResolverOverride(TestDefinitionResolver.TestDefinitionResolv
 
         return res
 
+    def mostRecentHashForSubpath(self, repoName, commitHash, path):
+        return commitHash
+
     def getRepoContentsAtPath(self, repoName, commitHash, path):
         root_path = self.looperCtl.checkout_root_path(repoName)
         

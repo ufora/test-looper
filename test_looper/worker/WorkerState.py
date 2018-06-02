@@ -552,11 +552,6 @@ class WorkerState(object):
                 print >> cmd_file, "echo 'HERE ARE AVAILABLE SERVICES:'"
                 print >> cmd_file, "Get-Service | Format-Table -Property Name, Status, StartType, DisplayName"
                 print >> cmd_file, "echo '********************************'"
-                print >> cmd_file, "echo 'REBOOT SCRIPT ******************'"
-                print >> cmd_file, """cat "C:\ProgramData\TestLooper\PreWorkerStartup.ps1" """
-                print >> cmd_file, "echo 'REBOOT SCRIPT OUTPUT ***********'"
-                print >> cmd_file, """cat "C:\ProgramData\TestLooper\PreWorkerStartup.log" """
-                print >> cmd_file, "echo '********************************'"
                 
             print >> cmd_file, command
             print >> cmd_file, "exit $lastexitcode"
@@ -1128,7 +1123,7 @@ class WorkerState(object):
                     log_function,
                     image,
                     working_directory, 
-                    dumpPreambleLog=True
+                    dumpPreambleLog=False
                     )
 
             internalCmd = self.getCommandDirPath(test_definition.environment, True)
@@ -1191,7 +1186,7 @@ class WorkerState(object):
                     log_function,
                     image,
                     working_directory, 
-                    dumpPreambleLog=True
+                    dumpPreambleLog=False
                     )
 
                 individualTestSuccesses = self.individualTestArtifactUpload(image, testId, test_definition, log_function)

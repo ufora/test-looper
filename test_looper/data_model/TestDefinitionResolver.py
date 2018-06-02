@@ -427,7 +427,8 @@ class TestDefinitionResolver:
         def resolveTestDep(testDep):
             if testDep.matches.Source:
                 if testDep.path:
-                    real_hash = self.git_repo_lookup(testDep.repo).mostRecentHashForSubpath(
+                    real_hash = self.mostRecentHashForSubpath(
+                        testDep.repo,
                         testDep.commitHash,
                         testDep.path
                         )
@@ -447,7 +448,7 @@ class TestDefinitionResolver:
                 ref = resolved_repos[testDep.repo_name]
                 
                 if testDep.path:
-                    real_hash = self.git_repo_lookup(ref.reponame()).mostRecentHashForSubpath(
+                    real_hash = self.mostRecentHashForSubpath(ref.reponame(), 
                         testDep.path
                         )
                 else:
@@ -689,6 +690,9 @@ class TestDefinitionResolver:
             "\n".join(["  " + x for x in sorted(testSet)])
             ))
 
+    def mostRecentHashForSubpath(self, repo, commitHash, path):
+        return self.git_repo_lookup(repo).mostRecentHashForSubpath(commitHash, path)
+
     def testDefinitionsFor(self, repoName, commitHash):
         if (repoName, commitHash) in self.testDefinitionCache:
             return self.testDefinitionCache[repoName, commitHash]
@@ -723,10 +727,7 @@ class TestDefinitionResolver:
         def resolveTestDep(testDep):
             if testDep.matches.Source:
                 if testDep.path:
-                    real_hash = self.git_repo_lookup(testDep.repo).mostRecentHashForSubpath(
-                        testDep.commitHash,
-                        testDep.path
-                        )
+                    real_hash = self.mostRecentHashForSubpath(testDep.repo, testDep.commitHash, testDep.path)
                 else:
                     real_hash = testDep.commitHash
 
@@ -781,7 +782,7 @@ class TestDefinitionResolver:
                         )
                 else:
                     if testDep.path:
-                        real_hash = self.git_repo_lookup(ref.reponame()).mostRecentHashForSubpath(
+                        real_hash = self.mostRecentHashForSubpath(ref.reponame(), 
                             ref.commitHash(),
                             testDep.path
                             )
