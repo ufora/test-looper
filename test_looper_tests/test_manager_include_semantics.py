@@ -563,9 +563,22 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
                 ${name}/${env}:
                   environment: e
                   command: cmd
-            prioritize:
-              - 't1/*'
-              - '*/e2'
+            test_sets:
+              ts:
+                - t*
+              ones:
+                - "*1"
+            triggers:
+              - name: a_files
+                paths:
+                  - HEAD/a/*
+                test_sets:
+                  - ts
+              - name: b_files
+                paths:
+                  - HEAD/b/*
+                test_sets:
+                  - ones
             """)
 
         harness = TestManagerTestHarness.getHarness()
@@ -576,10 +589,19 @@ class TestManagerIncludeSemanticsTests(unittest.TestCase):
         tests = resolver.testDefinitionsFor("repo0", "c0").values()
 
         self.assertEqual(
-            set([t.name for t in tests if not t.disabled]), 
-            set(["t1/e1","t1/e2","t2/e2"])
+            set([t.name for t in tests]), 
+            set(["t1/e1","t1/e2","t2/e2","t2/e1"])
             )
 
+        harness.manager.source_control.addCommit("repo0/c1", ["repo0/c0"], envdef, {"a/file": "stuff"})
+        fullTestSets, testSets, triggeredTestSets, triggeredTriggerNames = resolver.testSetsFor("repo0", "c1")
+        self.assertEqual(triggeredTriggerNames, set(["a_files"]))
+        self.assertEqual(triggeredTestSets, set(["ts"]))
+
+        harness.manager.source_control.addCommit("repo0/c2", ["repo0/c0"], envdef, {"b/file": "stuff"})
+        fullTestSets, testSets, triggeredTestSets, triggeredTriggerNames = resolver.testSetsFor("repo0", "c2")
+        self.assertEqual(triggeredTriggerNames, set(["b_files"]))
+        self.assertEqual(triggeredTestSets, set(["ones"]))
         
  
     def test_environment_mixins(self):

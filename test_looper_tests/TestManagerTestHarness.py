@@ -126,8 +126,8 @@ class MockGitRepo:
 
     def filesChangedBetweenCommits(self, firstCommit, secondCommit):
         common = ["testDefinitions.yml", "test_looper/Dockerfile.txt"]
-        files1 = set(self.repo.source_control.commit_files.get(firstCommit, []) + common)
-        files2 = set(self.repo.source_control.commit_files.get(secondCommit, []) + common)
+        files1 = set(self.repo.source_control.commit_files.get(self.repo.repoName + "/" + firstCommit, {}).keys() + common)
+        files2 = set(self.repo.source_control.commit_files.get(self.repo.repoName + "/" + secondCommit, {}).keys() + common)
 
         res = []
         for f in set(list(files1) + list(files2)):

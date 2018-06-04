@@ -2052,8 +2052,6 @@ class TestManager(object):
 
             #trigger testSets updates of all builds in other commits
             for test in self.allTestsForCommit(commit):
-                for dep in self.database.TestDependency.lookupAll(test=test):
-                    self._triggerTestPriorityUpdate(dep.dependsOn)
                 self._triggerTestPriorityUpdate(test)
 
     def _calcCommitAnybranch(self, commit):

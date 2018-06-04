@@ -210,12 +210,6 @@ class TestDefinitionResolver:
             #this is wrong - we should be listing _all_ the files
             return EVERYTHING
 
-        # try:
-        #     if self.repoReferencesFor(repoName, commitHash) != self.repoReferencesFor(repoName, parents[0]):
-        #         return EVERYTHING
-        # except:
-        #     pass
-
         return ["HEAD/" + x for x in repo.filesChangedBetweenCommits(commitHash, parents[0])]
 
     def _triggerApplies(self, allDiffs, trigger):

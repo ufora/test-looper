@@ -231,56 +231,6 @@ class TestManagerTests(unittest.TestCase):
 
         self.assertEqual(harness.manager.source_control.created_commits, 4)
 
-
-    def test_manager_pin_calculation(self):
-        harness = TestManagerTestHarness.getHarness(max_workers=1)
-
-        harness.add_content()
-        
-        harness.manager.source_control.addCommit("repo6/underlying", [], TestYamlFiles.repo6_nopin)
-        harness.manager.source_control.setBranch("repo6/underlying_left", "repo6/underlying")
-        harness.manager.source_control.setBranch("repo6/underlying_right", "repo6/underlying")
-
-        harness.manager.source_control.addCommit("repo6/merged", [], 
-            (TestYamlFiles.repo6_twopins
-                .replace("__branch__", "underlying_left")
-                .replace("HEAD1", "root")
-                .replace("__branch2__", "underlying_right")
-                .replace("HEAD2", "root")
-                )
-            )
-        harness.manager.source_control.setBranch("repo6/merged_branch", "merged")
-
-        harness.markRepoListDirty()
-        harness.consumeBackgroundTasks()
-
-        with harness.database.transaction():
-            merged_branch = harness.database.Branch.lookupOne(reponame_and_branchname=("repo6","merged_branch"))
-            left_branch = harness.database.Branch.lookupOne(reponame_and_branchname=("repo6","underlying_left"))
-            right_branch = harness.database.Branch.lookupOne(reponame_and_branchname=("repo6","underlying_right"))
-
-            merged_branch.isUnderTest = True
-
-        #push to the left branch and we don't get prioritized
-        harness.manager.source_control.addCommit("repo6/c1", [], TestYamlFiles.repo6_nopin)
-        harness.manager.source_control.setBranch("repo6/underlying_left", "repo6/c1")
-
-        harness.markRepoListDirty()
-        harness.consumeBackgroundTasks()
-
-        with harness.database.transaction():
-            self.assertFalse(merged_branch.head.userEnabledTestSets)
-
-        harness.manager.source_control.addCommit("repo6/c2", [], TestYamlFiles.repo6_nopin)
-        harness.manager.source_control.setBranch("repo6/underlying_right", "repo6/c2")
-
-        harness.markRepoListDirty()
-        harness.consumeBackgroundTasks()
-
-        with harness.database.transaction():
-            self.assertTrue(merged_branch.head.userEnabledTestSets)
-
-    
     def test_manager_pin_resolution_ordering(self):
         harness = TestManagerTestHarness.getHarness(max_workers=1)
 
