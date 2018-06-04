@@ -267,7 +267,7 @@ class RepoContext(Context.Context):
 
         for b in sorted(self.testManager.database.Branch.lookupAll(repo=self.repo),key=lambda b:b.branchname):
             if self.renderer.branchHasTests(b) or b == currentChild:
-                children.append(b)
+                children.append(ComboContexts.BranchAndFilter(b, "", "", 2))
 
         return [self.contextFor(x) for x in children]
 

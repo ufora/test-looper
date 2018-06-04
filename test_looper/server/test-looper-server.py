@@ -135,11 +135,10 @@ def main():
         except:
             traceback.print_exc()
 
-        try:
-            os.makedirs(artifact_storage.tempfileOverrideDir)
-        except:
-            traceback.print_exc()
-
+    try:
+        os.makedirs(artifact_storage.tempfileOverrideDir)
+    except:
+        traceback.print_exc()
 
     machine_management = MachineManagement.fromConfig(config, src_ctrl, artifact_storage)
 

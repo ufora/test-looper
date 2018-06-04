@@ -299,7 +299,10 @@ class TestSummaryRenderer:
                     if tests[0].calculatedPriority == 0:
                         return '<span class="text-muted">%s</span>' % "..."
                     return octicon("watch")
-                    
+                
+                if suitesSucceeded:
+                    return octicon("check")
+            
             return build_summary
         else:
             ratio_text = self.renderFailureCount(totalFailedTestCount, totalTests)

@@ -114,15 +114,36 @@ cd $TEST_LOOPER_INSTALL/repos/simple_project_3
 git init .
 cp $PROJ_ROOT/test_looper_tests/test_projects/simple_project_3/* -r .
 sed -i -e "s/__replace_this_hash__/$PROJ_2_COMMIT_POSTMERGE/g" testDefinitions.yml
-echo "0" > file.txt
+echo "0" > A.txt
 git add .
-git commit -m "initial commit in simple_project_3"
-echo "1" > file.txt
+git commit -m "touch A"
+echo "1" > B.txt
 git add .
-git commit -m "second commit in simple_project_3"
-echo "2" > file.txt
+git commit -m "touch B"
+echo "2" > A.txt
 git add .
-git commit -m "third commit in simple_project_3"
+git commit -m "touch A"
+echo "3" > A.txt
+git add .
+git commit -m "touch A again"
+echo "4" > B.txt
+git add .
+git commit -m "touch B"
+echo "5" > B.txt
+git add .
+git commit -m "touch B again"
+echo "6" > A.txt
+git add .
+git commit -m "touch A"
+echo "7" > A.txt
+git add .
+git commit -m "touch A again"
+echo "8" > B.txt
+git add .
+git commit -m "touch B"
+echo "9" > B.txt
+git add .
+git commit -m "touch B again"
 
 git checkout HEAD --detach
 

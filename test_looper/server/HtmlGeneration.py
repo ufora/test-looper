@@ -273,8 +273,8 @@ class Link(HtmlElement):
             self.url, cgi.escape(self.hover_text, quote=True), button_class, 'target="_blank"' if self.new_tab else "", render(self.text)
             )
 
-    def withTextReplaced(self, newText):
-        return Link(self.url, newText, self.hover_text)
+    def withTextReplaced(self, newText, hoverText=None):
+        return Link(self.url, newText, hoverText if hoverText is not None else self.hover_text)
 
 
 whitespace = "&nbsp;"

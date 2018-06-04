@@ -81,14 +81,14 @@ class Renderer:
             return DeploymentsContext.DeploymentsContext(self, options)
 
         if isinstance(entity, self.testManager.database.Branch):
-            return BranchContext.BranchContext(self, entity, "", "", options)
+            return BranchContext.BranchContext(self, entity, "", "", 0, options)
         if isinstance(entity, ComboContexts.BranchAndFilter):
-            return BranchContext.BranchContext(self, entity.branch, entity.configurationName, entity.projectName, options)
+            return BranchContext.BranchContext(self, entity.branch, entity.configurationName, entity.projectName, entity.parentLevel, options)
 
         if isinstance(entity, self.testManager.database.Commit):
-            return CommitContext.CommitContext(self, entity, "", "", options)
+            return CommitContext.CommitContext(self, entity, "", "", 0, options)
         if isinstance(entity, ComboContexts.CommitAndFilter):
-            return CommitContext.CommitContext(self, entity.commit, entity.configurationName, entity.projectName, options)
+            return CommitContext.CommitContext(self, entity.commit, entity.configurationName, entity.projectName, entity.parentLevel, options)
 
         mapping = {
             self.testManager.database.Repo: RepoContext.RepoContext,

@@ -82,4 +82,19 @@ tests:
         run_tests_command: python $TEST_INPUTS/src/testRunner.py --run $TEST_LOOPER_TESTS_TO_RUN > $TEST_OUTPUT_DIR/testSummary.json
       dependencies:
         src: HEAD
-
+  - test/project_a:
+      environment: linux
+      project: a
+  - test/project_b:
+      environment: linux
+      project: b
+test_sets:
+  a: [test/project_a]
+  b: [test/project_b]
+triggers:
+  - name: A
+    paths: [ "HEAD/A*" ]
+    test_sets: [ a ]
+  - name: B
+    paths: [ "HEAD/B*" ]
+    test_sets: [ b ]

@@ -75,6 +75,9 @@ class Context(object):
     def renderMenuItemTitle(self, isHeader):
         return ""
 
+    def borrowFromContextIfPossible(self, curContext):
+        return self
+
     def renderPageHeader(self):
         headers = []
 
@@ -92,7 +95,7 @@ class Context(object):
                 dd_items = [
                     '<a class="dropdown-item{active}" href="{link}" title="{title}">{contents}</a>'.format(
                         active=" active" if child == curContext else "", 
-                        link=child.urlString(),
+                        link=child.borrowFromContextIfPossible(self).urlString(),
                         contents=child.renderMenuItemText(isHeader=False),
                         title=child.renderMenuItemTitle(isHeader=False)
                         )

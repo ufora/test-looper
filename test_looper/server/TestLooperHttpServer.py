@@ -295,6 +295,10 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def reloadSource(self, redirect="/"):
+        self._reloadSource()
+        raise cherrypy.HTTPRedirect(redirect)
+
+    def _reloadSource(self):
         toReload = []
         for name, module in sys.modules.iteritems():
             if module and module.__name__.startswith("test_looper.server.rendering."):
@@ -316,7 +320,7 @@ class TestLooperHttpServer(object):
         
         self.regular_renderer = TestLooperHtmlRendering.Renderer(self)
 
-        raise cherrypy.HTTPRedirect(redirect)
+        
 
     def authorize(self, read_only):
         if not self.is_authenticated():
@@ -596,7 +600,11 @@ class TestLooperHttpServer(object):
     @cherrypy.expose
     def default(self, *args, **kwargs):
         self.authenticate()
-        res = self.renderer.default(*args, **kwargs)
+        try:
+            res = self.renderer.default(*args, **kwargs)
+        except:
+            self._reloadSource()
+
         if isinstance(res, HtmlGeneration.Redirect):
             raise cherrypy.HTTPRedirect(res.url)
         return res

@@ -18,11 +18,12 @@ card = HtmlGeneration.card
 ENABLE_BOOT_BUTTONS = False
 
 class CommitContext(Context.Context):
-    def __init__(self, renderer, commit, configFilter, projectFilter, options):
+    def __init__(self, renderer, commit, configFilter, projectFilter, parentLevel, options):
         Context.Context.__init__(self, renderer, options)
         self.reponame = commit.repo.name
         self.commitHash = commit.hash
         self.options = options
+        self.parentLevel = parentLevel
 
         self.repo = commit.repo
         self.commit = commit
@@ -51,21 +52,19 @@ class CommitContext(Context.Context):
         return (octicon(self.appropriateIcon()) if isHeader else "") + self.appropriateLinkName()
 
     def appropriateIcon(self):
-        if self.configFilter:
-            icon = "database"
-        elif self.projectFilter:
-            icon = "circuit-board"
-        else:
-            icon = "git-commit"
-        return icon
+        if self.parentLevel == 0:
+            return "database"
+        if self.parentLevel == 1:
+            return "circuit-board"
+        return "git-commit"
 
     def appropriateLinkName(self):
-        if self.configFilter:
-            return self.configFilter
+        if self.parentLevel == 0:
+            return self.configFilter or '<span class="text-muted">all configs</span>'
         
-        if self.projectFilter:
-            return self.projectFilter
-        
+        if self.parentLevel == 1:
+            return self.projectFilter or '<span class="text-muted">all projects</span>'
+
         if self.branch:
             return "HEAD" + self.nameInBranch
 
@@ -162,9 +161,17 @@ class CommitContext(Context.Context):
                 btnstyle="btn-outline-secondary"
                 )
 
-    def renderLinkToSCM(self):
+    def renderLinkToSCM(self, big=False):
         url = self.renderer.src_ctrl.commit_url(self.commit.repo.name, self.commit.hash)
-        return HtmlGeneration.link(octicon("diff"), url, hover_text="View diff")
+        name = ""
+        if big and url and "github" in url:
+            name="github"
+        elif big and url and "gitlab" in url:
+            name="gitlab"
+        elif big:
+            name="source"
+
+        return HtmlGeneration.link(octicon("diff") + name, url, hover_text="View diff")
     
     def renderNavbarLink(self, textOverride=None):
         if textOverride is None:
@@ -231,15 +238,10 @@ class CommitContext(Context.Context):
             else:
                 logging.warn("Couldn't find pinned commit %s/%s/%s", repo, branch, hash)
 
-        triggerText = "".join(
-                    '<a class="badge badge-info">{trigger}</a>&nbsp;'
-                        .format(trigger=t) for t in self.commit.data.triggeredTriggers)
-
         text = self.commit.data.subject
         text = text if len(text) <= maxChars else text[:maxChars] + '...'
 
         return (
-            triggerText + 
             cgi.escape(text) +
             '&nbsp;&middot;&nbsp;<span class="text-muted">by</span> <span class="text-secondary">%s</span>' % self.commit.data.author +
             "&nbsp;&middot;&nbsp;" + 
@@ -258,35 +260,17 @@ class CommitContext(Context.Context):
             self.renderSubjectAndAuthor(maxChars)
             )
 
-    def commitMessageDetail(self, renderParents=False):
-        if renderParents:
-            def render(x):
-                if isinstance(x,str):
-                    return x
-                return x.render()
-            parentCommitUrls = ['<span class="mx-2">%s</span>' % render(self.contextFor(x).renderLinkWithSubject()) for x in self.commit.data.parents]
-
-            if not parentCommitUrls:
-                parent_commits = "None"
-            else:
-                parent_commits = '<ul style="list-style:none">%s</ul>' % ("".join("<li>%s</li>" % c for c in parentCommitUrls))
-
-            parents = "\n" + "Parent Commits: </pre>" + parent_commits + '<pre style="white-space:pre-wrap">'
-        else:
-            parents = ""
-
+    def commitMessageDetail(self):
         return textwrap.dedent("""
-            <pre style="white-space: pre-wrap; margin-bottom:0px">commit <b>{commit_hash}</b>{scm_link}
+            <pre style="white-space: pre-wrap; margin-bottom:0px">commit <b>{commit_hash}</b>
             Author: {author} &lt;{author_email}&gt;
-            Date:   {timestamp}{parents}
+            Date:   {timestamp}
 
             {body}
             </pre>
             """).format(
                 commit_hash=self.commit.hash,
-                scm_link=self.renderLinkToSCM(),
                 body="\n".join(["    " + x for x in cgi.escape(self.commit.data.commitMessage).split("\n")]),
-                parents=parents,
                 author=self.commit.data.author, 
                 author_email=self.commit.data.authorEmail,
                 timestamp=time.asctime(time.gmtime(self.commit.data.timestamp))
@@ -334,10 +318,7 @@ class CommitContext(Context.Context):
         return (res if not textOverride else "") + HtmlGeneration.link(textOverride or name, self.urlString(),hover_text=hover_text)
 
     def primaryObject(self):
-        if not (self.configFilter or self.projectFilter):
-            return self.commit
-        else:
-            return ComboContexts.CommitAndFilter(self.commit, self.configFilter, self.projectFilter)
+        return ComboContexts.CommitAndFilter(self.commit, self.configFilter, self.projectFilter, self.parentLevel)
 
     def urlBase(self):
         res = "repos/" + self.reponame + "/-/commits/" + self.commitHash
@@ -482,7 +463,7 @@ class CommitContext(Context.Context):
             self.testManager._triggerCommitDataUpdate(self.commit)
             return card("Commit hasn't been imported yet")
 
-        return card(self.commitMessageDetail(renderParents=True))
+        return card(self.commitMessageDetail())
 
     def individualTests(self, test):
         res = {}    
@@ -668,6 +649,9 @@ class CommitContext(Context.Context):
 
         grid = HtmlGeneration.transposeGrid(grid)
 
+        if len(grid) == 1:
+            return card("No test data available yet.")
+
         return HtmlGeneration.grid(grid, dataTables=True)
 
     def renderCommitTestDefinitionsInfo(self):
@@ -846,31 +830,25 @@ class CommitContext(Context.Context):
 
     def childContexts(self, currentChild):
         if isinstance(currentChild.primaryObject(), ComboContexts.CommitAndFilter):
-            if currentChild.configFilter and currentChild.projectFilter:
+            if currentChild.parentLevel == 0:
                 return [self.contextFor(
-                    ComboContexts.CommitAndFilter(commit=self.commit, configurationName=g, projectName=self.projectFilter)
+                    ComboContexts.CommitAndFilter(commit=self.commit, configurationName=g, projectName=self.projectFilter, parentLevel=0)
                     )
-                        for g in sorted(set([t.testDefinitionSummary.configuration
+                        for g in [""] + sorted(set([t.testDefinitionSummary.configuration
                                 for t in self.testManager.allTestsForCommit(self.commit) 
-                                    if t.testDefinitionSummary.project == self.projectFilter
-                            ]))
-                    ]
-            if currentChild.configFilter:
-                return [self.contextFor(
-                    ComboContexts.CommitAndFilter(commit=self.commit, configurationName=g, projectName="")
-                    )
-                        for g in sorted(set([t.testDefinitionSummary.configuration
-                                for t in self.testManager.allTestsForCommit(self.commit) 
+                                    if not self.projectFilter or t.testDefinitionSummary.project == self.projectFilter
                             ]))
                     ]
             else:
                 return [self.contextFor(
-                    ComboContexts.CommitAndFilter(commit=self.commit, configurationName="", projectName=g)
+                    ComboContexts.CommitAndFilter(commit=self.commit, configurationName=self.configFilter, projectName=g, parentLevel=1)
                     )
-                        for g in sorted(set([t.testDefinitionSummary.project
+                        for g in [""] + sorted(set([t.testDefinitionSummary.project
                                 for t in self.testManager.allTestsForCommit(self.commit)
+                                    if not self.configFilter or t.testDefinitionSummary.configuration == self.configFilter
                             ]))
                     ]
+
         if isinstance(currentChild.primaryObject(), self.database.Test):
             if currentChild.primaryObject().testDefinitionSummary.type == 'Build':
                 return [self.contextFor(t)
@@ -890,20 +868,15 @@ class CommitContext(Context.Context):
         return []
 
     def parentContext(self):
-        if self.projectFilter and self.configFilter:
+        if self.parentLevel < 2:
             return self.contextFor(
-                ComboContexts.CommitAndFilter(self.commit, "", self.projectFilter)
+                ComboContexts.CommitAndFilter(self.commit, self.configFilter, self.projectFilter, self.parentLevel+1)
                 ).withOptions(**self.options)
 
-        if self.configFilter or self.projectFilter:
-            return self.contextFor(
-                ComboContexts.CommitAndFilter(self.commit, "", "")
-                ).withOptions(**self.options)
-        
         branch, name = self.testManager.bestCommitBranchAndName(self.commit)
 
         if branch:
-            return self.contextFor(branch)
+            return self.contextFor(ComboContexts.BranchAndFilter(branch, self.configFilter, self.projectFilter, 2))
 
         return self.contextFor(self.commit.repo)
 
@@ -916,10 +889,26 @@ class CommitContext(Context.Context):
         all_builds = [x for x in tests if x.testDefinitionSummary.type == "Build"]
 
         return (
-            "Testing:&nbsp;" +
+            self.renderLinkToSCM(big=True).render() +
+            "&nbsp;&nbsp;&nbsp;&nbsp;Testing:&nbsp;" +
             self.dropdownForTestPrioritization() + 
             "&nbsp;&nbsp;Builds:&nbsp;&nbsp;" + 
             TestSummaryRenderer.TestSummaryRenderer(all_builds, "").renderSummary() +
             "&nbsp;&nbsp;Tests:&nbsp;" +
-            TestSummaryRenderer.TestSummaryRenderer(all_tests, "").renderSummary() 
+            TestSummaryRenderer.TestSummaryRenderer(all_tests, "").renderSummary()
             )
+
+    def borrowFromContextIfPossible(self, curContext):
+        if isinstance(curContext.primaryObject(), ComboContexts.CommitAndFilter):
+            if curContext.parentLevel < self.parentLevel and self.parentLevel == 2:
+                return self.contextFor(
+                    ComboContexts.CommitAndFilter(
+                        self.commit,
+                        curContext.configFilter,
+                        curContext.projectFilter
+                        )
+                    )
+
+        return self
+
+
