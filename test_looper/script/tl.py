@@ -192,7 +192,7 @@ def run_init(args):
         f.write(
             yaml.dump(
                 {"git_clone_root": args.git_clone_root,
-                 "repo_path_override": args.repos,
+                 "repo_path_override": os.path.abspath(args.repos),
                  "repo_prefixes_to_ignore": args.ignore,
                  "repo_prefixes_to_strip": args.strip
                 }, 

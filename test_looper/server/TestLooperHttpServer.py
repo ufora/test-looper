@@ -604,6 +604,7 @@ class TestLooperHttpServer(object):
             res = self.renderer.default(*args, **kwargs)
         except:
             self._reloadSource()
+            raise
 
         if isinstance(res, HtmlGeneration.Redirect):
             raise cherrypy.HTTPRedirect(res.url)
