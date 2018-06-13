@@ -353,10 +353,10 @@ class CommitContext(Context.Context):
                 new_sets = ['all']
             elif hasIt:
                 new_sets.remove(test_set)
-                if "all" in new_sets:
-                    new_sets.remove("all")
             else:
                 new_sets.append(test_set)
+                if "all" in new_sets:
+                    new_sets.remove("all")
 
             self.testManager._setCommitUserEnabledTestSets(self.commit, new_sets)
 

@@ -58,14 +58,15 @@ class TestSummaryRenderer:
         testLooksBrokenTotal = sum([t.testResultSummary.testLooksBrokenTotal for t in self.tests])
         testLooksFixedTotal = sum([t.testResultSummary.testLooksBrokenTotal for t in self.tests])
 
-        if testLooksBrokenTotal:
-            button_text = button_text + ("&nbsp;" if button_text else "") + (
-                '<span class="badge badge-info pl-1">{broken}{icon}</span>'.format(broken=testLooksBrokenTotal, icon=octicon("bug"))
-                )
-        if testLooksFixedTotal:
-            button_text = button_text + ("&nbsp;" if button_text else "") + (
-                '<span class="badge badge-info pl-1">{fixed}{icon}</span>'.format(fixed=testLooksFixedTotal, icon=octicon("thumbsup"))
-                )
+        if False: #lets not show this until we see taht the numbers make more sense
+            if testLooksBrokenTotal:
+                button_text = button_text + ("&nbsp;" if button_text else "") + (
+                    '<span class="badge badge-info pl-1">{broken}{icon}</span>'.format(broken=testLooksBrokenTotal, icon=octicon("bug"))
+                    )
+            if testLooksFixedTotal:
+                button_text = button_text + ("&nbsp;" if button_text else "") + (
+                    '<span class="badge badge-info pl-1">{fixed}{icon}</span>'.format(fixed=testLooksFixedTotal, icon=octicon("thumbsup"))
+                    )
 
 
         if label:
