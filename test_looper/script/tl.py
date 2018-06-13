@@ -142,6 +142,7 @@ def createArgumentParser():
     run_parser.add_argument("-c", dest="cmd", default=None, help="Just run this one command, instead of the full build")
     run_parser.add_argument("-d", "--nodeps", dest="nodeps", default=False, help="Don't build dependencies, just this one. ", action="store_true")
     run_parser.add_argument("-s", "--nologcapture", dest="nologcapture", default=False, help="Don't capture logs - show everything directly", action="store_true")
+    run_parser.add_argument("-v", '--volume', help="Extra volumes to expose during the run. Pattern is 'host_path:docker_path'", dest='volumesToExpose', default=[], nargs='*')
     run_parser.add_argument("-j",
                         "--cores",
                         dest="cores",
@@ -221,7 +222,7 @@ class DummyArtifactStorage(object):
         pass
 
 class WorkerStateOverride(WorkerState.WorkerState):
-    def __init__(self, name_prefix, worker_directory, looperCtl, cores):
+    def __init__(self, name_prefix, worker_directory, looperCtl, cores, volumesToExpose):
         hwConfig = Config.HardwareConfig(cores=cores, ram_gb=8)
 
         image_repo = os.getenv("TESTLOOPER_DOCKER_IMAGE_REPO") or None
@@ -230,6 +231,11 @@ class WorkerStateOverride(WorkerState.WorkerState):
         
         self.looperCtl = looperCtl
         self.extra_mappings = {}
+
+        for extra in volumesToExpose:
+            host_path,image_path = extra.split(":", 1)
+            self.extra_mappings[host_path] = image_path
+
         self.resolver = TestDefinitionResolverOverride(looperCtl, None)
 
     def wants_to_run_cleanup(self):
@@ -263,6 +269,7 @@ class WorkerStateOverride(WorkerState.WorkerState):
             self.directories.ccache_dir: "/test_looper/ccache",
             self.directories.command_dir: "/test_looper/command"
             }
+
         res.update(self.extra_mappings)
 
         return res
@@ -549,8 +556,9 @@ class TestLooperCtl:
     def writeState(self):
         config = { "checkout_root": self.checkout_root }
 
-        with open(os.path.join(self.root_path, ".tl", "state.yml"), "w") as f:
+        with open(os.path.join(self.root_path, ".tl", "state.yml.tmp"), "w") as f:
             f.write(yaml.dump(config, indent=4, default_style=''))
+        os.rename(os.path.join(self.root_path, ".tl", "state.yml.tmp"), os.path.join(self.root_path, ".tl", "state.yml"))
 
     def getGitRepo(self, reponame):
         if reponame in self.repos:
@@ -796,7 +804,7 @@ class TestLooperCtl:
                 self.walkGraphAndFillOutTestArtifacts(all_tests, possible_tests[test][0], buildToArtifactsNeeded)
 
             for test in sorted(possible_tests):
-                self.runBuildOrTest(all_tests, possible_tests[test][1], possible_tests[test][0], args.cores, args.nologcapture, args.nodeps, args.interactive, set(), args.cmd, buildToArtifactsNeeded)
+                self.runBuildOrTest(all_tests, possible_tests[test][1], possible_tests[test][0], args.cores, args.nologcapture, args.nodeps, args.interactive, set(), args.cmd, buildToArtifactsNeeded, args.volumesToExpose)
 
     def walkGraphAndFillOutTestArtifacts(self, all_tests, testDef, buildToArtifactsNeeded, seen_already=None):
         """Walk all the dependent tests needed by 'testDef' and get a list of the artifacts we really need to build."""
@@ -829,7 +837,8 @@ class TestLooperCtl:
 
                     self.walkGraphAndFillOutTestArtifacts(all_tests, subdef, buildToArtifactsNeeded, seen_already)
 
-    def runBuildOrTest(self, all_tests, reponame, testDef, cores, nologcapture, nodeps, interactive, seen_already, explicit_cmd=None, artifactSubsetByBuildName=None):
+    def runBuildOrTest(self, all_tests, reponame, testDef, cores, nologcapture, nodeps, interactive, 
+                       seen_already, explicit_cmd=None, artifactSubsetByBuildName=None, volumesToExpose=[]):
         #walk all the repo definitions and make sure everything is up-to-date
 
         path = self.build_path(testDef.name)
@@ -850,7 +859,8 @@ class TestLooperCtl:
 
                     if test_and_repo:
                         subdef, subrepo = test_and_repo
-                        if not self.runBuildOrTest(all_tests, subrepo, subdef, cores, nologcapture, nodeps, interactive, seen_already, artifactSubsetByBuildName=artifactSubsetByBuildName):
+                        if not self.runBuildOrTest(all_tests, subrepo, subdef, cores, nologcapture, nodeps, 
+                                    interactive, seen_already, artifactSubsetByBuildName=artifactSubsetByBuildName, volumesToExpose=volumesToExpose):
                             print "Dependent build ", self.repoShortname(subrepo.split(":")[-1]), subdef.name, " failed"
                             return False
             
@@ -867,7 +877,7 @@ class TestLooperCtl:
                 print "\tOnly building until we've produced the following: ", artifactSubsetByBuildName[testDef.name]
                 artifactsNeeded = artifactSubsetByBuildName[testDef.name]
             
-        worker_state = WorkerStateOverride("test_looper_interactive_", path, self, cores)
+        worker_state = WorkerStateOverride("test_looper_interactive_", path, self, cores, volumesToExpose)
 
         if nologcapture:
             logfile = sys.stdout
