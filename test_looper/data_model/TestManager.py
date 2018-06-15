@@ -2069,6 +2069,10 @@ class TestManager(object):
         if not branches:
             return self.database.Branch.Null
 
+        #no reason to change it if we don't need to
+        if commit.anyBranch and commit.anyBranch in branches:
+            return commit.anyBranch
+
         return sorted(branches, key=lambda b: b.branchname)[0]
 
     def _scheduleUpdateBranchTopCommit(self, branch):
