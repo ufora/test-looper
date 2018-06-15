@@ -2059,7 +2059,7 @@ class TestManager(object):
 
             #trigger testSets updates of all builds in other commits
             for test in self.allTestsForCommit(commit):
-                logging.info("Because commit priority chaanged, triggering update of %s (%s)", test.hash, test.testDefinitionSummary.name)
+                logging.info("Because commit priority changed, triggering update of %s (%s)", test.hash, test.testDefinitionSummary.name)
                 self._triggerTestPriorityUpdate(test)
 
     def _calcCommitAnybranch(self, commit):

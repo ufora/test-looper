@@ -197,10 +197,12 @@ class BranchContext(Context.Context):
         unordered_parents = {h: set(parents[h]) for h in parents}
         edges = [h for h in unordered_parents if not unordered_parents[h]]
 
-        while len(order) < len(commits):
+        needingOrder = set([c.hash for c in commits])
+        while edges and needingOrder:
             e = edges.pop()
 
             order[e] = max([order[p]+1 for p in parents[e]] + [0])
+            needingOrder.discard(e)
 
             for c in children[e]:
                 unordered_parents[c].discard(e)
