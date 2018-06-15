@@ -2036,7 +2036,7 @@ class TestManager(object):
         testSets = self._computeCommitPriority(commit)
         
         if testSets != commit.calculatedTestSets:
-            logging.info("Commit %s/%s changed testSets from %s to %s", 
+            logging.info("Commit %s/%s changed testSets from %s to %s.", 
                 commit.repo.name,
                 commit.hash,
                 commit.calculatedTestSets,
@@ -2045,6 +2045,13 @@ class TestManager(object):
 
             commit.calculatedTestSets = testSets
             changed = True
+        else:
+            logging.info("Commit %s/%s has testSets %s and anybranch=%s.", 
+                commit.repo.name,
+                commit.hash,
+                testSets,
+                commit.anyBranch.branchname if commit.anyBranch else "<none>"
+                )
 
         if commit.data and changed:
             for p in commit.data.parents:
@@ -2052,6 +2059,7 @@ class TestManager(object):
 
             #trigger testSets updates of all builds in other commits
             for test in self.allTestsForCommit(commit):
+                logging.info("Because commit priority chaanged, triggering update of %s (%s)", test.hash, test.testDefinitionSummary.name)
                 self._triggerTestPriorityUpdate(test)
 
     def _calcCommitAnybranch(self, commit):
@@ -2118,7 +2126,7 @@ class TestManager(object):
                 env = self.environmentForTest(test)
                 return env.image.setup_script_contents
             except:
-                logging.error("Couldn't get an environment for test %s" % test.testDefinitionSummary.hash)
+                logging.error("Couldn't get an environment for test %s" % test.hash)
 
     def _bootMachinesIfNecessary(self, curTimestamp, curLock):
         #repeatedly check if we can boot any machines. If we can't,
