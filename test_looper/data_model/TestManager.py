@@ -1289,7 +1289,9 @@ class TestManager(object):
                 )
 
             for i in xrange(count):
-                task = self.database.DataTask.lookupAny(status=pendingVeryHigh)
+                task = self.database.DataTask.lookupAny(status=running)
+                if task is None:
+                    task = self.database.DataTask.lookupAny(status=pendingVeryHigh)
                 if task is None:
                     task = self.database.DataTask.lookupAny(status=pendingHigh)
                 if task is None:
@@ -1354,7 +1356,9 @@ class TestManager(object):
 
     def performBackgroundWork(self, curTimestamp):
         with self.transaction_and_lock():
-            task = self.database.DataTask.lookupAny(status=pendingVeryHigh)
+            task = self.database.DataTask.lookupAny(status=running)
+            if task is None:
+                task = self.database.DataTask.lookupAny(status=pendingVeryHigh)
             if task is None:
                 task = self.database.DataTask.lookupAny(status=pendingHigh)
             if task is None:
@@ -2059,7 +2063,6 @@ class TestManager(object):
 
             #trigger testSets updates of all builds in other commits
             for test in self.allTestsForCommit(commit):
-                logging.info("Because commit priority changed, triggering update of %s (%s)", test.hash, test.testDefinitionSummary.name)
                 self._triggerTestPriorityUpdate(test)
 
     def _calcCommitAnybranch(self, commit):
@@ -2797,7 +2800,9 @@ class TestManager(object):
         #test priority updates are always 'low' because we want to ensure
         #that all commit updates have triggered first. This way we know that
         #we're not accidentally going to cancel a test
-        if not self.database.DataTask.lookupAny(update_test_priority=test):
+        existingTask = self.database.DataTask.lookupAny(update_test_priority=test)
+
+        if not existingTask:
             self._queueTask(
                 self.database.DataTask.New(
                     task=self.database.BackgroundTask.UpdateTestPriority(test=test),
