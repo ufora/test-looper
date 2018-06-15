@@ -1697,7 +1697,7 @@ class TestManager(object):
             if not source_control_repo.source_repo.commitExists(commit.hash):
                 return
 
-            for hashParentsAndTitle in source_control_repo.commitsLookingBack(commit.hash, 10):
+            for hashParentsAndTitle in source_control_repo.commitsLookingBack(commit.hash, 100):
                 self._updateCommitDataForHash(
                     repo=commit.repo,
                     hash=hashParentsAndTitle[0],
