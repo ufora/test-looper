@@ -101,7 +101,7 @@ class IndividualTestContext(Context.Context):
                         if not pathsAndSizes:
                             grid.append([
                                 self.contextFor(testRun).renderLink(False, False),
-                                "FAIL" if passFail is True else "OK" if passFail is False else "",
+                                "OK" if testRun.testStepSucceeded[ix] is True else "FAIL",
                                 '<span class="text-muted">%s</span>' % "No artifacts",
                                 ""
                                 ])
