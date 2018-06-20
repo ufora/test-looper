@@ -326,6 +326,8 @@ class BranchContext(Context.Context):
             configFilter = list(configurations)[0]
 
         if self.options.get("expanded_columns") or len(projects) == 1 and len(configurations) == 1:
+            #we need the branch in the cache-key because the branch is included in the url
+            cacheKey = (self.branch, True, projectFilter, configFilter)
             if not projectFilter:
                 return TestGridRenderer.TestGridRenderer(commits, 
                     lambda c: [t for t in self.testManager.allTestsForCommit(c) 
@@ -333,7 +335,9 @@ class BranchContext(Context.Context):
                         if c.data else [],
                     lambda group: self.contextFor(ComboContexts.BranchAndFilter(self.branch, configFilter, group, parentLevel=1)).renderNavbarLink(isInMenu=True),
                     lambda group, row: self.contextFor(ComboContexts.CommitAndFilter(row, configFilter, group)).urlString(),
-                    lambda test: test.testDefinitionSummary.project
+                    lambda test: test.testDefinitionSummary.project,
+                    cacheName=cacheKey,
+                    database=self.testManager.database
                     )
 
             if not configFilter:
@@ -343,7 +347,9 @@ class BranchContext(Context.Context):
                         if c.data else [],
                     lambda group: self.contextFor(ComboContexts.BranchAndFilter(self.branch, group, projectFilter, parentLevel=0)).renderNavbarLink(isInMenu=True),
                     lambda group, row: self.contextFor(ComboContexts.CommitAndFilter(row, group, projectFilter)).urlString(),
-                    lambda test: test.testDefinitionSummary.configuration
+                    lambda test: test.testDefinitionSummary.configuration,
+                    cacheName=cacheKey,
+                    database=self.testManager.database
                     )
 
             return TestGridRenderer.TestGridRenderer(commits, 
@@ -351,17 +357,23 @@ class BranchContext(Context.Context):
                         if shouldIncludeTest(t)] 
                     if c.data else [],
                 lambda group: "",
-                lambda group, row: "",
-                lambda test: test.testDefinitionSummary.project + " / " + test.testDefinitionSummary.configuration
+                lambda group, row: self.contextFor(ComboContexts.CommitAndFilter(row, configFilter, projectFilter)).urlString(),
+                lambda test: test.testDefinitionSummary.project + " / " + test.testDefinitionSummary.configuration,
+                cacheName=cacheKey,
+                database=self.testManager.database
                 )
         else:
+            cacheKey = (self.branch, False, projectFilter, configFilter)
+            
             return TestGridRenderer.TestGridRenderer(commits, 
                 lambda c: [t for t in self.testManager.allTestsForCommit(c) 
                         if shouldIncludeTest(t)] 
                     if c.data else [],
                 lambda group: self.withOptions(expanded_columns='true').renderLink().withTextReplaced("%s projects over %s configurations" % (len(projects), len(configurations))),
                 lambda group, row: "",
-                lambda test: ""
+                lambda test: "",
+                cacheName=cacheKey,
+                database=self.testManager.database
                 )
 
 

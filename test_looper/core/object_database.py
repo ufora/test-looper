@@ -197,6 +197,7 @@ class DatabaseView(object):
         self._writes = {}
         self._t0 = None
         self._stack = None
+        self._readWatcher = None
 
     def _get_dbkey(self, key):
         if key in self._writes:
@@ -267,6 +268,9 @@ class DatabaseView(object):
     def _get(self, obj_typename, identity, field_name, type):
         key = data_key(obj_typename, identity, field_name)
 
+        if self._readWatcher:
+            self._readWatcher("key", key)
+
         if key in self._writes:
             return self._writes[key]
 
@@ -287,7 +291,12 @@ class DatabaseView(object):
         return parsed_val
 
     def _exists(self, obj, obj_typename, identity):
-        return self._get_dbkey(data_key(obj_typename, identity, ".exists")) is not None
+        key = data_key(obj_typename, identity, ".exists")
+
+        if self._readWatcher:
+            self._readWatcher("key", key)
+
+        return self._get_dbkey(key) is not None
 
     def _delete(self, obj, obj_typename, identity, field_names):
         existing_index_vals = self._compute_index_vals(obj, obj_typename)
@@ -474,6 +483,27 @@ class Database:
         #our parsed representation of each thing in the database
         self._current_database_object_cache = {}
 
+        #cache-name to cache function
+        self._calcCacheFunctions = {}
+
+        #cache-key (cachename, (arg1,arg2,...)) -> cache value
+        self._calcCacheValues = {}
+
+        #cache-key -> tid before which this cache calc is definitely invalid.
+        self._calcCacheMinTransactionId = {}
+
+        #cache-key to keys that it depends on
+        self._calcCacheKeysNeeded = {}
+
+        #cache-key to other calcs that it depends on
+        self._calcCacheToCalcCacheNeeded = {}
+
+        #key -> set(cache_keys)
+        self._keyToCacheKeyDepending = {}
+
+        #cache_key -> set(cache_key), cache-keys depending on this one
+        self._calcCacheToCalcCacheDepending = {}
+
     def clearCache(self):
         self._kvstore.clearCache()
         self._current_database_object_cache = {}
@@ -488,6 +518,9 @@ class Database:
         if not hasattr(_cur_view, "view"):
             return None
         return _cur_view.view
+
+    def addCalculationCache(self, name, function):
+        self._calcCacheFunctions[name] = function
 
     def addIndex(self, type, prop, fun = None):
         if type.__name__ not in self._indices:
@@ -713,6 +746,115 @@ class Database:
                 self._key_version_numbers[key].append(transaction_id)
 
                 self._key_and_version_to_object[key,transaction_id] = value
+
+                #invalidate the calculation cache
+                if key in self._keyToCacheKeyDepending:
+                    for cacheKey in list(self._keyToCacheKeyDepending[key]):
+                        self._invalidateCachedCalc(cacheKey)
+
+                    del self._keyToCacheKeyDepending[key]
+
+    def _invalidateCachedCalc(self, cacheKey):
+        if cacheKey not in self._calcCacheValues:
+            return
+
+        del self._calcCacheValues[cacheKey]
+        del self._calcCacheToCalcCacheNeeded[cacheKey]
+        del self._calcCacheMinTransactionId[cacheKey]
+        keysToCheck = self._calcCacheKeysNeeded[cacheKey]
+        del self._calcCacheKeysNeeded[cacheKey]
+
+        calcsToCheck = self._calcCacheToCalcCacheDepending[cacheKey]
+        del self._calcCacheToCalcCacheDepending[cacheKey]
+
+        for k in keysToCheck:
+            self._keyToCacheKeyDepending[k].discard(cacheKey)
+
+        for k in calcsToCheck:
+            self._invalidateCachedCalc(k)
+
+    def lookupCachedCalculation(self, name, args):
+        if not hasattr(_cur_view, "view"):
+            raise Exception("Please access properties from within a view or transaction.")
+        
+        view = _cur_view.view
+        
+        #don't cache values from writeable views - too hard to keep track of 
+        #whether we invalidated things mid-transaction.
+        if view._writeable:
+            return self._calcCacheFunctions[name](*args)
+
+        if view._db is not self:
+            raise Exception("Please use a view if you want to use caches")
+
+        origReadWatcher = view._readWatcher
+        if origReadWatcher:
+            origReadWatcher("cache", (name, args))
+
+        cacheKey = (name,args)
+        with self._lock:
+            if cacheKey in self._calcCacheMinTransactionId:
+                minTID = self._calcCacheMinTransactionId.get(cacheKey)
+                if minTID is None or minTID <= view._transaction_num:
+                    #this is a cache hit!
+                    return self._calcCacheValues[cacheKey]
+
+        readKeys = set()
+        readCaches = set()
+
+        def readWatcher(readKind, readKey):
+            if readKind == 'cache':
+                readCaches.add(readKey)
+            elif readKind == "key":
+                readKeys.add(readKey)
+            else:
+                assert False 
+        
+        try:
+            view._readWatcher = readWatcher
+
+            cachedValue = self._calcCacheFunctions[name](*args)
+        finally:
+            view._readWatcher = origReadWatcher
+
+        self._writeCachedValue((name, args), view._transaction_num, readKeys, readCaches, cachedValue)
+
+        return cachedValue
+
+    def _writeCachedValue(self, cacheKey, asOfTransId, readKeys, readCaches, cachedValue):
+        with self._lock:
+            minValidTID = None
+            for key in readKeys:
+                if key not in self._key_version_numbers:
+                    #do nothing - there is only one version of this object around!
+                    pass
+                else:
+                    tid = self._key_version_numbers[key][-1]
+                    minValidTID = max(minValidTID, tid)
+            for key in readCaches:
+                if key not in self._calcCacheMinTransactionId:
+                    #we read from a now-invalidated cache!
+                    return
+                else:
+                    minValidTID = max(minValidTID, self._calcCacheMinTransactionId[key])
+
+            if minValidTID > asOfTransId:
+                return
+
+            self._calcCacheMinTransactionId[cacheKey] = minValidTID
+            self._calcCacheValues[cacheKey] = cachedValue
+            self._calcCacheKeysNeeded[cacheKey] = readKeys
+            for k in readKeys:
+                if k not in self._keyToCacheKeyDepending:
+                    self._keyToCacheKeyDepending[k] = set()
+                self._keyToCacheKeyDepending[k].add(cacheKey)
+
+            self._calcCacheToCalcCacheNeeded[cacheKey] = readCaches
+            self._calcCacheToCalcCacheDepending[cacheKey] = set()
+
+            for c in readCaches:
+                self._calcCacheToCalcCacheDepending[c].add(cacheKey)
+
 
     def _get(self, obj_typename, identity, field_name, type):
         raise Exception("Please open a transaction or a view")

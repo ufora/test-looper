@@ -2,8 +2,11 @@ import urllib
 
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.server.rendering.ComboContexts as ComboContexts
+import cgi
+import traceback
 
 octicon = HtmlGeneration.octicon
+card = HtmlGeneration.card
 
 class Context(object):
     def __init__(self, renderer, options):
@@ -182,7 +185,10 @@ class Context(object):
         if self.options.get("bodyOnly"):
             return self.renderPageBody()
         
-        pageBody = card("Invalid Object") if not self.primaryObject() else self.renderPageBody()
+        try:
+            pageBody = card("Invalid Object") if not self.primaryObject() else self.renderPageBody()
+        except:
+            pageBody = card("<h1>Internal Error:</h1><div>&nbsp;</div><pre><code>%s</code></pre>" % cgi.escape(traceback.format_exc()))
 
         if isinstance(pageBody, HtmlGeneration.Redirect):
             return pageBody

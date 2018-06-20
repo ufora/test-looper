@@ -61,7 +61,7 @@ def setup_types(database):
         #the test sets that are enabled, assuming that the commit is still visible from a 
         #branch
         calculatedTestSets=algebraic.List(str),
-        anyBranch=database.Branch
+        isReachable=bool
         )
 
     database.CommitData.define(

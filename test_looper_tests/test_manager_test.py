@@ -386,6 +386,44 @@ class TestManagerTests(unittest.TestCase):
             self.assertTrue(test2.priority.matches.HardwareComboUnbootable)
 
 
+    def test_manager_reachability(self):
+        harness = TestManagerTestHarness.getHarness()
+
+        manager = harness.manager
+
+        manager.source_control.addCommit("repo0/c0", [], TestYamlFiles.repo0)
+        manager.source_control.addCommit("repo0/c1", ["repo0/c0"], TestYamlFiles.repo0)
+        manager.source_control.setBranch("repo0/master", "repo0/c1")
+
+        manager.markRepoListDirty(0.0)
+        while manager.performBackgroundWork(0.0) is not None:
+            pass
+
+        for commitIx in xrange(2, 200):
+            manager.source_control.addCommit("repo0/c%s" % commitIx, ["repo0/c%s" % (commitIx-1)], TestYamlFiles.repo0)
+        manager.source_control.setBranch("repo0/master", "repo0/c%s" % commitIx)
+
+        manager.markRepoListDirty(0.0)
+        while manager.performBackgroundWork(0.0) is not None:
+            pass
+
+        for commitIx in xrange(200, 203):
+            manager.source_control.addCommit("repo0/c%s" % commitIx, ["repo0/c%s" % (commitIx-1)], TestYamlFiles.repo0)
+        manager.source_control.setBranch("repo0/master", "repo0/c%s" % commitIx)
+
+        count = 0
+        manager.markRepoListDirty(0.0)
+        while manager.performBackgroundWork(0.0) is not None:
+            count += 1
+
+        with harness.database.view():
+            c = harness.getCommit("repo0/c%s" % commitIx)
+            self.assertTrue(c.isReachable)
+
+            self.assertTrue(count < 20, count)
+
+
+
     def test_manager_env_imports(self):
         harness = TestManagerTestHarness.getHarness()
 

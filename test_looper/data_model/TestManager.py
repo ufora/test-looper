@@ -2004,57 +2004,71 @@ class TestManager(object):
         if not branch.head.data:
             self._updateCommitData(branch.head)
 
-        needingAnyBranchSet = set()
-        if branch.head:
-            needingAnyBranchSet.add(branch.head)
-
-        while needingAnyBranchSet:
-            commit = needingAnyBranchSet.pop()
-            if not commit.anyBranch:
-                commit.anyBranch = branch
-                self._triggerCommitPriorityUpdate(commit)
-                if commit.data:
-                    for p in commit.data.parents:
-                        needingAnyBranchSet.add(p)
-
+        if not branch.head.isReachable:
+            self._triggerCommitPriorityUpdate(branch.head)
 
     def _computeCommitPriority(self, commit):
-        if commit.anyBranch:
+        if commit.isReachable:
             return commit.userEnabledTestSets
         else:
             return ()
 
+    def _propagateReachabilityAsFarAsPossible(self, commit):
+        assert commit.isReachable
+        if not commit.data:
+            return
+
+        toCheck = set(list(commit.data.parents))
+        triggered = set()
+        while toCheck:
+            c = toCheck.pop()
+            if not c.isReachable:
+                triggered.add(c)
+                c.isReachable = True
+                self._triggerCommitPriorityUpdate(commit)
+                if c.data:
+                    for p in c.data.parents:
+                        toCheck.add(p)
+
+        if triggered:
+            logging.info("Reachability of commit %s made %s commits reachable.", commit.hash, len(triggered))
+
+
     def _updateCommitPriority(self, commit):
-        branch = self._calcCommitAnybranch(commit)
+        isReachable = self._calcCommitIsReachable(commit)
         changed = False
-        if branch != commit.anyBranch:
-            logging.info("Commit %s/%s changed anybranch from %s to %s", 
+        if isReachable != commit.isReachable:
+            logging.info("Commit %s/%s changed reachability from %s to %s", 
                 commit.repo.name,
                 commit.hash,
-                commit.anyBranch.branchname if commit.anyBranch else "<none>",
-                branch.branchname if branch else "<none>"
+                commit.isReachable,
+                isReachable
                 )
-            commit.anyBranch = branch
+            commit.isReachable = isReachable
             changed = True
+
+            if isReachable:
+                self._propagateReachabilityAsFarAsPossible(commit)
 
         testSets = self._computeCommitPriority(commit)
         
         if testSets != commit.calculatedTestSets:
-            logging.info("Commit %s/%s changed testSets from %s to %s.", 
+            logging.info("Commit %s/%s changed testSets from %s to %s and has isReachable=%s", 
                 commit.repo.name,
                 commit.hash,
                 commit.calculatedTestSets,
-                testSets
+                testSets,
+                isReachable
                 )
 
             commit.calculatedTestSets = testSets
             changed = True
         else:
-            logging.info("Commit %s/%s has testSets %s and anybranch=%s.", 
+            logging.info("Commit %s/%s has testSets %s and isReachable=%s.", 
                 commit.repo.name,
                 commit.hash,
                 testSets,
-                commit.anyBranch.branchname if commit.anyBranch else "<none>"
+                isReachable
                 )
 
         if commit.data and changed:
@@ -2065,26 +2079,16 @@ class TestManager(object):
             for test in self.allTestsForCommit(commit):
                 self._triggerTestPriorityUpdate(test)
 
-    def _calcCommitAnybranch(self, commit):
-        #calculate any branch that this commit can reach
-        branches = set()
-
-        for branch in self.database.Branch.lookupAll(head=commit):
-            branches.add(branch)
+    def _calcCommitIsReachable(self, commit):
+        if self.database.Branch.lookupAny(head=commit):
+            return True
 
         #look at all our parents and see where they come from
         for r in self.database.CommitRelationship.lookupAll(parent=commit):
-            if r.child.anyBranch:
-                branches.add(r.child.anyBranch)
+            if r.child.isReachable:
+                return True
 
-        if not branches:
-            return self.database.Branch.Null
-
-        #no reason to change it if we don't need to
-        if commit.anyBranch and commit.anyBranch in branches:
-            return commit.anyBranch
-
-        return sorted(branches, key=lambda b: b.branchname)[0]
+        return False
 
     def _scheduleUpdateBranchTopCommit(self, branch):
         self._queueTask(
