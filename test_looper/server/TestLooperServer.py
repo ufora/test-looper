@@ -320,12 +320,13 @@ class TestLooperServer(SimpleServer.SimpleServer):
 
         #start something to touch all the objects we can reach in the
         #background
-        touchAllThread = threading.Thread(
-            target=self.testManager.touchAllTestsAndRuns,
-            args=(time.time(),)
-            )
-        touchAllThread.daemon=True
-        touchAllThread.start()
+        if False:
+            touchAllThread = threading.Thread(
+                target=self.testManager.touchAllTestsAndRuns,
+                args=(time.time(),)
+                )
+            touchAllThread.daemon=True
+            touchAllThread.start()
 
         try:
             self.testManager.pruneDeadWorkers(time.time())
