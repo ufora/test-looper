@@ -370,7 +370,7 @@ class BranchContext(Context.Context):
                         if shouldIncludeTest(t)] 
                     if c.data else [],
                 lambda group: self.withOptions(expanded_columns='true').renderLink().withTextReplaced("%s projects over %s configurations" % (len(projects), len(configurations))),
-                lambda group, row: "",
+                lambda group, row: self.contextFor(ComboContexts.CommitAndFilter(row, configFilter, projectFilter)).urlString(),
                 lambda test: "",
                 cacheName=cacheKey,
                 database=self.testManager.database
