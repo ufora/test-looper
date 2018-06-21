@@ -557,30 +557,48 @@ class BranchContext(Context.Context):
                 ]
 
         if isinstance(currentChild.primaryObject(), ComboContexts.BranchAndFilter):
+            self.database.addCalculationCache(BranchContext.computeAllConfigs)
+            self.database.addCalculationCache(BranchContext.computeAllProjects)
+
             if currentChild.parentLevel == 0:
                 return [self.contextFor(
                     ComboContexts.BranchAndFilter(branch=self.branch, configurationName=g, projectName=self.projectFilter, parentLevel=0)
                     )
-                        for g in [""] + sorted(set([t.testDefinitionSummary.configuration
-                                for commit in self.testManager.commitsToDisplayForBranch(self.branch, self.maxCommitCount())
-                                for t in self.testManager.allTestsForCommit(commit) 
-                                    if t.testDefinitionSummary.project == self.projectFilter or not self.projectFilter
-                            ]))
+                        for g in [""] + self.database.lookupCachedCalculation(
+                            BranchContext.computeAllConfigs, 
+                            (self.testManager, self.branch, self.maxCommitCount(), self.projectFilter)
+                            )
                     ]
             else:
                 return [self.contextFor(
                     ComboContexts.BranchAndFilter(branch=self.branch, configurationName=self.configurationFilter, projectName=g, parentLevel=1)
                     )
-                        for g in [""] + sorted(set([t.testDefinitionSummary.project
-                                for commit in self.testManager.commitsToDisplayForBranch(self.branch, self.maxCommitCount())
-                                for t in self.testManager.allTestsForCommit(commit)
-                                    if not self.configurationFilter or t.testDefinitionSummary.configuration == self.configurationFilter
-                            ]))
+                        for g in [""] + self.database.lookupCachedCalculation(
+                            BranchContext.computeAllProjects, 
+                            (self.testManager, self.branch, self.maxCommitCount(), self.configurationFilter)
+                            )
                     ]
             
         else:
             return []
 
+    @staticmethod
+    def computeAllConfigs(testManager, branch, maxCommitCount, projectFilter):
+        return sorted(
+            set([t.testDefinitionSummary.configuration
+                    for commit in testManager.commitsToDisplayForBranch(branch, maxCommitCount)
+                    for t in testManager.allTestsForCommit(commit)
+                        if t.testDefinitionSummary.project == projectFilter or not projectFilter
+                ]))
+
+    @staticmethod
+    def computeAllProjects(testManager, branch, maxCommitCount, configFilter):
+        return sorted(
+            set([t.testDefinitionSummary.project
+                    for commit in testManager.commitsToDisplayForBranch(branch, maxCommitCount)
+                    for t in testManager.allTestsForCommit(commit)
+                        if t.testDefinitionSummary.configuration == configFilter or not configFilter
+                ]))
 
     def renderPostViewSelector(self):
         if self.options.get("view", "commits") != "commits":

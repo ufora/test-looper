@@ -519,8 +519,8 @@ class Database:
             return None
         return _cur_view.view
 
-    def addCalculationCache(self, name, function):
-        self._calcCacheFunctions[name] = function
+    def addCalculationCache(self, name, function=None):
+        self._calcCacheFunctions[name] = function or name
 
     def addIndex(self, type, prop, fun = None):
         if type.__name__ not in self._indices:
