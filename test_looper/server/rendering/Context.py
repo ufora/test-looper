@@ -4,6 +4,7 @@ import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.server.rendering.ComboContexts as ComboContexts
 import cgi
 import traceback
+import cherrypy
 
 octicon = HtmlGeneration.octicon
 card = HtmlGeneration.card
@@ -187,6 +188,8 @@ class Context(object):
         
         try:
             pageBody = card("Invalid Object") if not self.primaryObject() else self.renderPageBody()
+        except cherrypy.HTTPRedirect:
+            raise
         except:
             pageBody = card("<h1>Internal Error:</h1><div>&nbsp;</div><pre><code>%s</code></pre>" % cgi.escape(traceback.format_exc()))
 
