@@ -600,7 +600,7 @@ class CommitContext(Context.Context):
             def rowLinkFun(row):
                 return self.contextFor(
                     ComboContexts.CommitAndFilter(row, configFilter, projectFilter)
-                    ).withOptions(**self.options).renderLink(includeRepo=False, includeBranch=False)
+                    ).withOptions(**self.options).renderLinkWithShaHash()
 
             def testFun(row):
                 for t in self.testManager.allTestsForCommit(row):
