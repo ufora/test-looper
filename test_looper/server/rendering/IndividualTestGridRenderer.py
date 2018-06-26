@@ -41,10 +41,13 @@ class IndividualTestGridRenderer:
 
     def headers(self):
         headers = []
-        for test in sorted(sum(self.groupsToTests.values(), [])):
+        for test in self.individualTestNames():
             headers.append(test)
     
         return headers
+
+    def individualTestNames(self):
+        return sorted(sum(self.groupsToTests.values(), []))
 
     def groupTitle(self, group):
         return "Results for %s tests in group %s" % (len(self.groupsToTests[group]), group)
@@ -106,67 +109,65 @@ class IndividualTestGridRenderer:
 
             return bad_count, flakey_count, good_count, not_running_count
 
-        for group in sorted(self.groupsToTests):
-            res = []
-            for individualTest in self.groupsToTests[group]:
-                urlIsDropdown = False
+        for individualTest in self.individualTestNames():
+            urlIsDropdown = False
 
-                if individualTest in testResults:
-                    run_count, success_count, testIfHasLogs = testResults[individualTest]
+            if individualTest in testResults:
+                run_count, success_count, testIfHasLogs = testResults[individualTest]
 
-                    if testIfHasLogs:
-                        context = self.individualTestRunContextFor(row)
-                        if context:
-                            url = self.parentContext.contextFor(
-                                ComboContexts.IndividualTest(context, individualTest)
-                                ).urlString()
-                        else:
-                            url = ""
+                if testIfHasLogs:
+                    context = self.individualTestRunContextFor(row)
+                    if context:
+                        url = self.parentContext.contextFor(
+                            ComboContexts.IndividualTest(context, individualTest)
+                            ).urlString()
                     else:
                         url = ""
-
-                    if run_count == success_count:
-                        cellClass = "test-result-cell-success"
-                        tooltip = "Test %s succeeded" % individualTest
-                        if run_count > 1:
-                            tooltip += " over %s runs" % run_count
-                        contentsDetail="OK"
-
-                        if run_count > 1:
-                            contentsDetail += " (%s runs)" % run_count
-
-                    elif success_count:
-                        cellClass = "test-result-cell-partial"
-                        tooltip = "Test %s succeeded %s / %s times" % (individualTest, success_count, run_count)
-                        contentsDetail="FLAKEY (%s/%s runs failed)" % (run_count-success_count, run_count)
-                    else:
-                        cellClass = "test-result-cell-fail"
-                        tooltip = "Test %s failed" % individualTest
-                        if run_count > 1:
-                            tooltip += " over %s runs" % run_count
-                        contentsDetail="FAIL"
-
-                        if run_count > 1:
-                            contentsDetail += " (%s runs)" % run_count
-
                 else:
                     url = ""
-                    cellClass = "test-result-cell-notrun"
-                    tooltip = "Test %s didn't run" % individualTest
-                    contentsDetail = ""
 
-                if urlIsDropdown:
-                    contentsDetail = '<span style="width:100px">%s</span>' % contentsDetail + HtmlGeneration.urlDropdown("", url)
+                if run_count == success_count:
+                    cellClass = "test-result-cell-success"
+                    tooltip = "Test %s succeeded" % individualTest
+                    if run_count > 1:
+                        tooltip += " over %s runs" % run_count
+                    contentsDetail="OK"
 
-                gridRow.append({'content':
-                    '<div {onclick} data-toggle="tooltip" title="{text}">{contents}</div>'.format(
-                        contents=contentsDetail,
-                        text=cgi.escape(tooltip),
-                        onclick='onclick="window.open(\'{url}\',\'_blank\')"'.format(url=url) if url and not urlIsDropdown else ''
-                        ),
-                    "class": cellClass
-                    }
-                    )
+                    if run_count > 1:
+                        contentsDetail += " (%s runs)" % run_count
+
+                elif success_count:
+                    cellClass = "test-result-cell-partial"
+                    tooltip = "Test %s succeeded %s / %s times" % (individualTest, success_count, run_count)
+                    contentsDetail="FLAKEY (%s/%s runs failed)" % (run_count-success_count, run_count)
+                else:
+                    cellClass = "test-result-cell-fail"
+                    tooltip = "Test %s failed" % individualTest
+                    if run_count > 1:
+                        tooltip += " over %s runs" % run_count
+                    contentsDetail="FAIL"
+
+                    if run_count > 1:
+                        contentsDetail += " (%s runs)" % run_count
+
+            else:
+                url = ""
+                cellClass = "test-result-cell-notrun"
+                tooltip = "Test %s didn't run" % individualTest
+                contentsDetail = ""
+
+            if urlIsDropdown:
+                contentsDetail = '<span style="width:100px">%s</span>' % contentsDetail + HtmlGeneration.urlDropdown("", url)
+
+            gridRow.append({'content':
+                '<div {onclick} data-toggle="tooltip" title="{text}">{contents}</div>'.format(
+                    contents=contentsDetail,
+                    text=cgi.escape(tooltip),
+                    onclick='onclick="window.open(\'{url}\',\'_blank\')"'.format(url=url) if url and not urlIsDropdown else ''
+                    ),
+                "class": cellClass
+                }
+                )
         return gridRow
 
 
