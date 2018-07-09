@@ -1111,6 +1111,8 @@ class WorkerState(object):
     def _runStage(self, testId, stage, image, test_definition, working_directory, log_function, workerCallback, historicalTestFailureRates):
         withTime(log_function)("Starting Test Run")
 
+        times_seen = {}
+
         if stage.matches.TestStage:
             def runCmd(cmd, timeout, **extras):
                 testvars = dict(test_definition.variables)
@@ -1175,7 +1177,7 @@ class WorkerState(object):
                 timeElapsedPerPriorPass.append(time.time() - passT0)
 
                 individualTestSuccesses.extend(
-                    self.individualTestArtifactUpload(image, testId, test_definition, log_function)
+                    self.individualTestArtifactUpload(image, testId, test_definition, log_function, times_seen)
                     )
         else:
             if stage.command:
@@ -1189,7 +1191,7 @@ class WorkerState(object):
                     dumpPreambleLog=False
                     )
 
-                individualTestSuccesses = self.individualTestArtifactUpload(image, testId, test_definition, log_function)
+                individualTestSuccesses = self.individualTestArtifactUpload(image, testId, test_definition, log_function, times_seen)
             else:
                 is_success = True
                 individualTestSuccesses = []
@@ -1228,7 +1230,7 @@ class WorkerState(object):
         return is_success, individualTestSuccesses
 
 
-    def individualTestArtifactUpload(self, image, testId, test_definition, log_function):
+    def individualTestArtifactUpload(self, image, testId, test_definition, log_function, times_seen):
         individualTestSuccesses = []
 
         with self.callHeartbeatInBackground(log_function, "Uploading test artifacts."):
@@ -1260,8 +1262,6 @@ class WorkerState(object):
                         raise Exception("testSummary.json should be a dict from str to bool")
 
                     pathsToUpload = {}
-
-                    times_seen = {}
 
                     def processTestSuccess(entry):
                         try:
