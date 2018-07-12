@@ -1683,6 +1683,7 @@ class TestManager(object):
                         branchHash
                         )
                     self._scheduleUpdateBranchTopCommit(branch)
+                self._recalculateBranchPins(branch)
             except:
                 logging.error("Error scheduling branch commit lookup:\n\n%s", traceback.format_exc())
 
