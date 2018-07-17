@@ -324,7 +324,12 @@ class TestManager(object):
 
         branches = {}
 
-        def check(c, path_back):
+        todo = set()
+        todo.add((commit, ""))
+
+        while todo:
+            c, path_back = todo.pop()
+
             if c not in childCommits or len(path_back) < len(childCommits[c]):
                 childCommits[c] = path_back
 
@@ -332,9 +337,8 @@ class TestManager(object):
                     branches[branch] = compress_pathback(path_back)
 
                 for child, to_add in children(c).items():
-                    check(child, to_add + path_back)
+                    todo.add((child, to_add + path_back))
 
-        check(commit, "")
 
         return branches
 
