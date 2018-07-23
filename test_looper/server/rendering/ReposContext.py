@@ -35,7 +35,7 @@ class ReposContext(Context.Context):
         headers, grid = self.grid()
 
         if not headers:
-            res = card("No repos found")
+            res = HtmlGeneration.card("No repos found")
         else:
             res = HtmlGeneration.grid(headers+grid, header_rows=len(headers))
         
