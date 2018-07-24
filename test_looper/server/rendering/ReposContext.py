@@ -4,6 +4,8 @@ import test_looper.server.rendering.ComboContexts as ComboContexts
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
 
+card = HtmlGeneration.card
+
 class ReposContext(Context.Context):
     def __init__(self, renderer, options):
         Context.Context.__init__(self, renderer, options)
