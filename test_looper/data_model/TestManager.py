@@ -44,7 +44,7 @@ class MessageBuffer:
         self._lock = threading.RLock()
         self._subscribers = set()
         self._messages = []
-    
+
     def setTotalMessages(self, all_data):
         with self._lock:
             bytes_so_far = sum([len(m) for m in self._messages])
@@ -124,7 +124,7 @@ class HeartbeatHandler(object):
         self.logs = {}
         self.timestamps = {}
         self.listeners = {}
-        
+
     def getMostRecentTestHeartbeats(self, testId):
         with self.lock:
             if testId in self.logs:
@@ -132,15 +132,15 @@ class HeartbeatHandler(object):
                 if len(res) < 10 * 1024:
                     return res
                 return res[-10*1024:]
-            return ""        
-        
+            return ""
+
 
     def getAllLogsFor(self, testId):
         with self.lock:
             if testId in self.logs:
                 return "".join(self.logs[testId])
-            return ""        
-        
+            return ""
+
     def addListener(self, testId, listener):
         with self.lock:
             if testId not in self.listeners:
@@ -152,14 +152,14 @@ class HeartbeatHandler(object):
                 except:
                     logging.error("Failed to write log message for testId %s to listener %s:\n%s", testId, listener, traceback.format_exc())
                     return
-                
+
                 self.listeners[testId].append(listener)
 
     def testFinished(self, testId):
         #reset the logs since they're not live anymore.
         #self.logs[testId] = []
         pass
-        
+
     def testHeartbeatReinitialized(self, testId, timestamp, logMessagesFromStart):
         with self.lock:
             message_len = sum([len(x) for x in self.logs.get(testId, [])])
@@ -280,7 +280,7 @@ class TestManager(object):
             fields.append(len(branchname + branches_by_name[branchname]))
 
             return tuple(fields)
-            
+
         #pick the least feature-branchy name we can
         best_branch = sorted(branches, key=lambda b: masteryness(b.branchname))[0]
 
@@ -350,7 +350,7 @@ class TestManager(object):
 
     def transaction_and_lock(self):
         t = [None]
-        
+
         class Scope:
             def __enter__(scope):
                 self.writelock.__enter__()
@@ -443,13 +443,13 @@ class TestManager(object):
         cat.desired = cat.desired - 1
 
         self.streamForDeployment(deploymentId).addMessageFromDeployment(
-            "\r\n\r\n" + 
+            "\r\n\r\n" +
             time.asctime(time.gmtime(timestamp)) + " TestLooper> Session Terminated\r\n\r\n"
             )
 
         deployment.isAlive = False
 
-        logging.info("Canceling deployment %s. Desired count for category %s/%s/%s is now %s vs booted %s", 
+        logging.info("Canceling deployment %s. Desired count for category %s/%s/%s is now %s vs booted %s",
                 deploymentId, cat._identity[:6], cat.hardware, cat.os, cat.desired, cat.booted)
 
         if deployment.machine:
@@ -458,7 +458,7 @@ class TestManager(object):
             logging.info("Setting last test completed on %s ", deployment.machine.machineId, timestamp)
 
             os = deployment.machine.os
-        
+
             if (os.matches.WindowsVM or os.matches.LinuxVM):
                 #we need to shut down this machine since it has a setup script
                 if not DISABLE_MACHINE_TERMINATION:
@@ -538,15 +538,15 @@ class TestManager(object):
                 check(r.parent)
 
         check(branch.head)
-        
+
     def deprioritizeAllCommitsUnderBranch(self, branch, depth):
         self.prioritizeAllCommitsUnderBranch(branch, depth, prioritize=False)
-        
+
     def toggleBranchUnderTest(self, branch):
         branch.isUnderTest = not branch.isUnderTest
         if branch.head and not branch.head.userEnabledTestSets and branch.isUnderTest:
             self._setCommitUserEnabledTestSets(branch.head, branch.head.data.triggeredTestSets)
-        
+
     def getTestRunById(self, testIdentity):
         testIdentity = str(testIdentity)
 
@@ -580,12 +580,12 @@ class TestManager(object):
         machine.lastHeartbeat=curTimestamp
         if msg:
             machine.lastHeartbeatMsg = msg
-            
+
     def markRepoListDirty(self, curTimestamp):
         with self.transaction_and_lock():
             self._queueTask(
                 self.database.DataTask.New(
-                    task=self.database.BackgroundTask.RefreshRepos(), 
+                    task=self.database.BackgroundTask.RefreshRepos(),
                     status=pendingVeryHigh
                     )
                 )
@@ -609,7 +609,6 @@ class TestManager(object):
         else:
             return cur
 
-
     def clearTestRun(self, testId):
         """Remove a test run from the database."""
 
@@ -628,7 +627,7 @@ class TestManager(object):
                 testRun.test.successes = testRun.test.successes - 1
 
             self._addIndividualTestRecordsTo(
-                testRun.test, 
+                testRun.test,
                 self._singleTestRecordsForRun(testRun),
                 remove=True
                 )
@@ -654,15 +653,15 @@ class TestManager(object):
                 ) for i in xrange(len(testRun.testStepNameIndex))
                 ]
 
-    def _importTestRun(self, test, identity, startedTimestamp, lastHeartbeat, endTimestamp, success, 
-                      canceled, testNameList, 
+    def _importTestRun(self, test, identity, startedTimestamp, lastHeartbeat, endTimestamp, success,
+                      canceled, testNameList,
                       testStepNameIndex,
                       testStepTimeStarted,
                       testStepTimeElapsed,
                       testStepSucceeded,
                       testStepHasLogs,
                       testCount, failedTestCount):
-        
+
         testRun = self.database.TestRun.New(
             _identity=identity,
             test=test,
@@ -682,7 +681,7 @@ class TestManager(object):
             )
 
         self._addIndividualTestRecordsTo(
-            testRun.test, 
+            testRun.test,
             self._singleTestRecordsForRun(testRun)
             )
 
@@ -713,7 +712,7 @@ class TestManager(object):
                 artifactIx = len(testRun.artifactsCompleted)
 
                 if artifactIx >= len(testRun.test.testDefinitionSummary.artifacts):
-                    raise Exception("Unexpected artifact for test %s. We thought we were done, but got %s" 
+                    raise Exception("Unexpected artifact for test %s. We thought we were done, but got %s"
                             % (testId, artifact))
 
                 expected = testRun.test.testDefinitionSummary.artifacts[artifactIx]
@@ -773,7 +772,7 @@ class TestManager(object):
                     assert False
 
             testRun.endTimestamp = curTimestamp
-            
+
             testRun.test.activeRuns = testRun.test.activeRuns - 1
             testRun.test.totalRuns = testRun.test.totalRuns + 1
             testRun.test.lastTestEndTimestamp = curTimestamp
@@ -841,7 +840,7 @@ class TestManager(object):
         runs = list(summary.testTotalRuns)
         failures = list(summary.testTotalFailures)
         hasLogs = list(summary.testHasLogs)
-        
+
         for result in testRunResults:
             ix = name_to_ix[result.testName]
             runs[ix] += 1 if not remove else -1
@@ -891,13 +890,13 @@ class TestManager(object):
 
         if summary.test.parent and summary.test.parent.testResultSummary.testNames:
             summary.removedTests = self._testNameSet(
-                sorted(set(summary.test.parent.testResultSummary.testNames.test_names) 
+                sorted(set(summary.test.parent.testResultSummary.testNames.test_names)
                                 - set(summary.testNames.test_names))
                 )
-            
+
             for ix, name in enumerate(summary.test.parent.testResultSummary.testNames.test_names):
                 index_in_parent[name] = ix
-        
+
         for ix, name in enumerate(summary.testNames.test_names):
             classify = self._classifyTestByIndex(summary, ix)
 
@@ -999,7 +998,7 @@ class TestManager(object):
             self._checkAllTestPriorities(curTimestamp, resetUnbootable)
 
     def _commitMightHaveTests(self, c):
-        return c.data and c.data.timestamp > OLDEST_TIMESTAMP_WITH_TESTS        
+        return c.data and c.data.timestamp > OLDEST_TIMESTAMP_WITH_TESTS
 
     def _allCommitsWithPossibilityOfTests(self):
         commits = set()
@@ -1040,7 +1039,7 @@ class TestManager(object):
 
         if resetUnbootable:
             categories = set()
-    
+
             commitsWithTests = self._allCommitsWithPossibilityOfTests()
 
             for c in commitsWithTests:
@@ -1073,7 +1072,7 @@ class TestManager(object):
             for runningTest in self.database.TestRun.lookupAll(isRunning=True):
                 runningTest.test.activeRuns += 1
 
-    
+
         for priorityType in [
                 self.database.TestPriority.FirstBuild,
                 self.database.TestPriority.FirstTest,
@@ -1087,7 +1086,7 @@ class TestManager(object):
         logging.info("Done checking all test priorities to ensure they are correct. Checked %s", total)
 
 
-                    
+
     def _lookupHighestPriorityTest(self, machine, curTimestamp):
         t0 = time.time()
 
@@ -1119,12 +1118,12 @@ class TestManager(object):
             for deployment in self.database.Deployment.lookupAll(isAliveAndPending=True):
                 if self._machineCategoryForTest(deployment.test) == self._machineCategoryForPair(machine.hardware, machine.os):
                     deployment.machine = machine
-                    
+
                     self.streamForDeployment(deployment._identity).addMessageFromDeployment(
-                        time.asctime(time.gmtime(timestamp)) + 
+                        time.asctime(time.gmtime(timestamp)) +
                             " TestLooper> Machine %s accepting deployment.\n\r" % machineId
                         )
-                    
+
                     test = deployment.test
 
                     return (deployment._identity, self.definitionForTest(test))
@@ -1215,11 +1214,11 @@ class TestManager(object):
         with self.transaction_and_lock():
             for t in self.database.TestRun.lookupAll(isRunning=True):
                 if t.lastHeartbeat < curTimestamp - TEST_TIMEOUT_SECONDS and curTimestamp - self.initialTimestamp > TEST_TIMEOUT_SECONDS:
-                    logging.error("Canceling testRun %s because it has not had a heartbeat for a long time. Most recent logs:\n%s", 
+                    logging.error("Canceling testRun %s because it has not had a heartbeat for a long time. Most recent logs:\n%s",
                         t._identity,
                         self.heartbeatHandler.getMostRecentTestHeartbeats(t._identity)
                         )
-                    
+
                     self._cancelTestRun(t, curTimestamp)
 
             for m in self.database.Machine.lookupAll(isAlive=True):
@@ -1241,7 +1240,7 @@ class TestManager(object):
             self._scheduleBootCheck()
             self._shutdownMachinesIfNecessary(curTimestamp)
             self._checkRetryTests(curTimestamp)
-            
+
     def _checkRetryTests(self, curTimestamp):
         for test in self.database.Test.lookupAll(waiting_to_retry=True):
             self._triggerTestPriorityUpdate(test)
@@ -1375,7 +1374,7 @@ class TestManager(object):
 
             if task is None:
                 return
-                
+
             task.status = running
 
             testDef = task.task
@@ -1404,7 +1403,7 @@ class TestManager(object):
 
         machine.isAlive = False
         mc = self._machineCategoryForPair(machine.hardware, machine.os)
-        
+
         mc.booted = mc.booted - 1
 
         assert mc.booted >= 0
@@ -1426,7 +1425,7 @@ class TestManager(object):
         self.lastWorkerPruneOperation = curTimestamp
 
         self._checkMachineCategoryCounts()
-            
+
         known_workers = {x.machineId: (x.hardware, x.os) for x in self.database.Machine.lookupAll(isAlive=True)}
 
         to_kill = self.machine_management.synchronize_workers(known_workers)
@@ -1441,7 +1440,7 @@ class TestManager(object):
             return None
 
         repo = self.source_control.getRepo(commit.repo.name)
-        
+
         defText, extension = repo.getTestScriptDefinitionsForCommit(commit.hash)
 
         return defText, extension
@@ -1538,7 +1537,7 @@ class TestManager(object):
 
         if not source_branch.head.data:
             return "Source branch didn't have a valid commit on its HEAD"
-        
+
         if template.def_to_replace not in source_branch.head.data.repos:
             return "Couldn't find repodef %s amongst:\n%s" % (
                 template.def_to_replace,
@@ -1549,7 +1548,7 @@ class TestManager(object):
             return "Targeted reporef is not updatable."
 
         newRepoDefs = dict({k:v for k,v in source_branch.head.data.repos.iteritems() if v.matches.Pin})
-        
+
         if template.disableOtherAutos:
             for defname in list(newRepoDefs):
                 pin = newRepoDefs[defname]
@@ -1565,12 +1564,12 @@ class TestManager(object):
             )
 
         pinning = BranchPinning.BranchPinning(self.database, self.source_control)
-        
+
         try:
             newHash = pinning._updatePinsByDefInCommitAndReturnHash(
                 source_branch,
                 source_branch.head.data.repos,
-                newRepoDefs, 
+                newRepoDefs,
                 "Pointing branch %s at %s for testing." % (source_branch.branchname, branch.branchname)
                 )
         except Exception as e:
@@ -1629,7 +1628,7 @@ class TestManager(object):
             #temporarily release the lock, since all we're doing is
             #interacting with the git server
             curLock.__exit__(None, None, None)
-        
+
         try:
             if not self.source_control.isWebhookInstalled(reponame, self.server_port_config):
                 self.source_control.installWebhook(
@@ -1637,7 +1636,7 @@ class TestManager(object):
                     self.server_port_config
                     )
         except:
-            logging.error("Tried to install webhook for %s but failed: %s", 
+            logging.error("Tried to install webhook for %s but failed: %s",
                 db_repo.name,
                 traceback.format_exc()
                 )
@@ -1655,8 +1654,8 @@ class TestManager(object):
         db_branches = self.database.Branch.lookupAll(repo=db_repo)
 
         logging.info(
-            "Comparing branchlist from server: %s to local: %s", 
-            sorted(branchnames_set), 
+            "Comparing branchlist from server: %s to local: %s",
+            sorted(branchnames_set),
             sorted([x.branchname for x in db_branches])
             )
 
@@ -1682,8 +1681,8 @@ class TestManager(object):
             try:
                 branch = self.database.Branch.lookupOne(reponame_and_branchname=(db_repo.name, branchname))
                 if not branch.head or branch.head.hash != branchHash:
-                    logging.info("Branch head %s looks dirty (%s != %s). Updating. ", 
-                        branch.repo.name + "/" + branch.branchname, 
+                    logging.info("Branch head %s looks dirty (%s != %s). Updating. ",
+                        branch.repo.name + "/" + branch.branchname,
                         branch.head.hash if branch.head else "<none>",
                         branchHash
                         )
@@ -1696,7 +1695,7 @@ class TestManager(object):
         commitCount = sum([repo.commits for repo in self.database.Repo.lookupAll(isActive=True)])
 
         logging.info("Updating commit data for %s/%s. We have %s commits total.", commit.repo.name, commit.hash, commitCount)
-        
+
         source_control_repo = self.source_control.getRepo(commit.repo.name)
 
         if commit.data is self.database.CommitData.Null:
@@ -1783,7 +1782,7 @@ class TestManager(object):
 
         for p in parents:
             self.database.CommitRelationship.New(child=commit,parent=p)
-        
+
         #when we get new commits, make sure we have the right priority
         #on them. This is a one-time operation when the commit is first created
         #to apply the branch priority to the commit
@@ -1835,7 +1834,7 @@ class TestManager(object):
         resolver = TestDefinitionResolver.TestDefinitionResolver(getRepo)
 
         return resolver.testEnvironmentAndRepoDefinitionsFor(
-            commit.repo.name, 
+            commit.repo.name,
             commit.hash
             )
 
@@ -1853,7 +1852,7 @@ class TestManager(object):
         resolver = TestDefinitionResolver.TestDefinitionResolver(getRepo)
 
         tests = resolver.testEnvironmentAndRepoDefinitionsFor(
-            commit.repo.name, 
+            commit.repo.name,
             commit.hash
             )[0]
 
@@ -1871,7 +1870,7 @@ class TestManager(object):
     def definitionForTest(self, test):
         """Extracts the testDefinition for a given test."""
         commitDep = self.database.CommitTestDependency.lookupAny(test=test)
-        
+
         assert commitDep is not None, "Somehow, don't have a commit referencing %s" % test._identity
 
         return self.testsForCommit(commitDep.commit).get(test.testDefinitionSummary.name)
@@ -1901,11 +1900,11 @@ class TestManager(object):
             #make sure we at least get the repo pins if they're available.
             #otherwise, if we have a bad test we won't be able to roll repo pins forward
             commit.data.repos = resolver.unprocessedRepoPinsFor(commit.repo.name, commit.hash)
-            
+
             try:
                 all_tests, all_environments, all_repo_defs = \
                     resolver.testEnvironmentAndRepoDefinitionsFor(
-                        commit.repo.name, 
+                        commit.repo.name,
                         commit.hash
                         )
 
@@ -1921,7 +1920,7 @@ class TestManager(object):
             commit.data.testSetsTopLevel = testSetsTopLevel
             commit.data.triggeredTestSets = triggeredTestSets
             commit.data.triggeredTriggers = triggeredTriggers
-            
+
             tests_by_name = {}
 
             for e in all_tests.values():
@@ -1966,11 +1965,11 @@ class TestManager(object):
                 repo = self.source_control.getRepo(trackingBranch.repo.name).source_repo
                 repo.deleteRemoteBranch(trackingBranch.branchname)
                 trackingBranch.repo.branchCreateLogs = self._createLogMessage(
-                    trackingBranch.repo.branchCreateLogs, 
+                    trackingBranch.repo.branchCreateLogs,
                     "Deleted branch %s because underlying branch %s was deleted" % (
                         trackingBranch.branchname,
                         branch.branchname
-                        ), 
+                        ),
                     curTimestamp
                     )
             except:
@@ -1999,11 +1998,11 @@ class TestManager(object):
 
             if old_branch_head:
                 self._triggerCommitPriorityUpdate(old_branch_head)
-            
+
             if branch.head:
                 self._triggerCommitPriorityUpdate(branch.head)
                 self._recalculateBranchPins(branch)
-                
+
                 for pin in self.database.BranchPin.lookupAll(pinned_to=(branch.repo.name,branch.branchname)):
                     self._scheduleBranchPinNeedsUpdating(pin.branch)
 
@@ -2044,7 +2043,7 @@ class TestManager(object):
         isReachable = self._calcCommitIsReachable(commit)
         changed = False
         if isReachable != commit.isReachable:
-            logging.info("Commit %s/%s changed reachability from %s to %s", 
+            logging.info("Commit %s/%s changed reachability from %s to %s",
                 commit.repo.name,
                 commit.hash,
                 commit.isReachable,
@@ -2057,9 +2056,9 @@ class TestManager(object):
                 self._propagateReachabilityAsFarAsPossible(commit)
 
         testSets = self._computeCommitPriority(commit)
-        
+
         if testSets != commit.calculatedTestSets:
-            logging.info("Commit %s/%s changed testSets from %s to %s and has isReachable=%s", 
+            logging.info("Commit %s/%s changed testSets from %s to %s and has isReachable=%s",
                 commit.repo.name,
                 commit.hash,
                 commit.calculatedTestSets,
@@ -2070,7 +2069,7 @@ class TestManager(object):
             commit.calculatedTestSets = testSets
             changed = True
         else:
-            logging.info("Commit %s/%s has testSets %s and isReachable=%s.", 
+            logging.info("Commit %s/%s has testSets %s and isReachable=%s.",
                 commit.repo.name,
                 commit.hash,
                 testSets,
@@ -2116,8 +2115,8 @@ class TestManager(object):
 
                 if target.matches.Pin:
                     self.database.BranchPin.New(
-                        branch=branch, 
-                        repo_def=repo_def, 
+                        branch=branch,
+                        repo_def=repo_def,
                         pinned_to_repo=reponame,
                         pinned_to_branch=target.branch,
                         auto=target.auto
@@ -2135,7 +2134,7 @@ class TestManager(object):
 
     def _setupContentsForMachineCategory(self, category):
         for test in self.database.Test.lookupAll(machineCategoryAndPrioritized=category):
-            try:            
+            try:
                 env = self.environmentForTest(test)
                 return env.image.setup_script_contents
             except:
@@ -2145,11 +2144,11 @@ class TestManager(object):
         #repeatedly check if we can boot any machines. If we can't,
         #but we want to, we need to check whether there are any machines we can
         #shut down
-        logging.info("Entering _bootMachinesIfNecessary with %s cores currently booted across %s machines.", 
-            self.machine_management.cores_booted, 
+        logging.info("Entering _bootMachinesIfNecessary with %s cores currently booted across %s machines.",
+            self.machine_management.cores_booted,
             len(self.machine_management.runningMachines)
             )
-        for cat in (self.database.MachineCategory.lookupAll(want_more=True) +  
+        for cat in (self.database.MachineCategory.lookupAll(want_more=True) +
                             self.database.MachineCategory.lookupAll(want_less=True)):
             logging.info("\t%s/%s: %s desired vs %s booted. Bootable=%s", cat.hardware, cat.os, cat.desired, cat.booted, not cat.hardwareComboUnbootable)
 
@@ -2203,10 +2202,10 @@ class TestManager(object):
     def _boot(self, category, curTimestamp, curLock):
         """Try to boot a machine from 'category'. Returns True if booted."""
         try:
-            logging.info("Trying to boot %s/%s to meet requirements of %s desired (%s booted now)", 
-                category.hardware, 
-                category.os, 
-                category.desired, 
+            logging.info("Trying to boot %s/%s to meet requirements of %s desired (%s booted now)",
+                category.hardware,
+                category.os,
+                category.desired,
                 category.booted
                 )
             try:
@@ -2287,8 +2286,8 @@ class TestManager(object):
         try:
             self.machine_management.terminate_worker(machine.machineId)
         except:
-            logging.error("Failed to terminate worker %s because:\n%s\n\nCalled from:\n%s", 
-                machine.machineId, 
+            logging.error("Failed to terminate worker %s because:\n%s\n\nCalled from:\n%s",
+                machine.machineId,
                 traceback.format_exc(),
                 "".join(traceback.format_stack())
                 )
@@ -2297,9 +2296,9 @@ class TestManager(object):
 
     def _setCommitUserEnabledTestSets(self, commit, testSets):
         if testSets != commit.userEnabledTestSets:
-            logging.info("Commit %s/%s has new enabled test sets %s (old=%s)", 
-                commit.repo.name, 
-                commit.hash, 
+            logging.info("Commit %s/%s has new enabled test sets %s (old=%s)",
+                commit.repo.name,
+                commit.hash,
                 testSets,
                 commit.userEnabledTestSets
                 )
@@ -2387,7 +2386,7 @@ class TestManager(object):
                 category.desired = category.desired + net_change
                 self._scheduleBootCheck()
 
-        
+
         if test.priority != oldPriority or test.calculatedPriority != oldCalcPri:
             for dep in self.database.TestDependency.lookupAll(test=test):
                 self._updateTestPriority(dep.dependsOn, curTimestamp)
@@ -2397,12 +2396,12 @@ class TestManager(object):
                 #self._triggerTestPriorityUpdate(dep.test)
 
         logging.info(
-            "test priority for test %s is now %s. targetBoot=%s", 
-            test.hash, 
-            test.priority, 
+            "test priority for test %s is now %s. targetBoot=%s",
+            test.hash,
+            test.priority,
             test.targetMachineBoot
             )
-      
+
 
 
     def _checkMachineCategoryCounts(self):
@@ -2439,8 +2438,8 @@ class TestManager(object):
 
 
             if real_cat != test.machineCategory:
-                logging.warn("test %s had incorrect desired machine category %s != %s", 
-                    test.hash + "/" + test.testDefinitionSummary.name, 
+                logging.warn("test %s had incorrect desired machine category %s != %s",
+                    test.hash + "/" + test.testDefinitionSummary.name,
                     "<none>" if not test.machineCategory else
                         str(test.machineCategory.hardware) + "/" + str(test.machineCategory.os),
                     "<none>" if not real_cat else
@@ -2450,7 +2449,7 @@ class TestManager(object):
                 if real_cat is None:
                     real_cat = self.database.MachineCategory.Null
 
-                test.machineCategory = real_cat            
+                test.machineCategory = real_cat
 
         for testRun in self.database.TestRun.lookupAll(isRunning=True):
             cat = testRun.test.machineCategory
@@ -2502,14 +2501,14 @@ class TestManager(object):
 
         for cat in booted:
             logging.error("Category %s=%s/%s final state: %s desired, %s booted", cat._identity[:6], cat.hardware, cat.os, cat.desired, cat.booted)
-                
+
 
     def _machineCategoryForTest(self, test):
         hardware_and_os = self._machineCategoryPairForTest(test)
-        
+
         if hardware_and_os is None:
             return None
-        
+
         return self._machineCategoryForPair(hardware_and_os[0], hardware_and_os[1])
 
     def _machineCategoryForPair(self, hardware, os):
@@ -2554,7 +2553,7 @@ class TestManager(object):
         else:
             viable = sorted(viable, key=lambda k: k.cores)
 
-            logging.info("Viable machine types for (%s/%s/%s) are %s. Taking the smallest.", 
+            logging.info("Viable machine types for (%s/%s/%s) are %s. Taking the smallest.",
                 min_cores, max_cores, min_ram_gb, viable
                 )
 
@@ -2621,7 +2620,7 @@ class TestManager(object):
     def _testWantsRetries(self, test):
         if test.calculatedPriority == 0:
             return False
-        
+
         if not test.testDefinitionSummary.type == "Build":
             return False
 
@@ -2678,11 +2677,11 @@ class TestManager(object):
                 return
 
             commit = commit.data.parents[0]
-    
+
     def _createTest(self, commit, testDefinition):
         #make sure it's new
         test = self.database.Test.lookupAny(hash=testDefinition.hash)
-        
+
         if not test:
             test = self.database.Test.New(
                 hash=testDefinition.hash,
@@ -2748,7 +2747,7 @@ class TestManager(object):
         assert env.matches.Environment
 
         test.machineCategory = self._machineCategoryForTest(test)
-                
+
         all_dependencies = dict(env.dependencies)
         all_dependencies.update(testDefinition.dependencies)
 
@@ -2796,7 +2795,7 @@ class TestManager(object):
             self.database.TestDependency.New(test=dep.test, dependsOn=test,artifact=dep.artifact)
             self._triggerTestPriorityUpdate(dep.test)
             dep.delete()
-                
+
     def _triggerCommitPriorityUpdate(self, commit):
         if not self.database.DataTask.lookupAny(update_commit_priority=commit):
             self._queueTask(
@@ -2858,7 +2857,7 @@ class TestManager(object):
         if not commit:
             if not create:
                 return None
-            
+
             commit = self.database.Commit.New(repo=repo, hash=commitHash)
             repo.commits = repo.commits + 1
             self._repoTouched(repo)

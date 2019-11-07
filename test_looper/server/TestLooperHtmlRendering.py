@@ -138,10 +138,21 @@ class Renderer:
 
         return contents.content
 
+    def deleteAllTestRunsButton(self, commitId):
+        return HtmlGeneration.Link(
+            self.deleteCommitTestsUrl(commitId),
+            "CLEAR",
+            is_button=True,
+            button_style=self.disable_if_cant_write('btn-primary btn-xs')
+        )
+
+    def deleteCommitTestsUrl(self, commitId):
+        return self.address + "/clearAllTestRuns?" + urllib.urlencode({"commitId": commitId, "redirect": self.redirect()})
+
     def deleteTestRunButton(self, testId):
         return HtmlGeneration.Link(
             self.deleteTestRunUrl(testId),
-            "CLEAR", 
+            "CLEAR",
             is_button=True,
             button_style=self.disable_if_cant_write('btn-primary btn-xs')
             )
@@ -149,10 +160,38 @@ class Renderer:
     def testLogsButton(self, testId):
         return HtmlGeneration.Link(
             self.testLogsUrl(testId),
-            "LOGS", 
+            "LOGS",
             is_button=True,
             button_style=self.disable_if_cant_write('btn-primary btn-xs')
             )
+
+    def clearAllTestRuns(self, commitId, redirect):
+        with self.testManager.database.view():
+            commit = self.testManager.database.Commit(str(commitId))
+
+            testRunIds = []
+            for test in self.testManager.allTestsForCommit(commit):
+                for testRun in self.testManager.database.TestRun.lookupAll(test=test):
+                    testRunIds.append(testRun._identity)
+
+        for testId in testRunIds:
+            try:
+                self.testManager.clearTestRun(testId)
+
+                with self.testManager.database.view():
+                    testRun = self.testManager.getTestRunById(testId)
+
+                    if testRun.test.testDefinitionSummary.type == "Build":
+                        for artifact in testRun.test.testDefinitionSummary.artifacts:
+                            full_name = testRun.test.testDefinitionSummary.name + ("/" + artifact if artifact else "")
+
+                            build_key = self.artifactStorage.sanitizeName(full_name) + ".tar.gz"
+
+                            self.artifactStorage.clear_build(testRun.test.hash, full_name)
+            except Exception:
+                logging.error("Failed to delete test %s:\n%s", testId, traceback.format_exc())
+
+        raise cherrypy.HTTPRedirect(redirect)
 
     def clearTestRun(self, testId, redirect):
         self.testManager.clearTestRun(testId)
@@ -183,10 +222,10 @@ class Renderer:
                 raise cherrypy.HTTPRedirect(self.testLogsLiveUrl(testId))
             else:
                 raise cherrypy.HTTPRedirect(self.testResultDownloadUrl(testId, "test_looper_log.txt"))
-   
+
     def testLogsLiveUrl(self, testId):
         return self.address + "/terminalForTest?testId=%s" % testId
-   
+
     def testResultDownloadUrl(self, testId, key):
         return self.address + "/test_contents?" + urllib.urlencode({"testId": testId, "key": key})
 
@@ -199,11 +238,11 @@ class Renderer:
     def wrapInHeader(self, contents, breadcrumb):
         return self.commonHeader(breadcrumb) + (
             '<main class="py-md-5"><div class="container-fluid">' + contents + "</div></main>"
-            )            
+            )
 
     def errorPage(self, errorMessage):
         return (
-            HtmlGeneration.headers + 
+            HtmlGeneration.headers +
             """
             <div class="container">
                 <div class="header clearfix mb-5"></div>
@@ -258,10 +297,10 @@ class Renderer:
     def cancelTestRunButton(self, testRunId):
         return HtmlGeneration.Link(
             self.address + "/cancelTestRun?" + urllib.urlencode({"testRunId":testRunId, "redirect": self.redirect()}),
-            "cancel", 
+            "cancel",
             is_button=True,
             button_style=self.disable_if_cant_write('btn-primary btn-xs')
-            )        
+            )
 
     def bootDeployment(self, testHash):
         try:
@@ -271,7 +310,7 @@ class Renderer:
             return self.errorPage("Couldn't boot a deployment for %s: %s" % (testHash, str(e)))
 
         logging.info("Redirecting for %s", testHash)
-        
+
         raise cherrypy.HTTPRedirect(self.address + "/terminalForDeployment?deploymentId=" + deploymentId)
 
     def testEnvironment(self, repoName, commitHash, environmentName):
@@ -309,7 +348,7 @@ class Renderer:
 
     def reload_link(self):
         return HtmlGeneration.Link(
-            "/reloadSource?" + 
+            "/reloadSource?" +
                 urllib.urlencode({'redirect': self.redirect()}),
             '<span class="octicon octicon-sync" aria-hidden="true" style="horizontal-align:center"></span>',
             is_button=True,
@@ -320,9 +359,9 @@ class Renderer:
         icon = "octicon-triangle-right"
         hover_text = "%s testing this branch" % ("Pause" if branch.isUnderTest else "Start")
         button_style = "btn-xs " + ("btn-primary active" if branch.isUnderTest else "btn-outline-dark")
-        
+
         return HtmlGeneration.Link(
-            "/toggleBranchUnderTest?" + 
+            "/toggleBranchUnderTest?" +
                 urllib.urlencode({'repo': branch.repo.name, 'branchname':branch.branchname, 'redirect': self.redirect()}),
             '<span class="octicon %s" aria-hidden="true" style="horizontal-align:center"></span>' % icon,
             is_button=True,
@@ -417,7 +456,7 @@ class Renderer:
 
             if not branch:
                 return self.errorPage("Unknown branch %s/%s" % (repoName, branchName))
-            
+
             self.testManager._updateBranchPin(branch, ref, produceIntermediateCommits=False)
 
             self.testManager._updateBranchTopCommit(branch)

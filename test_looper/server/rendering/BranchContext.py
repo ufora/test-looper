@@ -31,7 +31,7 @@ class BranchContext(Context.Context):
     def appropriateLinkName(self, isInMenu):
         if self.parentLevel == 0 and isInMenu:
             return self.configurationFilter or '<span class="text-muted">all configs</span>'
-        
+
         if self.parentLevel == 1 and isInMenu:
             return self.projectFilter or '<span class="text-muted">all projects</span>'
 
@@ -141,7 +141,7 @@ class BranchContext(Context.Context):
 
             if (not c or c[0] not in discardable):
                 depth = 0
-                
+
                 discardTailHash = discardableHash
 
                 while discardTailHash and discardTailHash in discardable:
@@ -222,7 +222,7 @@ class BranchContext(Context.Context):
 
                 commit_string += "%s.commit({sha1: '%s', message: '%s', detailId: 'commit_%s'});\n" % (
                     branches[c.hash],
-                    c.hash, 
+                    c.hash,
                     c.data.subject.replace("\\","\\\\").replace("'", "\\'"),
                     c.hash
                     )
@@ -234,14 +234,14 @@ class BranchContext(Context.Context):
                 if c.hash in discardRoots:
                     commit_string += "%s.commit({sha1: '%s', message: '%s', detailId: 'commit_%s'});\n" % (
                         our_branch,
-                        "skipping", 
+                        "skipping",
                         "%s commits" % discardRoots[c.hash],
                         c.hash + "_"
                         )
 
                 commit_string += "%s.commit({sha1: '%s', message: '%s', detailId: 'commit_%s'});\n" % (
                     our_branch,
-                    c.hash, 
+                    c.hash,
                     c.data.subject.replace("\\","\\\\").replace("'", "\\'"),
                     c.hash
                     )
@@ -249,8 +249,8 @@ class BranchContext(Context.Context):
                 our_branch = branches[(parentsWeHave[0], c.hash)]
                 other_branch = branches[(parentsWeHave[1], c.hash)]
 
-                commit_string += "%s.merge(%s, {sha1: '%s', message: '%s', detailId: 'commit_%s'}).delete();" % (other_branch, our_branch, 
-                    c.hash, 
+                commit_string += "%s.merge(%s, {sha1: '%s', message: '%s', detailId: 'commit_%s'}).delete();" % (other_branch, our_branch,
+                    c.hash,
                     c.data.subject.replace("\\","\\\\").replace("'", "\\'"),
                     c.hash
                     )
@@ -277,7 +277,7 @@ class BranchContext(Context.Context):
 
         for c in reversed(commits):
             gridrow = self.getBranchCommitRow(c, gridRenderer)
-            
+
             grid.append(gridrow)
 
             if c.hash in discardRoots:
@@ -291,10 +291,10 @@ class BranchContext(Context.Context):
 
             #     gridrow[0] = '<div style="position:relative; width:50px; height:25px">%s%s</div>' % (gridrow[0].render(), div)
 
-            
+
 
         grid = HtmlGeneration.grid(grid, rowHeightOverride=36)
-        
+
         canvas = HtmlGeneration.gitgraph_canvas_setup(commit_string, grid)
 
         return detail_divs + canvas
@@ -329,9 +329,9 @@ class BranchContext(Context.Context):
             #we need the branch in the cache-key because the branch is included in the url
             cacheKey = (self.branch, True, projectFilter, configFilter)
             if not projectFilter:
-                return TestGridRenderer.TestGridRenderer(commits, 
-                    lambda c: [t for t in self.testManager.allTestsForCommit(c) 
-                            if shouldIncludeTest(t)] 
+                return TestGridRenderer.TestGridRenderer(commits,
+                    lambda c: [t for t in self.testManager.allTestsForCommit(c)
+                            if shouldIncludeTest(t)]
                         if c.data else [],
                     lambda group: self.contextFor(ComboContexts.BranchAndFilter(self.branch, configFilter, group, parentLevel=1)).renderNavbarLink(isInMenu=True),
                     lambda group, row: self.contextFor(ComboContexts.CommitAndFilter(row, configFilter, group)).urlString(),
@@ -341,9 +341,9 @@ class BranchContext(Context.Context):
                     )
 
             if not configFilter:
-                return TestGridRenderer.TestGridRenderer(commits, 
-                    lambda c: [t for t in self.testManager.allTestsForCommit(c) 
-                            if shouldIncludeTest(t)] 
+                return TestGridRenderer.TestGridRenderer(commits,
+                    lambda c: [t for t in self.testManager.allTestsForCommit(c)
+                            if shouldIncludeTest(t)]
                         if c.data else [],
                     lambda group: self.contextFor(ComboContexts.BranchAndFilter(self.branch, group, projectFilter, parentLevel=0)).renderNavbarLink(isInMenu=True),
                     lambda group, row: self.contextFor(ComboContexts.CommitAndFilter(row, group, projectFilter)).urlString(),
@@ -352,9 +352,9 @@ class BranchContext(Context.Context):
                     database=self.testManager.database
                     )
 
-            return TestGridRenderer.TestGridRenderer(commits, 
-                lambda c: [t for t in self.testManager.allTestsForCommit(c) 
-                        if shouldIncludeTest(t)] 
+            return TestGridRenderer.TestGridRenderer(commits,
+                lambda c: [t for t in self.testManager.allTestsForCommit(c)
+                        if shouldIncludeTest(t)]
                     if c.data else [],
                 lambda group: "",
                 lambda group, row: self.contextFor(ComboContexts.CommitAndFilter(row, configFilter, projectFilter)).urlString(),
@@ -364,10 +364,10 @@ class BranchContext(Context.Context):
                 )
         else:
             cacheKey = (self.branch, False, projectFilter, configFilter)
-            
-            return TestGridRenderer.TestGridRenderer(commits, 
-                lambda c: [t for t in self.testManager.allTestsForCommit(c) 
-                        if shouldIncludeTest(t)] 
+
+            return TestGridRenderer.TestGridRenderer(commits,
+                lambda c: [t for t in self.testManager.allTestsForCommit(c)
+                        if shouldIncludeTest(t)]
                     if c.data else [],
                 lambda group: self.withOptions(expanded_columns='true').renderLink().withTextReplaced("%s projects over %s configurations" % (len(projects), len(configurations))),
                 lambda group, row: self.contextFor(ComboContexts.CommitAndFilter(row, configFilter, projectFilter)).urlString(),
@@ -381,8 +381,8 @@ class BranchContext(Context.Context):
         if self.configurationFilter or self.projectFilter:
             return self.contextFor(
                 ComboContexts.CommitAndFilter(
-                    commit, 
-                    self.configurationFilter, 
+                    commit,
+                    self.configurationFilter,
                     self.projectFilter
                     )
                 )
@@ -395,21 +395,22 @@ class BranchContext(Context.Context):
 
         if all_tests:
             row[-1] += "&nbsp;" + self.contextFor(commit).dropdownForTestPrioritization()
-        
+
         row.extend(renderer.gridRow(commit))
-        
+
         if False:
             row.append(
-                HtmlGeneration.lightGrey("waiting to load commit") 
+                HtmlGeneration.lightGrey("waiting to load commit")
                         if not commit.data
-                else HtmlGeneration.lightGrey("no test file") 
+                else HtmlGeneration.lightGrey("no test file")
                         if commit.data.noTestsFound
-                else HtmlGeneration.lightGrey("invalid test file") 
+                else HtmlGeneration.lightGrey("invalid test file")
                         if commit.data.testDefinitionsError
                 else ""
                 )
 
         row.append(self.contextFor(commit).renderSubjectAndAuthor())
+        row.append(self.renderer.deleteAllTestRunsButton(commit._identity))
 
         return row
 
@@ -427,16 +428,16 @@ class BranchContext(Context.Context):
             if repoRef.matches.Pin:
                 lines.append(
                     [self.renderPinUpdateLink(branch, refname, repoRef),
-                    refname, 
+                    refname,
                     self.renderPinReference(refname, repoRef),
                     repoRef.branchname() if repoRef.branchname() else ""
                     ])
 
         return lines
-    
+
     def topNCommitTestSummaryRow(self, N):
         testRow = []
-        
+
         for commit in self.renderer.testManager.topNPrioritizedCommitsForBranch(self.branch, N):
             testRow.append(
                 TestSummaryRenderer.TestSummaryRenderer(
@@ -462,7 +463,7 @@ class BranchContext(Context.Context):
             targetRepoName = repoRef.reponame()
 
             target_branch = self.testManager.database.Branch.lookupAny(reponame_and_branchname=(targetRepoName,repoRef.branch))
-            
+
             if not target_branch:
                 return HtmlGeneration.lightGrey("unknown branch %s" % repoRef.branch)
 
@@ -472,8 +473,8 @@ class BranchContext(Context.Context):
             message = "push commit updating pin of %s from %s to %s" % (reference_name, target_branch.head.hash, repoRef.commitHash())
 
             params = {
-                "redirect": self.redirect(), 
-                "repoName": commit.repo.name,  
+                "redirect": self.redirect(),
+                "repoName": commit.repo.name,
                 "branchName": branch.branchname,
                 "ref": reference_name
                 }
@@ -551,8 +552,8 @@ class BranchContext(Context.Context):
                             commitsToCheck.add(p)
 
             #show 10 commits above and below
-            return [self.contextFor(ComboContexts.CommitAndFilter(x, self.configurationFilter, self.projectFilter, 2)) for x in 
-                list(reversed(self.testManager.getNCommits(commit, 10, "above", commitsInBetween))) + [commit] + 
+            return [self.contextFor(ComboContexts.CommitAndFilter(x, self.configurationFilter, self.projectFilter, 2)) for x in
+                list(reversed(self.testManager.getNCommits(commit, 10, "above", commitsInBetween))) + [commit] +
                     self.testManager.getNCommits(commit, 10, "below")
                 ]
 
@@ -565,7 +566,7 @@ class BranchContext(Context.Context):
                     ComboContexts.BranchAndFilter(branch=self.branch, configurationName=g, projectName=self.projectFilter, parentLevel=0)
                     )
                         for g in [""] + self.database.lookupCachedCalculation(
-                            BranchContext.computeAllConfigs, 
+                            BranchContext.computeAllConfigs,
                             (self.testManager, self.branch, self.maxCommitCount(), self.projectFilter)
                             )
                     ]
@@ -574,11 +575,11 @@ class BranchContext(Context.Context):
                     ComboContexts.BranchAndFilter(branch=self.branch, configurationName=self.configurationFilter, projectName=g, parentLevel=1)
                     )
                         for g in [""] + self.database.lookupCachedCalculation(
-                            BranchContext.computeAllProjects, 
+                            BranchContext.computeAllProjects,
                             (self.testManager, self.branch, self.maxCommitCount(), self.configurationFilter)
                             )
                     ]
-            
+
         else:
             return []
 
@@ -606,7 +607,7 @@ class BranchContext(Context.Context):
 
         res = []
         is_show_all_commits = self.options.get("show_all_commits", False)
-        
+
         if (self.configurationFilter or self.projectFilter):
             res.append(
                 HtmlGeneration.Link(
@@ -616,7 +617,7 @@ class BranchContext(Context.Context):
                     button_style='btn-%s btn-xs' % ("outline-primary" if not is_show_all_commits else "primary"),
                     hover_text="Show all commits, not just those directly affecting this project."
                     ).render()
-                )            
+                )
 
         is_detail = bool(self.options.get('expanded_columns',False))
 

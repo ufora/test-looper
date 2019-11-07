@@ -75,7 +75,7 @@ class InteractiveEnvironmentHandler:
         try:
             if message is None:
                 return
-                
+
             if len(message) > MAX_BYTES_TO_SEND:
                 message = message[-MAX_BYTES_TO_SEND:]
 
@@ -108,7 +108,7 @@ class InteractiveEnvironmentHandler:
                 elif which_msg == 1:
                     if len(self.buffer) < 12:
                         return
-                    
+
                     #this is a console resize-message
                     cols = struct.unpack(">i", self.buffer[4:8])[0]
                     rows = struct.unpack(">i", self.buffer[8:12])[0]
@@ -155,7 +155,7 @@ def MakeWebsocketHandler(httpServer):
                         handler[0] = InteractiveEnvironmentHandler(
                             httpServer.testManager,
                             query['deploymentId'][0],
-                            self 
+                            self
                             )
                     else:
                         logging.error("Invalid query string: %s", self.environ["REQUEST_URI"])
@@ -218,7 +218,7 @@ class TestLooperHttpServer(object):
         self.certs = serverConfig.path_to_certs.val if serverConfig.path_to_certs.matches.Value else None
         self.address = ("https" if self.certs else "http") + "://" + portConfig.server_address + ":" + str(portConfig.server_https_port)
         self.websocket_address = ("wss" if self.certs else "ws") + "://" + portConfig.server_address + ":" + str(portConfig.server_https_port)
-        
+
         self.accessTokenHasPermission = {}
 
         self.regular_renderer = TestLooperHtmlRendering.Renderer(self)
@@ -249,7 +249,7 @@ class TestLooperHttpServer(object):
             raise cherrypy.HTTPRedirect(auth_url)
         else:
             cherrypy.session['github_access_token'] = "DUMMY"
-    
+
     @staticmethod
     def currentUrl(remove_query_params=None):
         if remove_query_params is None:
@@ -263,7 +263,7 @@ class TestLooperHttpServer(object):
                         for k, v in query_string.iteritems()
                         if k not in remove_query_params)
             ).replace('http://', 'https://')
-    
+
     def save_current_url(self):
         cherrypy.session['redirect_after_authentication'] = self.currentUrl()
 
@@ -308,19 +308,19 @@ class TestLooperHttpServer(object):
             return [x for x in toReload if x in m.__dict__.values()]
 
         levels = GraphUtil.placeNodesInLevels(toReload, edgeFun)
-        
+
         reload(HtmlGeneration)
 
         for level in reversed(levels):
             for module in level:
                 print module.__name__, [x.__name__ for x in edgeFun(module)]
                 reload(module)
-        
+
         reload(TestLooperHtmlRendering)
-        
+
         self.regular_renderer = TestLooperHtmlRendering.Renderer(self)
 
-        
+
 
     def authorize(self, read_only):
         if not self.is_authenticated():
@@ -380,6 +380,12 @@ class TestLooperHttpServer(object):
         return self.renderer.test_contents(testId, key)
 
     @cherrypy.expose
+    def clearAllTestRuns(self, commitId, redirect):
+        self.authorize(read_only=False)
+
+        return self.renderer.clearAllTestRuns(commitId, redirect)
+
+    @cherrypy.expose
     def clearTestRun(self, testId, redirect):
         self.authorize(read_only=False)
 
@@ -396,7 +402,7 @@ class TestLooperHttpServer(object):
     @cherrypy.expose
     def cancelTestRun(self, testRunId, redirect):
         self.authorize(read_only=False)
-            
+
         return self.renderer.cancelTestRun(testRunId, redirect)
 
     @cherrypy.expose
@@ -491,8 +497,8 @@ class TestLooperHttpServer(object):
             var websocket;
             var address = "__websocket_address__";
 
-            if (window.WebSocket) { 
-                websocket = new WebSocket(address, ['protocol']); 
+            if (window.WebSocket) {
+                websocket = new WebSocket(address, ['protocol']);
             }
             else if (window.MozWebSocket) {
                 websocket = MozWebSocket(address);
@@ -550,7 +556,7 @@ class TestLooperHttpServer(object):
                     term.prefs_.set('use-default-window-copy', true);
 
                     term.runCommandClass(Terminal, document.location.hash.substr(1));
-                    
+
                     Terminal.prototype.onTerminalResize(term.screenSize.width, term.screenSize.height)
 
                     if (buf && buf != '')
@@ -572,7 +578,7 @@ class TestLooperHttpServer(object):
                 }
                 term.io.writeUTF16(data.data);
             };
-            
+
             </script>
             <style>
                 html,
@@ -631,7 +637,7 @@ class TestLooperHttpServer(object):
                 })
 
         cherrypy.config.update(config)
-        
+
         cherrypy.tools.websocket = WebSocketTool()
 
         logging.info("STARTING HTTP SERVER")
@@ -644,7 +650,7 @@ class TestLooperHttpServer(object):
         logging.info("Serving test-looper tarball and related downloads from %s", temp_dir_for_tarball)
 
         SubprocessRunner.callAndAssertSuccess(
-            ["tar", "cvfz", os.path.join(temp_dir_for_tarball, "test_looper.tar.gz"), 
+            ["tar", "cvfz", os.path.join(temp_dir_for_tarball, "test_looper.tar.gz"),
                 "--directory", path_to_source_root, "test_looper"
             ])
 
@@ -671,7 +677,7 @@ class TestLooperHttpServer(object):
                     ["curl", "-L", "https://github.com/git-for-windows/git/releases/download/v2.15.1.windows.2/Git-2.15.1.2-64-bit.exe", "-O", os.path.join(temp_dir_for_tarball, "Git-2.15.1.2-64-bit.exe")]
                     )
                 assert os.path.exists(os.path.join(temp_dir_for_tarball, "Git-2.15.1.2-64-bit.exe"))
-                
+
 
         cherrypy.tree.mount(self, '/', {
             '/favicon.ico': {
@@ -719,7 +725,7 @@ class TestLooperHttpServer(object):
                 'tools.staticdir.dir': os.path.join(current_dir, 'content', 'js')
                 },
             '/interactive_socket': {
-                'tools.websocket.on': True, 
+                'tools.websocket.on': True,
                 'tools.websocket.handler_cls': MakeWebsocketHandler(self),
                 'tools.websocket.protocols': ['protocol']
                 }
