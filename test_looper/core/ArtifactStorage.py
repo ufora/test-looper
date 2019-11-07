@@ -14,6 +14,8 @@ import Queue
 import test_looper.core.algebraic as algebraic
 import test_looper.core.TimerQueue as TimerQueue
 
+from botocore.client import Config
+
 timerQueue = TimerQueue.TimerQueue(16)
 
 FileContents = algebraic.Alternative("FileContents")
@@ -64,7 +66,7 @@ class ArtifactStorage(object):
 
         for key,sz in self.testResultKeysForWithSizes(testHash, testId, subPrefix):
             res.append((subPrefix + "/" + key, sz))
-        
+
         return res
 
     def uploadIndividualTestArtifacts(self, testHash, testId, pathsToUpload, logger=None):
@@ -76,9 +78,9 @@ class ArtifactStorage(object):
                 filename = os.path.basename(path)
 
                 self.uploadSingleTestArtifact(
-                    testHash, 
-                    testId, 
-                    TEST_LOG_NAME_PREFIX + testName + "/" + str(runIx) + "/" + filename, 
+                    testHash,
+                    testId,
+                    TEST_LOG_NAME_PREFIX + testName + "/" + str(runIx) + "/" + filename,
                     path
                     )
             except:
@@ -148,12 +150,12 @@ class ArtifactStorage(object):
         assert platform in ['linux', 'win']
 
         source_platform_name = "source-" + platform
-    
-        if subpath:            
+
+        if subpath:
             source_platform_name = source_platform_name + "/" + subpath
 
         artifact_key = self.sanitizeName(source_platform_name) + ".tar.gz"
-            
+
         if not self.build_exists(commitHash, artifact_key):
             tarballs_dir = tempfile.mkdtemp(dir=self.tempfileOverrideDir or None)
 
@@ -206,7 +208,7 @@ class AwsArtifactStorage(ArtifactStorage):
 
         return result
 
-    
+
     def testResultKeysFor(self, testHash, testId):
         return [x[0] for x in self.testResultKeysForWithSizes(testHash, testId)]
 
@@ -230,7 +232,7 @@ class AwsArtifactStorage(ArtifactStorage):
 
     def testContentsHtml(self, testHash, testId, key):
         content_type, keyname, is_gzipped = ArtifactStorage.keyname_to_encoding(key)
-            
+
         Params = {'Bucket': self.bucket_name, 'Key': self.test_artifact_key_prefix + "/" + testHash + "/" + testId + "/" + key}
         if is_gzipped:
             Params["ResponseContentEncoding"] = "gzip"
@@ -241,16 +243,16 @@ class AwsArtifactStorage(ArtifactStorage):
             Params["ResponseContentDisposition"] = "inline"
 
         return FileContents.Redirect(
-            self._session.client('s3').generate_presigned_url(
-                'get_object', 
-                Params = Params, 
+            self._session.client('s3', config=Config(signature_version='s3v4')).generate_presigned_url(
+                'get_object',
+                Params = Params,
                 ExpiresIn = 300
                 )
             )
 
     def buildContentsHtml(self, testHash, key):
         content_type, keyname, is_gzipped = ArtifactStorage.keyname_to_encoding(key)
-            
+
         Params = {'Bucket': self.bucket_name, 'Key': self.build_artifact_key_prefix + "/" + testHash + "/" + key}
         if is_gzipped:
             Params["ResponseContentEncoding"] = "gzip"
@@ -261,9 +263,9 @@ class AwsArtifactStorage(ArtifactStorage):
             Params["ResponseContentDisposition"] = "inline"
 
         return FileContents.Redirect(
-            self._session.client('s3').generate_presigned_url(
-                'get_object', 
-                Params = Params, 
+            self._session.client('s3', config=Config(signature_version='s3v4')).generate_presigned_url(
+                'get_object',
+                Params = Params,
                 ExpiresIn = 300
                 )
             )
@@ -296,12 +298,12 @@ class AwsArtifactStorage(ArtifactStorage):
 class LocalArtifactStorage(ArtifactStorage):
     def __init__(self, config):
         ArtifactStorage.__init__(self)
-        
+
         self.build_storage_path = config.path_to_build_artifacts
         self.test_artifacts_storage_path = config.path_to_test_artifacts
         self.tempfileOverrideDir = None
 
-    def _buildContents(self, testHash, key):  
+    def _buildContents(self, testHash, key):
         with open(os.path.join(self.build_storage_path, testHash, key), "r") as f:
             return f.read()
 
@@ -314,8 +316,8 @@ class LocalArtifactStorage(ArtifactStorage):
             content=self._buildContents(testHash, key),
             content_encoding="gzip" if is_gzipped else ""
             )
-    
-    def testContents(self, testHash, testId, key):  
+
+    def testContents(self, testHash, testId, key):
         with open(os.path.join(self.test_artifacts_storage_path, testHash, testId, key), "r") as f:
             return f.read()
 
@@ -342,7 +344,7 @@ class LocalArtifactStorage(ArtifactStorage):
             os.makedirs(dirname)
         except OSError:
             pass
-        
+
         try:
             with open(dest_path, "w") as target:
                 with open(src_path, "r") as src:
@@ -360,7 +362,7 @@ class LocalArtifactStorage(ArtifactStorage):
 
         if subprefix:
             path = os.path.join(path, subprefix)
-        
+
         if not os.path.exists(path):
             return []
 
@@ -390,7 +392,7 @@ class LocalArtifactStorage(ArtifactStorage):
         if os.path.exists(path):
             return os.stat(path).st_size
         return None
-        
+
 def storageFromConfig(config):
     if config.matches.S3:
         return AwsArtifactStorage(config)
