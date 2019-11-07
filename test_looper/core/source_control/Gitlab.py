@@ -149,7 +149,7 @@ class Gitlab(SourceControl.SourceControl):
                     try:
                         res.append(r['namespace']['full_path'] + "/" + r["name"])
                     except:
-                        logging.error("failed with: %s", r)
+                        logging.error("failed with: %s", json)
                         logging.error(traceback.format_exc())
         except:
             logging.error(traceback.format_exc())

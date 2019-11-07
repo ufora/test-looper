@@ -946,7 +946,7 @@ class TestManager(object):
         existingNamesSet = set()
         existingNames = []
         if summary.testNames:
-            existingNames = summary.testNames.test_names
+            existingNames = list(summary.testNames.test_names)
             existingNamesSet = set(existingNames)
 
         allNames = sorted(set([t.testName for t in testRunResults]))
@@ -954,6 +954,7 @@ class TestManager(object):
         for n in sorted(allNames):
             if n not in existingNamesSet:
                 new_names.append(n)
+        new_names = new_names
 
         if new_names or not summary.testNames:
             summary.testNames = self._testNameSet(existingNames + new_names)
