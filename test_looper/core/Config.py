@@ -131,6 +131,9 @@ SourceControlConfig.Gitlab = {
     'gitlab_clone_url': str     #usually git@gitlab.mycompany.com
     }
 
+SourceControlConfig.Multiple = {
+    'sources': algebraic.Dict(str, SourceControlConfig)
+}
 
 Config = algebraic.Alternative("Config")
 Config.Config = {

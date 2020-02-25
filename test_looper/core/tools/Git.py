@@ -36,8 +36,12 @@ class SubprocessCheckOutput(object):
         self.kwds = kwds
 
     def __call__(self):
-        with DirectoryScope.DirectoryScope(self.path):
-            return pickle.dumps(subprocess.check_output(*self.args, stderr=subprocess.STDOUT, **self.kwds))
+        try:
+            with DirectoryScope.DirectoryScope(self.path):
+                return pickle.dumps(subprocess.check_output(*self.args, stderr=subprocess.STDOUT, **self.kwds))
+        except subprocess.CalledProcessError as e:
+            raise Exception("Failed calling " + str(self.args) + ":\n" + e.output)
+
 
 sha_pattern = re.compile("^[a-f0-9]{40}$")
 def isShaHash(committish):
@@ -49,9 +53,9 @@ _outOfProcessDownloaderPool = [None]
 class Git(object):
     def __init__(self, path_to_repo):
         assert isinstance(path_to_repo, (str, unicode))
-        
+
         self.path_to_repo = str(path_to_repo)
-        
+
         with _outOfProcessDownloaderPoolLock:
             if _outOfProcessDownloaderPool[0] is None:
                 _outOfProcessDownloaderPool[0] = \
@@ -70,7 +74,7 @@ class Git(object):
     def versionCheck():
         version = Git(".").subprocessCheckOutput(["git", "--version"]).strip().split(" ")[2].split(".")
 
-        try:   
+        try:
             if sys.platform == "win32":
                 if int(version[0]) < 2 or int(version[1]) < 16 or int(version[2]) < 2 or version[3] != "windows":
                     raise
@@ -199,7 +203,7 @@ class Git(object):
             self.resetToCommit(commitHash)
             for file, contents in fileContents.iteritems():
                 path = os.path.join(self.path_to_repo, file)
-                    
+
                 if contents is None:
                     if os.path.exists(path):
                         if os.path.isdir(path):
@@ -235,7 +239,7 @@ class Git(object):
     def currentFileNumStat(self):
         """Return a dict from path -> (added,removed) diff"""
         pat = re.compile("\s*(\d+)\s+(\d+)\s+(.*)\s*")
-        
+
         res = {}
         for line in self.subprocessCheckOutput(["git", "diff", "--numstat"]).split("\n"):
             match = pat.match(line)
@@ -249,14 +253,14 @@ class Git(object):
             self.setCoreAutocrlf(False)
 
             branchname = str(uuid.uuid4())
-            
+
             curHash = self.subprocessCheckOutput(["git", "log", "-n", "1", '--format=format:%H']).strip()
 
             try:
                 assert self.subprocessCheckCall(["git", "checkout", "--orphan", branchname]) == 0
                 assert self.subprocessCheckCall(["git", "reset", "--hard"]) == 0
                 assert self.subprocessCheckCall(["git", "commit", "--allow-empty", "-m", commitMessage]) == 0
-                
+
                 return self.subprocessCheckOutput(["git", "log", "-n", "1", '--format=format:%H']).strip()
             finally:
                 self.subprocessCheckCall(["git", "checkout", curHash])
@@ -284,7 +288,9 @@ class Git(object):
 
             cmds = ["git", "commit", "--allow-empty", "-m", msg] + timestamp_override_options + ["--author", author]
 
-            assert self.subprocessCheckCallAltDir(dir_override, cmds, env=env) == 0
+            if self.subprocessCheckCallAltDir(dir_override, cmds, env=env):
+                logging.error("FAILED: %s", self.subprocessCheckOutputAltDir(dir_override, cmds, env=env))
+                raise Exception("failed")
 
             return self.subprocessCheckOutputAltDir(dir_override, ["git", "log", "-n", "1", '--format=format:%H'])
 
@@ -322,13 +328,13 @@ class Git(object):
     def listBranches(self):
         with self.git_repo_lock:
             output = self.subprocessCheckOutput(['git','branch','--list']).strip().split('\n')
-            
+
             output = [l.strip() for l in output if l]
             output = [l[1:] if l[0] == '*' else l for l in output if l]
             output = [l.strip() for l in output if l]
 
             return [l for l in output if l and self.isValidBranchName_(l)]
-    
+
     def closestBranchFor(self, hash, remoteName="origin", maxSearchDepth=100):
         """Find the branch closest to a given commit"""
         branches = []
@@ -343,7 +349,7 @@ class Git(object):
         if branches:
             branches = sorted(branches)
             ix, branch = branches[0]
-            
+
             return branch
 
     def distanceForCommitInBranch(self, hash, branch):
@@ -352,7 +358,7 @@ class Git(object):
             return None
         return hashes.find(hash)
 
-            
+
     def branchnameForCommitSloppy(self, hash, remoteName="origin", maxSearchDepth=100):
         """Try to return a name for the commit relative to a branch.
 
@@ -428,7 +434,7 @@ class Git(object):
                 result = []
 
                 commandResult = self.subprocessCheckOutput(
-                    ["git", "--no-pager", "log", "-n", str(depth), "--topo-order", 
+                    ["git", "--no-pager", "log", "-n", str(depth), "--topo-order",
                         commitHash, '--format=format:' + uuid_item.join(["%H %P","%ct", "%B", "%an", "%ae"]) + uuid_line]
                     )
 
@@ -499,14 +505,14 @@ class Git(object):
             if not self.commitExists(commit):
                 logging.warn("Commit %s doesn't exist in %s even after pulling from origin.", commit, self.path_to_repo)
                 raise Exception("Can't find commit %s" % commit)
-        
+
         if commit in self.testDefinitionLocationCache_:
             return self.testDefinitionLocationCache_.get(commit)
 
         paths = sorted(
             [p for p in
                 self.subprocessCheckOutput(["git", "ls-tree", "--name-only", "-r", commit]).split("\n")
-                if p.endswith("/testDefinitions.json") or p == "testDefinitions.json" or 
+                if p.endswith("/testDefinitions.json") or p == "testDefinitions.json" or
                    p.endswith("/testDefinitions.yml") or p == "testDefinitions.yml" or
                    p.endswith(".testlooper.yml") or p == "testlooper.yml"]
             )
@@ -540,7 +546,7 @@ class Git(object):
 
     def subprocessCheckCall(self, *args, **kwds):
         return self.subprocessCheckCallAltDir(self.path_to_repo, *args, **kwds)
-        
+
     def subprocessCheckOutput(self, *args, **kwds):
         return pickle.loads(
             self.outOfProcessDownloaderPool.executeAndReturnResultAsString(
@@ -583,7 +589,7 @@ class Git(object):
                     shutil.move(movedPath, workingDir)
                 else:
                     os.makedirs(workingDir)
-            
+
             with open(os.path.join(workingDir, ".git_commit"), "w") as f:
                 f.write(self.standardCommitMessageFor(commitHash))
 
@@ -632,7 +638,7 @@ class LockedGit(Git):
         path = os.path.join(self.path_to_repo, path)
         if not os.path.exists(path):
             return None
-            
+
         with open(path,"r") as f:
             return f.read()
 

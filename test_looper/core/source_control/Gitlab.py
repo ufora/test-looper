@@ -49,7 +49,7 @@ class Gitlab(SourceControl.SourceControl):
         self.gitlab_api_url = config.gitlab_api_url
         self.gitlab_login_url = config.gitlab_login_url
         self.gitlab_clone_url = config.gitlab_clone_url
-        
+
         self.lock = threading.Lock()
         self.repos = {}
 
@@ -62,10 +62,10 @@ class Gitlab(SourceControl.SourceControl):
 
         def get_hooks(page):
             url = self.gitlab_api_url + (
-                '/projects/%s/hooks?' % (urllib.quote(reponame,safe='')) + 
+                '/projects/%s/hooks?' % (urllib.quote(reponame,safe='')) +
                  urllib.urlencode({
                     "private_token": self.private_token,
-                    "per_page": "20", 
+                    "per_page": "20",
                     "page": str(page)
                     })
                 )
@@ -85,7 +85,7 @@ class Gitlab(SourceControl.SourceControl):
 
         url = "https://%s%s/" % (
             server_port_config.server_address,
-            ":" + str(server_port_config.server_https_port) if 
+            ":" + str(server_port_config.server_https_port) if
                 server_port_config.server_https_port != 443 else ""
             )
 
@@ -98,12 +98,14 @@ class Gitlab(SourceControl.SourceControl):
     def installWebhook(self, reponame, server_port_config):
         url = "https://%s%s/webhook" % (
             server_port_config.server_address,
-            ":" + str(server_port_config.server_https_port) if 
+            ":" + str(server_port_config.server_https_port) if
                 server_port_config.server_https_port != 443 else ""
             )
 
+        target = self.gitlab_api_url + '/projects/%s/hooks' % urllib.quote(reponame,safe='')
+
         response = requests.post(
-            self.gitlab_api_url + '/projects/%s/hooks' % urllib.quote(reponame,safe=''),
+            target,
             headers={
                 'accept': 'application/json',
                 'PRIVATE-TOKEN': self.private_token
@@ -116,24 +118,31 @@ class Gitlab(SourceControl.SourceControl):
             )
 
         if response.status_code != 201:
-            logging.error("Response to request to create webhook: %s with contents %s", response, response.content)
+            logging.error(
+                "Response to request to create webhook: %s with "
+                "contents %s\n\ntgt=%s\nurl=%s",
+                response,
+                response.content,
+                target,
+                url
+            )
             return False
         else:
             logging.info("Sucessfully installed a webhook into %s", reponame)
-            
+
         return True
-        
+
     def listReposAtPage(self, page):
         res = []
 
         url = self.gitlab_api_url + '/projects?' + urllib.urlencode({
             "private_token": self.private_token,
-            "per_page": "20", 
+            "per_page": "20",
             "page": str(page)
             })
 
         headers = {'accept': 'application/json'}
-        
+
         response = requests.get(
             url,
             headers=headers,
@@ -154,12 +163,15 @@ class Gitlab(SourceControl.SourceControl):
         except:
             logging.error(traceback.format_exc())
 
+
+        logging.info("Repo %s had %s", self.gitlab_api_url, res)
+
         return res
 
     def listRepos(self):
         res = loadPages(self.listReposAtPage)
 
-        return [x for x in res if x.startswith(self.owner)]
+        return [x for x in res if x.lower().startswith(self.owner.lower())]
 
     def getRepo(self, repoName):
         with self.lock:
@@ -182,7 +194,10 @@ class Gitlab(SourceControl.SourceControl):
                 return None
 
         if headers['X-Gitlab-Event'] != 'Push Hook':
-            return {}
+            return None
+
+        if self.gitlab_url not in payload['project']['web_url']:
+            return None
 
         return {
             'branch': payload['ref'].split('/')[-1],

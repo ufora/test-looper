@@ -22,7 +22,7 @@ class UnbootableWorkerCombination(Exception):
     """
     def __init__(self, hardwareConfig, osConfig):
         Exception.__init__(self, "Can't boot configuration %s/%s" % (hardwareConfig, osConfig))
-        
+
         self.hardwareConfig = hardwareConfig
         self.osConfig = osConfig
 
@@ -114,7 +114,7 @@ class MachineManagement(object):
 
     def synchronize_workers(self, machineIds):
         """Ensure that no workers not in 'machineIds' are up.
-    
+
         machineIds: a dict from machineId to (hardwareConfig, osConfig)
 
         returns a list of machineIds that appear dead."""
@@ -125,7 +125,7 @@ class MachineManagement(object):
         assert False, "Subclsses implement"
 
     def boot_worker(self, hardware_config, os_config):
-        """Boot a worker in a given configuration and return a unique machineId (string) 
+        """Boot a worker in a given configuration and return a unique machineId (string)
 
         TestId is passed to the worker so it can request specific tests if necessary.
 
@@ -253,6 +253,8 @@ class LocalMachineManagement(MachineManagement):
 
                 worker.start()
 
+                logging.info("Worker started: %s", machineId)
+
                 return machineId
 
 class AwsMachineManagement(MachineManagement):
@@ -360,7 +362,7 @@ class AwsMachineManagement(MachineManagement):
                     self._machineBooted(m, machineIds[m][0], machineIds[m][1], True, nocheck=True)
 
             return machinesThatAppearDead
-        
+
 
     def terminate_worker(self, machineId):
         with self._lock:

@@ -2537,7 +2537,7 @@ class TestManager(object):
                 viable.append(hardware)
 
         if not viable:
-            logging.warn("Test %s has no viable hardware configurations", test.hash + "/" + test.name)
+            logging.warn("Test %s has no viable hardware configurations", test.hash + "/" + test.testDefinitionSummary.name)
             return None
 
         if max_cores:
