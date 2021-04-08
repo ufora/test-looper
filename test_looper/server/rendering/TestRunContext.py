@@ -9,6 +9,7 @@ import logging
 
 card = HtmlGeneration.card
 
+
 class TestRunContext(Context.Context):
     def __init__(self, renderer, testRun, options):
         Context.Context.__init__(self, renderer, options)
@@ -22,16 +23,23 @@ class TestRunContext(Context.Context):
             path = path[1:]
 
         if path and path[0] == "individualTest":
-            return self.contextFor(ComboContexts.IndividualTest(self.testRun, "/".join(path[1:]))), []
+            return (
+                self.contextFor(
+                    ComboContexts.IndividualTest(self.testRun, "/".join(path[1:]))
+                ),
+                [],
+            )
 
         return None, path
 
     def renderIndividualTestResults(self):
-        #show broken out tests over the last N commits
+        # show broken out tests over the last N commits
         rows = [self.testRun]
 
         def rowLinkFun(row):
-            return self.contextFor(row).renderLink(includeCommit=False, includeTest=False)
+            return self.contextFor(row).renderLink(
+                includeCommit=False, includeTest=False
+            )
 
         def testFun(row):
             return [row]
@@ -43,17 +51,15 @@ class TestRunContext(Context.Context):
             return row
 
         renderer = IndividualTestGridRenderer.IndividualTestGridRenderer(
-            rows,
-            self, 
-            testFun,
-            cellUrlFun,
-            rowContextFun
-            )
+            rows, self, testFun, cellUrlFun, rowContextFun
+        )
 
-        grid = [["Test Run", "Logs", "Elapsed (Min)", "Status", ""] + renderer.headers()]
+        grid = [
+            ["Test Run", "Logs", "Elapsed (Min)", "Status", ""] + renderer.headers()
+        ]
 
         for testRun in rows:
-            row = [rowLinkFun(testRun),self.renderer.testLogsButton(testRun._identity)]
+            row = [rowLinkFun(testRun), self.renderer.testLogsButton(testRun._identity)]
 
             if testRun.endTimestamp > 0.0:
                 elapsed = (testRun.endTimestamp - testRun.startedTimestamp) / 60.0
@@ -81,7 +87,14 @@ class TestRunContext(Context.Context):
     def urlBase(self):
         prefix = "repos/" + self.repo.name + "/-/commits/"
 
-        return prefix + self.commit.hash + "/tests/" + self.test.testDefinitionSummary.name + "/-/" + self.testRun._identity
+        return (
+            prefix
+            + self.commit.hash
+            + "/tests/"
+            + self.test.testDefinitionSummary.name
+            + "/-/"
+            + self.testRun._identity
+        )
 
     def renderNavbarLink(self):
         return self.renderLink(includeCommit=False, includeTest=False)
@@ -91,12 +104,15 @@ class TestRunContext(Context.Context):
 
         if includeCommit:
             res = self.contextFor(self.commit).renderLink()
-        
+
         if includeTest:
             if res:
                 res = res + "/"
 
-            res = res + HtmlGeneration.link(self.test.testDefinitionSummary.name, self.contextFor(self.test).urlString())
+            res = res + HtmlGeneration.link(
+                self.test.testDefinitionSummary.name,
+                self.contextFor(self.test).urlString(),
+            )
 
         if res:
             res = res + "/"
@@ -134,7 +150,7 @@ class TestRunContext(Context.Context):
             return self.artifactsForTestRunGrid()
         if self.currentView() == "tests":
             return self.renderIndividualTestResults()
-        
+
     def artifactsForTestRunGrid(self):
         testRun = self.testRun
 
@@ -142,27 +158,53 @@ class TestRunContext(Context.Context):
 
         if testRun.test.testDefinitionSummary.type == "Build":
             for artifact in testRun.test.testDefinitionSummary.artifacts:
-                full_name = testRun.test.testDefinitionSummary.name + ("/" + artifact if artifact else "")
+                full_name = testRun.test.testDefinitionSummary.name + (
+                    "/" + artifact if artifact else ""
+                )
 
-                build_key = self.renderer.artifactStorage.sanitizeName(full_name) + ".tar.gz"
+                build_key = (
+                    self.renderer.artifactStorage.sanitizeName(full_name) + ".tar.gz"
+                )
 
-                if self.renderer.artifactStorage.build_exists(testRun.test.hash, build_key):
-                    grid.append([
-                        HtmlGeneration.link(full_name + ".tar.gz", self.renderer.buildDownloadUrl(testRun.test.hash, build_key)),
-                        HtmlGeneration.bytesToHumanSize(self.renderer.artifactStorage.build_size(testRun.test.hash, build_key))
-                        ])
+                if self.renderer.artifactStorage.build_exists(
+                    testRun.test.hash, build_key
+                ):
+                    grid.append(
+                        [
+                            HtmlGeneration.link(
+                                full_name + ".tar.gz",
+                                self.renderer.buildDownloadUrl(
+                                    testRun.test.hash, build_key
+                                ),
+                            ),
+                            HtmlGeneration.bytesToHumanSize(
+                                self.renderer.artifactStorage.build_size(
+                                    testRun.test.hash, build_key
+                                )
+                            ),
+                        ]
+                    )
 
-        for artifactName, sizeInBytes in self.renderer.artifactStorage.testResultKeysForWithSizes(testRun.test.hash, testRun._identity):
+        for (
+            artifactName,
+            sizeInBytes,
+        ) in self.renderer.artifactStorage.testResultKeysForWithSizes(
+            testRun.test.hash, testRun._identity
+        ):
             name = self.renderer.artifactStorage.unsanitizeName(artifactName)
-            
+
             if not name.startswith(ArtifactStorage.TEST_LOG_NAME_PREFIX):
-                grid.append([
-                    HtmlGeneration.link(
-                        name,
-                        self.renderer.testResultDownloadUrl(testRun._identity, artifactName)
+                grid.append(
+                    [
+                        HtmlGeneration.link(
+                            name,
+                            self.renderer.testResultDownloadUrl(
+                                testRun._identity, artifactName
+                            ),
                         ),
-                    HtmlGeneration.bytesToHumanSize(sizeInBytes)
-                    ])
+                        HtmlGeneration.bytesToHumanSize(sizeInBytes),
+                    ]
+                )
 
         if not grid:
             return card("No Test Artifacts produced")
@@ -174,4 +216,3 @@ class TestRunContext(Context.Context):
 
     def parentContext(self):
         return self.contextFor(self.test)
-

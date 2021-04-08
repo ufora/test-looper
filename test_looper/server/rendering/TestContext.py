@@ -10,6 +10,7 @@ import cgi
 octicon = HtmlGeneration.octicon
 card = HtmlGeneration.card
 
+
 class TestContext(Context.Context):
     def __init__(self, renderer, test, options):
         Context.Context.__init__(self, renderer, options)
@@ -17,18 +18,29 @@ class TestContext(Context.Context):
         self.commit = self.testManager.oldestCommitForTest(test)
         self.repo = self.commit.repo
         self.testName = test.testDefinitionSummary.name
-        
+
     def consumePath(self, path):
         while path and path[0] == "-":
             path = path[1:]
 
         if path and path[0] == "individualTest":
-            return self.contextFor(ComboContexts.IndividualTest(self.test, "/".join(path[1:]))), []
+            return (
+                self.contextFor(
+                    ComboContexts.IndividualTest(self.test, "/".join(path[1:]))
+                ),
+                [],
+            )
 
         if path and path[0] == "test":
             items, remainder = self.popToDash(path[1:])
 
-            return self.renderer.contextFor(ComboContexts.IndividualTest(self.test, "/".join(items)), self.options), remainder
+            return (
+                self.renderer.contextFor(
+                    ComboContexts.IndividualTest(self.test, "/".join(items)),
+                    self.options,
+                ),
+                remainder,
+            )
 
         if path:
             testRun = self.database.TestRun(path[0])
@@ -38,7 +50,9 @@ class TestContext(Context.Context):
         return None, path
 
     def renderBreadcrumbPrefixes(self):
-        return ["Suites" if self.test.testDefinitionSummary.type == "Test" else "Builds"]
+        return [
+            "Suites" if self.test.testDefinitionSummary.type == "Test" else "Builds"
+        ]
 
     def primaryObject(self):
         return self.test
@@ -51,9 +65,11 @@ class TestContext(Context.Context):
         if includeCommit:
             res = self.contextFor(self.commit).renderLink()
         else:
-            res = ''
+            res = ""
 
-        return res + HtmlGeneration.link(nameOverride or self.testName, self.urlString())
+        return res + HtmlGeneration.link(
+            nameOverride or self.testName, self.urlString()
+        )
 
     def bootTestOrEnvUrl(self):
         return "/bootDeployment?testHash=" + self.test.hash
@@ -84,11 +100,17 @@ class TestContext(Context.Context):
         return ""
 
     def renderIndividualTestResults(self):
-        #show broken out tests over the last N commits
-        rows = [x for x in self.testManager.database.TestRun.lookupAll(test=self.test) if not x.canceled]
+        # show broken out tests over the last N commits
+        rows = [
+            x
+            for x in self.testManager.database.TestRun.lookupAll(test=self.test)
+            if not x.canceled
+        ]
 
         def rowLinkFun(row):
-            return self.contextFor(row).renderLink(includeCommit=False, includeTest=False)
+            return self.contextFor(row).renderLink(
+                includeCommit=False, includeTest=False
+            )
 
         def testFun(row):
             return [row]
@@ -100,17 +122,15 @@ class TestContext(Context.Context):
             return row
 
         renderer = IndividualTestGridRenderer.IndividualTestGridRenderer(
-            rows,
-            self, 
-            testFun,
-            cellUrlFun,
-            rowContextFun
-            )
+            rows, self, testFun, cellUrlFun, rowContextFun
+        )
 
-        grid = [["Test Run","Logs", "Elapsed (Min)", "Status", ""] + renderer.headers()]
+        grid = [
+            ["Test Run", "Logs", "Elapsed (Min)", "Status", ""] + renderer.headers()
+        ]
 
         for testRun in rows:
-            row = [rowLinkFun(testRun),self.renderer.testLogsButton(testRun._identity)]
+            row = [rowLinkFun(testRun), self.renderer.testLogsButton(testRun._identity)]
 
             if testRun.endTimestamp > 0.0:
                 elapsed = (testRun.endTimestamp - testRun.startedTimestamp) / 60.0
@@ -148,10 +168,13 @@ class TestContext(Context.Context):
 
         if self.currentView() == "test_definition":
             return card(
-                '<pre class="language-yaml"><code class="line-numbers">%s</code></pre>' % cgi.escape(
-                    algebraic_to_json.encode_and_dump_as_yaml(self.testManager.definitionForTest(test))
+                '<pre class="language-yaml"><code class="line-numbers">%s</code></pre>'
+                % cgi.escape(
+                    algebraic_to_json.encode_and_dump_as_yaml(
+                        self.testManager.definitionForTest(test)
                     )
                 )
+            )
 
         if self.currentView() == "test_dependencies":
             grid = self.allTestDependencyGrid()
@@ -163,20 +186,38 @@ class TestContext(Context.Context):
         grid = [["COMMIT", "TEST", ""]]
 
         for subtest in self.testManager.allTestsDependedOnByTest(self.test):
-            grid.append([
-                self.contextFor(self.testManager.oldestCommitForTest(subtest)).renderLink(),
-                self.contextFor(subtest).renderLink(),
-                TestSummaryRenderer.TestSummaryRenderer([subtest], testSummaryUrl="").renderSummary()
-                ])
+            grid.append(
+                [
+                    self.contextFor(
+                        self.testManager.oldestCommitForTest(subtest)
+                    ).renderLink(),
+                    self.contextFor(subtest).renderLink(),
+                    TestSummaryRenderer.TestSummaryRenderer(
+                        [subtest], testSummaryUrl=""
+                    ).renderSummary(),
+                ]
+            )
 
         return grid
 
     def gridForTestList_(self, sortedTests):
-        grid = [["TEST RUN", "TYPE", "STATUS", "LOGS", "CLEAR", "STARTED", "ELAPSED (MIN)",
-                 "SINCE LAST HEARTBEAT (SEC)", "TOTAL TESTS", "FAILING TESTS"]]
+        grid = [
+            [
+                "TEST RUN",
+                "TYPE",
+                "STATUS",
+                "LOGS",
+                "CLEAR",
+                "STARTED",
+                "ELAPSED (MIN)",
+                "SINCE LAST HEARTBEAT (SEC)",
+                "TOTAL TESTS",
+                "FAILING TESTS",
+            ]
+        ]
 
         sortedTests = [x for x in sortedTests if not x.canceled]
-        
+
         for testRun in sortedTests:
             row = []
 
@@ -228,11 +269,11 @@ class TestContext(Context.Context):
     def parentContext(self):
         return self.contextFor(
             ComboContexts.CommitAndFilter(
-                commit=self.commit, 
+                commit=self.commit,
                 configurationName=self.test.testDefinitionSummary.configuration,
                 projectName=self.test.testDefinitionSummary.project,
-                )
             )
+        )
 
     def iconType(self):
         if self.test.testDefinitionSummary.type == "Build":
@@ -245,5 +286,3 @@ class TestContext(Context.Context):
 
     def renderNavbarLink(self):
         return self.renderLink(includeCommit=False)
-
-        

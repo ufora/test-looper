@@ -13,12 +13,14 @@ import test_looper.core.object_database as object_database
 import test_looper.core.algebraic as algebraic
 import test_looper.data_model.Types as Types
 
+
 def makeDict(**args):
     return args
 
+
 class DictWrapper:
     def __init__(self, jsonDict):
-        self. _jsonDict = jsonDict
+        self._jsonDict = jsonDict
 
     def __getattr__(self, attr):
         res = self._jsonDict[attr]
@@ -39,11 +41,11 @@ class DictWrapper:
         return self._jsonDict.__iter__()
 
     def items(self):
-        for k,v in self._jsonDict.items():
-            if isinstance(v,dict):
-                yield k,DictWrapper(v)
+        for k, v in self._jsonDict.items():
+            if isinstance(v, dict):
+                yield k, DictWrapper(v)
             else:
-                yield k,v
+                yield k, v
 
 
 ImportError = algebraic.Alternative("ImportError")
@@ -52,6 +54,7 @@ ImportError.UnknownBranch = makeDict(repo=str, name=str)
 ImportError.UnknownCommit = makeDict(repo=str, hash=str)
 ImportError.UnknownTest = makeDict(repo=str, hash=str, test=str)
 ImportError.TestAlreadyExists = makeDict(identity=str)
+
 
 class ImportExport(object):
     """
@@ -74,31 +77,40 @@ class ImportExport(object):
                 runList = []
 
                 testDict[t.testDefinitionSummary.name] = makeDict(
-                    runsDesired=t.runsDesired,
-                    runs=runList
-                    )
+                    runsDesired=t.runsDesired, runs=runList
+                )
 
                 for run in self.database.TestRun.lookupAll(test=t):
                     if run.testNames and run.testNames.shaHash not in testNameSets:
                         testNameSets[run.testNames.shaHash] = run.testNames.test_names
 
                     if not run.canceled:
-                        runList.append(makeDict(
-                            identity=run._identity,
-                            startedTimestamp=run.startedTimestamp,
-                            lastHeartbeat=run.lastHeartbeat,
-                            endTimestamp=run.endTimestamp,
-                            success=run.success,
-                            canceled=run.canceled,
-                            testNames=run.testNames.shaHash if run.testNames else "",
-                            testStepNameIndex=run.testStepNameIndex,
-                            testStepTimeStarted=[x.val if x.matches.Value else None for x in run.testStepTimeStarted],
-                            testStepTimeElapsed=[x.val if x.matches.Value else None for x in run.testStepTimeElapsed],
-                            testStepSucceeded=run.testStepSucceeded.bits,
-                            testStepHasLogs=run.testStepHasLogs.bits,
-                            totalTestCount=run.totalTestCount,
-                            totalFailedTestCount=run.totalFailedTestCount
-                            ))
+                        runList.append(
+                            makeDict(
+                                identity=run._identity,
+                                startedTimestamp=run.startedTimestamp,
+                                lastHeartbeat=run.lastHeartbeat,
+                                endTimestamp=run.endTimestamp,
+                                success=run.success,
+                                canceled=run.canceled,
+                                testNames=run.testNames.shaHash
+                                if run.testNames
+                                else "",
+                                testStepNameIndex=run.testStepNameIndex,
+                                testStepTimeStarted=[
+                                    x.val if x.matches.Value else None
+                                    for x in run.testStepTimeStarted
+                                ],
+                                testStepTimeElapsed=[
+                                    x.val if x.matches.Value else None
+                                    for x in run.testStepTimeElapsed
+                                ],
+                                testStepSucceeded=run.testStepSucceeded.bits,
+                                testStepHasLogs=run.testStepHasLogs.bits,
+                                totalTestCount=run.totalTestCount,
+                                totalFailedTestCount=run.totalFailedTestCount,
+                            )
+                        )
 
             commitsToCheck = set()
 
@@ -106,7 +118,9 @@ class ImportExport(object):
                 repos[r.name] = makeDict(branches={}, commits={})
 
                 for branch in self.database.Branch.lookupAll(repo=r):
-                    repos[r.name]["branches"][branch.branchname] = {"isUnderTest": branch.isUnderTest}
+                    repos[r.name]["branches"][branch.branchname] = {
+                        "isUnderTest": branch.isUnderTest
+                    }
 
                     commitsToCheck.add(branch.head)
 
@@ -120,7 +134,11 @@ class ImportExport(object):
                 if c and c.hash not in repos[c.repo.name]["commits"] and c.data:
                     totalCommitsChecked += 1
                     if totalCommitsChecked % 1000 == 0:
-                        logging.info("Doing commit #%s: %s", totalCommitsChecked, c.repo.name + "/" + c.hash)
+                        logging.info(
+                            "Doing commit #%s: %s",
+                            totalCommitsChecked,
+                            c.repo.name + "/" + c.hash,
+                        )
                         self.testManager.database.clearCache()
 
                     testDict = {}
@@ -135,17 +153,14 @@ class ImportExport(object):
                         commitsToCheck.add(parent)
 
                     repos[c.repo.name]["commits"][c.hash] = {
-                        "userEnabledTestSets": c.userEnabledTestSets, 
-                        "tests": testDict, 
-                        "hasTestFile": self.testManager._commitMightHaveTests(c) and not c.data.noTestsFound,
-                        "parents": [p.hash for p in c.data.parents]
-                        }
+                        "userEnabledTestSets": c.userEnabledTestSets,
+                        "tests": testDict,
+                        "hasTestFile": self.testManager._commitMightHaveTests(c)
+                        and not c.data.noTestsFound,
+                        "parents": [p.hash for p in c.data.parents],
+                    }
 
-
-            return makeDict(
-                repos=repos, 
-                testNameSets=testNameSets
-                )
+            return makeDict(repos=repos, testNameSets=testNameSets)
 
     def importResults(self, results):
         results = DictWrapper(results)
@@ -154,7 +169,7 @@ class ImportExport(object):
         commitInfoCache = {}
 
         with self.database.transaction():
-            #make sure we have repos and branches
+            # make sure we have repos and branches
             self.testManager._refreshRepos()
 
             for reponame, repodef in results.repos.items():
@@ -168,11 +183,15 @@ class ImportExport(object):
             with self.database.transaction():
                 logging.info("Starting sync of repo %s", reponame)
                 for branchname, branchdef in repodef.branches.items():
-                    branch = self.database.Branch.lookupAny(reponame_and_branchname=(reponame, branchname))
+                    branch = self.database.Branch.lookupAny(
+                        reponame_and_branchname=(reponame, branchname)
+                    )
                     if not branch:
-                        errors.append(ImportError.UnknownBranch(repo=reponame, name=branchname))
+                        errors.append(
+                            ImportError.UnknownBranch(repo=reponame, name=branchname)
+                        )
                     else:
-                        branch.isUnderTest=branchdef.isUnderTest
+                        branch.isUnderTest = branchdef.isUnderTest
 
             seen = 0
             try:
@@ -183,7 +202,12 @@ class ImportExport(object):
                     seen += 1
                     if seen % 100 == 0:
                         transaction.__exit__(None, None, None)
-                        logging.info("Have done %s/%s commits in %s", seen, len(repodef.commits), reponame)
+                        logging.info(
+                            "Have done %s/%s commits in %s",
+                            seen,
+                            len(repodef.commits),
+                            reponame,
+                        )
                         transaction = self.database.transaction()
                         transaction.__enter__()
 
@@ -193,10 +217,10 @@ class ImportExport(object):
                     self.testManager._updateSingleCommitData(
                         commit,
                         knownNoTestFile=not commitdef.hasTestFile,
-                        commitInfoCache=commitInfoCache
-                        )
+                        commitInfoCache=commitInfoCache,
+                    )
 
-                    commit.userEnabledTestSets=commitdef.userEnabledTestSets
+                    commit.userEnabledTestSets = commitdef.userEnabledTestSets
 
                     for testname, testdef in commitdef.tests.items():
                         test = commit.data.tests.get(testname)
@@ -204,16 +228,16 @@ class ImportExport(object):
                         if not test:
                             errors.append(
                                 ImportError.UnknownTest(
-                                    repo=reponame, 
-                                    hash=hash, 
-                                    test=testname
-                                    )
+                                    repo=reponame, hash=hash, test=testname
                                 )
+                            )
                         else:
                             for run in testdef.runs:
                                 errors.extend(
-                                    self._importTestRun(test, DictWrapper(run), results.testNameSets)
+                                    self._importTestRun(
+                                        test, DictWrapper(run), results.testNameSets
                                     )
+                                )
             finally:
                 transaction.__exit__(None, None, None)
 
@@ -221,12 +245,10 @@ class ImportExport(object):
 
     def _importTestRun(self, test, run, testNameSets):
         if self.database.TestRun(run.identity).exists():
-            return [ImportError.TestAlreadyExists(
-                identity=run.identity
-                )]
+            return [ImportError.TestAlreadyExists(identity=run.identity)]
 
         self.testManager._importTestRun(
-            test, 
+            test,
             run.identity,
             run.startedTimestamp,
             run.lastHeartbeat,
@@ -240,11 +262,7 @@ class ImportExport(object):
             run.testStepSucceeded,
             run.testStepHasLogs,
             run.totalTestCount,
-            run.totalFailedTestCount
-            )
+            run.totalFailedTestCount,
+        )
 
         return []
-
-
-        
-

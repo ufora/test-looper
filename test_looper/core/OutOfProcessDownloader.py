@@ -1,7 +1,7 @@
 import sys
 import pickle
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.path = pickle.loads(bytes.fromhex(sys.argv[3]))
 
 import logging
@@ -18,6 +18,7 @@ import test_looper.core.socket_util as socket_util
 BYTE_DATA = b"D"
 BYTE_EXCEPTION = b"E"
 FORK_START_TIMEOUT = 5.0
+
 
 class OutOfProcessDownloader:
     """A worker that can answer queries in another process and return their results as strings.
@@ -45,12 +46,11 @@ class OutOfProcessDownloader:
             self.closeAllUnusedFileDescriptors()
 
     def closeAllUnusedFileDescriptors(self):
-        #we need to ensure that we don't hold sockets open that we're not supposed to
+        # we need to ensure that we don't hold sockets open that we're not supposed to
         try:
             maxFD = os.sysconf("SC_OPEN_MAX")
         except:
             maxFD = 256
-
 
         for fd in range(3, maxFD):
             if fd not in (self.childWriteFD, self.childReadFD):
@@ -69,11 +69,11 @@ class OutOfProcessDownloader:
         os.close(self.childReadFD)
         os.close(self.childWriteFD)
 
-
     def start(self):
         assert not self.hasStarted
 
         if self.actuallyRunOutOfProcess:
+
             def onStdout(msg):
                 if self.verbose:
                     logging.info("OutOfProcessDownloader Out> %s", msg)
@@ -86,20 +86,23 @@ class OutOfProcessDownloader:
             os.set_inheritable(self.childReadFD, True)
 
             self.childSubprocess = SubprocessRunner.SubprocessRunner(
-                [sys.executable, 
-                    __file__, 
-                    str(self.childWriteFD), 
+                [
+                    sys.executable,
+                    __file__,
+                    str(self.childWriteFD),
                     str(self.childReadFD),
-                    pickle.dumps(sys.path).hex()
-                    ],
+                    pickle.dumps(sys.path).hex(),
+                ],
                 onStdout,
-                onStderr
-                )
+                onStderr,
+            )
             self.childSubprocess.start()
             self.hasStarted = True
         else:
             self.hasStarted = True
-            self.backgroundThread = ManagedThread.ManagedThread(target=self.executeChild_)
+            self.backgroundThread = ManagedThread.ManagedThread(
+                target=self.executeChild_
+            )
             self.backgroundThread.start()
 
     def stop(self):
@@ -141,19 +144,19 @@ class OutOfProcessDownloader:
                     except Exception as e:
                         try:
                             logging.error(
-                                "OutOfProcessDownloader caught exception after %s seconds: %s\n" +
-                                    "Task was %s",
+                                "OutOfProcessDownloader caught exception after %s seconds: %s\n"
+                                + "Task was %s",
                                 time.time() - t0,
                                 traceback.format_exc(),
-                                callback
-                                )
+                                callback,
+                            )
                         except:
                             logging.error(
                                 "OutOfProcessDownloader failed formatting error: %s",
-                                traceback.format_exc()
-                                )
+                                traceback.format_exc(),
+                            )
 
-                        outgoingMessage = str(e).encode('utf8')
+                        outgoingMessage = str(e).encode("utf8")
                         isException = True
                 else:
                     t0 = time.time()
@@ -161,7 +164,7 @@ class OutOfProcessDownloader:
 
                     callback = self.writeQueue.get()
                     if callback is None:
-                        #graceful shutdown message
+                        # graceful shutdown message
                         return
 
                     try:
@@ -170,34 +173,37 @@ class OutOfProcessDownloader:
                     except Exception as e:
                         try:
                             logging.error(
-                                "OutOfProcessDownloader caught exception after %s seconds: %s\n" +
-                                    "Task was %s",
+                                "OutOfProcessDownloader caught exception after %s seconds: %s\n"
+                                + "Task was %s",
                                 time.time() - t0,
                                 traceback.format_exc(),
-                                callback
-                                )
+                                callback,
+                            )
                         except:
                             logging.error(
                                 "OutOfProcessDownloader failed formatting error: %s",
-                                traceback.format_exc()
-                                )
+                                traceback.format_exc(),
+                            )
 
-                        outgoingMessage = str(e).encode('utf8')
+                        outgoingMessage = str(e).encode("utf8")
                         isException = True
 
-
                 finalValueToWrite = (
-                    (BYTE_EXCEPTION if isException else BYTE_DATA) +
-                        socket_util.longToString(len(outgoingMessage)) + outgoingMessage
-                    )
+                    (BYTE_EXCEPTION if isException else BYTE_DATA)
+                    + socket_util.longToString(len(outgoingMessage))
+                    + outgoingMessage
+                )
 
                 os.write(self.childWriteFD, finalValueToWrite)
         except KeyboardInterrupt as e:
             self.executeChild__()
         except:
-            logging.error("Main OutOfProcessDownloader loop failed: %s\n%s", traceback.format_exc())
+            logging.error(
+                "Main OutOfProcessDownloader loop failed: %s\n%s",
+                traceback.format_exc(),
+            )
         finally:
-            #bail
+            # bail
             if self.actuallyRunOutOfProcess:
                 logging.error("OutOfProcessDownloader exiting")
                 os._exit(0)
@@ -223,22 +229,21 @@ class OutOfProcessDownloader:
 
             if isException:
                 pickledException = os.read(self.parentReadFD, msgSize)
-                raise Exception(pickledException.decode('utf8'))
+                raise Exception(pickledException.decode("utf8"))
             else:
                 callbackTakingFDAndSize(self.parentReadFD, msgSize)
 
 
 class OutOfProcessDownloaderPool:
     """Models a pool of out-of-process-downloaders"""
+
     def __init__(self, maxProcesses, actuallyRunOutOfProcess=True):
         self.downloadersQueue = queue.Queue()
 
         self.allDownloaders = []
 
         for _ in range(maxProcesses):
-            downloader = OutOfProcessDownloader(
-                actuallyRunOutOfProcess
-                )
+            downloader = OutOfProcessDownloader(actuallyRunOutOfProcess)
 
             downloader.start()
             self.downloadersQueue.put(downloader)
@@ -275,6 +280,7 @@ class OutOfProcessDownloaderPool:
 
 class OutOfProcessDownloadProxy:
     """Class that checks out a downloader and executes the result"""
+
     def __init__(self, pool):
         self.pool = pool
 
@@ -295,16 +301,17 @@ class OutOfProcessDownloadProxy:
 
         If the remote process encounters an exception, we raise that immediately.
         """
+
         def callbackTakingFDAndSize(fileDescriptor, sz):
             callbackTakingString(os.read(fileDescriptor, sz))
 
         self.executeAndCallbackWithFileDescriptor(toExecute, callbackTakingFDAndSize)
 
 
-
 def main(argv):
     runner = OutOfProcessDownloader(True, (int(argv[1]), int(argv[2])))
     runner.executeChild_()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main(sys.argv)

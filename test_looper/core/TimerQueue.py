@@ -9,8 +9,9 @@ import time
 import threading
 import test_looper.core.ManagedThread as ManagedThread
 
+
 class TimerQueue(object):
-    def __init__(self, threads = 1):
+    def __init__(self, threads=1):
         self.lock_ = threading.Lock()
         self.condition_ = threading.Condition(self.lock_)
         self.queue_ = []
@@ -26,7 +27,7 @@ class TimerQueue(object):
                 self.executeNextWorkItem()
 
         for x in range(threads):
-            t = ManagedThread.ManagedThread(target = run)
+            t = ManagedThread.ManagedThread(target=run)
             self.threads_.append(t)
             t.start()
 
@@ -73,7 +74,11 @@ class TimerQueue(object):
                 item(*args)
             except:
                 import traceback
-                logging.error("TimerQueue caught exception from callback: %s", traceback.format_exc())
+
+                logging.error(
+                    "TimerQueue caught exception from callback: %s",
+                    traceback.format_exc(),
+                )
 
     def teardown(self):
         self.threadsShouldExit = True

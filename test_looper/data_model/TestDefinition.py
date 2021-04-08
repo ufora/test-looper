@@ -20,16 +20,16 @@ Image.Dockerfile = {"repo": str, "commitHash": str, "dockerfile": str}
 Image.AMI = {"base_ami": str, "setup_script_contents": str}
 
 TestDependency = algebraic.Alternative("TestDependency")
-TestDependency.Build = {"name": str, "buildHash": str, "artifact": str }
-TestDependency.Source = {"repo": str, "commitHash": str, "path": str }
+TestDependency.Build = {"name": str, "buildHash": str, "artifact": str}
+TestDependency.Source = {"repo": str, "commitHash": str, "path": str}
 
-#these are intermediate parse states. Resolved builds won't have them.
+# these are intermediate parse states. Resolved builds won't have them.
 TestDependency.InternalBuild = {"name": str}
 TestDependency.ExternalBuild = {"repo": str, "commitHash": str, "name": str}
 
 #'repo_name' refers to the name of the repo variable the test definitions (not the git repo). This
-#is an intermediate state that's only used mid-parsing while we're resolving references in external
-#repos
+# is an intermediate state that's only used mid-parsing while we're resolving references in external
+# repos
 TestDependency.UnresolvedExternalBuild = {"repo_name": str, "name": str}
 TestDependency.UnresolvedSource = {"repo_name": str, "path": str}
 
@@ -40,31 +40,31 @@ EnvironmentReference.UnresolvedReference = {"repo_name": str, "name": str}
 Stage = algebraic.Alternative("Stage")
 Artifact = algebraic.Alternative("Artifact")
 Stage.Stage = {
-    "command": str, #command to run
-    "cleanup": str, #command to copy output to build output directory
+    "command": str,  # command to run
+    "cleanup": str,  # command to copy output to build output directory
     "order": float,
     "artifacts": algebraic.List(Artifact),
-    "always_run": bool #if true, run this even if an earlier stage failed
-    }
+    "always_run": bool,  # if true, run this even if an earlier stage failed
+}
 
-#stage to expose for test that know how to unbundle their tests individually. We may re-run tests
-#several times to explore their flakeyness, and we may only run a subset of tests
+# stage to expose for test that know how to unbundle their tests individually. We may re-run tests
+# several times to explore their flakeyness, and we may only run a subset of tests
 Stage.TestStage = {
-    "list_tests_command": str, #command to run to get a list of tests we could run. This should only
-                               #depend on artifacts already on disk (no state) as we can run this
-                               #at any time. The command should write the tests to the file pointed to
-                               #by TEST_LOOPER_TEST_LIST_OUTPUT
-    "run_tests_command": str,  #command to run a list of tests, which are passed in a file pointed to by 
-                               #the TEST_LOOPER_TESTS_TO_RUN environment variable. Tests
-                               #may appear multiple times. We expect that there will be one entry in the testSummary.json
-                               #for each test run, in order. You should expect this command to be called multiple times.
-                               #final artifact collection only happens once at the end when we're done interrogating the test assembly
-                               #testResults.json and any individual test artifacts will collected and cleared between runs.
-    "cleanup": str,            #command to prepare for artifact setup
+    "list_tests_command": str,  # command to run to get a list of tests we could run. This should only
+    # depend on artifacts already on disk (no state) as we can run this
+    # at any time. The command should write the tests to the file pointed to
+    # by TEST_LOOPER_TEST_LIST_OUTPUT
+    "run_tests_command": str,  # command to run a list of tests, which are passed in a file pointed to by
+    # the TEST_LOOPER_TESTS_TO_RUN environment variable. Tests
+    # may appear multiple times. We expect that there will be one entry in the testSummary.json
+    # for each test run, in order. You should expect this command to be called multiple times.
+    # final artifact collection only happens once at the end when we're done interrogating the test assembly
+    # testResults.json and any individual test artifacts will collected and cleared between runs.
+    "cleanup": str,  # command to prepare for artifact setup
     "order": float,
     "artifacts": algebraic.List(Artifact),
-    "always_run": bool #if true, run this even if an earlier stage failed
-    }
+    "always_run": bool,  # if true, run this even if an earlier stage failed
+}
 
 ArtifactFormat = algebraic.Alternative("ArtifactFormat")
 ArtifactFormat.Tar = {}
@@ -74,43 +74,51 @@ ArtifactFormat.setCreateDefault(lambda: ArtifactFormat.Tar())
 
 
 Artifact.Artifact = {
-    "name": str, #unique within the entire build. If populated, then this output is named "build_name/artifact_name"
-                 #if blank, then the output is just named "build_name". Names must be unique. A blank name is only
-                 #allowed if we have exactly one build artifact across the stages
-    "directory": str, #directory from which to build the actual build artifact
-    "include_patterns": algebraic.List(str), #list of globs we want to include. If empty, then we include everything.
-    "exclude_patterns": algebraic.List(str), #list of globs we want to exclude from the build
-    "format": ArtifactFormat
-    }
+    "name": str,  # unique within the entire build. If populated, then this output is named "build_name/artifact_name"
+    # if blank, then the output is just named "build_name". Names must be unique. A blank name is only
+    # allowed if we have exactly one build artifact across the stages
+    "directory": str,  # directory from which to build the actual build artifact
+    "include_patterns": algebraic.List(
+        str
+    ),  # list of globs we want to include. If empty, then we include everything.
+    "exclude_patterns": algebraic.List(
+        str
+    ),  # list of globs we want to exclude from the build
+    "format": ArtifactFormat,
+}
 
 RepoReference = algebraic.Alternative("RepoReference")
-RepoReference.Import = {"import": str, "path": str} # /-separated sequence of repo refs
-RepoReference.ImportedReference = {"reference": str, "import_source": str, "orig_reference": str, "path": str}
-RepoReference.Reference = {"reference": str, "path": str}
-RepoReference.Pin = {
+RepoReference.Import = {"import": str, "path": str}  # /-separated sequence of repo refs
+RepoReference.ImportedReference = {
     "reference": str,
+    "import_source": str,
+    "orig_reference": str,
     "path": str,
-    "branch": str,
-    "auto": bool
-    }
+}
+RepoReference.Reference = {"reference": str, "path": str}
+RepoReference.Pin = {"reference": str, "path": str, "branch": str, "auto": bool}
+
 
 def RepoReference_reponame(ref):
     if ref.matches.Import:
         return None
-    
+
     return "/".join(ref.reference.split("/")[:-1])
+
 
 def RepoReference_commitHash(ref):
     if ref.matches.Import:
         return None
-    
+
     return ref.reference.split("/")[-1]
+
 
 def RepoReference_branchname(ref):
     if ref.matches.Pin:
         return ref.branch
     else:
         return None
+
 
 RepoReference.reponame = RepoReference_reponame
 RepoReference.commitHash = RepoReference_commitHash
@@ -127,15 +135,15 @@ TestEnvironment.Environment = {
     "variables": algebraic.Dict(str, str),
     "dependencies": algebraic.Dict(str, TestDependency),
     "test_configuration": str,
-    'test_stages': algebraic.List(Stage),
+    "test_stages": algebraic.List(Stage),
     "test_timeout": int,
     "test_min_cores": int,
     "test_max_cores": int,
     "test_min_ram_gb": int,
     "test_min_disk_gb": int,
     "test_max_retries": int,
-    "test_retry_wait_seconds": int
-    }
+    "test_retry_wait_seconds": int,
+}
 
 TestEnvironment.Import = {
     "environment_name": str,
@@ -145,116 +153,117 @@ TestEnvironment.Import = {
     "variables": algebraic.Dict(str, str),
     "dependencies": algebraic.Dict(str, TestDependency),
     "test_configuration": str,
-    'test_stages': algebraic.List(Stage),
+    "test_stages": algebraic.List(Stage),
     "test_timeout": int,
     "test_min_cores": int,
     "test_max_cores": int,
     "test_min_ram_gb": int,
     "test_min_disk_gb": int,
     "test_max_retries": int,
-    "test_retry_wait_seconds": int
-    }
+    "test_retry_wait_seconds": int,
+}
 
 TestDefinition = algebraic.Alternative("TestDefinition")
 TestDefinition.Build = {
-    'stages': algebraic.List(Stage),
-    'configuration': str,
-    'project': str,
-    'hash': str,
+    "stages": algebraic.List(Stage),
+    "configuration": str,
+    "project": str,
+    "hash": str,
     "name": str,
     "environment_name": str,
     "environment_mixins": algebraic.List(str),
     "environment": TestEnvironment,
     "dependencies": algebraic.Dict(str, TestDependency),
-    "variables": algebraic.Dict(str,str),
-    "timeout": int, #max time, in seconds, for the test
-    "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
-    "max_cores": int, #maximum number of cores we can take advantage of, or zero
-    "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
-    "min_disk_gb": int, #minimum GB of disk space we need for this test
-    "max_retries": int, #maximum number of times to retry the build
-    "retry_wait_seconds": int, #minimum number of seconds to wait before retrying a build
-    }
+    "variables": algebraic.Dict(str, str),
+    "timeout": int,  # max time, in seconds, for the test
+    "min_cores": int,  # minimum number of cores we should be run on, or zero if we don't care
+    "max_cores": int,  # maximum number of cores we can take advantage of, or zero
+    "min_ram_gb": int,  # minimum GB of ram we need to run, or zero if we don't care
+    "min_disk_gb": int,  # minimum GB of disk space we need for this test
+    "max_retries": int,  # maximum number of times to retry the build
+    "retry_wait_seconds": int,  # minimum number of seconds to wait before retrying a build
+}
 TestDefinition.Test = {
-    'stages': algebraic.List(Stage),
-    'configuration': str,
-    'project': str,
-    'hash': str,
+    "stages": algebraic.List(Stage),
+    "configuration": str,
+    "project": str,
+    "hash": str,
     "name": str,
     "environment_name": str,
     "environment_mixins": algebraic.List(str),
     "environment": TestEnvironment,
     "dependencies": algebraic.Dict(str, TestDependency),
-    "variables": algebraic.Dict(str,str),
-    "timeout": int, #max time, in seconds, for the test
-    "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
-    "max_cores": int, #maximum number of cores we can take advantage of, or zero
-    "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
-    "min_disk_gb": int, #minimum GB of disk space we need
-    }
+    "variables": algebraic.Dict(str, str),
+    "timeout": int,  # max time, in seconds, for the test
+    "min_cores": int,  # minimum number of cores we should be run on, or zero if we don't care
+    "max_cores": int,  # maximum number of cores we can take advantage of, or zero
+    "min_ram_gb": int,  # minimum GB of ram we need to run, or zero if we don't care
+    "min_disk_gb": int,  # minimum GB of disk space we need
+}
 TestDefinition.Deployment = {
-    'configuration': str,
-    'project': str,
-    'hash': str,
+    "configuration": str,
+    "project": str,
+    "hash": str,
     "name": str,
     "environment_name": str,
     "environment_mixins": algebraic.List(str),
     "environment": TestEnvironment,
     "dependencies": algebraic.Dict(str, TestDependency),
-    "variables": algebraic.Dict(str,str),
-    'portExpose': algebraic.Dict(str,int),
-    "timeout": int, #max time, in seconds, for the test
-    "min_cores": int, #minimum number of cores we should be run on, or zero if we don't care
-    "max_cores": int, #maximum number of cores we can take advantage of, or zero
-    "min_ram_gb": int, #minimum GB of ram we need to run, or zero if we don't care
-    "min_disk_gb": int, #minimum GB of ram we need to run, or zero if we don't care
-    }
+    "variables": algebraic.Dict(str, str),
+    "portExpose": algebraic.Dict(str, int),
+    "timeout": int,  # max time, in seconds, for the test
+    "min_cores": int,  # minimum number of cores we should be run on, or zero if we don't care
+    "max_cores": int,  # maximum number of cores we can take advantage of, or zero
+    "min_ram_gb": int,  # minimum GB of ram we need to run, or zero if we don't care
+    "min_disk_gb": int,  # minimum GB of ram we need to run, or zero if we don't care
+}
 
 
 def merge_dicts(d1, d2):
     "Return the union of d1 and d2, with keys in d2 taking priority over d1 in case of conflict."
     res = dict(d1)
-    for k,v in d2.items():
+    for k, v in d2.items():
         res[k] = v
     return res
 
+
 def merge(seqs):
     res = []
-    i=0
+    i = 0
     while True:
         nonemptyseqs = [seq for seq in seqs if seq]
-        if not nonemptyseqs: 
+        if not nonemptyseqs:
             return res
 
-        i+=1
-        for seq in nonemptyseqs: # find merge candidates among seq heads
+        i += 1
+        for seq in nonemptyseqs:  # find merge candidates among seq heads
             cand = seq[0]
-            nothead=[s for s in nonemptyseqs if cand in s[1:]]
-            if nothead: 
-                cand=None #reject candidate
-            else: 
+            nothead = [s for s in nonemptyseqs if cand in s[1:]]
+            if nothead:
+                cand = None  # reject candidate
+            else:
                 break
-        if not cand: 
+        if not cand:
             raise "Inconsistent hierarchy"
 
         res.append(cand)
 
-        for seq in nonemptyseqs: # remove cand
-            if seq[0] == cand: 
+        for seq in nonemptyseqs:  # remove cand
+            if seq[0] == cand:
                 del seq[0]
+
 
 def method_resolution_order(env, dependencies):
     linearization = [[env]]
 
     if env.matches.Import:
         for d in reversed(env.imports):
-            linearization.append(
-                method_resolution_order(dependencies[d], dependencies)
-                )
+            linearization.append(method_resolution_order(dependencies[d], dependencies))
         for d in reversed(env.imports):
             linearization.append([dependencies[d]])
 
     return merge(linearization)
+
 
 def merge_image_and_extra_setup(image, extra_setup):
     if not extra_setup:
@@ -262,24 +271,30 @@ def merge_image_and_extra_setup(image, extra_setup):
 
     if image.matches.AMI:
         return Image.AMI(
-            base_ami=image.base_ami, 
-            setup_script_contents=image.setup_script_contents + "\n" + extra_setup
-            )
+            base_ami=image.base_ami,
+            setup_script_contents=image.setup_script_contents + "\n" + extra_setup,
+        )
     elif image.matches.DockerfileInline:
         return Image.DockerfileInline(
             dockerfile_contents=image.dockerfile_contents + "\n" + extra_setup
-            )
+        )
     else:
-        assert image.matches.AMI, "Can only add setup-script contents to an AMI image, not %s, and we were given %s" % (image, repr(extra_setup))
+        assert image.matches.AMI, (
+            "Can only add setup-script contents to an AMI image, not %s, and we were given %s"
+            % (image, repr(extra_setup))
+        )
+
 
 def makeDict(**kwargs):
     return dict(kwargs)
+
 
 def pickFirstNonzero(list, defaultVal=0):
     for l in list:
         if l:
             return l
     return defaultVal
+
 
 def merge_environments(import_environment, underlying_environments):
     """Given an 'Import' environment and a dictionary from 
@@ -291,26 +306,33 @@ def merge_environments(import_environment, underlying_environments):
     """
     assert import_environment.matches.Import
 
-    #check for circularity
+    # check for circularity
     GraphUtil.assertGraphHasNoCycles(
-        import_environment, 
-        lambda e: [underlying_environments[d] for d in e.imports] if e.matches.Import else ()
-        )
+        import_environment,
+        lambda e: [underlying_environments[d] for d in e.imports]
+        if e.matches.Import
+        else (),
+    )
 
     order = method_resolution_order(import_environment, underlying_environments)
 
     order_by_name = [o.environment_name for o in order]
 
-    assert len([e for e in order if e.matches.Environment]) <= 1, \
+    assert len([e for e in order if e.matches.Environment]) <= 1, (
         "Can't depend on two different non-import environments: %s" % order_by_name
+    )
 
     environment_name = order[0].environment_name
     inheritance = [e.environment_name for e in order[1:]]
-        
+
     variables = order[-1].variables
     dependencies = order[-1].dependencies
 
-    extra_setups = [e.setup_script_contents for e in order if e.matches.Import and e.setup_script_contents]
+    extra_setups = [
+        e.setup_script_contents
+        for e in order
+        if e.matches.Import and e.setup_script_contents
+    ]
 
     commonKwargs = makeDict(
         test_configuration=pickFirstNonzero([e.test_configuration for e in order], ""),
@@ -321,8 +343,10 @@ def merge_environments(import_environment, underlying_environments):
         test_min_ram_gb=pickFirstNonzero([e.test_min_ram_gb for e in order]),
         test_min_disk_gb=pickFirstNonzero([e.test_min_disk_gb for e in order]),
         test_max_retries=pickFirstNonzero([e.test_max_retries for e in order]),
-        test_retry_wait_seconds=pickFirstNonzero([e.test_retry_wait_seconds for e in order])
-        )
+        test_retry_wait_seconds=pickFirstNonzero(
+            [e.test_retry_wait_seconds for e in order]
+        ),
+    )
 
     for e in reversed(order[:-1]):
         variables = merge_dicts(variables, e.variables)
@@ -335,8 +359,10 @@ def merge_environments(import_environment, underlying_environments):
         image = actual_environment.image
 
         if extra_setups:
-            image = merge_image_and_extra_setup(actual_environment.image, "\n".join(reversed(extra_setups)))
-        
+            image = merge_image_and_extra_setup(
+                actual_environment.image, "\n".join(reversed(extra_setups))
+            )
+
         return TestEnvironment.Environment(
             environment_name=environment_name,
             inheritance=inheritance,
@@ -345,7 +371,7 @@ def merge_environments(import_environment, underlying_environments):
             variables=variables,
             dependencies=dependencies,
             **commonKwargs
-            )
+        )
     else:
         return TestEnvironment.Import(
             environment_name=environment_name,
@@ -355,14 +381,17 @@ def merge_environments(import_environment, underlying_environments):
             imports=(),
             setup_script_contents="\n".join(reversed(extra_setups)),
             **commonKwargs
-            )
+        )
+
 
 def substitute_variables_in_image(image, vars):
     if image.matches.AMI:
         return Image.AMI(
-            base_ami=image.base_ami, 
-            setup_script_contents=VariableSubstitution.substitute_variables(image.setup_script_contents, vars)
-            )
+            base_ami=image.base_ami,
+            setup_script_contents=VariableSubstitution.substitute_variables(
+                image.setup_script_contents, vars
+            ),
+        )
     else:
         return image
 
@@ -371,13 +400,13 @@ def apply_substitutions_to_dependency(dep, vardefs):
     if dep.matches.InternalBuild:
         return TestDependency.InternalBuild(
             name=VariableSubstitution.substitute_variables(dep.name, vardefs)
-            )
+        )
     elif dep.matches.ExternalBuild:
         return TestDependency.ExternalBuild(
             name=VariableSubstitution.substitute_variables(dep.name, vardefs),
             repo=dep.repo,
-            commitHash=dep.commitHash
-            )
+            commitHash=dep.commitHash,
+        )
     elif dep.matches.Source:
         return dep
     elif dep.matches.Build:
@@ -385,20 +414,25 @@ def apply_substitutions_to_dependency(dep, vardefs):
     elif dep.matches.UnresolvedSource:
         return TestDependency.UnresolvedSource(
             repo_name=dep.repo_name,
-            path=VariableSubstitution.substitute_variables(dep.path, vardefs)
-            )
+            path=VariableSubstitution.substitute_variables(dep.path, vardefs),
+        )
     elif dep.matches.UnresolvedExternalBuild:
         return TestDependency.UnresolvedExternalBuild(
             repo_name=dep.repo_name,
-            name=VariableSubstitution.substitute_variables(dep.name, vardefs)
-            )
+            name=VariableSubstitution.substitute_variables(dep.name, vardefs),
+        )
     else:
         assert False, "Unknown dep type: %s" % dep
 
+
 def apply_substitutions_to_dependencies(deps, vardefs):
-    return {VariableSubstitution.substitute_variables(k, vardefs):
-                        apply_substitutions_to_dependency(v, vardefs)
-                    for k,v in deps.items()}
+    return {
+        VariableSubstitution.substitute_variables(
+            k, vardefs
+        ): apply_substitutions_to_dependency(v, vardefs)
+        for k, v in deps.items()
+    }
+
 
 def apply_environment_substitutions(env):
     """Apply replacement logic to variable definitions in an environment.
@@ -411,34 +445,51 @@ def apply_environment_substitutions(env):
     have their state applied. We detect cycles and throw an exception if we get one, 
     and we don't substitute variables in the names of variables.
     """
-    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(env.variables)
+    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(
+        env.variables
+    )
 
     deps = apply_substitutions_to_dependencies(env.dependencies, vardefs)
 
     for d in deps:
-        assert "$" not in d, "Environment %s produced malformed dependency %s" % (env.environment_name, d)
+        assert "$" not in d, "Environment %s produced malformed dependency %s" % (
+            env.environment_name,
+            d,
+        )
 
     if env.matches.Environment:
         return env._withReplacement(
-                image=substitute_variables_in_image(env.image, vardefs),
-                variables=vardefs,
-                dependencies=deps
-                )
+            image=substitute_variables_in_image(env.image, vardefs),
+            variables=vardefs,
+            dependencies=deps,
+        )
     else:
         return env._withReplacement(
-            setup_script_contents=VariableSubstitution.substitute_variables(env.setup_script_contents, vardefs),
+            setup_script_contents=VariableSubstitution.substitute_variables(
+                env.setup_script_contents, vardefs
+            ),
             variables=vardefs,
-            dependencies=deps
-            )
+            dependencies=deps,
+        )
+
 
 def apply_variable_substitution_to_artifact(artifact, vardefs):
     return Artifact.Artifact(
         name=VariableSubstitution.substitute_variables(artifact.name, vardefs),
-        directory=VariableSubstitution.substitute_variables(artifact.directory, vardefs),
-        include_patterns=[VariableSubstitution.substitute_variables(i, vardefs) for i in artifact.include_patterns],
-        exclude_patterns=[VariableSubstitution.substitute_variables(i, vardefs) for i in artifact.exclude_patterns],
-        format=artifact.format
-        )
+        directory=VariableSubstitution.substitute_variables(
+            artifact.directory, vardefs
+        ),
+        include_patterns=[
+            VariableSubstitution.substitute_variables(i, vardefs)
+            for i in artifact.include_patterns
+        ],
+        exclude_patterns=[
+            VariableSubstitution.substitute_variables(i, vardefs)
+            for i in artifact.exclude_patterns
+        ],
+        format=artifact.format,
+    )
+
 
 def apply_variable_substitutions_to_stage(stage, vardefs):
     if stage.matches.Stage:
@@ -446,33 +497,49 @@ def apply_variable_substitutions_to_stage(stage, vardefs):
             command=VariableSubstitution.substitute_variables(stage.command, vardefs),
             cleanup=VariableSubstitution.substitute_variables(stage.cleanup, vardefs),
             order=stage.order,
-            artifacts=[apply_variable_substitution_to_artifact(a, vardefs) for a in stage.artifacts],
-            always_run=stage.always_run
-            )
+            artifacts=[
+                apply_variable_substitution_to_artifact(a, vardefs)
+                for a in stage.artifacts
+            ],
+            always_run=stage.always_run,
+        )
     else:
         return Stage.TestStage(
-            run_tests_command=VariableSubstitution.substitute_variables(stage.run_tests_command, vardefs),
-            list_tests_command=VariableSubstitution.substitute_variables(stage.list_tests_command, vardefs),
+            run_tests_command=VariableSubstitution.substitute_variables(
+                stage.run_tests_command, vardefs
+            ),
+            list_tests_command=VariableSubstitution.substitute_variables(
+                stage.list_tests_command, vardefs
+            ),
             cleanup=VariableSubstitution.substitute_variables(stage.cleanup, vardefs),
             order=stage.order,
-            artifacts=[apply_variable_substitution_to_artifact(a, vardefs) for a in stage.artifacts],
-            always_run=stage.always_run
-            )
+            artifacts=[
+                apply_variable_substitution_to_artifact(a, vardefs)
+                for a in stage.artifacts
+            ],
+            always_run=stage.always_run,
+        )
+
 
 def apply_variable_substitution_to_stages(stages, vardefs):
     return [apply_variable_substitutions_to_stage(s, vardefs) for s in stages]
+
 
 def apply_environment_to_test(test, env, input_var_defs):
     vardefs = dict(env.variables)
     vardefs.update(test.variables)
 
-    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(vardefs)
+    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(
+        vardefs
+    )
 
-    #dependencies need to resolve without use of 'input_var_defs'
+    # dependencies need to resolve without use of 'input_var_defs'
     dependencies = apply_substitutions_to_dependencies(test.dependencies, vardefs)
 
-    #now allow the input vars to apply
-    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(vardefs, input_var_defs)
+    # now allow the input vars to apply
+    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(
+        vardefs, input_var_defs
+    )
 
     if test.configuration:
         config = test.configuration
@@ -504,7 +571,7 @@ def apply_environment_to_test(test, env, input_var_defs):
             min_disk_gb=test.min_disk_gb or env.test_min_disk_gb,
             hash=test.hash,
             **kwargs
-            )
+        )
 
     if test.matches.Build or test.matches.Test:
         stages = env.test_stages + test.stages
@@ -515,41 +582,38 @@ def apply_environment_to_test(test, env, input_var_defs):
             TestDefinition.Build,
             stages=stages,
             max_retries=test.max_retries,
-            retry_wait_seconds=test.retry_wait_seconds
-            )
+            retry_wait_seconds=test.retry_wait_seconds,
+        )
     elif test.matches.Test:
-        return make(
-            TestDefinition.Test,
-            stages=stages
-            )
+        return make(TestDefinition.Test, stages=stages)
     elif test.matches.Deployment:
-        return make(
-            TestDefinition.Deployment,
-            portExpose=test.portExpose
-            )
+        return make(TestDefinition.Deployment, portExpose=test.portExpose)
+
 
 def apply_variable_substitution_to_test(test, input_var_defs):
     vardefs = dict(test.variables)
 
-    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(vardefs)
+    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(
+        vardefs
+    )
 
-    #dependencies need to resolve without use of 'input_var_defs'
+    # dependencies need to resolve without use of 'input_var_defs'
     dependencies = apply_substitutions_to_dependencies(test.dependencies, vardefs)
 
-    #now allow the input vars to apply
-    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(vardefs, input_var_defs)
+    # now allow the input vars to apply
+    vardefs = VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(
+        vardefs, input_var_defs
+    )
 
     if test.matches.Build:
         return test._withReplacement(
             variables=vardefs,
-            stages=apply_variable_substitution_to_stages(test.stages, vardefs)
-            )
+            stages=apply_variable_substitution_to_stages(test.stages, vardefs),
+        )
     elif test.matches.Test:
         return test._withReplacement(
             variables=vardefs,
-            stages=apply_variable_substitution_to_stages(test.stages, vardefs)
-            )
+            stages=apply_variable_substitution_to_stages(test.stages, vardefs),
+        )
     elif test.matches.Deployment:
-        return test._withReplacement(
-            variables=vardefs
-            )
+        return test._withReplacement(variables=vardefs)

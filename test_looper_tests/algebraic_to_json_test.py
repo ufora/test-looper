@@ -22,59 +22,46 @@ opcode.Add = {}
 opcode.Sub = {}
 
 expr = Alternative("Expr")
-expr.Constant = {'value': int}
-expr.Binop = {"opcode": opcode, 'l': expr, 'r': expr}
-expr.Add = {'l': expr, 'r': expr}
-expr.Sub = {'l': expr, 'r': expr}
-expr.Mul = {'l': expr, 'r': expr}
-expr.Many = {'vals': List(expr)}
-expr.Possibly = {'val': Nullable(expr)}
+expr.Constant = {"value": int}
+expr.Binop = {"opcode": opcode, "l": expr, "r": expr}
+expr.Add = {"l": expr, "r": expr}
+expr.Sub = {"l": expr, "r": expr}
+expr.Mul = {"l": expr, "r": expr}
+expr.Many = {"vals": List(expr)}
+expr.Possibly = {"val": Nullable(expr)}
 
 c10 = expr.Constant(value=10)
 c20 = expr.Constant(value=20)
-a = expr.Add(l=c10,r=c20)
+a = expr.Add(l=c10, r=c20)
 bin_a = expr.Binop(opcode=opcode.Sub(), l=c10, r=c20)
 
 several = expr.Many([c10, c20, a, expr.Possibly(None), expr.Possibly(c20), bin_a])
 
 int_list = Alternative("int_list")
-int_list.someints = {'ints': List(int)}
+int_list.someints = {"ints": List(int)}
 
 
 class AlgebraicToJsonTests(unittest.TestCase):
     def test_basic(self):
         e = Encoder()
 
-        self.assertEqual(
-            e.to_json(expr.Constant(value=10)), 
-            {'value': 10}
-            )
+        self.assertEqual(e.to_json(expr.Constant(value=10)), {"value": 10})
 
         self.assertEqual(
-            e.to_json(a),
-            {'_type': "Add", 
-             "l": {'value': 10},
-             "r": {'value': 20}
-             }
-            )
+            e.to_json(a), {"_type": "Add", "l": {"value": 10}, "r": {"value": 20}}
+        )
+
+        self.assertEqual(e.to_json(expr.Possibly(None)), {"val": None})
 
         self.assertEqual(
-            e.to_json(expr.Possibly(None)),
-            {'val': None}
-            )
-
-        self.assertEqual(
-            e.to_json(bin_a),
-            {'opcode': "Sub", 
-             "l": {'value': 10},
-             "r": {'value': 20}}
-            )
+            e.to_json(bin_a), {"opcode": "Sub", "l": {"value": 10}, "r": {"value": 20}}
+        )
 
     def test_intlist(self):
-        #verify that a list of ints serializes in an efficient way
+        # verify that a list of ints serializes in an efficient way
         e = Encoder()
-        for length in [10,20,100,1000, 10000]:
-            some_ints = int_list.someints([1]*length)
+        for length in [10, 20, 100, 1000, 10000]:
+            some_ints = int_list.someints([1] * length)
             rep = json.dumps(e.to_json(some_ints))
             self.assertTrue(len(rep) < length * 3 + 50)
 
@@ -82,29 +69,25 @@ class AlgebraicToJsonTests(unittest.TestCase):
         e = Encoder()
 
         X = Alternative("X")
-        X.A = {'A_str': str, "A_int": int}
+        X.A = {"A_str": str, "A_int": int}
 
-        self.assertEqual(
-            e.from_json({"A_str":"hi"}, X),
-            X.A(A_str="hi", A_int=0)
-            )
+        self.assertEqual(e.from_json({"A_str": "hi"}, X), X.A(A_str="hi", A_int=0))
 
     def test_allow_extra(self):
         e = Encoder()
-        e.allowExtraFields=True
+        e.allowExtraFields = True
 
         e_strict = Encoder()
 
         X = Alternative("X")
-        X.A = {'A_str': str, "A_int": int}
+        X.A = {"A_str": str, "A_int": int}
 
         self.assertEqual(
-            e.from_json({"A_str":"hi", "nonsense": 10}, X),
-            X.A(A_str="hi", A_int=0)
-            )
+            e.from_json({"A_str": "hi", "nonsense": 10}, X), X.A(A_str="hi", A_int=0)
+        )
 
         with self.assertRaises(Exception):
-            e_strict.from_json({"A_str":"hi", "nonsense": 10}, X)
+            e_strict.from_json({"A_str": "hi", "nonsense": 10}, X)
 
     def test_roundtrip(self):
         e = Encoder()

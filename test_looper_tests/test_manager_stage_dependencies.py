@@ -47,7 +47,9 @@ builds:
     command: "hi"
 """
 
-repo_with_bad_artifact = basic_repo_text[:-1] + """
+repo_with_bad_artifact = (
+    basic_repo_text[:-1]
+    + """
   build_needing_bad_artifact:
     environment: linux
     dependencies:
@@ -55,7 +57,10 @@ repo_with_bad_artifact = basic_repo_text[:-1] + """
       first_B: build_with_stages/first_B
     command: "hi"
 """
-repo_with_two_artifacts_and_same_name = basic_repo_text[:-1] + """
+)
+repo_with_two_artifacts_and_same_name = (
+    basic_repo_text[:-1]
+    + """
   build_with_double:
     environment: linux
     stages:
@@ -69,8 +74,11 @@ repo_with_two_artifacts_and_same_name = basic_repo_text[:-1] + """
         directory: whatever
     command: "hi"
 """
+)
 
-repo_with_two_artifacts_of_which_one_is_unnamed = basic_repo_text[:-1] + """
+repo_with_two_artifacts_of_which_one_is_unnamed = (
+    basic_repo_text[:-1]
+    + """
   build_with_double:
     environment: linux
     stages:
@@ -82,6 +90,8 @@ repo_with_two_artifacts_of_which_one_is_unnamed = basic_repo_text[:-1] + """
       artifacts:
       - directory: whatever 
 """
+)
+
 
 class TestManagerStageDependencies(unittest.TestCase):
     def test_recognizes_invalid_dep(self):
@@ -100,7 +110,9 @@ class TestManagerStageDependencies(unittest.TestCase):
     def test_recognizes_double_dep(self):
         harness = TestManagerTestHarness.getHarness()
 
-        harness.manager.source_control.addCommit("repo0/c0", [], repo_with_two_artifacts_and_same_name)
+        harness.manager.source_control.addCommit(
+            "repo0/c0", [], repo_with_two_artifacts_and_same_name
+        )
 
         try:
             harness.resolver().testDefinitionsFor("repo0", "c0")
@@ -108,12 +120,16 @@ class TestManagerStageDependencies(unittest.TestCase):
         except Exception as e:
             err = str(e)
 
-        self.assertTrue("defined artifact 'second_A' twice" in err, "error is " + repr(err))
+        self.assertTrue(
+            "defined artifact 'second_A' twice" in err, "error is " + repr(err)
+        )
 
     def test_recognizes_double_dep_of_unnamed(self):
         harness = TestManagerTestHarness.getHarness()
 
-        harness.manager.source_control.addCommit("repo0/c0", [], repo_with_two_artifacts_of_which_one_is_unnamed)
+        harness.manager.source_control.addCommit(
+            "repo0/c0", [], repo_with_two_artifacts_of_which_one_is_unnamed
+        )
 
         try:
             harness.resolver().testDefinitionsFor("repo0", "c0")
@@ -121,7 +137,10 @@ class TestManagerStageDependencies(unittest.TestCase):
         except Exception as e:
             err = str(e)
 
-        self.assertTrue("can only define the unnamed artifact if it defines no others" in err, "error is " + repr(err))
+        self.assertTrue(
+            "can only define the unnamed artifact if it defines no others" in err,
+            "error is " + repr(err),
+        )
 
     def test_basic_dependency(self):
 
@@ -135,10 +154,10 @@ class TestManagerStageDependencies(unittest.TestCase):
         harness.consumeBackgroundTasks()
 
         harness.enableBranchTesting("repo0", "master")
-        
+
         harness.consumeBackgroundTasks()
 
-        #we should see two tests, one of which can be started
+        # we should see two tests, one of which can be started
         with harness.database.view():
             test1 = harness.lookupTestByFullname(("repo0/c0/build_with_stages"))
             test2 = harness.lookupTestByFullname(("repo0/c0/build_needing_first_A"))
@@ -155,29 +174,37 @@ class TestManagerStageDependencies(unittest.TestCase):
 
         testId = tests[0][0]
         with self.assertRaises(Exception):
-            harness.manager.recordTestArtifactUploaded(testId, "not_first_A", harness.timestamp, isCumulative=False)
+            harness.manager.recordTestArtifactUploaded(
+                testId, "not_first_A", harness.timestamp, isCumulative=False
+            )
 
-        harness.manager.recordTestArtifactUploaded(testId, "first_A", harness.timestamp, isCumulative=False)
-        harness.manager.recordTestArtifactUploaded(testId, ["first_A"], harness.timestamp, isCumulative=True)
+        harness.manager.recordTestArtifactUploaded(
+            testId, "first_A", harness.timestamp, isCumulative=False
+        )
+        harness.manager.recordTestArtifactUploaded(
+            testId, ["first_A"], harness.timestamp, isCumulative=True
+        )
         harness.consumeBackgroundTasks()
-        
+
         tests2 = harness.startAllNewTests()
         self.assertTrue(len(tests2) == 1)
 
         with harness.database.view():
-            self.assertEqual(test1.activeRuns,1)
-            self.assertEqual(test2.activeRuns,1)
+            self.assertEqual(test1.activeRuns, 1)
+            self.assertEqual(test2.activeRuns, 1)
 
         with self.assertRaises(Exception):
-            harness.manager.recordTestArtifactUploaded(testId, ["first_A", "third"], harness.timestamp, isCumulative=True)
-        
-        harness.manager.recordTestArtifactUploaded(testId, ["first_A", "first_B"], harness.timestamp, isCumulative=True)
+            harness.manager.recordTestArtifactUploaded(
+                testId, ["first_A", "third"], harness.timestamp, isCumulative=True
+            )
+
+        harness.manager.recordTestArtifactUploaded(
+            testId, ["first_A", "first_B"], harness.timestamp, isCumulative=True
+        )
         harness.consumeBackgroundTasks()
         harness.startAllNewTests()
-        
-        with harness.database.view():
-            self.assertEqual(test1.activeRuns,1)
-            self.assertEqual(test2.activeRuns,1)
-            self.assertEqual(test3.activeRuns,1)
 
-        
+        with harness.database.view():
+            self.assertEqual(test1.activeRuns, 1)
+            self.assertEqual(test2.activeRuns, 1)
+            self.assertEqual(test3.activeRuns, 1)

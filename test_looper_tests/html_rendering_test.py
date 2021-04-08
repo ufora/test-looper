@@ -15,22 +15,22 @@ import test_looper.core.Config as Config
 
 common.configureLogging()
 
+
 class MockHttpServer:
     def __init__(self, testManager):
         self.testManager = testManager
         self.testdir = tempfile.mkdtemp()
         self.httpServerConfig = Config.HttpServerConfig(
-            repo_prefixes_to_suppress=[],
-            repo_prefixes_to_shorten=[]
-            )
+            repo_prefixes_to_suppress=[], repo_prefixes_to_shorten=[]
+        )
 
         self.artifactStorage = ArtifactStorage.LocalArtifactStorage(
             Config.ArtifactsConfig.LocalDisk(
-                path_to_build_artifacts = os.path.join(self.testdir, "build_artifacts"),
-                path_to_test_artifacts = os.path.join(self.testdir, "test_artifacts")
-                )
+                path_to_build_artifacts=os.path.join(self.testdir, "build_artifacts"),
+                path_to_test_artifacts=os.path.join(self.testdir, "test_artifacts"),
             )
-        
+        )
+
         self.address = "localhost"
         self.src_ctrl = self.testManager.source_control
 
@@ -42,6 +42,7 @@ class MockHttpServer:
 
     def getCurrentLogin(self):
         return "user"
+
 
 class HtmlRenderingTest(unittest.TestCase):
     def setUp(self):
@@ -57,7 +58,6 @@ class HtmlRenderingTest(unittest.TestCase):
         self.harness.enableBranchTesting("repo1", "master")
         self.harness.enableBranchTesting("repo2", "master")
 
-
     def getSomeContexts(self):
         return [self.renderer.contextFor(x, {}) for x in self.getSomeObjects()]
 
@@ -68,15 +68,27 @@ class HtmlRenderingTest(unittest.TestCase):
             objects.append(r)
             for b in self.database.Branch.lookupAll(repo=r):
                 objects.append(b)
-                
-                objects.append(ComboContexts.BranchAndFilter(b, "linux", ""))
-                objects.append(ComboContexts.BranchAndFilter(b, "", "test_with_individual_failures_1"))
 
-                for c in self.testManager.commitsToDisplayForBranch(b,100):
+                objects.append(ComboContexts.BranchAndFilter(b, "linux", ""))
+                objects.append(
+                    ComboContexts.BranchAndFilter(
+                        b, "", "test_with_individual_failures_1"
+                    )
+                )
+
+                for c in self.testManager.commitsToDisplayForBranch(b, 100):
                     objects.append(c)
 
-                    objects.append(ComboContexts.CommitAndFilter(c,"linux", "test_with_individual_failures_1"))
-                    objects.append(ComboContexts.CommitAndFilter(c,"", "test_with_individual_failures_1"))
+                    objects.append(
+                        ComboContexts.CommitAndFilter(
+                            c, "linux", "test_with_individual_failures_1"
+                        )
+                    )
+                    objects.append(
+                        ComboContexts.CommitAndFilter(
+                            c, "", "test_with_individual_failures_1"
+                        )
+                    )
 
                     for t in self.testManager.allTestsForCommit(c):
                         objects.append(t)
@@ -87,8 +99,8 @@ class HtmlRenderingTest(unittest.TestCase):
         return objects
 
     def testContexts(self):
-        #validate that the "Context" objects can encode/decode their states in 
-        #urls correctly
+        # validate that the "Context" objects can encode/decode their states in
+        # urls correctly
 
         def objectAndChildren(o):
             yield o
@@ -110,14 +122,14 @@ class HtmlRenderingTest(unittest.TestCase):
 
                     parsedContext = self.renderer.getFromEncoding(path, kwargs)
 
-                    self.assertTrue(parsedContext, (path,kwargs))
+                    self.assertTrue(parsedContext, (path, kwargs))
 
                     self.assertEqual(parsedContext, objContext)
 
                     parsedContext.parentContext().childContexts(parsedContext)
 
     def testRendering(self):
-        #render all reachable objects in a few different scenarios
+        # render all reachable objects in a few different scenarios
 
         with self.database.view():
             for c in self.getSomeContexts():

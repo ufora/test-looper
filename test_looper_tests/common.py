@@ -3,6 +3,7 @@ import shutil
 import sys
 import os
 
+
 def configureLogging(verbose=False):
     loglevel = logging.INFO if verbose else logging.WARN
     logging.getLogger().setLevel(loglevel)
@@ -11,16 +12,19 @@ def configureLogging(verbose=False):
         handler.setLevel(loglevel)
         handler.setFormatter(
             logging.Formatter(
-                '%(asctime)s %(levelname)s %(filename)s:%(lineno)s@%(funcName)s %(name)s - %(message)s'
-                )
+                "%(asctime)s %(levelname)s %(filename)s:%(lineno)s@%(funcName)s %(name)s - %(message)s"
             )
+        )
+
 
 def mirror_into(src_dir, dest_dir):
     for p in os.listdir(src_dir):
         if os.path.isdir(os.path.join(src_dir, p)):
             if os.path.exists(os.path.join(dest_dir, p)):
                 shutil.rmtree(os.path.join(dest_dir, p))
-            shutil.copytree(os.path.join(src_dir, p), os.path.join(dest_dir, p), symlinks=True)
+            shutil.copytree(
+                os.path.join(src_dir, p), os.path.join(dest_dir, p), symlinks=True
+            )
         else:
             shutil.copy2(os.path.join(src_dir, p), os.path.join(dest_dir, p))
     for p in os.listdir(dest_dir):
@@ -29,4 +33,3 @@ def mirror_into(src_dir, dest_dir):
                 os.remove(os.path.join(src_dir, p))
             else:
                 shutil.rmtree(os.path.join(src_dir, p))
-

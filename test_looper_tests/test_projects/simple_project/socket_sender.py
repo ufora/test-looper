@@ -26,7 +26,7 @@ while True:
         sys.stdout.flush()
         os._exit(0)
     except:
-        time.sleep(.1)
+        time.sleep(0.1)
 
     if time.time() - t0 > 10.0:
         sys.stdout.flush()

@@ -3,14 +3,17 @@ import re
 identifier_pattern = re.compile("[a-zA-Z0-9_-]+$")
 substitution_pattern = re.compile(r"\$\{([a-zA-Z0-9_-]+)\}")
 
+
 def variables_referenced(text):
     """Find all variables of the form ${varname}"""
     return set(substitution_pattern.findall(text))
+
 
 def substitute_variables(text, vars):
     for varname, vardef in vars.items():
         text = text.replace("${" + varname + "}", vardef)
     return text
+
 
 def compute_graph_levels(deps, uses):
     """For every node in the dependency graph, compute levels.
@@ -26,7 +29,7 @@ def compute_graph_levels(deps, uses):
     def compute_level(var):
         if not deps[var]:
             return 0
-        
+
         for d in deps[var]:
             if levels[d] is None:
                 return None
@@ -37,7 +40,7 @@ def compute_graph_levels(deps, uses):
 
     while dirty:
         new_dirty = set()
-        
+
         for var in dirty:
             new_level = compute_level(var)
             if new_level != levels[var]:
@@ -55,8 +58,9 @@ def compute_graph_levels(deps, uses):
     for dep, level in levels.items():
         result[level].append(dep)
     return result
-   
-def apply_variable_substitutions_and_merge(vardefs, extra_variables = {}):
+
+
+def apply_variable_substitutions_and_merge(vardefs, extra_variables={}):
     """Apply replacement logic to a set of variable definitions.
 
     extra_variables are additional substitutions to perform. They may
@@ -71,11 +75,11 @@ def apply_variable_substitutions_and_merge(vardefs, extra_variables = {}):
         if identifier_pattern.match(var):
             deps[var] = variables_referenced(vardef)
 
-    #restrict the graph to variables we actually contain definitions for
+    # restrict the graph to variables we actually contain definitions for
     for var in deps:
         deps[var] = set([v for v in deps[var] if v in deps])
 
-    #find all the places a variable is used
+    # find all the places a variable is used
     uses = {}
     for var in deps:
         uses[var] = set()
@@ -83,7 +87,7 @@ def apply_variable_substitutions_and_merge(vardefs, extra_variables = {}):
         for var_used in deps[var]:
             uses[var_used].add(var)
 
-    #place variables in levels
+    # place variables in levels
     levels = compute_graph_levels(deps, uses)
 
     for level, var_list in sorted(levels.items()):
@@ -100,7 +104,8 @@ def apply_variable_substitutions_and_merge(vardefs, extra_variables = {}):
 
     return vardefs
 
-def apply_variable_substitutions_and_merge_repeatedly(vardefs, extra_variables = {}):
+
+def apply_variable_substitutions_and_merge_repeatedly(vardefs, extra_variables={}):
     """Repeatedly merge variables until we stabilize. This allows ${${A}${B}} to work. 
 
     The process is guaranteed to terminate because we are always consuming a level of 
@@ -112,4 +117,3 @@ def apply_variable_substitutions_and_merge_repeatedly(vardefs, extra_variables =
             return new_vardefs
         else:
             vardefs = new_vardefs
-

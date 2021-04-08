@@ -24,50 +24,68 @@ TerminalInputMsg.Resize = {"cols": int, "rows": int}
 
 ServerToClientMsg = algebraic.Alternative("ServerToClientMsg")
 ServerToClientMsg.IdentifyCurrentState = {}
-ServerToClientMsg.TerminalInput = {'deploymentId': str, 'msg': TerminalInputMsg}
+ServerToClientMsg.TerminalInput = {"deploymentId": str, "msg": TerminalInputMsg}
 ServerToClientMsg.TestAssignment = {
-    'testId': str, 
-    'testDefinition': TestDefinition.TestDefinition,
-    'historicalTestFailureRates': algebraic.Dict(str, (int, int)) #testname->(failures,totalRuns)
-    }
-ServerToClientMsg.CancelTest = {'testId': str}
-ServerToClientMsg.AcknowledgeFinishedTest = {'testId': str}
+    "testId": str,
+    "testDefinition": TestDefinition.TestDefinition,
+    "historicalTestFailureRates": algebraic.Dict(
+        str, (int, int)
+    ),  # testname->(failures,totalRuns)
+}
+ServerToClientMsg.CancelTest = {"testId": str}
+ServerToClientMsg.AcknowledgeFinishedTest = {"testId": str}
 
-ServerToClientMsg.DeploymentAssignment = {'deploymentId': str, 'testDefinition': TestDefinition.TestDefinition }
-ServerToClientMsg.ShutdownDeployment = {'deploymentId': str}
+ServerToClientMsg.DeploymentAssignment = {
+    "deploymentId": str,
+    "testDefinition": TestDefinition.TestDefinition,
+}
+ServerToClientMsg.ShutdownDeployment = {"deploymentId": str}
 
-ServerToClientMsg.GrantOrDenyPermissionToHitGitRepo = {'requestUniqueId': str, "allowed": bool}
+ServerToClientMsg.GrantOrDenyPermissionToHitGitRepo = {
+    "requestUniqueId": str,
+    "allowed": bool,
+}
 
 ClientToServerMsg = algebraic.Alternative("ClientToServerMsg")
 
 WorkerState = algebraic.Alternative("WorkerState")
 WorkerState.Waiting = {}
-WorkerState.WorkingOnDeployment = {'deploymentId': str, 'logs_so_far': str}
-WorkerState.WorkingOnTest = {'testId': str, 'logs_so_far': str, 'artifacts': algebraic.List(str)}
+WorkerState.WorkingOnDeployment = {"deploymentId": str, "logs_so_far": str}
+WorkerState.WorkingOnTest = {
+    "testId": str,
+    "logs_so_far": str,
+    "artifacts": algebraic.List(str),
+}
 WorkerState.TestFinished = {
-    'testId': str, 
-    'success': bool, 
-    'testSuccesses': algebraic.List(SingleTestRunResult.SingleTestRunResult), 
-    'artifacts': algebraic.List(str)
-    } #testSuccess: (name,(timeElapsed, success,hasLogs))
+    "testId": str,
+    "success": bool,
+    "testSuccesses": algebraic.List(SingleTestRunResult.SingleTestRunResult),
+    "artifacts": algebraic.List(str),
+}  # testSuccess: (name,(timeElapsed, success,hasLogs))
 
-ClientToServerMsg.CurrentState = {'machineId': str, 'state': WorkerState}
+ClientToServerMsg.CurrentState = {"machineId": str, "state": WorkerState}
 ClientToServerMsg.WaitingHeartbeat = {}
-ClientToServerMsg.TestHeartbeat = {'testId': str}
-ClientToServerMsg.ArtifactUploaded = {'testId': str, 'artifact': str}
-ClientToServerMsg.TestLogOutput = {'testId': str, 'log': str}
-ClientToServerMsg.DeploymentHeartbeat = {'deploymentId': str}
-ClientToServerMsg.DeploymentExited = {'deploymentId': str}
-ClientToServerMsg.DeploymentTerminalOutput = {'deploymentId': str, 'data': str}
+ClientToServerMsg.TestHeartbeat = {"testId": str}
+ClientToServerMsg.ArtifactUploaded = {"testId": str, "artifact": str}
+ClientToServerMsg.TestLogOutput = {"testId": str, "log": str}
+ClientToServerMsg.DeploymentHeartbeat = {"deploymentId": str}
+ClientToServerMsg.DeploymentExited = {"deploymentId": str}
+ClientToServerMsg.DeploymentTerminalOutput = {"deploymentId": str, "data": str}
 ClientToServerMsg.TestFinished = {
-    'testId': str, 
-    'success': bool, 
-    'testSuccesses': algebraic.List(SingleTestRunResult.SingleTestRunResult), 
-    'artifacts': algebraic.List(str)
-    }
-ClientToServerMsg.RequestSourceTarballUpload = {'repo': str, 'commitHash': str, 'path': str, 'platform': str} #platform is 'linux' or 'win'
+    "testId": str,
+    "success": bool,
+    "testSuccesses": algebraic.List(SingleTestRunResult.SingleTestRunResult),
+    "artifacts": algebraic.List(str),
+}
+ClientToServerMsg.RequestSourceTarballUpload = {
+    "repo": str,
+    "commitHash": str,
+    "path": str,
+    "platform": str,
+}  # platform is 'linux' or 'win'
 
 SOCKET_CLEANUP_TIMEOUT = 360
+
 
 class Session(object):
     def __init__(self, server, testManager, machine_management, socket, address):
@@ -88,7 +106,11 @@ class Session(object):
         """Close socket if no traffic in a long time. Returns whether to keep polling..."""
         try:
             if time.time() - self.lastMessageTimestamp > SOCKET_CLEANUP_TIMEOUT:
-                logging.info("Clearing out socket for machine %s as we have not heard from it in %s seconds.", self.machineId, SOCKET_CLEANUP_TIMEOUT)
+                logging.info(
+                    "Clearing out socket for machine %s as we have not heard from it in %s seconds.",
+                    self.machineId,
+                    SOCKET_CLEANUP_TIMEOUT,
+                )
 
                 self.socket.shutdown(socket.SHUT_RDWR)
                 self.socket.close()
@@ -104,9 +126,8 @@ class Session(object):
 
             while not self.server.shouldStop():
                 msg = algebraic_to_json.Encoder().from_json(
-                    json.loads(self.readString()),
-                    ClientToServerMsg
-                    )
+                    json.loads(self.readString()), ClientToServerMsg
+                )
                 self.lastMessageTimestamp = time.time()
                 self.processMsg(msg)
 
@@ -124,30 +145,47 @@ class Session(object):
         if msg.matches.CurrentState:
             self.machineId = msg.machineId
             logging.info("WorkerChannel initialized with machineId=%s", self.machineId)
-            
+
             self.testManager.machineInitialized(msg.machineId, time.time())
 
             if msg.state.matches.WorkingOnDeployment:
                 deploymentId = msg.state.deploymentId
 
-                if not self.testManager.handleDeploymentConnectionReinitialized(deploymentId, time.time(), msg.state.logs_so_far):
+                if not self.testManager.handleDeploymentConnectionReinitialized(
+                    deploymentId, time.time(), msg.state.logs_so_far
+                ):
                     self.send(ServerToClientMsg.ShutdownDeployment(deploymentId))
                 else:
                     self.currentDeploymentId = msg.state.deploymentId
 
                     def onMessage(msg):
                         if self.currentDeploymentId == deploymentId:
-                            self.send(ServerToClientMsg.TerminalInput(deploymentId=deploymentId,msg=msg))
-                    
+                            self.send(
+                                ServerToClientMsg.TerminalInput(
+                                    deploymentId=deploymentId, msg=msg
+                                )
+                            )
+
                     self.testManager.subscribeToClientMessages(deploymentId, onMessage)
 
             elif msg.state.matches.WorkingOnTest:
-                if not self.testManager.handleTestConnectionReinitialized(msg.state.testId, time.time(), msg.state.logs_so_far, msg.state.artifacts):
+                if not self.testManager.handleTestConnectionReinitialized(
+                    msg.state.testId,
+                    time.time(),
+                    msg.state.logs_so_far,
+                    msg.state.artifacts,
+                ):
                     self.send(ServerToClientMsg.CancelTest(msg.state.testId))
                 else:
                     self.currentTestId = msg.state.testId
             elif msg.state.matches.TestFinished:
-                self.testManager.recordTestResults(msg.state.success, msg.state.testId, msg.state.testSuccesses, msg.state.artifacts, time.time())
+                self.testManager.recordTestResults(
+                    msg.state.success,
+                    msg.state.testId,
+                    msg.state.testSuccesses,
+                    msg.state.artifacts,
+                    time.time(),
+                )
                 self.send(ServerToClientMsg.AcknowledgeFinishedTest(msg.state.testId))
         elif msg.matches.WaitingHeartbeat:
             if self.machineId is None:
@@ -156,35 +194,51 @@ class Session(object):
             self.testManager.machineHeartbeat(self.machineId, time.time())
 
             if self.currentDeploymentId is None and self.currentTestId is None:
-                deploymentId, testDefinition = self.testManager.startNewDeployment(self.machineId, time.time())
+                deploymentId, testDefinition = self.testManager.startNewDeployment(
+                    self.machineId, time.time()
+                )
                 if deploymentId is not None:
                     self.currentDeploymentId = deploymentId
                     self.send(
                         ServerToClientMsg.DeploymentAssignment(
-                            deploymentId=deploymentId,
-                            testDefinition=testDefinition
-                            )
+                            deploymentId=deploymentId, testDefinition=testDefinition
                         )
+                    )
+
                     def onMessage(msg):
                         if self.currentDeploymentId == deploymentId:
-                            self.send(ServerToClientMsg.TerminalInput(deploymentId=deploymentId,msg=msg))
+                            self.send(
+                                ServerToClientMsg.TerminalInput(
+                                    deploymentId=deploymentId, msg=msg
+                                )
+                            )
+
                     self.testManager.subscribeToClientMessages(deploymentId, onMessage)
                 else:
                     t0 = time.time()
-                    testId, testDefinition,historicalTestFailureRates = self.testManager.startNewTest(self.machineId, time.time())
+                    testId, testDefinition, historicalTestFailureRates = self.testManager.startNewTest(
+                        self.machineId, time.time()
+                    )
                     if testId is not None:
                         self.currentTestId = testId
                         self.send(
                             ServerToClientMsg.TestAssignment(
                                 testId=testId,
                                 testDefinition=testDefinition,
-                                historicalTestFailureRates=historicalTestFailureRates
-                                )
+                                historicalTestFailureRates=historicalTestFailureRates,
                             )
-                        logging.info("Allocated new test %s to machine %s in %s seconds.", testId, self.machineId, time.time() - t0)
+                        )
+                        logging.info(
+                            "Allocated new test %s to machine %s in %s seconds.",
+                            testId,
+                            self.machineId,
+                            time.time() - t0,
+                        )
         elif msg.matches.ArtifactUploaded:
             if msg.testId == self.currentTestId:
-                self.testManager.recordTestArtifactUploaded(self.currentTestId, msg.artifact, time.time(), isCumulative=False)
+                self.testManager.recordTestArtifactUploaded(
+                    self.currentTestId, msg.artifact, time.time(), isCumulative=False
+                )
         elif msg.matches.TestHeartbeat or msg.matches.TestLogOutput:
             if msg.matches.TestHeartbeat:
                 log = None
@@ -193,7 +247,11 @@ class Session(object):
 
             if msg.testId == self.currentTestId:
                 if not self.testManager.testHeartbeat(msg.testId, time.time(), log):
-                    logging.info("Server canceling test %s on machine %s", msg.testId, self.machineId)
+                    logging.info(
+                        "Server canceling test %s on machine %s",
+                        msg.testId,
+                        self.machineId,
+                    )
 
                     self.send(ServerToClientMsg.CancelTest(testId=msg.testId))
                     self.currentTestId = None
@@ -205,11 +263,15 @@ class Session(object):
         elif msg.matches.DeploymentHeartbeat or msg.matches.DeploymentTerminalOutput:
             log = msg.data if msg.matches.DeploymentTerminalOutput else None
             if msg.deploymentId == self.currentDeploymentId:
-                if not self.testManager.handleMessageFromDeployment(msg.deploymentId, time.time(), log):
+                if not self.testManager.handleMessageFromDeployment(
+                    msg.deploymentId, time.time(), log
+                ):
                     self.send(ServerToClientMsg.ShutdownDeployment(msg.deploymentId))
                     self.currentDeploymentId = None
         elif msg.matches.TestFinished:
-            self.testManager.recordTestResults(msg.success, msg.testId, msg.testSuccesses, msg.artifacts, time.time())
+            self.testManager.recordTestResults(
+                msg.success, msg.testId, msg.testSuccesses, msg.artifacts, time.time()
+            )
             self.currentTestId = None
             self.send(ServerToClientMsg.AcknowledgeFinishedTest(msg.testId))
         elif msg.matches.RequestSourceTarballUpload:
@@ -222,9 +284,10 @@ class Session(object):
         with self.socketLock:
             return socket_util.writeString(self.socket, s)
 
+
 class TestLooperServer(SimpleServer.SimpleServer):
-    #if we modify this protocol version, the loopers should reboot and pull a new copy of the code
-    protocolVersion = '2.2.6'
+    # if we modify this protocol version, the loopers should reboot and pull a new copy of the code
+    protocolVersion = "2.2.6"
 
     def __init__(self, server_ports, testManager, httpServer, machine_management):
         """
@@ -235,19 +298,23 @@ class TestLooperServer(SimpleServer.SimpleServer):
         else:
             cert_and_keyfile = None
 
-        SimpleServer.SimpleServer.__init__(self, server_ports.server_worker_port, cert_and_key_paths = cert_and_keyfile)
+        SimpleServer.SimpleServer.__init__(
+            self, server_ports.server_worker_port, cert_and_key_paths=cert_and_keyfile
+        )
 
         self.port_ = server_ports.server_worker_port
         self.testManager = testManager
         self.httpServer = httpServer
         self.artifactStorage = httpServer.artifactStorage
         self.machine_management = machine_management
-        self.artifactStorageUploadThread = threading.Thread(target=self.uploadArtifactsInBackground)
+        self.artifactStorageUploadThread = threading.Thread(
+            target=self.uploadArtifactsInBackground
+        )
         self.artifactStorageUploadThread.daemon = True
         self.sourceTarballsRequested = queue.Queue()
 
         self.workerThread = threading.Thread(target=self.executeManagerWork)
-        self.workerThread.daemon=True
+        self.workerThread.daemon = True
         self.sessions = []
 
     def uploadArtifactsInBackground(self):
@@ -262,21 +329,28 @@ class TestLooperServer(SimpleServer.SimpleServer):
 
                     lastUploaded = previousUploadTimestamps.get(toUpload, 0.0)
                     if time.time() - lastUploaded < 60 * 2:
-                        #just ignore it - we uploaded it but there' a natural race condition
-                        #where the workers can be repeatedly requesting the same items over and
-                        #over
+                        # just ignore it - we uploaded it but there' a natural race condition
+                        # where the workers can be repeatedly requesting the same items over and
+                        # over
                         pass
                     else:
                         try:
                             self.uploadSourceTarball(toUpload)
                         except:
-                            logging.critical("Failed to upload %s because:\n%s", toUpload, traceback.format_exc())
+                            logging.critical(
+                                "Failed to upload %s because:\n%s",
+                                toUpload,
+                                traceback.format_exc(),
+                            )
 
                         previousUploadTimestamps[toUpload] = time.time()
                 except Queue.Empty:
                     pass
         except:
-            logging.critical("Manager source tarball upload thread exiting:\n%s", traceback.format_exc())
+            logging.critical(
+                "Manager source tarball upload thread exiting:\n%s",
+                traceback.format_exc(),
+            )
         finally:
             logging.info("Manager source tarball upload thread exited")
 
@@ -285,8 +359,8 @@ class TestLooperServer(SimpleServer.SimpleServer):
             self.testManager.source_control.getRepo(message.repo).source_repo,
             message.commitHash,
             message.path,
-            message.platform
-            )
+            message.platform,
+        )
 
     def executeManagerWork(self):
         try:
@@ -295,19 +369,27 @@ class TestLooperServer(SimpleServer.SimpleServer):
             while not self.shouldStop():
                 task = self.testManager.performBackgroundWork(time.time())
 
-                if lastSweep is None or time.time() - lastSweep > CLEANUP_TASK_FREQUENCY:
+                if (
+                    lastSweep is None
+                    or time.time() - lastSweep > CLEANUP_TASK_FREQUENCY
+                ):
                     lastSweep = time.time()
                     try:
                         self.testManager.performCleanupTasks(time.time())
                     except:
-                        logging.critical("Test manager failed during cleanup:\n%s", traceback.format_exc())
+                        logging.critical(
+                            "Test manager failed during cleanup:\n%s",
+                            traceback.format_exc(),
+                        )
 
                 if task:
                     logging.info("Performed %s", task)
                 if task is None:
-                    time.sleep(.1)
+                    time.sleep(0.1)
         except:
-            logging.critical("Manager worker thread exiting:\n%s", traceback.format_exc())
+            logging.critical(
+                "Manager worker thread exiting:\n%s", traceback.format_exc()
+            )
         finally:
             logging.info("Manager worker thread exited")
 
@@ -318,28 +400,32 @@ class TestLooperServer(SimpleServer.SimpleServer):
         logging.info("Initializing TestManager.")
         self.testManager.markRepoListDirty(time.time())
 
-        #start something to touch all the objects we can reach in the
-        #background
+        # start something to touch all the objects we can reach in the
+        # background
         if False:
             touchAllThread = threading.Thread(
-                target=self.testManager.touchAllTestsAndRuns,
-                args=(time.time(),)
-                )
-            touchAllThread.daemon=True
+                target=self.testManager.touchAllTestsAndRuns, args=(time.time(),)
+            )
+            touchAllThread.daemon = True
             touchAllThread.start()
 
         try:
             self.testManager.pruneDeadWorkers(time.time())
         except:
-            logging.error("Server had an exception during initialization:\n%s", traceback.format_exc())
+            logging.error(
+                "Server had an exception during initialization:\n%s",
+                traceback.format_exc(),
+            )
 
         try:
             self.testManager.checkAllTestPriorities(time.time(), resetUnbootable=False)
         except:
-            logging.error("Server had an exception during initialization:\n%s", traceback.format_exc())
-        
+            logging.error(
+                "Server had an exception during initialization:\n%s",
+                traceback.format_exc(),
+            )
+
         logging.info("DONE Initializing TestManager.")
-        
 
     def runListenLoop(self):
         logging.info("Starting TestLooperServer listen loop")
@@ -354,7 +440,7 @@ class TestLooperServer(SimpleServer.SimpleServer):
 
             self.workerThread.start()
             self.artifactStorageUploadThread.start()
-            
+
             super(TestLooperServer, self).runListenLoop()
         finally:
             self.httpServer.stop()
@@ -362,29 +448,23 @@ class TestLooperServer(SimpleServer.SimpleServer):
 
     def stop(self):
         super(TestLooperServer, self).stop()
-        
+
         logging.info("waiting for worker thread...")
 
         self.workerThread.join()
         self.artifactStorageUploadThread.join()
-        
+
         logging.info("successfully stopped TestLooperServer")
 
     def _onConnect(self, socket, address):
         logging.debug("Accepting connection from %s", address)
         newSession = Session(
-            self,
-            self.testManager,
-            self.machine_management,
-            socket,
-            address
-            )
-        
+            self, self.testManager, self.machine_management, socket, address
+        )
+
         self.sessions.append(newSession)
 
-        self.sessions = [
-            x for x in self.sessions if x.stillLooksAlive()
-            ]
+        self.sessions = [x for x in self.sessions if x.stillLooksAlive()]
 
         logging.info("Creating new session with %s sessions alive", len(self.sessions))
 

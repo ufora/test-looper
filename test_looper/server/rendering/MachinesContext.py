@@ -2,6 +2,7 @@ import test_looper.server.rendering.Context as Context
 import test_looper.server.HtmlGeneration as HtmlGeneration
 import time
 
+
 class MachinesContext(Context.Context):
     def __init__(self, renderer, options):
         Context.Context.__init__(self, renderer, options)
@@ -22,7 +23,21 @@ class MachinesContext(Context.Context):
     def renderPageBody(self):
         machines = self.testManager.database.Machine.lookupAll(isAlive=True)
 
-        grid = [["MachineID", "Hardware", "OS", "UP FOR", "STATUS", "LASTMSG", "COMMIT", "TEST", "LOGS", "CANCEL", ""]]
+        grid = [
+            [
+                "MachineID",
+                "Hardware",
+                "OS",
+                "UP FOR",
+                "STATUS",
+                "LASTMSG",
+                "COMMIT",
+                "TEST",
+                "LOGS",
+                "CANCEL",
+                "",
+            ]
+        ]
         for m in sorted(machines, key=lambda m: -m.bootTime):
             row = []
             row.append(m.machineId)
@@ -39,24 +54,32 @@ class MachinesContext(Context.Context):
                 row.append("Unknown")
 
             row.append(HtmlGeneration.secondsUpToString(time.time() - m.bootTime))
-            
+
             if m.firstHeartbeat < 1.0:
-                row.append('<span class="octicon octicon-watch" aria-hidden="true"></span>')
+                row.append(
+                    '<span class="octicon octicon-watch" aria-hidden="true"></span>'
+                )
             elif time.time() - m.lastHeartbeat < 60:
-                row.append('<span class="octicon octicon-check" aria-hidden="true"'
-                    + ' data-toggle="tooltip" data-placement="right" title="Heartbeat %s seconds ago" ' % (int(time.time() - m.lastHeartbeat))
-                    + '></span>'
-                    )
+                row.append(
+                    '<span class="octicon octicon-check" aria-hidden="true"'
+                    + ' data-toggle="tooltip" data-placement="right" title="Heartbeat %s seconds ago" '
+                    % (int(time.time() - m.lastHeartbeat))
+                    + "></span>"
+                )
             else:
-                row.append('<span class="octicon octicon-issue-opened" aria-hidden="true"'
-                    + ' data-toggle="tooltip" data-placement="right" title="Heartbeat %s seconds ago" ' % (int(time.time() - m.lastHeartbeat))
-                    + '></span>'
-                    )
-            
+                row.append(
+                    '<span class="octicon octicon-issue-opened" aria-hidden="true"'
+                    + ' data-toggle="tooltip" data-placement="right" title="Heartbeat %s seconds ago" '
+                    % (int(time.time() - m.lastHeartbeat))
+                    + "></span>"
+                )
+
             row.append(m.lastHeartbeatMsg)
 
             tests = self.testManager.database.TestRun.lookupAll(runningOnMachine=m)
-            deployments = self.testManager.database.Deployment.lookupAll(runningOnMachine=m)
+            deployments = self.testManager.database.Deployment.lookupAll(
+                runningOnMachine=m
+            )
 
             if len(tests) + len(deployments) > 1:
                 row.append("ERROR: multiple test runs/deployments")
@@ -67,10 +90,14 @@ class MachinesContext(Context.Context):
                 except:
                     row.append("")
 
-                row.append(self.renderer.testRunLink(tests[0], tests[0].test.testDefinitionSummary.name))
+                row.append(
+                    self.renderer.testRunLink(
+                        tests[0], tests[0].test.testDefinitionSummary.name
+                    )
+                )
                 row.append(self.renderer.testLogsButton(tests[0]._identity))
                 row.append(self.renderer.cancelTestRunButton(tests[0]._identity))
-                
+
             elif deployments:
                 commit = self.testManager.oldestCommitForTest(deployments[0].test)
                 try:
@@ -80,9 +107,9 @@ class MachinesContext(Context.Context):
 
                 d = deployments[0]
                 row.append("DEPLOYMENT")
-            
+
             grid.append(row)
-            
+
         return HtmlGeneration.grid(grid)
 
     def childContexts(self, currentChild):
@@ -90,7 +117,6 @@ class MachinesContext(Context.Context):
 
     def parentContext(self):
         return self.contextFor("root")
-        
+
     def renderMenuItemText(self, isHeader):
         return "Machines"
-

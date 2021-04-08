@@ -1,6 +1,7 @@
 """Represents a collection of repos provided by a service such as Github, or local disk."""
 import logging
 
+
 class SourceControl(object):
     def __init__(self):
         pass
@@ -28,7 +29,7 @@ class SourceControl(object):
         for r in repos:
             branchNames = self.getRepo(r).listBranches()
             logging.info("Branches of %s are %s", r, branchNames)
-            
+
             for b in branchNames:
-                res.append(r+"/"+b)
+                res.append(r + "/" + b)
         return res

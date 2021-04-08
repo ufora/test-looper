@@ -8,6 +8,7 @@ from test_looper.core.tools.Git import Git
 import logging
 import os
 
+
 def isValidRepoName(name):
     for c in name:
         if not (c.isalnum() or c in "-_/"):
@@ -38,7 +39,7 @@ class RemoteRepo(object):
             return []
 
         return self.source_repo.gitCommitDataMulti(branchOrHash, depth=depth)
-    
+
     def listBranches(self):
         return self.source_repo.listBranchesForRemote("origin")
 
@@ -51,7 +52,10 @@ class RemoteRepo(object):
         if test_definitions_path is None:
             return None, None
 
-        return self.source_repo.getFileContents(commitHash, test_definitions_path), os.path.splitext(test_definitions_path)[1]
+        return (
+            self.source_repo.getFileContents(commitHash, test_definitions_path),
+            os.path.splitext(test_definitions_path)[1],
+        )
 
     def cloneUrl(self,):
         """The clone url for a the repo"""
@@ -63,4 +67,4 @@ class RemoteRepo(object):
             self.source_repo.cloneFrom(self.cloneUrl())
 
     def refresh(self):
-        self.source_repo.fetchOrigin()        
+        self.source_repo.fetchOrigin()

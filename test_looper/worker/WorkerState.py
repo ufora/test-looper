@@ -40,16 +40,19 @@ import test_looper.data_model.TestDefinition as TestDefinition
 import test_looper.data_model.SingleTestRunResult as SingleTestRunResult
 import test_looper
 
+
 def withTime(logger):
     def logWithTime(msg, *args):
         if args:
             msg = msg % args
 
-        msg = time.asctime() + " TestLooper> " + msg + ("\n" if msg[-1:] != "\n" else "")
+        msg = (
+            time.asctime() + " TestLooper> " + msg + ("\n" if msg[-1:] != "\n" else "")
+        )
         logger(msg)
+
     return logWithTime
 
-        
 
 class DummyWorkerCallbacks:
     def __init__(self, localTerminal=False):
@@ -73,14 +76,17 @@ class DummyWorkerCallbacks:
     def requestSourceTarballUpload(self, repoName, commitHash, path, platform):
         pass
 
-HEARTBEAT_INTERVAL=3
+
+HEARTBEAT_INTERVAL = 3
 
 PASSTHROUGH_KEYS = ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN"]
 
 EARLY_STOP = "EARLY_STOP"
 
+
 class NAKED_MACHINE:
     pass
+
 
 class TestLooperDirectories:
     def __init__(self, worker_directory):
@@ -97,11 +103,31 @@ class TestLooperDirectories:
         self.worker_directory = worker_directory
 
     def all(self):
-        return [self.repo_copy_dir, self.scratch_dir, self.command_dir, self.test_inputs_dir, self.test_data_dir, 
-                self.build_cache_dir, self.ccache_dir, self.test_output_dir, self.build_output_dir, self.repo_cache]
+        return [
+            self.repo_copy_dir,
+            self.scratch_dir,
+            self.command_dir,
+            self.test_inputs_dir,
+            self.test_data_dir,
+            self.build_cache_dir,
+            self.ccache_dir,
+            self.test_output_dir,
+            self.build_output_dir,
+            self.repo_cache,
+        ]
+
 
 class WorkerState(object):
-    def __init__(self, name_prefix, worker_directory, artifactStorage, machineId, hardwareConfig, verbose=False, docker_image_repo=None):
+    def __init__(
+        self,
+        name_prefix,
+        worker_directory,
+        artifactStorage,
+        machineId,
+        hardwareConfig,
+        verbose=False,
+        docker_image_repo=None,
+    ):
         import test_looper.worker.TestLooperWorker
 
         self.name_prefix = name_prefix
@@ -163,25 +189,28 @@ class WorkerState(object):
 
                 if receivedException[0] is not None:
                     if exc_value is not None:
-                        logging.error("Got exception %s but also got a heartbeat exception." % exc_value)
+                        logging.error(
+                            "Got exception %s but also got a heartbeat exception."
+                            % exc_value
+                        )
                     raise receivedException[0]
 
         return Scope()
-    
+
     def cleanup(self):
         if Docker is not None:
             Docker.DockerImage.removeDanglingDockerImages()
             Docker.killAllWithNamePrefix(self.name_prefix)
 
         self.clearDirectoryAsRoot(
-            self.directories.test_data_dir, 
+            self.directories.test_data_dir,
             self.directories.test_output_dir,
             self.directories.build_output_dir,
-            self.directories.scratch_dir, 
-            self.directories.test_inputs_dir, 
+            self.directories.scratch_dir,
+            self.directories.test_inputs_dir,
             self.directories.command_dir,
-            self.directories.repo_copy_dir
-            )
+            self.directories.repo_copy_dir,
+        )
 
     def wants_to_run_cleanup(self):
         return True
@@ -190,10 +219,10 @@ class WorkerState(object):
         if Docker:
             image = Docker.DockerImage("ubuntu:16.04")
             image.run(
-                "rm -rf " + " ".join(["%s/*" % p for p in args]), 
-                volumes={a:a for a in args}, 
-                options="--rm"
-                )
+                "rm -rf " + " ".join(["%s/*" % p for p in args]),
+                volumes={a: a for a in args},
+                options="--rm",
+            )
 
         if True:
             for a in args:
@@ -202,7 +231,9 @@ class WorkerState(object):
                     shutil.rmtree(a)
                     self.ensureDirectoryExists(a)
                 except:
-                    logging.error("Failure clearing directory %s:\n%s", a, traceback.format_exc())
+                    logging.error(
+                        "Failure clearing directory %s:\n%s", a, traceback.format_exc()
+                    )
 
     def mapInternalToExternalPath(self, path, usingDocker):
         """Given a path within docker, return the path in the host. Returns none if we can't
@@ -211,9 +242,9 @@ class WorkerState(object):
         if not usingDocker:
             return path
 
-        for k,v in self.volumesToExpose().items():
+        for k, v in self.volumesToExpose().items():
             if path.startswith(v + "/"):
-                return k + "/" + path[len(v)+1:]
+                return k + "/" + path[len(v) + 1 :]
             elif path == v:
                 return k
 
@@ -227,15 +258,23 @@ class WorkerState(object):
             self.directories.test_output_dir: "/test_looper/output",
             self.directories.build_output_dir: "/test_looper/build_output",
             self.directories.ccache_dir: "/test_looper/ccache",
-            self.directories.command_dir: "/test_looper/command"
-            }
+            self.directories.command_dir: "/test_looper/command",
+        }
 
-    def _run_deployment(self, env, workerCallback, docker_image, extra_commands, working_directory, extraPorts=None):
+    def _run_deployment(
+        self,
+        env,
+        workerCallback,
+        docker_image,
+        extra_commands,
+        working_directory,
+        extraPorts=None,
+    ):
         build_log = io.StringIO()
 
         self.dumpPreambleLog(build_log, env, docker_image, "", working_directory)
 
-        workerCallback.terminalOutput(build_log.getvalue().replace("\n","\r\n"))
+        workerCallback.terminalOutput(build_log.getvalue().replace("\n", "\r\n"))
 
         if sys.platform == "win32":
             self._windows_prerun_command()
@@ -249,33 +288,47 @@ class WorkerState(object):
                 if os.getenv(key):
                     env_to_pass[key] = os.getenv(key)
 
-            command_path = os.path.join(self.directories.command_dir,"command.ps1")
-            with open(command_path,"w") as cmd_file:
+            command_path = os.path.join(self.directories.command_dir, "command.ps1")
+            with open(command_path, "w") as cmd_file:
                 print("cd '" + working_directory + "'", file=cmd_file)
-                print("echo 'Welcome to TestLooper on Windows. Here is the current environment:'", file=cmd_file)
+                print(
+                    "echo 'Welcome to TestLooper on Windows. Here is the current environment:'",
+                    file=cmd_file,
+                )
                 print("gci env:* | sort-object name", file=cmd_file)
                 print("echo '********************************'", file=cmd_file)
                 print("echo 'HERE ARE AVAILABLE SERVICES:'", file=cmd_file)
-                print("Get-Service | Format-Table -Property Name, Status, StartType, DisplayName", file=cmd_file)
+                print(
+                    "Get-Service | Format-Table -Property Name, Status, StartType, DisplayName",
+                    file=cmd_file,
+                )
                 print("echo '********************************'", file=cmd_file)
                 print(extra_commands, file=cmd_file)
 
             if workerCallback.localTerminal:
                 try:
                     running_subprocess = subprocess.Popen(
-                        ["powershell.exe", "-ExecutionPolicy", "Bypass", command_path, "-NoExit"],
+                        [
+                            "powershell.exe",
+                            "-ExecutionPolicy",
+                            "Bypass",
+                            command_path,
+                            "-NoExit",
+                        ],
                         shell=True,
                         env=env_to_pass,
-                        creationflags=0x00000200
-                        )
+                        creationflags=0x00000200,
+                    )
                     running_subprocess.wait()
                 except:
                     print("EXCEPTION")
                 print("Exiting subshell.")
             else:
-                invoker_path = os.path.join(self.directories.command_dir,"command_invoker.ps1")
+                invoker_path = os.path.join(
+                    self.directories.command_dir, "command_invoker.ps1"
+                )
 
-                with open(invoker_path,"w") as cmd_file:
+                with open(invoker_path, "w") as cmd_file:
                     print("powershell.exe " + command_path, file=cmd_file)
                     print("powershell.exe", file=cmd_file)
 
@@ -286,33 +339,40 @@ class WorkerState(object):
                     stderr=subprocess.PIPE,
                     shell=True,
                     env=env_to_pass,
-                    creationflags=subprocess.CREATE_NEW_CONSOLE
-                    )
+                    creationflags=subprocess.CREATE_NEW_CONSOLE,
+                )
 
                 logging.info("Powershell process has pid %s", running_subprocess.pid)
-                
-                time.sleep(.5)
+
+                time.sleep(0.5)
 
                 readthreadStop = threading.Event()
+
                 def readloop(file):
                     try:
                         while not readthreadStop.is_set():
                             data = os.read(file.fileno(), 4096)
                             if not data:
-                                #do a little throttling
+                                # do a little throttling
                                 time.sleep(0.01)
                             else:
-                                workerCallback.terminalOutput(data.replace("\n","\n\r"))
+                                workerCallback.terminalOutput(
+                                    data.replace("\n", "\n\r")
+                                )
                     except:
                         logging.error("Read loop failed:\n%s", traceback.format_exc())
 
-                readthreads = [threading.Thread(target=readloop, args=(x,)) for x in [running_subprocess.stdout, running_subprocess.stderr]]
+                readthreads = [
+                    threading.Thread(target=readloop, args=(x,))
+                    for x in [running_subprocess.stdout, running_subprocess.stderr]
+                ]
                 for t in readthreads:
-                    t.daemon=True
+                    t.daemon = True
                     t.start()
 
                 try:
                     writeFailed = [False]
+
                     def write(msg):
                         if not msg:
                             return
@@ -323,8 +383,10 @@ class WorkerState(object):
                                 elif msg.matches.KeyboardInput:
                                     running_subprocess.stdin.write(msg.bytes)
                         except:
-                            writeFailed[0] = True 
-                            logging.error("Failed to write to stdin: %s", traceback.format_exc())
+                            writeFailed[0] = True
+                            logging.error(
+                                "Failed to write to stdin: %s", traceback.format_exc()
+                            )
 
                     workerCallback.subscribeToTerminalInput(write)
 
@@ -344,16 +406,23 @@ class WorkerState(object):
                         if ret_code is not None:
                             running_subprocess.terminate()
                     except:
-                        logging.info("Failed to terminate subprocess: %s", traceback.format_exc())
+                        logging.info(
+                            "Failed to terminate subprocess: %s", traceback.format_exc()
+                        )
                     readthreadStop.set()
         else:
             with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
                 print(extra_commands, file=f)
 
-            with open(os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w") as f:
+            with open(
+                os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w"
+            ) as f:
                 print("hostname testlooperworker", file=f)
                 print("bash /test_looper/command/cmd.sh", file=f)
-                print("export PS1='${debian_chroot:+($debian_chroot)}\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ '", file=f)
+                print(
+                    "export PS1='${debian_chroot:+($debian_chroot)}\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ '",
+                    file=f,
+                )
                 print("bash --noprofile --norc", file=f)
 
             assert docker_image is not None
@@ -365,9 +434,13 @@ class WorkerState(object):
                 if os.getenv(key):
                     env[key] = os.getenv(key)
 
-            
-            with DockerWatcher.DockerWatcher(self.name_prefix + str(uuid.uuid4()) + "_") as watcher:
-                if isinstance(workerCallback, DummyWorkerCallbacks) and workerCallback.localTerminal:
+            with DockerWatcher.DockerWatcher(
+                self.name_prefix + str(uuid.uuid4()) + "_"
+            ) as watcher:
+                if (
+                    isinstance(workerCallback, DummyWorkerCallbacks)
+                    and workerCallback.localTerminal
+                ):
                     kwargs = {}
                     if extraPorts:
                         logging.info("Exposing extra ports: %s", extraPorts)
@@ -385,14 +458,24 @@ class WorkerState(object):
                         stdin_open=True,
                         start=False,
                         **kwargs
-                        )
+                    )
                     import dockerpty
 
                     client = docker.from_env()
-                    client.__dict__["start"] = lambda c, *args, **kwds: client.api.start(c.id, *args, **kwds)
-                    client.__dict__["inspect_container"] = lambda c: client.api.inspect_container(c.id)
-                    client.__dict__["attach_socket"] = lambda c,*args,**kwds: client.api.attach_socket(c.id, *args, **kwds)
-                    client.__dict__["resize"] = lambda c,*args,**kwds: client.api.resize(c.id, *args, **kwds)
+                    client.__dict__[
+                        "start"
+                    ] = lambda c, *args, **kwds: client.api.start(c.id, *args, **kwds)
+                    client.__dict__[
+                        "inspect_container"
+                    ] = lambda c: client.api.inspect_container(c.id)
+                    client.__dict__[
+                        "attach_socket"
+                    ] = lambda c, *args, **kwds: client.api.attach_socket(
+                        c.id, *args, **kwds
+                    )
+                    client.__dict__[
+                        "resize"
+                    ] = lambda c, *args, **kwds: client.api.resize(c.id, *args, **kwds)
                     dockerpty.start(client, container)
                 else:
                     container = watcher.run(
@@ -404,19 +487,27 @@ class WorkerState(object):
                         environment=env,
                         working_dir=working_directory,
                         tty=True,
-                        stdin_open=True
-                        )
+                        stdin_open=True,
+                    )
 
-                    #these are standard socket objects connected to the container's TTY input/output
-                    stdin = docker.from_env().api.attach_socket(container.id, params={'stdin':1,'stream':1,'logs':None})
-                    stdout = docker.from_env().api.attach_socket(container.id, params={'stdout':1,'stream':1,'logs':None})
+                    # these are standard socket objects connected to the container's TTY input/output
+                    stdin = docker.from_env().api.attach_socket(
+                        container.id, params={"stdin": 1, "stream": 1, "logs": None}
+                    )
+                    stdout = docker.from_env().api.attach_socket(
+                        container.id, params={"stdout": 1, "stream": 1, "logs": None}
+                    )
 
                     readthreadStop = threading.Event()
+
                     def readloop():
                         while not readthreadStop.is_set():
                             data = stdout.recv(4096)
                             if not data:
-                                logging.info("Socket stdout connection to %s terminated", container.id)
+                                logging.info(
+                                    "Socket stdout connection to %s terminated",
+                                    container.id,
+                                )
                                 return
                             workerCallback.terminalOutput(data)
 
@@ -426,6 +517,7 @@ class WorkerState(object):
                     stdin.sendall("\n")
 
                     writeFailed = [False]
+
                     def write(msg):
                         if not msg:
                             return
@@ -436,14 +528,20 @@ class WorkerState(object):
                                 elif msg.matches.KeyboardInput:
                                     stdin.sendall(msg.bytes)
                                 elif msg.matches.Resize:
-                                    logging.info("Terminal resizing to %s cols and %s rows", msg.cols, msg.rows)
+                                    logging.info(
+                                        "Terminal resizing to %s cols and %s rows",
+                                        msg.cols,
+                                        msg.rows,
+                                    )
                                     container.resize(msg.rows, msg.cols)
                         except:
-                            writeFailed[0] = True 
-                            logging.error("Failed to write to stdin: %s", traceback.format_exc())
+                            writeFailed[0] = True
+                            logging.error(
+                                "Failed to write to stdin: %s", traceback.format_exc()
+                            )
 
                     workerCallback.subscribeToTerminalInput(write)
-                    
+
                     try:
                         t0 = time.time()
                         ret_code = None
@@ -464,7 +562,7 @@ class WorkerState(object):
                             pass
                         readthreadStop.set()
                         readthread.join()
-                        
+
     def dumpPreambleLog(self, build_log, env, docker_image, command, working_directory):
         print("********************************************", file=build_log)
 
@@ -489,24 +587,57 @@ class WorkerState(object):
         print(file=build_log)
         build_log.flush()
 
-
-    def _run_test_command(self, command, timeout, env, log_function, docker_image, working_directory, dumpPreambleLog=True):
+    def _run_test_command(
+        self,
+        command,
+        timeout,
+        env,
+        log_function,
+        docker_image,
+        working_directory,
+        dumpPreambleLog=True,
+    ):
         if sys.platform == "win32":
-            return self._run_test_command_windows(command, timeout, env, log_function, docker_image, working_directory, dumpPreambleLog)
+            return self._run_test_command_windows(
+                command,
+                timeout,
+                env,
+                log_function,
+                docker_image,
+                working_directory,
+                dumpPreambleLog,
+            )
         else:
-            return self._run_test_command_linux(command, timeout, env, log_function, docker_image, working_directory, dumpPreambleLog)
+            return self._run_test_command_linux(
+                command,
+                timeout,
+                env,
+                log_function,
+                docker_image,
+                working_directory,
+                dumpPreambleLog,
+            )
 
     def _windows_prerun_command(self):
         pass
 
-    def _run_test_command_windows(self, command, timeout, env, log_function, docker_image, working_directory, dumpPreambleLog):
+    def _run_test_command_windows(
+        self,
+        command,
+        timeout,
+        env,
+        log_function,
+        docker_image,
+        working_directory,
+        dumpPreambleLog,
+    ):
         self._windows_prerun_command()
 
         assert docker_image is NAKED_MACHINE
 
         env_to_pass = dict(os.environ)
 
-        for k,v in sorted(env.items()):
+        for k, v in sorted(env.items()):
             env_to_pass[k.upper()] = v
 
         for key in PASSTHROUGH_KEYS:
@@ -515,45 +646,51 @@ class WorkerState(object):
 
         t0 = time.time()
 
-        #generate a vars file to override the current environment if we want to 'pop into' this 
-        #session later.
-        with open(os.path.join(self.directories.command_dir,"vars.bat"), "w") as f:
+        # generate a vars file to override the current environment if we want to 'pop into' this
+        # session later.
+        with open(os.path.join(self.directories.command_dir, "vars.bat"), "w") as f:
             print("@ECHO OFF", file=f)
             print("REM AUTOGENERATED BATCH VARIABLES", file=f)
-            
+
             def escape(v):
                 v = v.replace("%", "%%")
                 for char in "^&/<>|":
                     v = v.replace(char, "^" + char)
                 return v
 
-            for k,v in env.items():
+            for k, v in env.items():
                 print("SET %s=%s" % (k, escape(v)), file=f)
             print("@ECHO ON", file=f)
 
-        #generate a vars file to override the current environment if we want to 'pop into' this 
-        #session later.
-        with open(os.path.join(self.directories.command_dir,"vars.ps1"), "w") as f:
+        # generate a vars file to override the current environment if we want to 'pop into' this
+        # session later.
+        with open(os.path.join(self.directories.command_dir, "vars.ps1"), "w") as f:
+
             def escape(v):
                 for char in "`$'\"":
                     v = v.replace(char, "`" + char)
                 return v
 
-            for k,v in env.items():
+            for k, v in env.items():
                 print('$env:%s="%s"' % (k, escape(v)), file=f)
 
-
-        command_path = os.path.join(self.directories.command_dir,"command.ps1")
-        with open(command_path,"w") as cmd_file:
+        command_path = os.path.join(self.directories.command_dir, "command.ps1")
+        with open(command_path, "w") as cmd_file:
             print("cd '" + working_directory + "'", file=cmd_file)
             if dumpPreambleLog:
-                print("echo 'Welcome to TestLooper on Windows. Here is the current environment:'", file=cmd_file)
+                print(
+                    "echo 'Welcome to TestLooper on Windows. Here is the current environment:'",
+                    file=cmd_file,
+                )
                 print("gci env:* | sort-object name", file=cmd_file)
                 print("echo '********************************'", file=cmd_file)
                 print("echo 'HERE ARE AVAILABLE SERVICES:'", file=cmd_file)
-                print("Get-Service | Format-Table -Property Name, Status, StartType, DisplayName", file=cmd_file)
+                print(
+                    "Get-Service | Format-Table -Property Name, Status, StartType, DisplayName",
+                    file=cmd_file,
+                )
                 print("echo '********************************'", file=cmd_file)
-                
+
             print(command, file=cmd_file)
             print("exit $lastexitcode", file=cmd_file)
 
@@ -564,28 +701,32 @@ class WorkerState(object):
             stderr=subprocess.PIPE,
             shell=True,
             env=env_to_pass,
-            creationflags=subprocess.CREATE_NEW_CONSOLE
-            )
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
 
         logging.info("Powershell process has pid %s", running_subprocess.pid)
-        time.sleep(.5)
+        time.sleep(0.5)
 
         readthreadStop = threading.Event()
+
         def readloop(file):
             try:
                 while not readthreadStop.is_set():
                     data = os.read(file.fileno(), 4096)
                     if not data:
-                        #do a little throttling
+                        # do a little throttling
                         time.sleep(0.01)
                     else:
                         log_function(data)
             except:
                 logging.error("Read loop failed:\n%s", traceback.format_exc())
 
-        readthreads = [threading.Thread(target=readloop, args=(x,)) for x in [running_subprocess.stdout, running_subprocess.stderr]]
+        readthreads = [
+            threading.Thread(target=readloop, args=(x,))
+            for x in [running_subprocess.stdout, running_subprocess.stderr]
+        ]
         for t in readthreads:
-            t.daemon=True
+            t.daemon = True
             t.start()
 
         try:
@@ -602,7 +743,11 @@ class WorkerState(object):
                 log_function("")
 
                 if time.time() - t0 > timeout:
-                    log_function("\n\n" + time.asctime() + " TestLooper> Process timed out (%s seconds).\n" % timeout)
+                    log_function(
+                        "\n\n"
+                        + time.asctime()
+                        + " TestLooper> Process timed out (%s seconds).\n" % timeout
+                    )
                     running_subprocess.terminate()
                     return False
         finally:
@@ -610,45 +755,75 @@ class WorkerState(object):
                 if ret_code is not None:
                     running_subprocess.terminate()
             except:
-                logging.info("Failed to terminate subprocess: %s", traceback.format_exc())
+                logging.info(
+                    "Failed to terminate subprocess: %s", traceback.format_exc()
+                )
 
             readthreadStop.set()
-        
-        log_function("\n\n" + time.asctime() + " TestLooper> Process exited with code %s\n" % ret_code)
 
-        return ret_code.get('StatusCode') == 0
+        log_function(
+            "\n\n"
+            + time.asctime()
+            + " TestLooper> Process exited with code %s\n" % ret_code
+        )
 
-    def _run_test_command_linux(self, command, timeout, env, log_function, docker_image, working_directory, dumpPreambleLog):
+        return ret_code.get("StatusCode") == 0
+
+    def _run_test_command_linux(
+        self,
+        command,
+        timeout,
+        env,
+        log_function,
+        docker_image,
+        working_directory,
+        dumpPreambleLog,
+    ):
         tail_proc = None
-        
+
         try:
             log_filename = os.path.join(self.directories.command_dir, "log.txt")
 
-            with open(log_filename, 'w') as build_log:
-                tail_proc = SubprocessRunner.SubprocessRunner(["tail","-f",log_filename,"-n","+0"], log_function, log_function, enablePartialLineOutput=True)
+            with open(log_filename, "w") as build_log:
+                tail_proc = SubprocessRunner.SubprocessRunner(
+                    ["tail", "-f", log_filename, "-n", "+0"],
+                    log_function,
+                    log_function,
+                    enablePartialLineOutput=True,
+                )
                 tail_proc.start()
 
                 if dumpPreambleLog:
-                    self.dumpPreambleLog(build_log, env, docker_image, command, working_directory)
+                    self.dumpPreambleLog(
+                        build_log, env, docker_image, command, working_directory
+                    )
                 else:
                     print("TestLooper Running command", file=build_log)
                     print(command, file=build_log)
-                    print("********************************************", file=build_log)
+                    print(
+                        "********************************************", file=build_log
+                    )
                     print(file=build_log)
                     build_log.flush()
 
-            logging.info("Running command: '%s'. Log: %s. Docker Image: %s", 
-                command, 
+            logging.info(
+                "Running command: '%s'. Log: %s. Docker Image: %s",
+                command,
                 log_filename,
-                docker_image.image if docker_image is not None else "<none>"
+                docker_image.image if docker_image is not None else "<none>",
             )
 
             with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
                 print(command, file=f)
 
-            with open(os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w") as f:
+            with open(
+                os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w"
+            ) as f:
                 print("hostname testlooperworker", file=f)
-                print("bash /test_looper/command/cmd.sh >> /test_looper/command/log.txt 2>&1", file=f)
+                print(
+                    "bash /test_looper/command/cmd.sh >> /test_looper/command/log.txt 2>&1",
+                    file=f,
+                )
 
             assert docker_image is not None
 
@@ -657,7 +832,9 @@ class WorkerState(object):
                 if os.getenv(key):
                     env[key] = os.getenv(key)
 
-            with DockerWatcher.DockerWatcher(self.name_prefix + str(uuid.uuid4()) + "_") as watcher:
+            with DockerWatcher.DockerWatcher(
+                self.name_prefix + str(uuid.uuid4()) + "_"
+            ) as watcher:
                 container = watcher.run(
                     docker_image,
                     ["/bin/bash", "/test_looper/command/cmd_invoker.sh"],
@@ -665,7 +842,7 @@ class WorkerState(object):
                     privileged=True,
                     shm_size="1G",
                     environment=env,
-                    working_dir=working_directory
+                    working_dir=working_directory,
                 )
 
                 t0 = time.time()
@@ -683,19 +860,25 @@ class WorkerState(object):
                     if time.time() - t0 > timeout:
                         ret_code = 1
                         container.stop()
-                        extra_message = "Test timed out after " + str(time.time() - t0) + " > " + str(timeout) + " seconds, so we're stopping the test."
+                        extra_message = (
+                            "Test timed out after "
+                            + str(time.time() - t0)
+                            + " > "
+                            + str(timeout)
+                            + " seconds, so we're stopping the test."
+                        )
 
                 logging.info("Command returned %s", ret_code)
 
-                with open(log_filename, 'a') as build_log:
+                with open(log_filename, "a") as build_log:
                     print(container.logs(), file=build_log)
                     print(file=build_log)
                     if extra_message:
                         print(extra_message, file=build_log)
                     print("Process exited with code ", ret_code, file=build_log)
                     build_log.flush()
-                    
-            return ret_code.get('StatusCode') == 0
+
+            return ret_code.get("StatusCode") == 0
         finally:
             if tail_proc is not None:
                 tail_proc.stop()
@@ -712,8 +895,10 @@ class WorkerState(object):
 
     def purge_build_cache(self, cacheSize=None):
         self.ensureDirectoryExists(self.directories.build_cache_dir)
-        
-        while self._is_build_cache_full(cacheSize if cacheSize is not None else self.max_build_cache_depth):
+
+        while self._is_build_cache_full(
+            cacheSize if cacheSize is not None else self.max_build_cache_depth
+        ):
             self._remove_oldest_cached_build()
 
     def _is_build_cache_full(self, cacheSize):
@@ -726,32 +911,53 @@ class WorkerState(object):
     def _remove_oldest_cached_build(self):
         def full_path(p):
             return os.path.join(self.directories.build_cache_dir, p)
-        cached_builds = sorted([(os.path.getctime(full_path(p)), full_path(p))
-                                for p in os.listdir(self.directories.build_cache_dir)])
+
+        cached_builds = sorted(
+            [
+                (os.path.getctime(full_path(p)), full_path(p))
+                for p in os.listdir(self.directories.build_cache_dir)
+            ]
+        )
         os.remove(cached_builds[0][1])
 
     def getDockerImage(self, testEnvironment, log_function):
         assert testEnvironment.matches.Environment
         assert testEnvironment.platform.matches.linux
-        assert testEnvironment.image.matches.Dockerfile or testEnvironment.image.matches.DockerfileInline
+        assert (
+            testEnvironment.image.matches.Dockerfile
+            or testEnvironment.image.matches.DockerfileInline
+        )
 
         try:
             if testEnvironment.image.matches.Dockerfile:
-                assert False, "This should have been resolved to dockerfile contents already."
+                assert (
+                    False
+                ), "This should have been resolved to dockerfile contents already."
             else:
                 return Docker.DockerImage.from_dockerfile_as_string(
-                    self.docker_image_repo, 
-                    testEnvironment.image.dockerfile_contents, 
-                    create_missing=True, 
+                    self.docker_image_repo,
+                    testEnvironment.image.dockerfile_contents,
+                    create_missing=True,
                     env_keys_to_passthrough=PASSTHROUGH_KEYS,
-                    logger=withTime(log_function)
-                    )
+                    logger=withTime(log_function),
+                )
         except Exception as e:
-            log_function(time.asctime() + " TestLooper> Failed to build docker image:\n" + str(e))
+            log_function(
+                time.asctime() + " TestLooper> Failed to build docker image:\n" + str(e)
+            )
 
         return None
 
-    def runTest(self, testId, workerCallback, testDefinition, isDeploy, extraPorts=None, command_override=None, historicalTestFailureRates=None):
+    def runTest(
+        self,
+        testId,
+        workerCallback,
+        testDefinition,
+        isDeploy,
+        extraPorts=None,
+        command_override=None,
+        historicalTestFailureRates=None,
+    ):
         """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
         self.cleanup()
 
@@ -760,6 +966,7 @@ class WorkerState(object):
         t0 = time.time()
 
         log_messages = []
+
         def log_function(msg=""):
             if isDeploy:
                 if msg is not None:
@@ -772,19 +979,40 @@ class WorkerState(object):
 
         def executeTest():
             try:
-                artifactNames = [artifact.name for stage in testDefinition.stages for artifact in stage.artifacts]
-                fullArtifactNames = [testName + ("/" if name else "") + name for name in artifactNames]
+                artifactNames = [
+                    artifact.name
+                    for stage in testDefinition.stages
+                    for artifact in stage.artifacts
+                ]
+                fullArtifactNames = [
+                    testName + ("/" if name else "") + name for name in artifactNames
+                ]
 
-                allExist = all([self.artifactStorage.build_exists(testDefinition.hash, self.artifactKeyForBuild(name))
-                    for name in fullArtifactNames])
+                allExist = all(
+                    [
+                        self.artifactStorage.build_exists(
+                            testDefinition.hash, self.artifactKeyForBuild(name)
+                        )
+                        for name in fullArtifactNames
+                    ]
+                )
 
                 if not isDeploy and testDefinition.matches.Build and allExist:
                     log_function("Build already exists\n")
                     for a in artifactNames:
                         workerCallback.recordArtifactUploaded(a)
                     return True, {}
-                
-                return self._run_task(testId, testDefinition, log_function, workerCallback, isDeploy, extraPorts, command_override, historicalTestFailureRates)
+
+                return self._run_task(
+                    testId,
+                    testDefinition,
+                    log_function,
+                    workerCallback,
+                    isDeploy,
+                    extraPorts,
+                    command_override,
+                    historicalTestFailureRates,
+                )
             except KeyboardInterrupt:
                 log_function("\nInterrupted by Ctrl-C\n")
                 return False, {}
@@ -792,11 +1020,12 @@ class WorkerState(object):
                 print("*******************")
                 print(traceback.format_exc())
                 print("*******************")
-                error_message = "Test failed because of exception: %s" % traceback.format_exc()
+                error_message = (
+                    "Test failed because of exception: %s" % traceback.format_exc()
+                )
                 logging.error(error_message)
                 log_function(error_message)
                 return False, {}
-
 
         success, individualTestSuccesses = executeTest()
 
@@ -809,29 +1038,38 @@ class WorkerState(object):
                 with open(path, "w") as f:
                     f.write(
                         json.dumps(
-                            {"success": success,
-                             "individualTests": algebraic_to_json.Encoder().to_json(individualTestSuccesses),
-                             "start_timestamp": t0,
-                             "end_timestamp": time.time()
-                            })
+                            {
+                                "success": success,
+                                "individualTests": algebraic_to_json.Encoder().to_json(
+                                    individualTestSuccesses
+                                ),
+                                "start_timestamp": t0,
+                                "end_timestamp": time.time(),
+                            }
                         )
-                        
-                self.artifactStorage.uploadSingleTestArtifact(testDefinition.hash, testId, "test_result.json", path)
+                    )
+
+                self.artifactStorage.uploadSingleTestArtifact(
+                    testDefinition.hash, testId, "test_result.json", path
+                )
 
                 path = os.path.join(self.directories.scratch_dir, "test_looper_log.txt")
                 with open(path, "w") as f:
                     f.write("".join(log_messages))
 
-                self.artifactStorage.uploadSingleTestArtifact(testDefinition.hash, testId, "test_looper_log.txt", path)
+                self.artifactStorage.uploadSingleTestArtifact(
+                    testDefinition.hash, testId, "test_looper_log.txt", path
+                )
 
         except:
-            log_function("ERROR: Failed to upload the testlooper logfile to artifactStorage:\n\n%s" % traceback.format_exc())
+            log_function(
+                "ERROR: Failed to upload the testlooper logfile to artifactStorage:\n\n%s"
+                % traceback.format_exc()
+            )
         finally:
             withTime(log_function)("Finished uploading artifacts.")
 
         return success, individualTestSuccesses
-
-
 
     def extract_package(self, package_file, target_dir):
         with tarfile.open(package_file, "r:gz") as tar:
@@ -844,12 +1082,21 @@ class WorkerState(object):
         if dep.matches.Build:
             full_name = dep.name + ("/" if dep.artifact else "") + dep.artifact
 
-            if not self.artifactStorage.build_exists(dep.buildHash, self.artifactKeyForBuild(full_name)):
-                return "can't run tests because dependent external build %s doesn't exist" % (dep.buildHash + "/" + full_name)
+            if not self.artifactStorage.build_exists(
+                dep.buildHash, self.artifactKeyForBuild(full_name)
+            ):
+                return (
+                    "can't run tests because dependent external build %s doesn't exist"
+                    % (dep.buildHash + "/" + full_name)
+                )
 
             path = self._download_build(dep.buildHash, full_name, log_function)
-            
-            log_function(time.asctime() + " TestLooper> Extracting tarball for %s/%s.\n" % (dep.buildHash, full_name))
+
+            log_function(
+                time.asctime()
+                + " TestLooper> Extracting tarball for %s/%s.\n"
+                % (dep.buildHash, full_name)
+            )
 
             self.ensureDirectoryExists(target_dir)
             self.extract_package(path, target_dir)
@@ -857,55 +1104,103 @@ class WorkerState(object):
             return None
 
         if dep.matches.Source:
-            #keep the source tarballs separate by os-root, since windows line endings
-            #play havoc with linux builds!
-            source_platform_name = "source-linux" if sys.platform != "win32" else "source-win"
+            # keep the source tarballs separate by os-root, since windows line endings
+            # play havoc with linux builds!
+            source_platform_name = (
+                "source-linux" if sys.platform != "win32" else "source-win"
+            )
 
             if dep.path:
-                #this is an encoded path in S3. So we really want the '/'
+                # this is an encoded path in S3. So we really want the '/'
                 source_platform_name = source_platform_name + "/" + dep.path
 
             sourceArtifactName = self.artifactKeyForBuild(source_platform_name)
 
             tarball_name = self._buildCachePathFor(dep.commitHash, source_platform_name)
 
-            log_function(time.asctime() + " TestLooper> Target tarball for %s/%s source is %s\n" 
-                        % (dep.repo, dep.commitHash, tarball_name))
+            log_function(
+                time.asctime()
+                + " TestLooper> Target tarball for %s/%s source is %s\n"
+                % (dep.repo, dep.commitHash, tarball_name)
+            )
 
             if not os.path.exists(tarball_name):
                 isFirstRequest = True
                 lastLogTime = time.time()
-                while not self.artifactStorage.build_exists(dep.commitHash, sourceArtifactName):
+                while not self.artifactStorage.build_exists(
+                    dep.commitHash, sourceArtifactName
+                ):
                     if isFirstRequest:
-                        withTime(log_function)("Requesting tarball for %s/%s path %s", dep.repo, dep.commitHash, dep.path)
+                        withTime(log_function)(
+                            "Requesting tarball for %s/%s path %s",
+                            dep.repo,
+                            dep.commitHash,
+                            dep.path,
+                        )
                         isFirstRequest = False
 
-                    worker_callback.requestSourceTarballUpload(dep.repo, dep.commitHash, dep.path, 'linux' if sys.platform != 'win32' else 'win')
+                    worker_callback.requestSourceTarballUpload(
+                        dep.repo,
+                        dep.commitHash,
+                        dep.path,
+                        "linux" if sys.platform != "win32" else "win",
+                    )
 
                     time.sleep(10.0)
 
                     if time.time() - lastLogTime > 55.0:
-                        withTime(log_function)("Still waiting for server to upload %s/%s path %s", dep.repo, dep.commitHash, dep.path)
+                        withTime(log_function)(
+                            "Still waiting for server to upload %s/%s path %s",
+                            dep.repo,
+                            dep.commitHash,
+                            dep.path,
+                        )
                         lastLogTime = time.time()
 
                 if not isFirstRequest:
-                    withTime(log_function)("Source tarball for %s/%s path %s was created.", dep.repo, dep.commitHash, dep.path)
+                    withTime(log_function)(
+                        "Source tarball for %s/%s path %s was created.",
+                        dep.repo,
+                        dep.commitHash,
+                        dep.path,
+                    )
 
-                log_function(time.asctime() + " TestLooper> Downloading source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
-            
-                self.artifactStorage.download_build(dep.commitHash, sourceArtifactName, tarball_name)
+                log_function(
+                    time.asctime()
+                    + " TestLooper> Downloading source cache for %s/%s.\n"
+                    % (dep.repo, dep.commitHash)
+                )
 
-            log_function(time.asctime() + " TestLooper> Extracting source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
+                self.artifactStorage.download_build(
+                    dep.commitHash, sourceArtifactName, tarball_name
+                )
+
+            log_function(
+                time.asctime()
+                + " TestLooper> Extracting source cache for %s/%s.\n"
+                % (dep.repo, dep.commitHash)
+            )
 
             self.ensureDirectoryExists(target_dir)
             if os.listdir(target_dir):
-                log_function(time.asctime() + " TestLooper> Warning - content already exists in %s. Clearing it.\n" % (target_dir,))
+                log_function(
+                    time.asctime()
+                    + " TestLooper> Warning - content already exists in %s. Clearing it.\n"
+                    % (target_dir,)
+                )
                 self.clearDirectoryAsRoot(target_dir)
 
             for path in os.listdir(target_dir):
-                log_function(time.asctime() + " TestLooper> WARNING - content STILL exists in %s! %s\n" % (target_dir, path))
+                log_function(
+                    time.asctime()
+                    + " TestLooper> WARNING - content STILL exists in %s! %s\n"
+                    % (target_dir, path)
+                )
             else:
-                log_function(time.asctime() + " TestLooper> Target directory is empty as expected.\n")
+                log_function(
+                    time.asctime()
+                    + " TestLooper> Target directory is empty as expected.\n"
+                )
 
             self.extract_package(tarball_name, target_dir)
 
@@ -913,13 +1208,17 @@ class WorkerState(object):
 
         return "Unknown dependency type: %s" % dep
 
-    def getEnvironmentAndDependencies(self, testId, test_definition, log_function, worker_callback):
+    def getEnvironmentAndDependencies(
+        self, testId, test_definition, log_function, worker_callback
+    ):
         environment = test_definition.environment
-        
+
         env_overrides = self.environment_variables(testId, environment, test_definition)
 
-        #update the test definition to resolve dependencies given our base environment overrides
-        test_definition = TestDefinition.apply_variable_substitution_to_test(test_definition, env_overrides)
+        # update the test definition to resolve dependencies given our base environment overrides
+        test_definition = TestDefinition.apply_variable_substitution_to_test(
+            test_definition, env_overrides
+        )
 
         all_dependencies = {}
         all_dependencies.update(environment.dependencies)
@@ -935,9 +1234,12 @@ class WorkerState(object):
                 log_function(msg)
 
         with self.callHeartbeatInBackground(
-                heartbeatWithLock, 
-                "Pulling dependencies:\n%s" % "\n".join(["\t%s -> %s" % (k,v) for k,v in sorted(all_dependencies.items())])
-                ):
+            heartbeatWithLock,
+            "Pulling dependencies:\n%s"
+            % "\n".join(
+                ["\t%s -> %s" % (k, v) for k, v in sorted(all_dependencies.items())]
+            ),
+        ):
 
             results = {}
 
@@ -950,16 +1252,23 @@ class WorkerState(object):
                     except:
                         image_exception[0] = traceback.format_exc()
 
-
             def callFun(expose_as, dep):
                 for tries in range(3):
                     try:
-                        results[expose_as] = self.grabDependency(heartbeatWithLock, expose_as, dep, worker_callback)
-                        heartbeatWithLock(time.asctime() + " TestLooper> Done pulling %s.\n" % dep)
+                        results[expose_as] = self.grabDependency(
+                            heartbeatWithLock, expose_as, dep, worker_callback
+                        )
+                        heartbeatWithLock(
+                            time.asctime() + " TestLooper> Done pulling %s.\n" % dep
+                        )
                         return
                     except Exception as e:
                         if tries < 2:
-                            heartbeatWithLock(time.asctime() + " TestLooper> Failed to pull %s because %s, but retrying.\n" % (dep, str(e)))
+                            heartbeatWithLock(
+                                time.asctime()
+                                + " TestLooper> Failed to pull %s because %s, but retrying.\n"
+                                % (dep, str(e))
+                            )
 
                         results[expose_as] = traceback.format_exc()
 
@@ -968,7 +1277,9 @@ class WorkerState(object):
             waiting_threads.append(threading.Thread(target=pullImage))
 
             for expose_as_and_dep in all_dependencies.items():
-                waiting_threads.append(threading.Thread(target=callFun, args=expose_as_and_dep))
+                waiting_threads.append(
+                    threading.Thread(target=callFun, args=expose_as_and_dep)
+                )
 
             running_threads = []
 
@@ -984,20 +1295,38 @@ class WorkerState(object):
 
             for e in all_dependencies:
                 if results[e] is not None:
-                    raise Exception("Failed to download dependency %s: %s" % (all_dependencies[e], results[e]))
+                    raise Exception(
+                        "Failed to download dependency %s: %s"
+                        % (all_dependencies[e], results[e])
+                    )
 
             if image_exception[0]:
                 raise Exception(image_exception[0])
-        
+
         return environment, all_dependencies, test_definition, image[0]
 
-    def _run_task(self, testId, test_definition, log_function, workerCallback, isDeploy, extraPorts, command_override, historicalTestFailureRates):
+    def _run_task(
+        self,
+        testId,
+        test_definition,
+        log_function,
+        workerCallback,
+        isDeploy,
+        extraPorts,
+        command_override,
+        historicalTestFailureRates,
+    ):
         try:
-            environment, all_dependencies, test_definition, image = \
-                self.getEnvironmentAndDependencies(testId, test_definition, log_function, workerCallback)
+            environment, all_dependencies, test_definition, image = self.getEnvironmentAndDependencies(
+                testId, test_definition, log_function, workerCallback
+            )
         except Exception as e:
             logging.error(traceback.format_exc())
-            log_function("\n\nTest failed because of exception:\n" + traceback.format_exc() + "\n")
+            log_function(
+                "\n\nTest failed because of exception:\n"
+                + traceback.format_exc()
+                + "\n"
+            )
             return False, {}
 
         if test_definition.matches.Build:
@@ -1016,9 +1345,9 @@ class WorkerState(object):
                     cleanup="",
                     artifacts=[],
                     order=0.0,
-                    always_run=False
-                    )
-                ]
+                    always_run=False,
+                )
+            ]
 
         is_success = True
 
@@ -1030,10 +1359,11 @@ class WorkerState(object):
                 log_function("Couldn't find docker image...")
                 return False, {}
         else:
-            logging.info("Machine %s is starting run for %s.",
-                         self.machineId,
-                         test_definition.hash
-                         )
+            logging.info(
+                "Machine %s is starting run for %s.",
+                self.machineId,
+                test_definition.hash,
+            )
 
             if image is NAKED_MACHINE:
                 working_directory = self.directories.test_inputs_dir
@@ -1043,16 +1373,29 @@ class WorkerState(object):
             if isDeploy:
                 extra_commands = "\n\n".join([s.command for s in stages])
 
-                self._run_deployment(test_definition.variables, workerCallback, image, extra_commands, working_directory, extraPorts=extraPorts)
+                self._run_deployment(
+                    test_definition.variables,
+                    workerCallback,
+                    image,
+                    extra_commands,
+                    working_directory,
+                    extraPorts=extraPorts,
+                )
                 return False, {}
             else:
                 for stage in stages:
                     if is_success or stage.always_run:
                         is_success, test_successes = self._runStage(
-                                testId, stage, image, test_definition, working_directory, 
-                                log_function, workerCallback, historicalTestFailureRates
-                                )
-                        
+                            testId,
+                            stage,
+                            image,
+                            test_definition,
+                            working_directory,
+                            log_function,
+                            workerCallback,
+                            historicalTestFailureRates,
+                        )
+
                         individualTestSuccesses += test_successes
 
                     if is_success == EARLY_STOP:
@@ -1061,9 +1404,16 @@ class WorkerState(object):
 
         return is_success, individualTestSuccesses
 
-    def computeTestPlan(self, startTime, timeElapsedPerPriorPass, testsSoFar, all_tests, historicalTestFailureRates):
-        #decide which tests to run in our next pass. We are trying to learn as much as possible about
-        #the tests in this suite.
+    def computeTestPlan(
+        self,
+        startTime,
+        timeElapsedPerPriorPass,
+        testsSoFar,
+        all_tests,
+        historicalTestFailureRates,
+    ):
+        # decide which tests to run in our next pass. We are trying to learn as much as possible about
+        # the tests in this suite.
         historicalTestFailureRates = historicalTestFailureRates or {}
 
         historicallyCompletelyBroken = set()
@@ -1074,17 +1424,23 @@ class WorkerState(object):
         if not testsSoFar:
             return all_tests
 
-        broken = set([t.testName for t in testsSoFar if not t.testSucceeded and t.testName in all_tests])
+        broken = set(
+            [
+                t.testName
+                for t in testsSoFar
+                if not t.testSucceeded and t.testName in all_tests
+            ]
+        )
         brokenHere = set(broken)
 
-        #keep any test that has failed in the past in the roster of flakey tests
+        # keep any test that has failed in the past in the roster of flakey tests
         for t in historicalTestFailureRates:
             failureCount, totalCount = historicalTestFailureRates[t]
             if failureCount > 1 and t in all_tests:
                 broken.add(t)
 
-        bad_count = {t:0 for t in all_tests}
-        good_count = {t:0 for t in all_tests}
+        bad_count = {t: 0 for t in all_tests}
+        good_count = {t: 0 for t in all_tests}
 
         for t in testsSoFar:
             if t.testName in bad_count:
@@ -1096,49 +1452,66 @@ class WorkerState(object):
         def testIsSoBadWeCanStop(testname):
             if bad_count[testname] >= 3:
                 return True
-            if bad_count[testname] and good_count[testname] == 0 and testname in historicallyCompletelyBroken:
+            if (
+                bad_count[testname]
+                and good_count[testname] == 0
+                and testname in historicallyCompletelyBroken
+            ):
                 return True
             return False
 
-        #remove all tests which have failed three times. we know they're flakey at this point.
-        #or, if they failed 
+        # remove all tests which have failed three times. we know they're flakey at this point.
+        # or, if they failed
         broken = set([b for b in broken if not testIsSoBadWeCanStop(b)])
 
-        if len(brokenHere) > len(all_tests) * .5:
-            #no reason to search for flakey tests when half the tests don't work!
+        if len(brokenHere) > len(all_tests) * 0.5:
+            # no reason to search for flakey tests when half the tests don't work!
             return []
 
-        #short circuit if the passes after the first pass are taking as much as the remaining pass
+        # short circuit if the passes after the first pass are taking as much as the remaining pass
         if len(timeElapsedPerPriorPass) > 1:
             timeInSubPasses = sum(timeElapsedPerPriorPass[1:])
             if timeInSubPasses > timeElapsedPerPriorPass[0]:
                 return []
 
-        #don't run more than 10 passes
+        # don't run more than 10 passes
         if len(timeElapsedPerPriorPass) < 10:
             return sorted(broken)
 
         return []
 
-    def _runStage(self, testId, stage, image, test_definition, working_directory, log_function, workerCallback, historicalTestFailureRates):
+    def _runStage(
+        self,
+        testId,
+        stage,
+        image,
+        test_definition,
+        working_directory,
+        log_function,
+        workerCallback,
+        historicalTestFailureRates,
+    ):
         withTime(log_function)("Starting Test Run")
 
         times_seen = {}
 
         if stage.matches.TestStage:
+
             def runCmd(cmd, timeout, **extras):
                 testvars = dict(test_definition.variables)
                 testvars.update(extras)
 
                 return self._run_test_command(
                     cmd,
-                    timeout or test_definition.timeout or 60 * 60, #1 hour if unspecified
+                    timeout
+                    or test_definition.timeout
+                    or 60 * 60,  # 1 hour if unspecified
                     testvars,
                     log_function,
                     image,
-                    working_directory, 
-                    dumpPreambleLog=False
-                    )
+                    working_directory,
+                    dumpPreambleLog=False,
+                )
 
             internalCmd = self.getCommandDirPath(test_definition.environment, True)
             externalCmd = self.getCommandDirPath(test_definition.environment, False)
@@ -1146,7 +1519,7 @@ class WorkerState(object):
             is_success = runCmd(
                 stage.list_tests_command,
                 240,
-                TEST_LOOPER_TEST_LIST_OUTPUT=os.path.join(internalCmd,"testlist.txt")
+                TEST_LOOPER_TEST_LIST_OUTPUT=os.path.join(internalCmd, "testlist.txt"),
             )
 
             with open(os.path.join(externalCmd, "testlist.txt"), "r") as testlist_file:
@@ -1164,95 +1537,135 @@ class WorkerState(object):
 
             startTime = time.time()
 
-            totalTimeout = test_definition.timeout or 60*60
+            totalTimeout = test_definition.timeout or 60 * 60
 
             timeElapsedPerPriorPass = []
 
             while is_success:
-                testsToRun = self.computeTestPlan(startTime, timeElapsedPerPriorPass, individualTestSuccesses, all_tests, historicalTestFailureRates)
-                
+                testsToRun = self.computeTestPlan(
+                    startTime,
+                    timeElapsedPerPriorPass,
+                    individualTestSuccesses,
+                    all_tests,
+                    historicalTestFailureRates,
+                )
+
                 if not testsToRun:
                     break
 
-                with open(os.path.join(externalCmd,"tests_to_run.txt"), "w") as testlist_file:
+                with open(
+                    os.path.join(externalCmd, "tests_to_run.txt"), "w"
+                ) as testlist_file:
                     for t in testsToRun:
                         print(t, file=testlist_file)
 
                 passT0 = time.time()
-                
+
                 is_success = runCmd(
                     stage.run_tests_command,
                     totalTimeout - (time.time() - startTime),
-                    TEST_LOOPER_TESTS_TO_RUN=os.path.join(internalCmd,"tests_to_run.txt")
-                    )
+                    TEST_LOOPER_TESTS_TO_RUN=os.path.join(
+                        internalCmd, "tests_to_run.txt"
+                    ),
+                )
 
                 timeElapsedPerPriorPass.append(time.time() - passT0)
 
                 individualTestSuccesses.extend(
-                    self.individualTestArtifactUpload(image, testId, test_definition, log_function, times_seen)
+                    self.individualTestArtifactUpload(
+                        image, testId, test_definition, log_function, times_seen
                     )
+                )
         else:
             if stage.command:
                 is_success = self._run_test_command(
                     stage.command,
-                    test_definition.timeout or 60 * 60, #1 hour if unspecified
+                    test_definition.timeout or 60 * 60,  # 1 hour if unspecified
                     test_definition.variables,
                     log_function,
                     image,
-                    working_directory, 
-                    dumpPreambleLog=False
-                    )
+                    working_directory,
+                    dumpPreambleLog=False,
+                )
 
-                individualTestSuccesses = self.individualTestArtifactUpload(image, testId, test_definition, log_function, times_seen)
+                individualTestSuccesses = self.individualTestArtifactUpload(
+                    image, testId, test_definition, log_function, times_seen
+                )
             else:
                 is_success = True
                 individualTestSuccesses = []
 
-
-        #run the cleanup_command if necessary
+        # run the cleanup_command if necessary
         if self.wants_to_run_cleanup() and stage.cleanup.strip():
             if not self._run_test_command(
-                    stage.cleanup,
-                    test_definition.timeout or 60 * 60, #1 hour if unspecified
-                    test_definition.variables,
-                    log_function,
-                    image,
-                    working_directory, 
-                    dumpPreambleLog=False
-                    ):
+                stage.cleanup,
+                test_definition.timeout or 60 * 60,  # 1 hour if unspecified
+                test_definition.variables,
+                log_function,
+                image,
+                working_directory,
+                dumpPreambleLog=False,
+            ):
                 is_success = False
 
         if test_definition.matches.Build:
             if is_success:
                 for artifact in stage.artifacts:
-                    with self.callHeartbeatInBackground(log_function, "Uploading build artifact for %s/%s." % (test_definition.name, artifact.name)):
-                        if not self._upload_artifact(test_definition.hash, testId, test_definition.name, artifact, False, log_function, image):
+                    with self.callHeartbeatInBackground(
+                        log_function,
+                        "Uploading build artifact for %s/%s."
+                        % (test_definition.name, artifact.name),
+                    ):
+                        if not self._upload_artifact(
+                            test_definition.hash,
+                            testId,
+                            test_definition.name,
+                            artifact,
+                            False,
+                            log_function,
+                            image,
+                        ):
                             is_success = False
                         else:
                             if workerCallback.recordArtifactUploaded(artifact.name):
                                 is_success = EARLY_STOP
         else:
             for artifact in stage.artifacts:
-                with self.callHeartbeatInBackground(log_function, "Uploading test artifact for %s/%s." % (test_definition.name, artifact.name)):
-                    if not self._upload_artifact(test_definition.hash, testId, test_definition.name, artifact, True, log_function, image):
+                with self.callHeartbeatInBackground(
+                    log_function,
+                    "Uploading test artifact for %s/%s."
+                    % (test_definition.name, artifact.name),
+                ):
+                    if not self._upload_artifact(
+                        test_definition.hash,
+                        testId,
+                        test_definition.name,
+                        artifact,
+                        True,
+                        log_function,
+                        image,
+                    ):
                         is_success = False
                     else:
                         workerCallback.recordArtifactUploaded(artifact.name)
 
         return is_success, individualTestSuccesses
 
-
-    def individualTestArtifactUpload(self, image, testId, test_definition, log_function, times_seen):
+    def individualTestArtifactUpload(
+        self, image, testId, test_definition, log_function, times_seen
+    ):
         individualTestSuccesses = []
 
         with self.callHeartbeatInBackground(log_function, "Uploading test artifacts."):
-            testSummaryJsonPath = os.path.join(self.directories.test_output_dir, "testSummary.json")
+            testSummaryJsonPath = os.path.join(
+                self.directories.test_output_dir, "testSummary.json"
+            )
 
             if os.path.exists(testSummaryJsonPath):
                 try:
-                    contents = open(testSummaryJsonPath,"r").read().strip()
+                    contents = open(testSummaryJsonPath, "r").read().strip()
 
-                    #remove the file, so that future runs won't accidentally replace this!
+                    # remove the file, so that future runs won't accidentally replace this!
                     os.remove(testSummaryJsonPath)
 
                     if contents:
@@ -1265,17 +1678,19 @@ class WorkerState(object):
                         res = []
                         for testname, data in sorted(individualTestSuccesses.items()):
                             if not isinstance(data, dict):
-                                data = {'success': data}
+                                data = {"success": data}
                             else:
                                 data = dict(data)
 
-                            data['testName'] = testname
+                            data["testName"] = testname
                             res.append(data)
 
                         individualTestSuccesses = res
 
                     if not isinstance(individualTestSuccesses, list):
-                        raise Exception("testSummary.json should be a dict from str to bool")
+                        raise Exception(
+                            "testSummary.json should be a dict from str to bool"
+                        )
 
                     pathsToUpload = {}
 
@@ -1296,34 +1711,47 @@ class WorkerState(object):
                             started = None
 
                             for k in entry:
-                                assert isinstance(k, str) and k in ['testName', 'success', 'logs', 'elapsed', 'startTimestamp']
-                            
-                            if 'success' in entry:
-                                success = bool(entry['success'])
-                            if 'elapsed' in entry:
-                                elapsed = float(entry['elapsed'])
-                            if 'startTimestamp' in entry:
-                                started = float(entry['startTimestamp'])
-                            if 'logs' in entry:
-                                logs = entry['logs']
+                                assert isinstance(k, str) and k in [
+                                    "testName",
+                                    "success",
+                                    "logs",
+                                    "elapsed",
+                                    "startTimestamp",
+                                ]
+
+                            if "success" in entry:
+                                success = bool(entry["success"])
+                            if "elapsed" in entry:
+                                elapsed = float(entry["elapsed"])
+                            if "startTimestamp" in entry:
+                                started = float(entry["startTimestamp"])
+                            if "logs" in entry:
+                                logs = entry["logs"]
                                 for l in logs:
                                     assert isinstance(l, str)
 
-                                for path in entry['logs']:
-                                    pathVisibleToWorker = self.mapInternalToExternalPath(path, image is not NAKED_MACHINE)
+                                for path in entry["logs"]:
+                                    pathVisibleToWorker = self.mapInternalToExternalPath(
+                                        path, image is not NAKED_MACHINE
+                                    )
 
                                     if not pathVisibleToWorker:
-                                        withTime(log_function)("Test output path %s not visible outside of the docker container!" % path)
+                                        withTime(log_function)(
+                                            "Test output path %s not visible outside of the docker container!"
+                                            % path
+                                        )
                                         return SingleTestRunResult.SingleTestRunResult(
                                             testName=testname,
                                             testSucceeded=False,
                                             hasLogs=False,
                                             startTimestamp=None,
                                             elapsed=None,
-                                            testPassIx=times_seen[testname]
-                                            )
+                                            testPassIx=times_seen[testname],
+                                        )
 
-                                    pathsToUpload[keyname] = pathsToUpload.get(keyname,()) + (pathVisibleToWorker,)
+                                    pathsToUpload[keyname] = pathsToUpload.get(
+                                        keyname, ()
+                                    ) + (pathVisibleToWorker,)
 
                             return SingleTestRunResult.SingleTestRunResult(
                                 testName=testname,
@@ -1331,28 +1759,40 @@ class WorkerState(object):
                                 hasLogs=bool(logs),
                                 startTimestamp=started,
                                 elapsed=elapsed,
-                                testPassIx=times_seen[testname]
-                                )
+                                testPassIx=times_seen[testname],
+                            )
                         except:
-                            withTime(log_function)("testSummary.json entries should be {'testName': str, 'success': bool, 'logs': ['str'], 'elapsed': float, 'startTimestamp': float}, not %s." % (entry))
+                            withTime(log_function)(
+                                "testSummary.json entries should be {'testName': str, 'success': bool, 'logs': ['str'], 'elapsed': float, 'startTimestamp': float}, not %s."
+                                % (entry)
+                            )
                             return SingleTestRunResult.SingleTestRunResult(
-                                testName=testname, 
+                                testName=testname,
                                 testSucceeded=False,
                                 hasLogs=False,
                                 startTimestamp=None,
                                 elapsed=None,
-                                testPassIx=times_seen[testname]
-                                )
+                                testPassIx=times_seen[testname],
+                            )
 
-                    individualTestSuccesses = [processTestSuccess(e) for e in individualTestSuccesses]
+                    individualTestSuccesses = [
+                        processTestSuccess(e) for e in individualTestSuccesses
+                    ]
 
                     if pathsToUpload:
-                        self.artifactStorage.uploadIndividualTestArtifacts(test_definition.hash, testId, pathsToUpload, withTime(log_function))
+                        self.artifactStorage.uploadIndividualTestArtifacts(
+                            test_definition.hash,
+                            testId,
+                            pathsToUpload,
+                            withTime(log_function),
+                        )
 
                 except Exception as e:
                     individualTestSuccesses = {}
                     log_function("Failed to pull in testSummary.json: " + str(e))
-                    logging.error("Error processing testSummary.json:\n%s", traceback.format_exc())
+                    logging.error(
+                        "Error processing testSummary.json:\n%s", traceback.format_exc()
+                    )
 
         return individualTestSuccesses
 
@@ -1363,7 +1803,7 @@ class WorkerState(object):
         if os.path.isabs(dir):
             return dir
         if isNaked:
-            #this is on windows
+            # this is on windows
             if isTest:
                 return self.directories.test_output_dir
             else:
@@ -1374,27 +1814,49 @@ class WorkerState(object):
             else:
                 return "/test_looper/build_output"
 
-    def _upload_artifact(self, testDefHash, testId, testName, artifact, isTestArtifact, log_function, image):
-        intendedDirectory = self.mapArtifactDirectoryToAbspath(artifact.directory, isTestArtifact, image is NAKED_MACHINE)
+    def _upload_artifact(
+        self,
+        testDefHash,
+        testId,
+        testName,
+        artifact,
+        isTestArtifact,
+        log_function,
+        image,
+    ):
+        intendedDirectory = self.mapArtifactDirectoryToAbspath(
+            artifact.directory, isTestArtifact, image is NAKED_MACHINE
+        )
 
-        artifactDirectory = self.mapInternalToExternalPath(intendedDirectory, image is not NAKED_MACHINE)
+        artifactDirectory = self.mapInternalToExternalPath(
+            intendedDirectory, image is not NAKED_MACHINE
+        )
 
         if not artifactDirectory:
-            withTime(log_function)("Error: path %s isn't visible outside of the docker container", intendedDirectory)
+            withTime(log_function)(
+                "Error: path %s isn't visible outside of the docker container",
+                intendedDirectory,
+            )
             return False
 
-        #upload all the data in our directory
+        # upload all the data in our directory
         full_name = testName + ("/" + artifact.name if artifact.name else "")
-        
+
         tarball_name = self._buildCachePathFor(testDefHash, full_name)
 
         if os.path.exists(tarball_name):
-            logging.warn("A build for %s/%s already exists at %s", testDefHash, full_name, tarball_name)
+            logging.warn(
+                "A build for %s/%s already exists at %s",
+                testDefHash,
+                full_name,
+                tarball_name,
+            )
             os.remove(tarball_name)
 
         withTime(log_function)("Tarballing %s into %s", intendedDirectory, tarball_name)
 
         with tarfile.open(tarball_name, "w:gz", compresslevel=1) as tf:
+
             def filter(tarinfo):
                 name = tarinfo.name
 
@@ -1424,42 +1886,62 @@ class WorkerState(object):
             if os.path.exists(artifactDirectory):
                 tf.add(artifactDirectory, ".", filter=filter)
             else:
-                withTime(log_function)("Warning: directory %s doesnt exist", intendedDirectory)
+                withTime(log_function)(
+                    "Warning: directory %s doesnt exist", intendedDirectory
+                )
 
-        withTime(log_function)("Resulting tarball at %s is %.2f MB", tarball_name, os.stat(tarball_name).st_size / 1024.0**2)
+        withTime(log_function)(
+            "Resulting tarball at %s is %.2f MB",
+            tarball_name,
+            os.stat(tarball_name).st_size / 1024.0 ** 2,
+        )
 
         try:
             withTime(log_function)("Uploading %s", tarball_name)
 
             if isTestArtifact:
-                self.artifactStorage.uploadSingleTestArtifact(testDefHash, testId, self.artifactKeyForBuild(full_name), tarball_name)
+                self.artifactStorage.uploadSingleTestArtifact(
+                    testDefHash,
+                    testId,
+                    self.artifactKeyForBuild(full_name),
+                    tarball_name,
+                )
             else:
-                self.artifactStorage.upload_build(testDefHash, self.artifactKeyForBuild(full_name), tarball_name)
+                self.artifactStorage.upload_build(
+                    testDefHash, self.artifactKeyForBuild(full_name), tarball_name
+                )
 
             withTime(log_function)("Done uploading %s", tarball_name)
 
             return True
         except:
-            withTime(log_function)("ERROR: Failed to upload package '%s':\n%s",
-                          tarball_name,
-                          traceback.format_exc()
-                          )
+            withTime(log_function)(
+                "ERROR: Failed to upload package '%s':\n%s",
+                tarball_name,
+                traceback.format_exc(),
+            )
             return False
 
     def _buildCachePathFor(self, testDefHash, testName):
         return os.path.join(
             self.directories.build_cache_dir,
-            (testDefHash + "_" + self.artifactKeyForBuild(testName))
-            )
+            (testDefHash + "_" + self.artifactKeyForBuild(testName)),
+        )
 
     def _download_build(self, buildHash, testName, log_function):
         path = self._buildCachePathFor(buildHash, testName)
-        
+
         if not os.path.exists(path):
-            log_function(time.asctime() + " TestLooper> " + "Downloading build for %s test %s\n" % (buildHash, testName))
+            log_function(
+                time.asctime()
+                + " TestLooper> "
+                + "Downloading build for %s test %s\n" % (buildHash, testName)
+            )
             log_function(time.asctime() + " TestLooper> " + "    to %s.\n" % (path))
 
-            self.artifactStorage.download_build(buildHash, self.artifactKeyForBuild(testName), path)
+            self.artifactStorage.download_build(
+                buildHash, self.artifactKeyForBuild(testName), path
+            )
 
         return path
 
@@ -1479,12 +1961,14 @@ class WorkerState(object):
 
     def environment_variables(self, testId, environment, test_definition):
         res = {}
-        res.update({
-            'TEST_CORES_AVAILABLE': str(self.hardwareConfig.cores),
-            'TEST_RAM_GB_AVAILABLE': str(self.hardwareConfig.ram_gb),
-            'PYTHONUNBUFFERED': "TRUE",
-            'HOSTNAME': "testlooperworker"
-            })
+        res.update(
+            {
+                "TEST_CORES_AVAILABLE": str(self.hardwareConfig.cores),
+                "TEST_RAM_GB_AVAILABLE": str(self.hardwareConfig.ram_gb),
+                "PYTHONUNBUFFERED": "TRUE",
+                "HOSTNAME": "testlooperworker",
+            }
+        )
 
         if sys.platform == "win32":
             git_path = self.path_to_git_for_windows_installation()
@@ -1501,23 +1985,27 @@ class WorkerState(object):
                 res["TEST_SRC_DIR"] = "/test_looper/src"
 
         if environment.image.matches.AMI:
-            res.update({
-                'TEST_INPUTS': self.directories.test_inputs_dir,
-                'TEST_SCRATCH_DIR': self.directories.scratch_dir,
-                'TEST_OUTPUT_DIR': self.directories.test_output_dir,
-                'TEST_BUILD_OUTPUT_DIR': self.directories.build_output_dir,
-                'TEST_CCACHE_DIR': self.directories.ccache_dir
-                })
+            res.update(
+                {
+                    "TEST_INPUTS": self.directories.test_inputs_dir,
+                    "TEST_SCRATCH_DIR": self.directories.scratch_dir,
+                    "TEST_OUTPUT_DIR": self.directories.test_output_dir,
+                    "TEST_BUILD_OUTPUT_DIR": self.directories.build_output_dir,
+                    "TEST_CCACHE_DIR": self.directories.ccache_dir,
+                }
+            )
         else:
-            res.update({
-                'TEST_INPUTS': "/test_looper/test_inputs",
-                'TEST_SCRATCH_DIR': "/test_looper/scratch",
-                'TEST_OUTPUT_DIR': "/test_looper/output",
-                'TEST_BUILD_OUTPUT_DIR': "/test_looper/build_output",
-                'TEST_CCACHE_DIR': "/test_looper/ccache"
-                })
+            res.update(
+                {
+                    "TEST_INPUTS": "/test_looper/test_inputs",
+                    "TEST_SCRATCH_DIR": "/test_looper/scratch",
+                    "TEST_OUTPUT_DIR": "/test_looper/output",
+                    "TEST_BUILD_OUTPUT_DIR": "/test_looper/build_output",
+                    "TEST_CCACHE_DIR": "/test_looper/ccache",
+                }
+            )
 
         if testId is not None:
-            res['TEST_LOOPER_TEST_ID'] = testId
+            res["TEST_LOOPER_TEST_ID"] = testId
 
         return res

@@ -1,7 +1,9 @@
 import threading
 
+
 class Stoppable(object):
-    '''provides access to a stop flag across multiple threads'''
+    """provides access to a stop flag across multiple threads"""
+
     def __init__(self):
         self._stopFlag = self._createStopFlag()
 
@@ -13,7 +15,7 @@ class Stoppable(object):
 
     def shouldStop(self):
         return self._stopFlag.is_set()
-        
+
     def resume(self):
         self._stopFlag.clear()
 

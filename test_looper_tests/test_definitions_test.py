@@ -135,37 +135,60 @@ includes:
         v4: v4_val1
 """
 
+
 def apply_and_merge(vars, extras=None):
-    return VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(vars, extras or {})
+    return VariableSubstitution.apply_variable_substitutions_and_merge_repeatedly(
+        vars, extras or {}
+    )
+
 
 class TestDefinitionScriptTests(unittest.TestCase):
     def test_basic(self):
-        tests, environments, repos, includes, test_sets, triggers = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", basic_yaml_file)
+        tests, environments, repos, includes, test_sets, triggers = TestDefinitionScript.extract_tests_from_str(
+            "repo", "hash", ".yml", basic_yaml_file
+        )
 
-        for name in ['build/linux', 'build/test_linux', 'test/linux', 'test/test_linux']:
+        for name in [
+            "build/linux",
+            "build/test_linux",
+            "test/linux",
+            "test/test_linux",
+        ]:
             self.assertTrue(name in tests, name)
 
-        self.assertEqual(set(environments["test_linux"].variables), set(["ENV_VAR", "AN_INT_VAR", "A_BOOL_VAR"]))
+        self.assertEqual(
+            set(environments["test_linux"].variables),
+            set(["ENV_VAR", "AN_INT_VAR", "A_BOOL_VAR"]),
+        )
         self.assertEqual(environments["test_linux"].variables["AN_INT_VAR"], "10")
         self.assertEqual(environments["test_linux"].variables["A_BOOL_VAR"], "true")
 
     def test_environment_inheritance(self):
-        tests, environments, repos, includes, test_sets, triggers = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", environment_yaml_file)
+        tests, environments, repos, includes, test_sets, triggers = TestDefinitionScript.extract_tests_from_str(
+            "repo", "hash", ".yml", environment_yaml_file
+        )
 
         Ref = TestDefinition.EnvironmentReference.Reference
 
-        deps = {Ref(repo="repo", commitHash="hash", name=n): environments[n] for n in environments}
+        deps = {
+            Ref(repo="repo", commitHash="hash", name=n): environments[n]
+            for n in environments
+        }
 
         env = environments["diamond"]
-        
+
         env = TestDefinition.merge_environments(env, deps)
-        
+
         self.assertEqual(env.environment_name, "diamond")
         self.assertEqual(env.inheritance, ("child2", "child1", "env_dep", "env_root"))
-        self.assertEqual(env.image.setup_script_contents, "\nTestFileContents\n\nChildContents\n")
+        self.assertEqual(
+            env.image.setup_script_contents, "\nTestFileContents\n\nChildContents\n"
+        )
 
     def test_includes_and_variables(self):
-        _,_,_, includes, _, _ = TestDefinitionScript.extract_tests_from_str("repo", "hash", ".yml", includes_yaml_file)
+        _, _, _, includes, _, _ = TestDefinitionScript.extract_tests_from_str(
+            "repo", "hash", ".yml", includes_yaml_file
+        )
 
         self.assertTrue(len(includes) == 8)
 
@@ -176,85 +199,94 @@ class TestDefinitionScriptTests(unittest.TestCase):
             res.append(v)
 
         computedRes = []
-        for v1 in ['v1_val1', 'v1_val2']:
-            for v2 in ['v2_val1', 'v2_val2']:
+        for v1 in ["v1_val1", "v1_val2"]:
+            for v2 in ["v2_val1", "v2_val2"]:
                 computedRes.append({"path": "repo1/path", "v1": v1, "v2": v2})
-                computedRes.append({"path": "repo2/path", "v1": v1, "v2": v2, "v3": "v3_val1", "v4": "v4_val1"})
+                computedRes.append(
+                    {
+                        "path": "repo2/path",
+                        "v1": v1,
+                        "v2": v2,
+                        "v3": "v3_val1",
+                        "v4": "v4_val1",
+                    }
+                )
 
         self.assertEqual(res, computedRes)
 
-
     def test_expansion(self):
         res = TestDefinitionScript.MacroExpander().expand_macros(
-          {"foreach": [
-            {"name": 10, "hello": 20}, 
-            {"name": 20, "hello": 30}
-            ],
-           "repeat": {
-            "${name}_X": {"z": "${hello}"},
-            "${name}_Y": {"b": "${hello}"},
-            }
-          }, {})
+            {
+                "foreach": [{"name": 10, "hello": 20}, {"name": 20, "hello": 30}],
+                "repeat": {
+                    "${name}_X": {"z": "${hello}"},
+                    "${name}_Y": {"b": "${hello}"},
+                },
+            },
+            {},
+        )
 
         self.assertEqual(
-          res,
-          {"10_X": {"z": "20"},
-           "10_Y": {"b": "20"},
-           "20_X": {"z": "30"},
-           "20_Y": {"b": "30"}
-           }
-          )
+            res,
+            {
+                "10_X": {"z": "20"},
+                "10_Y": {"b": "20"},
+                "20_X": {"z": "30"},
+                "20_Y": {"b": "30"},
+            },
+        )
 
     def test_expansion_and_replacement(self):
         res = TestDefinitionScript.MacroExpander().expand_macros(
-          {"define": {"name": [20, 30], "hello": 30},
-           "in": ["a thing", "${name}"]
-          }, {})
+            {"define": {"name": [20, 30], "hello": 30}, "in": ["a thing", "${name}"]},
+            {},
+        )
 
-        self.assertEqual(
-          res, ["a thing", [20, 30]]
-          )
+        self.assertEqual(res, ["a thing", [20, 30]])
 
     def test_merging(self):
         res = TestDefinitionScript.MacroExpander().expand_macros(
-          {"define": {"name": [20, 30], "name2": [1,2]},
-           "in": [
-            {"merge": ["${name}", "${name2}"]},
-            {"merge": [{"a": "${name}"}, {"b": "${name2}"}]}
-            ]
-          }, {})
+            {
+                "define": {"name": [20, 30], "name2": [1, 2]},
+                "in": [
+                    {"merge": ["${name}", "${name2}"]},
+                    {"merge": [{"a": "${name}"}, {"b": "${name2}"}]},
+                ],
+            },
+            {},
+        )
 
-        self.assertEqual(
-          res, [[20,30,1,2], {"a": [20,30], "b": [1,2]}]
-          )
+        self.assertEqual(res, [[20, 30, 1, 2], {"a": [20, 30], "b": [1, 2]}])
 
     def test_cross_foreach(self):
         res = TestDefinitionScript.MacroExpander().expand_macros(
-          {"foreach": {"name": [20, 30], "name2": [1,2]},
-           "repeat": {"${name}-${name2}": "hi"}
-          }, {})
+            {
+                "foreach": {"name": [20, 30], "name2": [1, 2]},
+                "repeat": {"${name}-${name2}": "hi"},
+            },
+            {},
+        )
 
-        self.assertEqual(
-          res,
-            {"20-1": "hi",
-             "20-2": "hi",
-             "30-1": "hi",
-             "30-2": "hi"}
-          )
+        self.assertEqual(res, {"20-1": "hi", "20-2": "hi", "30-1": "hi", "30-2": "hi"})
 
     def test_squashing(self):
-        res = TestDefinitionScript.MacroExpander().expand_macros(yaml.load(foreach_and_squash_yaml), {})
-        
+        res = TestDefinitionScript.MacroExpander().expand_macros(
+            yaml.load(foreach_and_squash_yaml), {}
+        )
+
         self.assertEqual(
-          res, {
-            'test/G1/T1': 'P1 T1.test',
-            'test/G1/T2': 'P1 T2.test',
-            'test/G2/T3': 'P2 T3.test',
-            'test/G2/T4': 'P2 T4.test'
-          })
+            res,
+            {
+                "test/G1/T1": "P1 T1.test",
+                "test/G1/T2": "P1 T2.test",
+                "test/G2/T3": "P2 T3.test",
+                "test/G2/T4": "P2 T4.test",
+            },
+        )
 
     def test_casing(self):
-        case_yaml = textwrap.dedent("""
+        case_yaml = textwrap.dedent(
+            """
             define:
               lookup_table:
                 a: A_res
@@ -267,25 +299,27 @@ class TestDefinitionScriptTests(unittest.TestCase):
                 in: ${lookup_table}
               - case: b
                 in: ${lookup_table}
-            """)
+            """
+        )
 
-        res = TestDefinitionScript.MacroExpander().expand_macros(yaml.load(case_yaml), {})
-        
-        self.assertEqual(
-            res, ["A_res","C_res","B_res"]
-            )
+        res = TestDefinitionScript.MacroExpander().expand_macros(
+            yaml.load(case_yaml), {}
+        )
 
+        self.assertEqual(res, ["A_res", "C_res", "B_res"])
 
     def test_variable_substitution(self):
         self.assertEqual(apply_and_merge({"A": "B"}), {"A": "B"})
         self.assertEqual(apply_and_merge({"A": "${B}"}), {"A": "${B}"})
         self.assertEqual(apply_and_merge({"A": "${B}", "B": "C"}), {"A": "C", "B": "C"})
-        self.assertEqual(apply_and_merge({"A": "${B}"}, {"B": "C"}), {"A": "C", "B": "C"})
+        self.assertEqual(
+            apply_and_merge({"A": "${B}"}, {"B": "C"}), {"A": "C", "B": "C"}
+        )
 
     def test_variable_chains_and_cycles(self):
         chain = {}
         for i in range(20):
-          chain["A_%s" % i] = "${A_%s}_" % (i+1)
+            chain["A_%s" % i] = "${A_%s}_" % (i + 1)
         chain["A_20"] = ""
         chain_merged = apply_and_merge(chain)
 
@@ -299,6 +333,9 @@ class TestDefinitionScriptTests(unittest.TestCase):
             apply_and_merge(chain)
 
     def test_variable_sublookup(self):
-        self.assertEqual(apply_and_merge({"A": "AB", "B": "BV", "ABBV": "FINAL", "D": "${${A}${B}}"})["D"], "FINAL")
-
-
+        self.assertEqual(
+            apply_and_merge(
+                {"A": "AB", "B": "BV", "ABBV": "FINAL", "D": "${${A}${B}}"}
+            )["D"],
+            "FINAL",
+        )

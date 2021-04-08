@@ -35,6 +35,7 @@ time.tzset()
 
 MAX_BYTES_TO_SEND = 100000
 
+
 class LogHandler:
     def __init__(self, testManager, testId, websocket):
         self.testManager = testManager
@@ -48,7 +49,7 @@ class LogHandler:
             message = message[-MAX_BYTES_TO_SEND:]
 
         try:
-            message = message.replace("\n","\n\r")
+            message = message.replace("\n", "\n\r")
 
             self.websocket.send(message, False)
         except:
@@ -60,6 +61,7 @@ class LogHandler:
 
     def onClosed(self):
         pass
+
 
 class InteractiveEnvironmentHandler:
     def __init__(self, testManager, deploymentId, websocket):
@@ -94,13 +96,17 @@ class InteractiveEnvironmentHandler:
                     if len(self.buffer) < 8:
                         return
 
-                    #this is a data message
+                    # this is a data message
                     bytes_expected = struct.unpack(">i", self.buffer[4:8])[0]
 
                     if len(self.buffer) >= bytes_expected + 8:
-                        msg = TerminalInputMsg.KeyboardInput(bytes=self.buffer[8:8+bytes_expected])
-                        self.buffer = self.buffer[8+bytes_expected:]
-                        self.testManager.writeMessageToDeployment(self.deploymentId, msg)
+                        msg = TerminalInputMsg.KeyboardInput(
+                            bytes=self.buffer[8 : 8 + bytes_expected]
+                        )
+                        self.buffer = self.buffer[8 + bytes_expected :]
+                        self.testManager.writeMessageToDeployment(
+                            self.deploymentId, msg
+                        )
                     else:
                         return
 
@@ -108,7 +114,7 @@ class InteractiveEnvironmentHandler:
                     if len(self.buffer) < 12:
                         return
 
-                    #this is a console resize-message
+                    # this is a console resize-message
                     cols = struct.unpack(">i", self.buffer[4:8])[0]
                     rows = struct.unpack(">i", self.buffer[8:12])[0]
 
@@ -127,7 +133,6 @@ class InteractiveEnvironmentHandler:
         self.testManager.unsubscribeFromDeployment(self.deploymentId, self.onTestOutput)
 
 
-
 def MakeWebsocketHandler(httpServer):
     def caller(*args, **kwargs):
         everGotAMessage = [False]
@@ -136,32 +141,40 @@ def MakeWebsocketHandler(httpServer):
         class WebsocketHandler(WebSocket):
             def logMsg(self, message):
                 try:
-                    self.send(message.replace("\n","\n\r"), False)
+                    self.send(message.replace("\n", "\n\r"), False)
                 except:
-                    logging.error("error in websocket handler:\n%s", traceback.format_exc())
+                    logging.error(
+                        "error in websocket handler:\n%s", traceback.format_exc()
+                    )
 
             def initialize(self):
                 try:
                     try:
-                        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.environ["REQUEST_URI"]).query)
+                        query = urllib.parse.parse_qs(
+                            urllib.parse.urlparse(self.environ["REQUEST_URI"]).query
+                        )
                     except:
                         self.send("Invalid query string.", False)
                         return
 
                     if "testId" in query:
-                        handler[0] = LogHandler(httpServer.testManager, query["testId"][0], self)
+                        handler[0] = LogHandler(
+                            httpServer.testManager, query["testId"][0], self
+                        )
                     elif "deploymentId" in query:
                         handler[0] = InteractiveEnvironmentHandler(
-                            httpServer.testManager,
-                            query['deploymentId'][0],
-                            self
-                            )
+                            httpServer.testManager, query["deploymentId"][0], self
+                        )
                     else:
-                        logging.error("Invalid query string: %s", self.environ["REQUEST_URI"])
+                        logging.error(
+                            "Invalid query string: %s", self.environ["REQUEST_URI"]
+                        )
                         self.send("Invalid query string.", False)
                         return
                 except:
-                    logging.error("error in websocket handler:\n%s", traceback.format_exc())
+                    logging.error(
+                        "error in websocket handler:\n%s", traceback.format_exc()
+                    )
 
             def received_message(self, message):
                 try:
@@ -174,7 +187,9 @@ def MakeWebsocketHandler(httpServer):
                     if handler[0]:
                         handler[0].onData(msg)
                 except:
-                    logging.error("error in websocket handler:\n%s", traceback.format_exc())
+                    logging.error(
+                        "error in websocket handler:\n%s", traceback.format_exc()
+                    )
 
             def closed(self, *args):
                 try:
@@ -183,23 +198,27 @@ def MakeWebsocketHandler(httpServer):
                     if handler[0]:
                         handler[0].onClosed()
                 except:
-                    logging.error("error in websocket handler:\n%s", traceback.format_exc())
-
+                    logging.error(
+                        "error in websocket handler:\n%s", traceback.format_exc()
+                    )
 
         return WebsocketHandler(*args, **kwargs)
+
     return caller
 
+
 class TestLooperHttpServer(object):
-    def __init__(self,
-                 portConfig,
-                 httpServerConfig,
-                 serverConfig,
-                 testManager,
-                 machine_management,
-                 artifactStorage,
-                 src_ctrl,
-                 event_log
-                 ):
+    def __init__(
+        self,
+        portConfig,
+        httpServerConfig,
+        serverConfig,
+        testManager,
+        machine_management,
+        artifactStorage,
+        src_ctrl,
+        event_log,
+    ):
         """Initialize the TestLooperHttpServer
 
         testManager - a TestManager.TestManager object
@@ -214,9 +233,25 @@ class TestLooperHttpServer(object):
         self.eventLog.addLogMessage("test-looper", "TestLooper initialized")
         self.defaultCoreCount = 4
         self.artifactStorage = artifactStorage
-        self.certs = serverConfig.path_to_certs.val if serverConfig.path_to_certs.matches.Value else None
-        self.address = ("https" if self.certs else "http") + "://" + portConfig.server_address + ":" + str(portConfig.server_https_port)
-        self.websocket_address = ("wss" if self.certs else "ws") + "://" + portConfig.server_address + ":" + str(portConfig.server_https_port)
+        self.certs = (
+            serverConfig.path_to_certs.val
+            if serverConfig.path_to_certs.matches.Value
+            else None
+        )
+        self.address = (
+            ("https" if self.certs else "http")
+            + "://"
+            + portConfig.server_address
+            + ":"
+            + str(portConfig.server_https_port)
+        )
+        self.websocket_address = (
+            ("wss" if self.certs else "ws")
+            + "://"
+            + portConfig.server_address
+            + ":"
+            + str(portConfig.server_https_port)
+        )
 
         self.accessTokenHasPermission = {}
 
@@ -228,52 +263,59 @@ class TestLooperHttpServer(object):
         return self.regular_renderer
 
     def addLogMessage(self, format_string, *args, **kwargs):
-        self.eventLog.addLogMessage(self.getCurrentLogin(), format_string, *args, **kwargs)
+        self.eventLog.addLogMessage(
+            self.getCurrentLogin(), format_string, *args, **kwargs
+        )
 
     def getCurrentLogin(self):
-        cherrypy.session['github_access_token'] = "DUMMY"
+        cherrypy.session["github_access_token"] = "DUMMY"
 
-        login = cherrypy.session.get('github_login', None)
+        login = cherrypy.session.get("github_login", None)
         if login is None and self.is_authenticated():
             token = self.access_token()
-            login = cherrypy.session['github_login'] = self.src_ctrl.getUserNameFromToken(token)
+            login = cherrypy.session[
+                "github_login"
+            ] = self.src_ctrl.getUserNameFromToken(token)
         return login or "Guest"
 
     def authenticate(self):
         auth_url = self.src_ctrl.authenticationUrl()
 
         if auth_url is not None:
-            #stash the current url
+            # stash the current url
             self.save_current_url()
             raise cherrypy.HTTPRedirect(auth_url)
         else:
-            cherrypy.session['github_access_token'] = "DUMMY"
+            cherrypy.session["github_access_token"] = "DUMMY"
 
     @staticmethod
     def currentUrl(remove_query_params=None):
         if remove_query_params is None:
-            return cherrypy.url(qs=cherrypy.request.query_string).replace('http://', 'https://')
+            return cherrypy.url(qs=cherrypy.request.query_string).replace(
+                "http://", "https://"
+            )
 
         query_string = cherrypy.lib.httputil.parse_query_string(
             cherrypy.request.query_string
-            )
+        )
         return cherrypy.url(
-            qs="&".join("%s=%s" % (k, v)
-                        for k, v in query_string.items()
-                        if k not in remove_query_params)
-            ).replace('http://', 'https://')
+            qs="&".join(
+                "%s=%s" % (k, v)
+                for k, v in query_string.items()
+                if k not in remove_query_params
+            )
+        ).replace("http://", "https://")
 
     def save_current_url(self):
-        cherrypy.session['redirect_after_authentication'] = self.currentUrl()
+        cherrypy.session["redirect_after_authentication"] = self.currentUrl()
 
     @staticmethod
     def is_authenticated():
-        return 'github_access_token' in cherrypy.session
+        return "github_access_token" in cherrypy.session
 
     @staticmethod
     def access_token():
-        return cherrypy.session['github_access_token']
-
+        return cherrypy.session["github_access_token"]
 
     def can_write(self):
         if not self.is_authenticated():
@@ -286,11 +328,9 @@ class TestLooperHttpServer(object):
             self.accessTokenHasPermission[token] = is_authorized
 
             self.addLogMessage(
-                "Authorization: %s",
-                "Granted" if is_authorized else "Denied"
-                )
+                "Authorization: %s", "Granted" if is_authorized else "Denied"
+            )
         return is_authorized
-
 
     @cherrypy.expose
     def reloadSource(self, redirect="/"):
@@ -319,8 +359,6 @@ class TestLooperHttpServer(object):
 
         self.regular_renderer = TestLooperHtmlRendering.Renderer(self)
 
-
-
     def authorize(self, read_only):
         if not self.is_authenticated():
             # this redirects to the login page. Authorization will take place
@@ -331,23 +369,22 @@ class TestLooperHttpServer(object):
                 return
 
             message = (
-                "You are not authorized to access this repository" if read_only else
-                "You are not authorized to perform the requested operation"
-                )
+                "You are not authorized to access this repository"
+                if read_only
+                else "You are not authorized to perform the requested operation"
+            )
 
             raise cherrypy.HTTPError(403, message)
 
-
     @cherrypy.expose
     def logout(self):
-        token = cherrypy.session.pop('github_access_token', None)
+        token = cherrypy.session.pop("github_access_token", None)
         if token and token in self.accessTokenHasPermission:
             del self.accessTokenHasPermission[token]
 
-        cherrypy.session.pop('github_login')
+        cherrypy.session.pop("github_login")
 
         raise cherrypy.HTTPRedirect(self.address + "/")
-
 
     @cherrypy.expose
     def githubAuthCallback(self, code):
@@ -363,12 +400,12 @@ class TestLooperHttpServer(object):
 
         logging.info("Access token is %s", access_token)
 
-        cherrypy.session['github_access_token'] = access_token
+        cherrypy.session["github_access_token"] = access_token
 
         raise cherrypy.HTTPRedirect(
-            cherrypy.session.pop('redirect_after_authentication', None) or self.address + "/"
-            )
-
+            cherrypy.session.pop("redirect_after_authentication", None)
+            or self.address + "/"
+        )
 
     @cherrypy.expose
     def index(self):
@@ -427,16 +464,19 @@ class TestLooperHttpServer(object):
 
         raise cherrypy.HTTPRedirect(redirect or self.address + "/repos")
 
-
     @cherrypy.expose
     def shutdownDeployment(self, deploymentId):
         return self.renderer.shutdownDeployment(deploymentId)
 
     @cherrypy.expose
-    def toggleBranchTestTargeting(self, reponame, branchname, testType, testGroupsToExpand):
+    def toggleBranchTestTargeting(
+        self, reponame, branchname, testType, testGroupsToExpand
+    ):
         self.authorize(read_only=False)
 
-        return self.renderer.toggleBranchTestTargeting(reponame, branchname, testType, testGroupsToExpand)
+        return self.renderer.toggleBranchTestTargeting(
+            reponame, branchname, testType, testGroupsToExpand
+        )
 
     @cherrypy.expose
     def updateBranchPin(self, repoName, branchName, ref, redirect):
@@ -448,13 +488,20 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def webhook(self, *args, **kwds):
-        if 'Content-Length' not in cherrypy.request.headers:
+        if "Content-Length" not in cherrypy.request.headers:
             raise cherrypy.HTTPError(400, "Missing Content-Length header")
 
-        if cherrypy.request.headers['Content-Type'] == "application/x-www-form-urlencoded":
-            payload = json.loads(cherrypy.request.body_params['payload'])
+        if (
+            cherrypy.request.headers["Content-Type"]
+            == "application/x-www-form-urlencoded"
+        ):
+            payload = json.loads(cherrypy.request.body_params["payload"])
         else:
-            payload = json.loads(cherrypy.request.body.read(int(cherrypy.request.headers['Content-Length'])))
+            payload = json.loads(
+                cherrypy.request.body.read(
+                    int(cherrypy.request.headers["Content-Length"])
+                )
+            )
 
         event = self.src_ctrl.verify_webhook_request(cherrypy.request.headers, payload)
 
@@ -462,9 +509,13 @@ class TestLooperHttpServer(object):
             logging.error("Invalid webhook request")
             raise cherrypy.HTTPError(400, "Invalid webhook request")
 
-        #don't block the webserver itself, so we can do this in a background thread
-        logging.info("Triggering refresh branches on repo=%s branch=%s", event['repo'], event['branch'])
-        self.testManager.markBranchListDirty(event['repo'], time.time())
+        # don't block the webserver itself, so we can do this in a background thread
+        logging.info(
+            "Triggering refresh branches on repo=%s branch=%s",
+            event["repo"],
+            event["branch"],
+        )
+        self.testManager.markBranchListDirty(event["repo"], time.time())
 
     @cherrypy.expose
     def interactive_socket(self, **kwargs):
@@ -472,11 +523,13 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def terminalForTest(self, testId):
-        return self.websocketText(urllib.parse.urlencode({"testId":testId}))
+        return self.websocketText(urllib.parse.urlencode({"testId": testId}))
 
     @cherrypy.expose
     def terminalForDeployment(self, deploymentId):
-        return self.websocketText(urllib.parse.urlencode({"deploymentId":deploymentId}))
+        return self.websocketText(
+            urllib.parse.urlencode({"deploymentId": deploymentId})
+        )
 
     @cherrypy.expose
     def machineHeartbeatMessage(self, machineId, heartbeatmsg):
@@ -600,7 +653,10 @@ class TestLooperHttpServer(object):
         </body>
 
         </html>
-        """.replace("__websocket_address__", self.websocket_address + "/interactive_socket?" + urlQuery)
+        """.replace(
+            "__websocket_address__",
+            self.websocket_address + "/interactive_socket?" + urlQuery,
+        )
 
     @cherrypy.expose
     def default(self, *args, **kwargs):
@@ -617,23 +673,25 @@ class TestLooperHttpServer(object):
 
     def start(self):
         config = {
-            'global': {
-                "engine.autoreload.on":False,
-                'server.socket_host': '0.0.0.0',
-                'server.socket_port': self.httpPort,
-                'server.show_tracebacks': False,
-                'request.show_tracebacks': False,
-                'tools.sessions.on': True,
-                }
+            "global": {
+                "engine.autoreload.on": False,
+                "server.socket_host": "0.0.0.0",
+                "server.socket_port": self.httpPort,
+                "server.show_tracebacks": False,
+                "request.show_tracebacks": False,
+                "tools.sessions.on": True,
             }
+        }
 
         if self.certs:
-            config['global'].update({
-                'server.ssl_module': 'builtin',
-                'server.ssl_certificate':self.certs.cert,
-                'server.ssl_private_key':self.certs.key,
-                'server.ssl_certificate_chain':self.certs.chain
-                })
+            config["global"].update(
+                {
+                    "server.ssl_module": "builtin",
+                    "server.ssl_certificate": self.certs.cert,
+                    "server.ssl_private_key": self.certs.key,
+                    "server.ssl_certificate_chain": self.certs.chain,
+                }
+            )
 
         cherrypy.config.update(config)
 
@@ -646,89 +704,137 @@ class TestLooperHttpServer(object):
 
         temp_dir_for_tarball = tempfile.mkdtemp()
 
-        logging.info("Serving test-looper tarball and related downloads from %s", temp_dir_for_tarball)
+        logging.info(
+            "Serving test-looper tarball and related downloads from %s",
+            temp_dir_for_tarball,
+        )
 
         SubprocessRunner.callAndAssertSuccess(
-            ["tar", "cvfz", os.path.join(temp_dir_for_tarball, "test_looper.tar.gz"),
-                "--directory", path_to_source_root, "test_looper"
-            ])
+            [
+                "tar",
+                "cvfz",
+                os.path.join(temp_dir_for_tarball, "test_looper.tar.gz"),
+                "--directory",
+                path_to_source_root,
+                "test_looper",
+            ]
+        )
 
         if not self.linuxOnly:
             with DirectoryScope.DirectoryScope(path_to_source_root):
                 SubprocessRunner.callAndAssertSuccess(
-                    ["zip", "-r", os.path.join(temp_dir_for_tarball, "test_looper.zip"), "test_looper", "-x", "*.pyc", "*.js"]
-                    )
+                    [
+                        "zip",
+                        "-r",
+                        os.path.join(temp_dir_for_tarball, "test_looper.zip"),
+                        "test_looper",
+                        "-x",
+                        "*.pyc",
+                        "*.js",
+                    ]
+                )
 
             with DirectoryScope.DirectoryScope(temp_dir_for_tarball):
                 SubprocessRunner.callAndReturnOutput(
-                    ["curl", "-L", "https://bootstrap.pypa.io/get-pip.py", "-O", os.path.join(temp_dir_for_tarball, "get-pip.py")]
-                    )
+                    [
+                        "curl",
+                        "-L",
+                        "https://bootstrap.pypa.io/get-pip.py",
+                        "-O",
+                        os.path.join(temp_dir_for_tarball, "get-pip.py"),
+                    ]
+                )
                 assert os.path.exists(os.path.join(temp_dir_for_tarball, "get-pip.py"))
 
             with DirectoryScope.DirectoryScope(temp_dir_for_tarball):
                 SubprocessRunner.callAndReturnOutput(
-                    ["curl", "-L", "http://www.python.org/ftp/python/2.7.14/python-2.7.14.amd64.msi", "-O", os.path.join(temp_dir_for_tarball, "python-2.7.14.amd64.msi")]
-                    )
-                assert os.path.exists(os.path.join(temp_dir_for_tarball, "python-2.7.14.amd64.msi"))
+                    [
+                        "curl",
+                        "-L",
+                        "http://www.python.org/ftp/python/2.7.14/python-2.7.14.amd64.msi",
+                        "-O",
+                        os.path.join(temp_dir_for_tarball, "python-2.7.14.amd64.msi"),
+                    ]
+                )
+                assert os.path.exists(
+                    os.path.join(temp_dir_for_tarball, "python-2.7.14.amd64.msi")
+                )
 
             with DirectoryScope.DirectoryScope(temp_dir_for_tarball):
                 SubprocessRunner.callAndReturnOutput(
-                    ["curl", "-L", "https://github.com/git-for-windows/git/releases/download/v2.15.1.windows.2/Git-2.15.1.2-64-bit.exe", "-O", os.path.join(temp_dir_for_tarball, "Git-2.15.1.2-64-bit.exe")]
-                    )
-                assert os.path.exists(os.path.join(temp_dir_for_tarball, "Git-2.15.1.2-64-bit.exe"))
+                    [
+                        "curl",
+                        "-L",
+                        "https://github.com/git-for-windows/git/releases/download/v2.15.1.windows.2/Git-2.15.1.2-64-bit.exe",
+                        "-O",
+                        os.path.join(temp_dir_for_tarball, "Git-2.15.1.2-64-bit.exe"),
+                    ]
+                )
+                assert os.path.exists(
+                    os.path.join(temp_dir_for_tarball, "Git-2.15.1.2-64-bit.exe")
+                )
 
-
-        cherrypy.tree.mount(self, '/', {
-            '/favicon.ico': {
-                'tools.staticfile.on': True,
-                'tools.staticfile.filename': os.path.join(current_dir,
-                                                          'content',
-                                                          'favicon.ico')
+        cherrypy.tree.mount(
+            self,
+            "/",
+            {
+                "/favicon.ico": {
+                    "tools.staticfile.on": True,
+                    "tools.staticfile.filename": os.path.join(
+                        current_dir, "content", "favicon.ico"
+                    ),
                 },
-            '/get-pip.py': {
-                'tools.staticfile.on': True,
-                'tools.staticfile.filename': os.path.join(temp_dir_for_tarball,
-                                                          'get-pip.py')
+                "/get-pip.py": {
+                    "tools.staticfile.on": True,
+                    "tools.staticfile.filename": os.path.join(
+                        temp_dir_for_tarball, "get-pip.py"
+                    ),
                 },
-            '/test_looper.tar.gz': {
-                'tools.staticfile.on': True,
-                'tools.staticfile.filename': os.path.join(temp_dir_for_tarball,
-                                                          'test_looper.tar.gz')
+                "/test_looper.tar.gz": {
+                    "tools.staticfile.on": True,
+                    "tools.staticfile.filename": os.path.join(
+                        temp_dir_for_tarball, "test_looper.tar.gz"
+                    ),
                 },
-            '/test_looper.zip': {
-                'tools.staticfile.on': True,
-                'tools.staticfile.filename': os.path.join(temp_dir_for_tarball,
-                                                          'test_looper.zip')
+                "/test_looper.zip": {
+                    "tools.staticfile.on": True,
+                    "tools.staticfile.filename": os.path.join(
+                        temp_dir_for_tarball, "test_looper.zip"
+                    ),
                 },
-            '/test_looper.zip': {
-                'tools.staticfile.on': True,
-                'tools.staticfile.filename': os.path.join(temp_dir_for_tarball,
-                                                          'test_looper.zip')
+                "/test_looper.zip": {
+                    "tools.staticfile.on": True,
+                    "tools.staticfile.filename": os.path.join(
+                        temp_dir_for_tarball, "test_looper.zip"
+                    ),
                 },
-            '/python-2.7.14.amd64.msi': {
-                'tools.staticfile.on': True,
-                'tools.staticfile.filename': os.path.join(temp_dir_for_tarball,
-                                                          'python-2.7.14.amd64.msi')
+                "/python-2.7.14.amd64.msi": {
+                    "tools.staticfile.on": True,
+                    "tools.staticfile.filename": os.path.join(
+                        temp_dir_for_tarball, "python-2.7.14.amd64.msi"
+                    ),
                 },
-            '/Git-2.15.1.2-64-bit.exe': {
-                'tools.staticfile.on': True,
-                'tools.staticfile.filename': os.path.join(temp_dir_for_tarball,
-                                                          'Git-2.15.1.2-64-bit.exe')
+                "/Git-2.15.1.2-64-bit.exe": {
+                    "tools.staticfile.on": True,
+                    "tools.staticfile.filename": os.path.join(
+                        temp_dir_for_tarball, "Git-2.15.1.2-64-bit.exe"
+                    ),
                 },
-            '/css': {
-                'tools.staticdir.on': True,
-                'tools.staticdir.dir': os.path.join(current_dir, 'css')
+                "/css": {
+                    "tools.staticdir.on": True,
+                    "tools.staticdir.dir": os.path.join(current_dir, "css"),
                 },
-            '/js': {
-                'tools.staticdir.on': True,
-                'tools.staticdir.dir': os.path.join(current_dir, 'content', 'js')
+                "/js": {
+                    "tools.staticdir.on": True,
+                    "tools.staticdir.dir": os.path.join(current_dir, "content", "js"),
                 },
-            '/interactive_socket': {
-                'tools.websocket.on': True,
-                'tools.websocket.handler_cls': MakeWebsocketHandler(self),
-                'tools.websocket.protocols': ['protocol']
-                }
-            })
+                "/interactive_socket": {
+                    "tools.websocket.on": True,
+                    "tools.websocket.handler_cls": MakeWebsocketHandler(self),
+                    "tools.websocket.protocols": ["protocol"],
+                },
+            },
+        )
 
         cherrypy.server.socket_port = self.httpPort
 

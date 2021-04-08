@@ -20,6 +20,7 @@ from test_looper.core.hash import sha_hash
 
 _primitive_types = (str, int, bool, float, bytes)
 
+
 def valid_type(t):
     if isinstance(t, Alternative) or t in _primitive_types:
         return True
@@ -29,7 +30,7 @@ def valid_type(t):
             if not valid_type(sub_t):
                 return False
         return True
-    
+
     if isinstance(t, List):
         return True
 
@@ -41,10 +42,11 @@ def valid_type(t):
 
     return False
 
+
 def coerce_instance(instance, to_type):
     if isinstance(instance, str):
         instance = str(instance)
-    
+
     if isinstance(to_type, Alternative):
         if isinstance(instance, AlternativeInstance):
             if instance._alternative is to_type:
@@ -68,8 +70,10 @@ def coerce_instance(instance, to_type):
             return None
 
         res = {}
-        for k,v in instance.items():
-            res[coerce_instance(k, to_type.keytype)] = coerce_instance(v, to_type.valtype)
+        for k, v in instance.items():
+            res[coerce_instance(k, to_type.keytype)] = coerce_instance(
+                v, to_type.valtype
+            )
 
         return res
     elif isinstance(to_type, List):
@@ -91,14 +95,18 @@ def coerce_instance(instance, to_type):
         if isinstance(instance, to_type):
             return instance
 
+
 def valid_fieldname(name):
-    return name and name[0] != "_" and name != 'matches' and name != "define"
+    return name and name[0] != "_" and name != "matches" and name != "define"
+
 
 class Discard:
     def x(self):
         pass
 
+
 boundinstancemethod = type(Discard().x)
+
 
 class Alternative(object):
     def __init__(self, name, **kwds):
@@ -110,9 +118,9 @@ class Alternative(object):
         self._methods = {}
         self._common_fields = {}
         self._createDefaultValue = None
-        
+
         for k, v in kwds.items():
-            self.__setattr__(k,v)
+            self.__setattr__(k, v)
 
         self._unique_field_to_type = {}
         self._types_with_unique_fields = set()
@@ -123,9 +131,9 @@ class Alternative(object):
 
     def add_common_fields(self, fields):
         assert not self._frozen, "can't modify an Alternative once it has been frozen"
-        
-        for k,v in fields.items():
-            self.add_common_field(k,v)
+
+        for k, v in fields.items():
+            self.add_common_field(k, v)
 
     def add_common_field(self, k, v):
         assert not self._frozen, "can't modify an Alternative once it has been frozen"
@@ -135,15 +143,17 @@ class Alternative(object):
             self._types[tname][k] = v
 
     def define(self, **kwds):
-        for k,v in kwds.items():
-            self.__setattr__(k,v)
+        for k, v in kwds.items():
+            self.__setattr__(k, v)
 
     def __setattr__(self, alt_name, defs):
         if len(alt_name) >= 2 and alt_name[0] == "_" and alt_name[1] != "_":
             self.__dict__[alt_name] = defs
             return
 
-        if isinstance(defs, type(Alternative)) and issubclass(defs, AlternativeInstance):
+        if isinstance(defs, type(Alternative)) and issubclass(
+            defs, AlternativeInstance
+        ):
             defs = defs._typedict
 
         assert not self._frozen, "can't modify an Alternative once it has been frozen"
@@ -152,7 +162,7 @@ class Alternative(object):
 
         if isinstance(defs, dict):
             assert valid_fieldname(alt_name), "invalid alternative name: " + alt_name
-        
+
             for fname, ftype in defs.items():
                 assert valid_fieldname(fname), "%s is not a valid field name" % fname
                 assert valid_type(ftype), "%s is not a valid type" % ftype
@@ -170,7 +180,7 @@ class Alternative(object):
                 self._unique_field_to_type[typenames] = name
                 self._types_with_unique_fields.add(name)
             else:
-                #multiple alternatives have exactly the same types
+                # multiple alternatives have exactly the same types
                 existing = self._unique_field_to_type[typenames]
 
                 if existing is not None:
@@ -183,55 +193,69 @@ class Alternative(object):
             raise AttributeError(attr)
 
         if attr not in self._types:
-            raise AttributeError(attr + " not a valid Alternative in %s" % sorted(self._types))
+            raise AttributeError(
+                attr + " not a valid Alternative in %s" % sorted(self._types)
+            )
 
         if attr not in self._options:
             if not self._frozen:
                 self._freeze()
-            self._options[attr] = makeAlternativeOption(self, attr, self._types[attr], attr in self._types_with_unique_fields)
+            self._options[attr] = makeAlternativeOption(
+                self, attr, self._types[attr], attr in self._types_with_unique_fields
+            )
 
         return self._options[attr]
 
     def __call__(self, *args, **kwds):
         if len(self._types) == 1:
-            #there's only one option - no need for any coersion
+            # there's only one option - no need for any coersion
             return getattr(self, list(self._types)[0])(*args, **kwds)
         else:
-            #only allow possibilities by 'arity' and name matching
+            # only allow possibilities by 'arity' and name matching
             possibility = None
 
             if len(args) == 1 and args[0] is None:
                 args = []
 
             if len(args) == 1:
-                assert(len(kwds) == 0)
-                for typename,typedict in self._types.items():
+                assert len(kwds) == 0
+                for typename, typedict in self._types.items():
                     if len(typedict) == 1:
                         if possibility is not None:
-                            raise TypeError("coersion to %s with one unnamed argument is ambiguous" % self._name)
+                            raise TypeError(
+                                "coersion to %s with one unnamed argument is ambiguous"
+                                % self._name
+                            )
                         possibility = typename
             else:
-                assert(len(args) == 0)
+                assert len(args) == 0
 
-                #multiple options, so it's a little ambiguous
-                for typename,typedict in self._types.items():
+                # multiple options, so it's a little ambiguous
+                for typename, typedict in self._types.items():
                     if sorted(typedict) == sorted(kwds):
                         if possibility is not None:
-                            raise TypeError("coersion to %s with one unnamed argument is ambiguous" % self._name)
+                            raise TypeError(
+                                "coersion to %s with one unnamed argument is ambiguous"
+                                % self._name
+                            )
                         possibility = typename
 
             if possibility is not None:
-                return getattr(self,possibility)(*args, **kwds)
+                return getattr(self, possibility)(*args, **kwds)
             else:
-                raise TypeError("coersion to %s with one unnamed argument is ambiguous" % self._name)
+                raise TypeError(
+                    "coersion to %s with one unnamed argument is ambiguous" % self._name
+                )
 
     def __str__(self):
         return "algebraic.Alternative(%s)" % self._name
+
 
 class List(object):
     def __init__(self, subtype):
         self.subtype = subtype
         assert valid_type(subtype)
+
 
 class Dict(object):
     def __init__(self, keytype, valtype):
@@ -240,9 +264,11 @@ class Dict(object):
         assert valid_type(keytype)
         assert valid_type(valtype)
 
+
 class AlternativeInstance(object):
     def __init__(self):
         object.__init__(self)
+
 
 def default_initialize(tgt_type):
     if tgt_type is str:
@@ -267,38 +293,47 @@ def default_initialize(tgt_type):
         return tgt_type.__default_initializer__()
 
     return None
-    
+
 
 def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
     class AlternativeOption(AlternativeInstance):
         _typedict = typedict
         _fields_are_unique = fields_are_unique
+
         def __init__(self, *args, **fields):
             _fill_in_missing = fields.pop("_fill_in_missing", False)
             _allow_extra = fields.pop("_allow_extra", False)
 
             AlternativeInstance.__init__(self)
 
-            #make sure we don't modify caller dict
+            # make sure we don't modify caller dict
             fields = dict(fields)
 
             if len(typedict) == 0 and len(args) == 1 and args[0] is None:
                 fields = {}
             elif args:
                 if len(typedict) == 1:
-                    #if we have exactly one possible type, then don't need a name
-                    assert not fields and len(args) == 1, "can't infer a name for more than one argument"
+                    # if we have exactly one possible type, then don't need a name
+                    assert (
+                        not fields and len(args) == 1
+                    ), "can't infer a name for more than one argument"
                     fields = {list(typedict.keys())[0]: args[0]}
                 else:
-                    raise TypeError("constructing %s with an extra unnamed argument" % (alternative._name + "." + which))
+                    raise TypeError(
+                        "constructing %s with an extra unnamed argument"
+                        % (alternative._name + "." + which)
+                    )
 
             if _allow_extra:
-                #ignore extra arguments
-                fields = {f:fields[f] for f in fields if f in typedict}
+                # ignore extra arguments
+                fields = {f: fields[f] for f in fields if f in typedict}
             else:
                 for f in fields:
                     if f not in typedict:
-                        raise TypeError("constructing with unused argument %s: %s vs %s" % (f, fields.keys(), typedict.keys()))
+                        raise TypeError(
+                            "constructing with unused argument %s: %s vs %s"
+                            % (f, fields.keys(), typedict.keys())
+                        )
 
             for k in typedict:
                 if k not in fields:
@@ -311,7 +346,10 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
                 else:
                     instance = coerce_instance(fields[k], typedict[k])
                 if instance is None:
-                    raise TypeError("field %s needs a %s, not %s of type %s" % (k, typedict[k], fields[k], type(fields[k])))
+                    raise TypeError(
+                        "field %s needs a %s, not %s of type %s"
+                        % (k, typedict[k], fields[k], type(fields[k]))
+                    )
                 fields[k] = instance
 
             self._fields = fields
@@ -355,7 +393,13 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
             if attr in self._alternative._methods:
                 return boundinstancemethod(self._alternative._methods[attr], self)
 
-            raise AttributeError("%s not found amongst %s" % (attr, ",".join(list(self._fields) + list(self._alternative._methods))))
+            raise AttributeError(
+                "%s not found amongst %s"
+                % (
+                    attr,
+                    ",".join(list(self._fields) + list(self._alternative._methods)),
+                )
+            )
 
         def __setattr__(self, attr, val):
             if attr[:1] != "_":
@@ -363,19 +407,28 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
             self.__dict__[attr] = val
 
         def __add__(self, other):
-            if '__add__' in self._alternative._methods:
-                return self._alternative._methods['__add__'](self, other)
-            raise TypeError("unsupported operand type(s) for +: '%s' and '%s'" % (type(self),type(other)))
+            if "__add__" in self._alternative._methods:
+                return self._alternative._methods["__add__"](self, other)
+            raise TypeError(
+                "unsupported operand type(s) for +: '%s' and '%s'"
+                % (type(self), type(other))
+            )
 
         def __str__(self):
-            if '__str__' in self._alternative._methods:
-                return self._alternative._methods['__str__'](self)
+            if "__str__" in self._alternative._methods:
+                return self._alternative._methods["__str__"](self)
             return repr(self)
 
         def __repr__(self):
-            if '__repr__' in self._alternative._methods:
-                return self._alternative._methods['__repr__'](self)
-            return "%s.%s(%s)" % (self._alternative._name, self._which, ",".join(["%s=%s" % (k,repr(self._fields[k])) for k in sorted(self._fields)]))
+            if "__repr__" in self._alternative._methods:
+                return self._alternative._methods["__repr__"](self)
+            return "%s.%s(%s)" % (
+                self._alternative._name,
+                self._which,
+                ",".join(
+                    ["%s=%s" % (k, repr(self._fields[k])) for k in sorted(self._fields)]
+                ),
+            )
 
         def __ne__(self, other):
             return not self.__eq__(other)
@@ -389,19 +442,20 @@ def makeAlternativeOption(alternative, which, typedict, fields_are_unique):
 
             if self._which != other._which:
                 return False
-            
+
             if hash(self) != hash(other):
                 return False
-            
+
             for f in sorted(self._fields):
-                if getattr(self,f) != getattr(other,f):
+                if getattr(self, f) != getattr(other, f):
                     return False
-            
+
             return True
 
     AlternativeOption.__name__ = alternative._name + "." + which
 
     return AlternativeOption
+
 
 class AlternativeInstanceMatches(object):
     def __init__(self, instance):
@@ -414,12 +468,18 @@ class AlternativeInstanceMatches(object):
             return True
         return False
 
+
 class NullableAlternative(Alternative):
     def __init__(self, subtype):
         self._subtype = subtype
-        Alternative.__init__(self, "Nullable(" + str(subtype) + ")", Null={}, Value={'val': subtype})
+        Alternative.__init__(
+            self, "Nullable(" + str(subtype) + ")", Null={}, Value={"val": subtype}
+        )
+
 
 _nullable_cache = {}
+
+
 def Nullable(alternative):
     if alternative not in _nullable_cache:
         _nullable_cache[alternative] = NullableAlternative(alternative)

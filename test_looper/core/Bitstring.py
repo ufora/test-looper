@@ -4,6 +4,7 @@ _index_to_char = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789
 assert len(_index_to_char) == 64
 _char_to_index = {_index_to_char[i]: i for i in range(len(_index_to_char))}
 
+
 def _packBitstringToInt(bools):
     """Given an array of up to 6 bools, pack them into an 6-bit integer, first bool as least significant bit."""
     res = 0
@@ -14,10 +15,12 @@ def _packBitstringToInt(bools):
         bit *= 2
     return res
 
+
 class Bitstring(object):
     """Models a bunch of bools packed into a base64-encoded string."""
 
-    __algebraic__=True
+    __algebraic__ = True
+
     def __init__(self, bits):
         object.__init__(self)
 
@@ -29,15 +32,15 @@ class Bitstring(object):
         s = []
         i = 0
         while i < len(bools):
-            s.append(_index_to_char[_packBitstringToInt(bools[i:i+6])])
+            s.append(_index_to_char[_packBitstringToInt(bools[i : i + 6])])
             i += 6
         return Bitstring("".join(s))
 
     def __getitem__(self, ix):
-        if int(ix/6) >= len(self.bits):
+        if int(ix / 6) >= len(self.bits):
             return False
 
-        return (_char_to_index[self.bits[int(ix / 6)]] & (1 << (ix%6))) > 0
+        return (_char_to_index[self.bits[int(ix / 6)]] & (1 << (ix % 6))) > 0
 
     @classmethod
     def to_json(cls, obj):
@@ -53,4 +56,3 @@ class Bitstring(object):
     @classmethod
     def __default_initializer__(cls):
         return Bitstring("")
-

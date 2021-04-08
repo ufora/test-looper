@@ -1,7 +1,6 @@
-
 def findAllNodes(nodes, edge_function):
     all_nodes = set()
-    
+
     def walk(node):
         if node in all_nodes:
             return
@@ -13,6 +12,7 @@ def findAllNodes(nodes, edge_function):
         walk(N)
 
     return all_nodes
+
 
 def placeNodesInLevels(nodes, edge_function):
     """Given a node "N" and an edge function, divide nodes into a sequence of groups
@@ -43,10 +43,11 @@ def placeNodesInLevels(nodes, edge_function):
                     del reverse_edges[child]
 
         if not ready:
-            #we're done
+            # we're done
             if reverse_edges:
                 raise Exception("Cycle found in graph")
             return groups
+
 
 def graphFindCycleMultipleRoots(roots, childrenFunction):
     """Find a cycle in the graph if it exists
@@ -57,7 +58,7 @@ def graphFindCycleMultipleRoots(roots, childrenFunction):
     returns None, or a list of nodes in a cycle
     """
     not_circular = set()
-    
+
     def check(node, above=()):
         if node in not_circular:
             return
@@ -79,6 +80,7 @@ def graphFindCycleMultipleRoots(roots, childrenFunction):
         if res:
             return res
 
+
 def graphFindCycle(root, childrenFunction):
     """Find a cycle in the graph if it exists
 
@@ -88,6 +90,7 @@ def graphFindCycle(root, childrenFunction):
     returns None, or a list of nodes in a cycle
     """
     return graphFindCycleMultipleRoots([root], childrenFunction)
+
 
 def assertGraphHasNoCycles(root, childrenFunction):
     res = graphFindCycle(root, childrenFunction)

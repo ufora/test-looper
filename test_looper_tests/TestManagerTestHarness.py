@@ -16,6 +16,7 @@ import test_looper.core.source_control.SourceControl as SourceControl
 
 TestDefinitionResolver.isValidCommitRef = lambda str: str != "HEAD"
 
+
 class MockSourceControl(SourceControl.SourceControl):
     def __init__(self):
         self.repos = set()
@@ -38,7 +39,7 @@ class MockSourceControl(SourceControl.SourceControl):
         self.prepushHooks = {}
 
     def commit_url(self, repo, hash):
-        return "https://scm/%s/%s" % (repo,hash)
+        return "https://scm/%s/%s" % (repo, hash)
 
     def listRepos(self):
         return sorted(self.repos)
@@ -75,8 +76,10 @@ class MockSourceControl(SourceControl.SourceControl):
             if "/" not in commit:
                 commit = repoAndBranch.split("/")[0] + "/" + commit
             assert len(commit.split("/")) == 2, "not a valid commitId"
-            
-            assert repoAndBranch.split("/")[0] == commit.split("/")[0], "repos dont match"
+
+            assert (
+                repoAndBranch.split("/")[0] == commit.split("/")[0]
+            ), "repos dont match"
 
             self.branch_to_commitId[repoAndBranch] = commit
 
@@ -89,6 +92,7 @@ class MockSourceControl(SourceControl.SourceControl):
 
     def refresh(self):
         pass
+
 
 class MockGitRepo:
     def __init__(self, repo):
@@ -106,7 +110,7 @@ class MockGitRepo:
         res = {}
         for branch, commitId in self.repo.source_control.branch_to_commitId.items():
             if branch.startswith(self.repo.repoName + "/"):
-                res[branch[len(self.repo.repoName + "/"):]] = commitId.split("/")[-1]
+                res[branch[len(self.repo.repoName + "/") :]] = commitId.split("/")[-1]
 
         return res
 
@@ -119,20 +123,41 @@ class MockGitRepo:
     def standardCommitMessageFor(self, hash):
         assert self.repo.commitExists(hash)
 
-        return "commit %s\nauthor whomever <whomever@somewhere.com>\n\nThis is a message." % hash
+        return (
+            "commit %s\nauthor whomever <whomever@somewhere.com>\n\nThis is a message."
+            % hash
+        )
 
     def getTestDefinitionsPath(self, hash):
         return "testDefinitions.yml"
 
     def filesChangedBetweenCommits(self, firstCommit, secondCommit):
         common = ["testDefinitions.yml", "test_looper/Dockerfile.txt"]
-        files1 = set(list(self.repo.source_control.commit_files.get(self.repo.repoName + "/" + firstCommit, {}).keys()) + common)
-        files2 = set(list(self.repo.source_control.commit_files.get(self.repo.repoName + "/" + secondCommit, {}).keys()) + common)
+        files1 = set(
+            list(
+                self.repo.source_control.commit_files.get(
+                    self.repo.repoName + "/" + firstCommit, {}
+                ).keys()
+            )
+            + common
+        )
+        files2 = set(
+            list(
+                self.repo.source_control.commit_files.get(
+                    self.repo.repoName + "/" + secondCommit, {}
+                ).keys()
+            )
+            + common
+        )
 
         res = []
         for f in set(list(files1) + list(files2)):
-            if f not in files1 or f not in files2 or \
-                    self.getFileContents(firstCommit, f) != self.getFileContents(secondCommit, f):
+            if (
+                f not in files1
+                or f not in files2
+                or self.getFileContents(firstCommit, f)
+                != self.getFileContents(secondCommit, f)
+            ):
                 res.append(f)
 
         return sorted(res)
@@ -154,24 +179,39 @@ class MockGitRepo:
     def gitCommitData(self, hash):
         return self.repo.getCommitData(self.repo.repoName + "/" + hash)
 
-    def createCommit(self, commitHash, fileContents, commit_message, timestamp_override=None, author="test_looper <test_looper@test_looper.com>"):
+    def createCommit(
+        self,
+        commitHash,
+        fileContents,
+        commit_message,
+        timestamp_override=None,
+        author="test_looper <test_looper@test_looper.com>",
+    ):
         assert len(fileContents) == 1 and "testDefinitions.yml" in fileContents
 
         self.repo.source_control.created_commits += 1
 
-        assert self.repo.source_control.created_commits < 50, "Created too many new commits for the test to be reasonable"
+        assert (
+            self.repo.source_control.created_commits < 50
+        ), "Created too many new commits for the test to be reasonable"
 
         newCommitHash = "created_" + str(self.repo.source_control.created_commits)
         newCommitId = self.repo.repoName + "/" + newCommitHash
 
         self.repo.source_control.commit_message[newCommitId] = commit_message
 
-        self.repo.source_control.commit_parents[newCommitId] = [self.repo.repoName + "/" + commitHash]
-        self.repo.source_control.commit_test_defs[newCommitId] = fileContents['testDefinitions.yml']
+        self.repo.source_control.commit_parents[newCommitId] = [
+            self.repo.repoName + "/" + commitHash
+        ]
+        self.repo.source_control.commit_test_defs[newCommitId] = fileContents[
+            "testDefinitions.yml"
+        ]
 
         return newCommitHash
 
-    def createRepoTarball(self, commitHash, pathWithinRepo, targetTarball, setCoreAutocrlf):
+    def createRepoTarball(
+        self, commitHash, pathWithinRepo, targetTarball, setCoreAutocrlf
+    ):
         pass
 
     def allAncestors(self, c):
@@ -184,8 +224,8 @@ class MockGitRepo:
             ancestors.add(commitId)
 
             for child in self.repo.source_control.commit_parents[commitId]:
-                check(child)        
-        
+                check(child)
+
         check(c)
 
         return ancestors
@@ -198,7 +238,7 @@ class MockGitRepo:
         if createBranch:
             if bn in self.repo.source_control.branch_to_commitId:
                 return False
-                
+
             self.repo.source_control.branch_to_commitId[bn] = commitId
             return True
 
@@ -208,17 +248,26 @@ class MockGitRepo:
         ancestors = self.allAncestors(commitId)
 
         if self.repo.source_control.branch_to_commitId[bn] not in ancestors:
-            logging.error("Can't fast-forward because %s is not an ancestor of %s (%s)", self.repo.source_control.branch_to_commitId[bn], commitId, ancestors)
+            logging.error(
+                "Can't fast-forward because %s is not an ancestor of %s (%s)",
+                self.repo.source_control.branch_to_commitId[bn],
+                commitId,
+                ancestors,
+            )
             return False
 
         if bn in self.repo.source_control.prepushHooks:
-            #run the test hook
+            # run the test hook
             self.repo.source_control.prepushHooks[bn]()
             del self.repo.source_control.prepushHooks[bn]
 
-            #check again that this is a fast-forward
+            # check again that this is a fast-forward
             if self.repo.source_control.branch_to_commitId[bn] not in ancestors:
-                logging.error("Can't fast-forward after hook because %s is not an ancestor of %s", self.repo.source_control.branch_to_commitId[bn], commitId)
+                logging.error(
+                    "Can't fast-forward after hook because %s is not an ancestor of %s",
+                    self.repo.source_control.branch_to_commitId[bn],
+                    commitId,
+                )
                 return False
 
         self.repo.source_control.branch_to_commitId[bn] = commitId
@@ -234,22 +283,33 @@ class MockRepo:
 
     def getCommitData(self, commitId):
         if commitId not in self.source_control.commit_parents:
-            raise Exception("Can't find %s in %s" % (commitId, self.source_control.commit_parents.keys()))
+            raise Exception(
+                "Can't find %s in %s"
+                % (commitId, self.source_control.commit_parents.keys())
+            )
 
         return (
-            commitId.split("/")[1], [p.split("/")[1] for p in self.source_control.commit_parents[commitId]], 1516486261, 
-                self.source_control.commit_message[commitId], "author", "author@company"
-            )
+            commitId.split("/")[1],
+            [p.split("/")[1] for p in self.source_control.commit_parents[commitId]],
+            1516486261,
+            self.source_control.commit_message[commitId],
+            "author",
+            "author@company",
+        )
 
     def commitExists(self, branchOrHash):
         branchOrHash = self.repoName + "/" + branchOrHash
-        branchOrHash = self.source_control.branch_to_commitId.get(branchOrHash, branchOrHash)
+        branchOrHash = self.source_control.branch_to_commitId.get(
+            branchOrHash, branchOrHash
+        )
 
         return branchOrHash in self.source_control.commit_parents
 
     def commitsLookingBack(self, branchOrHash, depth):
         branchOrHash = self.repoName + "/" + branchOrHash
-        branchOrHash = self.source_control.branch_to_commitId.get(branchOrHash, branchOrHash)
+        branchOrHash = self.source_control.branch_to_commitId.get(
+            branchOrHash, branchOrHash
+        )
 
         tuples = []
 
@@ -260,16 +320,28 @@ class MockRepo:
             tuples.append(self.getCommitData(self.repoName + "/" + firstParent))
 
         return tuples
-    
+
     def listBranches(self):
-        return sorted([b.split("/")[1] for b in self.source_control.branch_to_commitId if b.startswith(self.repoName + "/")])
+        return sorted(
+            [
+                b.split("/")[1]
+                for b in self.source_control.branch_to_commitId
+                if b.startswith(self.repoName + "/")
+            ]
+        )
 
     def branchTopCommit(self, branch):
-        return self.source_control.branch_to_commitId[self.repoName + "/" + branch].split("/")[1]
+        return self.source_control.branch_to_commitId[
+            self.repoName + "/" + branch
+        ].split("/")[1]
 
     def getTestScriptDefinitionsForCommit(self, commitHash):
         assert "/" not in commitHash
-        return self.source_control.commit_test_defs[self.repoName + "/" + commitHash], ".yml"
+        return (
+            self.source_control.commit_test_defs[self.repoName + "/" + commitHash],
+            ".yml",
+        )
+
 
 class TestManagerTestHarness:
     def __init__(self, manager):
@@ -282,17 +354,23 @@ class TestManagerTestHarness:
     def resolver(self):
         return TestDefinitionResolver.TestDefinitionResolver(
             lambda name: self.manager.source_control.getRepo(name).source_repo
-            )
+        )
 
     def add_content(self):
         self.manager.source_control.addCommit("repo0/c0", [], TestYamlFiles.repo0)
-        self.manager.source_control.addCommit("repo0/c1", ["repo0/c0"], TestYamlFiles.repo0)
+        self.manager.source_control.addCommit(
+            "repo0/c1", ["repo0/c0"], TestYamlFiles.repo0
+        )
 
         self.manager.source_control.addCommit("repo1/c0", [], TestYamlFiles.repo1)
-        self.manager.source_control.addCommit("repo1/c1", ["repo1/c0"], TestYamlFiles.repo1)
+        self.manager.source_control.addCommit(
+            "repo1/c1", ["repo1/c0"], TestYamlFiles.repo1
+        )
 
         self.manager.source_control.addCommit("repo2/c0", [], TestYamlFiles.repo2)
-        self.manager.source_control.addCommit("repo2/c1", ["repo2/c0"], TestYamlFiles.repo2)
+        self.manager.source_control.addCommit(
+            "repo2/c1", ["repo2/c0"], TestYamlFiles.repo2
+        )
 
         self.manager.source_control.setBranch("repo0/master", "repo0/c1")
         self.manager.source_control.setBranch("repo1/master", "repo1/c1")
@@ -319,7 +397,7 @@ class TestManagerTestHarness:
 
             if task is None:
                 if not cleanedup:
-                    cleanedup=True
+                    cleanedup = True
                     self.manager.performCleanupTasks(self.timestamp)
                     self.manager.performCleanupTasks(self.timestamp)
                 else:
@@ -329,7 +407,7 @@ class TestManagerTestHarness:
         return self.database.Repo.lookupAny(name=name)
 
     def getBranch(self, repo, branch):
-        return self.database.Branch.lookupAny(reponame_and_branchname=(repo,branch))
+        return self.database.Branch.lookupAny(reponame_and_branchname=(repo, branch))
 
     def getCommit(self, commitId):
         reponame = "/".join(commitId.split("/")[:-1])
@@ -339,23 +417,27 @@ class TestManagerTestHarness:
         if not repo:
             return
 
-        return self.manager.database.Commit.lookupAny(repo_and_hash=(repo,commitHash))
+        return self.manager.database.Commit.lookupAny(repo_and_hash=(repo, commitHash))
 
     def enableBranchTesting(self, reponame, branchname):
         with self.manager.database.transaction():
-            b = self.manager.database.Branch.lookupOne(reponame_and_branchname=(reponame,branchname))
+            b = self.manager.database.Branch.lookupOne(
+                reponame_and_branchname=(reponame, branchname)
+            )
             self.manager.toggleBranchUnderTest(b)
             self.manager.prioritizeAllCommitsUnderBranch(b, 100)
-        
+
     def disableBranchTesting(self, reponame, branchname):
         with self.manager.database.transaction():
-            b = self.manager.database.Branch.lookupOne(reponame_and_branchname=(reponame,branchname))
+            b = self.manager.database.Branch.lookupOne(
+                reponame_and_branchname=(reponame, branchname)
+            )
             if b.isUnderTest:
                 self.manager.toggleBranchUnderTest(b)
             self.manager.deprioritizeAllCommitsUnderBranch(b, 100)
-        
+
     def machinesThatRan(self, fullname):
-        return [x[0] for x in self.test_record.get(fullname,())]
+        return [x[0] for x in self.test_record.get(fullname, ())]
 
     def machineConfig(self, machineId):
         with self.manager.database.view():
@@ -366,13 +448,13 @@ class TestManagerTestHarness:
         return sorted(self.test_record)
 
     def lookupTestByFullname(self, name):
-        repo, commit, testName = name.split("/",2)
+        repo, commit, testName = name.split("/", 2)
 
-        repo=self.manager.database.Repo.lookupAny(name=repo)
+        repo = self.manager.database.Repo.lookupAny(name=repo)
         if not repo:
             return None
-        
-        commit=self.manager.database.Commit.lookupAny(repo_and_hash=(repo,commit))
+
+        commit = self.manager.database.Commit.lookupAny(repo_and_hash=(repo, commit))
         if not commit:
             return None
 
@@ -394,7 +476,9 @@ class TestManagerTestHarness:
 
             foundOne = False
             for machineId in machineIds:
-                testId, testDefinition, _ = self.manager.startNewTest(machineId, self.timestamp)
+                testId, testDefinition, _ = self.manager.startNewTest(
+                    machineId, self.timestamp
+                )
 
                 if testId:
                     if testDefinition.hash not in self.test_record:
@@ -427,69 +511,83 @@ class TestManagerTestHarness:
 
             for testId, testDef in tests:
                 with self.manager.database.view():
-                    commits = self.manager.commitsReferencingTest(self.manager.database.Test.lookupAny(hash=testDef.hash))
+                    commits = self.manager.commitsReferencingTest(
+                        self.manager.database.Test.lookupAny(hash=testDef.hash)
+                    )
                     if len(commits) == 1:
-                        tail.append(commits[0].repo.name + "/" + commits[0].hash + "/" + testDef.name)
+                        tail.append(
+                            commits[0].repo.name
+                            + "/"
+                            + commits[0].hash
+                            + "/"
+                            + testDef.name
+                        )
                     else:
                         tail.append(testDef.name + "/" + testDef.hash)
-            
+
             counts.append(tail)
 
-            for testId,_ in tests:
+            for testId, _ in tests:
                 self.manager.testHeartbeat(testId, self.timestamp)
-                self.timestamp += .1
+                self.timestamp += 0.1
 
             for testId, testDef in tests:
                 artifacts = []
-                for artifact in [a for stage in testDef.stages for a in stage.artifacts]:
-                    self.manager.recordTestArtifactUploaded(testId, artifact.name, self.timestamp, False)
+                for artifact in [
+                    a for stage in testDef.stages for a in stage.artifacts
+                ]:
+                    self.manager.recordTestArtifactUploaded(
+                        testId, artifact.name, self.timestamp, False
+                    )
                     artifacts.append(artifact.name)
 
                 self.manager.recordTestResults(
-                    True, 
-                    testId, 
-                    [SingleTestRunResult.SingleTestRunResult(
-                        testName="ATest",
-                        startTimestamp=None,
-                        elapsed=None,
-                        testSucceeded=True,
-                        hasLogs=True,
-                        testPassIx=0
+                    True,
+                    testId,
+                    [
+                        SingleTestRunResult.SingleTestRunResult(
+                            testName="ATest",
+                            startTimestamp=None,
+                            elapsed=None,
+                            testSucceeded=True,
+                            hasLogs=True,
+                            testPassIx=0,
                         ),
-                    SingleTestRunResult.SingleTestRunResult(
-                        testName="AnotherTest",
-                        startTimestamp=None,
-                        elapsed=None,
-                        testSucceeded=False,
-                        hasLogs=True,
-                        testPassIx=0
-                        )], 
-                    artifacts, 
-                    self.timestamp
-                    )
+                        SingleTestRunResult.SingleTestRunResult(
+                            testName="AnotherTest",
+                            startTimestamp=None,
+                            elapsed=None,
+                            testSucceeded=False,
+                            hasLogs=True,
+                            testPassIx=0,
+                        ),
+                    ],
+                    artifacts,
+                    self.timestamp,
+                )
 
-                self.timestamp += .1
+                self.timestamp += 0.1
+
 
 FakeConfig = algebraic.Alternative("FakeConfig")
 FakeConfig.Config = {"machine_management": Config.MachineManagementConfig}
+
 
 def getHarness(max_workers=1000):
     return TestManagerTestHarness(
         TestManager.TestManager(
             None,
-            MockSourceControl(), 
+            MockSourceControl(),
             MachineManagement.DummyMachineManagement(
                 FakeConfig(
                     machine_management=Config.MachineManagementConfig.Dummy(
-                        max_cores=1000,
-                        max_ram_gb=1000,
-                        max_workers=max_workers
-                        )
-                    ),
-                None,
-                None
+                        max_cores=1000, max_ram_gb=1000, max_workers=max_workers
+                    )
                 ),
+                None,
+                None,
+            ),
             InMemoryJsonStore.InMemoryJsonStore(),
-            initialTimestamp = -1000.0
-            )
+            initialTimestamp=-1000.0,
         )
+    )

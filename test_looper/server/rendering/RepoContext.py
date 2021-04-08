@@ -9,6 +9,7 @@ import cgi
 octicon = HtmlGeneration.octicon
 card = HtmlGeneration.card
 
+
 class RepoContext(Context.Context):
     def __init__(self, renderer, repo, options):
         Context.Context.__init__(self, renderer, options)
@@ -20,7 +21,9 @@ class RepoContext(Context.Context):
     def consumePath(self, path):
         if path:
             if path[0] == "commits" and len(path) > 1:
-                commit = self.database.Commit.lookupAny(repo_and_hash=(self.repo, path[1]))
+                commit = self.database.Commit.lookupAny(
+                    repo_and_hash=(self.repo, path[1])
+                )
                 if not commit:
                     return None, path
                 return self.renderer.contextFor(commit, self.options), path[2:]
@@ -28,13 +31,15 @@ class RepoContext(Context.Context):
             if path[0] == "branches" and len(path) > 1:
                 branchPath, remainder = self.popToDash(path[1:])
 
-                branch = self.database.Branch.lookupAny(reponame_and_branchname=(self.repo.name, "/".join(branchPath)))
+                branch = self.database.Branch.lookupAny(
+                    reponame_and_branchname=(self.repo.name, "/".join(branchPath))
+                )
 
                 if not branch:
                     return None, path
 
                 return self.renderer.contextFor(branch, self.options), remainder
-            
+
             return None, path
 
         return None, path
@@ -74,7 +79,7 @@ class RepoContext(Context.Context):
 
         if view == "branches":
             headers, grid = self.grid()
-            return HtmlGeneration.grid(headers+grid, header_rows=len(headers))
+            return HtmlGeneration.grid(headers + grid, header_rows=len(headers))
         if view == "configuration":
             return self.configurationView()
         if view == "logs":
@@ -87,11 +92,15 @@ class RepoContext(Context.Context):
             return card("No logs so far")
 
         while log and len(grid) < 100:
-            grid.append([time.asctime(time.gmtime(log.timestamp)), "<pre>" + cgi.escape(log.msg) + "</pre>"])
+            grid.append(
+                [
+                    time.asctime(time.gmtime(log.timestamp)),
+                    "<pre>" + cgi.escape(log.msg) + "</pre>",
+                ]
+            )
             log = log.prior
 
         return HtmlGeneration.grid(grid)
-
 
     def renderTemplateUpdateForm(self, template):
         def textArea(name, val, short_desc, long_desc):
@@ -101,7 +110,14 @@ class RepoContext(Context.Context):
                 <textarea rows={rows} name="{name}" class="form-control" id="{name}_{id}" aria-describedby="{name}_help_{id}">{val}</textarea>
                 <small id="{name}_help_{id}" class="form-text text-muted">{long_desc}</small>
               </div>
-            """.format(name=name, id=template._identity, short_desc=short_desc, long_desc=long_desc,val=cgi.escape(val), rows=len(val.split("\n")) + 1)
+            """.format(
+                name=name,
+                id=template._identity,
+                short_desc=short_desc,
+                long_desc=long_desc,
+                val=cgi.escape(val),
+                rows=len(val.split("\n")) + 1,
+            )
 
         def simpleInput(name, val, short_desc, long_desc):
             return """
@@ -110,7 +126,14 @@ class RepoContext(Context.Context):
                 <input type="text" rows={rows} name="{name}" class="form-control" id="{name}_{id}" aria-describedby="{name}_help_{id}" value="{val}">
                 <small id="{name}_help_{id}" class="form-text text-muted">{long_desc}</small>
               </div>
-            """.format(name=name, id=template._identity, short_desc=short_desc, long_desc=long_desc,val=cgi.escape(val, quote=True), rows=len(val.split("\n")) + 1)
+            """.format(
+                name=name,
+                id=template._identity,
+                short_desc=short_desc,
+                long_desc=long_desc,
+                val=cgi.escape(val, quote=True),
+                rows=len(val.split("\n")) + 1,
+            )
 
         def checkbox(name, long_desc, val):
             return """
@@ -118,8 +141,12 @@ class RepoContext(Context.Context):
                 <input name="{name}" class="form-check-input" type="checkbox" id="{name}_{id}" value="True" {val}>
                 <label for="{name}_{id}" class="form-check-label">{long_desc}</label>
               </div>
-            """.format(name=name, id=template._identity, long_desc=long_desc,val="checked" if val else "")
-
+            """.format(
+                name=name,
+                id=template._identity,
+                long_desc=long_desc,
+                val="checked" if val else "",
+            )
 
         return """
         <form method="GET" action="{url}">
@@ -158,53 +185,88 @@ class RepoContext(Context.Context):
         """.format(
             url=self.withOptionsReset().urlString(),
             id=template._identity,
-            includes=textArea("include_pats", "\n".join(template.globsToInclude), "Branches to include", "Glob patterns for branchnames that should trigger this"),
-            excludes=textArea("exclude_pats", "\n".join(template.globsToExclude), "Branches to exclude", "Glob patterns for branchnames that should not trigger this"),
-            suffix=simpleInput("suffix", template.suffix, "Suffix to append", "Suffix to append to the branchname"),
-            branch=simpleInput("branch", template.branchToCopyFrom, "Branch to copy", "Name of the branch to duplicate"),
-            def_to_replace=simpleInput("def_to_replace", template.def_to_replace, "Reference to update", "Name of the specific reference to update"),
+            includes=textArea(
+                "include_pats",
+                "\n".join(template.globsToInclude),
+                "Branches to include",
+                "Glob patterns for branchnames that should trigger this",
+            ),
+            excludes=textArea(
+                "exclude_pats",
+                "\n".join(template.globsToExclude),
+                "Branches to exclude",
+                "Glob patterns for branchnames that should not trigger this",
+            ),
+            suffix=simpleInput(
+                "suffix",
+                template.suffix,
+                "Suffix to append",
+                "Suffix to append to the branchname",
+            ),
+            branch=simpleInput(
+                "branch",
+                template.branchToCopyFrom,
+                "Branch to copy",
+                "Name of the branch to duplicate",
+            ),
+            def_to_replace=simpleInput(
+                "def_to_replace",
+                template.def_to_replace,
+                "Reference to update",
+                "Name of the specific reference to update",
+            ),
             disableOtherAutos=checkbox(
-                "disableOtherAutos", 
+                "disableOtherAutos",
                 "Only allow the primary tracking branch to float. (if not checked, just copy the settings from the underlying).",
-                template.disableOtherAutos
-                ),
+                template.disableOtherAutos,
+            ),
             autoprioritizeBranch=checkbox(
-                "autoprioritizeBranch", 
-                "Autoprioritize the branch when it's created.", 
-                template.autoprioritizeBranch
-                ),
+                "autoprioritizeBranch",
+                "Autoprioritize the branch when it's created.",
+                template.autoprioritizeBranch,
+            ),
             deleteOnUnderlyingRemoval=checkbox(
-                "deleteOnUnderlyingRemoval", 
-                "If the underlying feature branch gets deleted, remove this branch too.", 
-                template.deleteOnUnderlyingRemoval
-                )
-            )
+                "deleteOnUnderlyingRemoval",
+                "If the underlying feature branch gets deleted, remove this branch too.",
+                template.deleteOnUnderlyingRemoval,
+            ),
+        )
 
     def configurationView(self):
         if self.repo.branchCreateTemplates is None:
             self.repo.branchCreateTemplates = []
 
-        if self.options.get('action', None) == "new_template":
+        if self.options.get("action", None) == "new_template":
             self.repo.branchCreateTemplates = list(self.repo.branchCreateTemplates) + [
                 self.database.BranchCreateTemplate.New()
-                ]
+            ]
 
             return HtmlGeneration.Redirect(self.withOptions(action=None).urlString())
-        if self.options.get('action', None) == "update_template":
-            template = self.database.BranchCreateTemplate(str(self.options.get("identity")))
+        if self.options.get("action", None) == "update_template":
+            template = self.database.BranchCreateTemplate(
+                str(self.options.get("identity"))
+            )
             assert template.exists() and template in self.repo.branchCreateTemplates
 
-            template.globsToInclude = [str(x) for x in self.options.get("include_pats").split("\n")]
-            template.globsToExclude = [str(x) for x in self.options.get("exclude_pats").split("\n")]
+            template.globsToInclude = [
+                str(x) for x in self.options.get("include_pats").split("\n")
+            ]
+            template.globsToExclude = [
+                str(x) for x in self.options.get("exclude_pats").split("\n")
+            ]
             template.suffix = str(self.options.get("suffix"))
             template.branchToCopyFrom = str(self.options.get("branch"))
             template.def_to_replace = str(self.options.get("def_to_replace"))
             template.disableOtherAutos = bool(self.options.get("disableOtherAutos"))
-            template.autoprioritizeBranch = bool(self.options.get("autoprioritizeBranch"))
-            template.deleteOnUnderlyingRemoval = bool(self.options.get("deleteOnUnderlyingRemoval"))
+            template.autoprioritizeBranch = bool(
+                self.options.get("autoprioritizeBranch")
+            )
+            template.deleteOnUnderlyingRemoval = bool(
+                self.options.get("deleteOnUnderlyingRemoval")
+            )
 
             return HtmlGeneration.Redirect(self.withOptions(action=None).urlString())
-        
+
         result = ""
 
         for template in self.repo.branchCreateTemplates:
@@ -212,23 +274,25 @@ class RepoContext(Context.Context):
 
         result += card(
             HtmlGeneration.Link(
-                self.withOptions(action='new_template').urlString(),
+                self.withOptions(action="new_template").urlString(),
                 "Create new Branch Template",
                 is_button=True,
-                button_style=self.renderer.disable_if_cant_write('btn-primary btn-xs'),
-                hover_text="Create a new branch-creation template."
-                ).render()
-            )
+                button_style=self.renderer.disable_if_cant_write("btn-primary btn-xs"),
+                hover_text="Create a new branch-creation template.",
+            ).render()
+        )
 
-        return result        
+        return result
 
     def branchHasTests(self, branch):
         return self.renderer.branchHasTests(branch)
 
     def grid(self):
         branches = self.testManager.database.Branch.lookupAll(repo=self.repo)
-        
-        branches = sorted(branches, key=lambda b: (not self.branchHasTests(b), b.branchname))
+
+        branches = sorted(
+            branches, key=lambda b: (not self.branchHasTests(b), b.branchname)
+        )
 
         LOOKBACK = 5
 
@@ -242,11 +306,13 @@ class RepoContext(Context.Context):
             if self.branchHasTests(branch):
                 testRow = [
                     self.renderer.toggleBranchUnderTestLink(branch),
-                    self.contextFor(branch).renderLink(includeRepo=False)
-                    ]
+                    self.contextFor(branch).renderLink(includeRepo=False),
+                ]
 
-                testRow = testRow + self.contextFor(branch).topNCommitTestSummaryRow(LOOKBACK)
-            
+                testRow = testRow + self.contextFor(branch).topNCommitTestSummaryRow(
+                    LOOKBACK
+                )
+
                 grid.append(testRow)
             else:
                 secondPass.append(branch)
@@ -254,18 +320,20 @@ class RepoContext(Context.Context):
         if secondPass != branches and secondPass:
             grid.append(["&nbsp;"])
             for branch in secondPass:
-                grid.append([
-                    "",
-                    self.contextFor(branch).renderLink(includeRepo=False)
-                    ] + [""] * LOOKBACK
-                    )
+                grid.append(
+                    ["", self.contextFor(branch).renderLink(includeRepo=False)]
+                    + [""] * LOOKBACK
+                )
 
         return grid_headers, grid
 
     def childContexts(self, currentChild):
         children = []
 
-        for b in sorted(self.testManager.database.Branch.lookupAll(repo=self.repo),key=lambda b:b.branchname):
+        for b in sorted(
+            self.testManager.database.Branch.lookupAll(repo=self.repo),
+            key=lambda b: b.branchname,
+        ):
             if self.renderer.branchHasTests(b) or b == currentChild:
                 children.append(ComboContexts.BranchAndFilter(b, "", "", 2))
 

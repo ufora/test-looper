@@ -12,11 +12,14 @@ _encoder.allowExtraFields = True
 
 _cur_view = threading.local()
 
+
 class RevisionConflictException(Exception):
     pass
 
-#singleton object that clients should never see
+
+# singleton object that clients should never see
 _creating_the_null_object = []
+
 
 class DatabaseObject(object):
     __algebraic__ = True
@@ -25,8 +28,8 @@ class DatabaseObject(object):
     Null = None
 
     def __ne__(self, other):
-        return not (self==other)
-        
+        return not (self == other)
+
     def __eq__(self, other):
         if not isinstance(other, DatabaseObject):
             return False
@@ -55,7 +58,7 @@ class DatabaseObject(object):
         else:
             assert isinstance(identity, str), type(identity)
 
-        self.__dict__['_identity'] = identity
+        self.__dict__["_identity"] = identity
 
     @classmethod
     def __default_initializer__(cls):
@@ -67,7 +70,9 @@ class DatabaseObject(object):
             raise Exception("Please create new objects from within a transaction.")
 
         if _cur_view.view._db is not cls._database:
-            raise Exception("Please create new objects from within a transaction created on the same database as the object.")
+            raise Exception(
+                "Please create new objects from within a transaction created on the same database as the object."
+            )
 
         return _cur_view.view._new(cls, kwds)
 
@@ -85,10 +90,14 @@ class DatabaseObject(object):
 
     def exists(self):
         if not hasattr(_cur_view, "view"):
-            raise Exception("Please access properties from within a view or transaction.")
+            raise Exception(
+                "Please access properties from within a view or transaction."
+            )
 
         if _cur_view.view._db is not type(self)._database:
-            raise Exception("Please access properties from within a view or transaction created on the same database as the object.")
+            raise Exception(
+                "Please access properties from within a view or transaction created on the same database as the object."
+            )
 
         return _cur_view.view._exists(self, type(self).__name__, self._identity)
 
@@ -100,55 +109,84 @@ class DatabaseObject(object):
 
     def get_field(self, name):
         if self.__dict__["_identity"] == "NULL":
-            raise Exception("Null object of type %s has no fields" % type(self).__name__)
+            raise Exception(
+                "Null object of type %s has no fields" % type(self).__name__
+            )
 
         if name not in self.__types__:
-            raise AttributeError("Object of type %s has no field %s" % (type(self).__name__, name))
+            raise AttributeError(
+                "Object of type %s has no field %s" % (type(self).__name__, name)
+            )
 
         if not hasattr(_cur_view, "view"):
-            raise Exception("Please access properties from within a view or transaction.")
+            raise Exception(
+                "Please access properties from within a view or transaction."
+            )
 
         if _cur_view.view._db is not type(self)._database:
-            raise Exception("Please access properties from within a view or transaction created on the same database as the object.")
-        
-        return _cur_view.view._get(type(self).__name__, self._identity, name, self.__types__[name])
+            raise Exception(
+                "Please access properties from within a view or transaction created on the same database as the object."
+            )
+
+        return _cur_view.view._get(
+            type(self).__name__, self._identity, name, self.__types__[name]
+        )
 
     def __setattr__(self, name, val):
         if self.__dict__["_identity"] == "NULL":
             raise Exception("Null object is not writeable")
 
         if name not in self.__types__:
-            raise AttributeError("Database object of type %s has no attribute %s" % (type(self).__name__, name))
+            raise AttributeError(
+                "Database object of type %s has no attribute %s"
+                % (type(self).__name__, name)
+            )
 
         if not hasattr(_cur_view, "view"):
-            raise Exception("Please access properties from within a view or transaction.")
+            raise Exception(
+                "Please access properties from within a view or transaction."
+            )
 
         if _cur_view.view._db is not type(self)._database:
-            raise Exception("Please access properties from within a view or transaction created on the same database as the object.")
+            raise Exception(
+                "Please access properties from within a view or transaction created on the same database as the object."
+            )
 
         coerced_val = algebraic.coerce_instance(val, self.__types__[name])
         if coerced_val is None:
             raise TypeError("Can't coerce %s to %s" % (val, self.__types__[name]))
 
-        _cur_view.view._set(self, type(self).__name__, self._identity, name, self.__types__[name], coerced_val)
+        _cur_view.view._set(
+            self,
+            type(self).__name__,
+            self._identity,
+            name,
+            self.__types__[name],
+            coerced_val,
+        )
 
     def delete(self):
         if self.__dict__["_identity"] is None:
             raise Exception("Null object is not writeable")
 
-        _cur_view.view._delete(self, type(self).__name__, self._identity, self.__types__.keys())
+        _cur_view.view._delete(
+            self, type(self).__name__, self._identity, self.__types__.keys()
+        )
 
     @classmethod
     def methods_from(cls, other):
         for method_name, method in other.__dict__.items():
-            if not method_name.startswith("__") or method_name in ["__str__", "__repr__"]:
+            if not method_name.startswith("__") or method_name in [
+                "__str__",
+                "__repr__",
+            ]:
                 setattr(cls, method_name, method)
 
     @classmethod
     def define(cls, **types):
         assert not cls.Null, "already defined"
         assert isinstance(types, dict)
-        for k,v in types.items():
+        for k, v in types.items():
             assert algebraic.valid_type(v)
 
         cls.__types__ = types
@@ -158,7 +196,7 @@ class DatabaseObject(object):
 
     @classmethod
     def to_json(cls, obj):
-        return obj.__dict__['_identity']
+        return obj.__dict__["_identity"]
 
     @classmethod
     def from_json(cls, obj):
@@ -175,8 +213,10 @@ class DatabaseObject(object):
     def __repr__(self):
         return f"DB({type(self).__name__}, {self._identity})"
 
+
 def data_key(obj_typename, identity, field_name):
     return obj_typename + "-val:" + identity + ":" + field_name
+
 
 def index_key(obj_typename, field_name, value):
     if isinstance(value, int):
@@ -225,11 +265,10 @@ class DatabaseView(object):
                 kwds[tname] = algebraic.default_initialize(t)
 
                 if kwds[tname] is None:
-                    raise Exception("Can't default initialize %s.%s of type %s" % (
-                        cls.__name__,
-                        tname,
-                        t
-                        ))
+                    raise Exception(
+                        "Can't default initialize %s.%s of type %s"
+                        % (cls.__name__, tname, t)
+                    )
 
         for kwd, val in kwds.items():
             if kwd not in cls.__types__:
@@ -263,7 +302,7 @@ class DatabaseView(object):
 
                         self._writes[ik] = existing + (identity,)
 
-        return o        
+        return o
 
     def _get(self, obj_typename, identity, field_name, type):
         key = data_key(obj_typename, identity, field_name)
@@ -274,7 +313,9 @@ class DatabaseView(object):
         if key in self._writes:
             return self._writes[key]
 
-        db_val, parsed_val = self._db._get_versioned_object_data(key, self._transaction_num)
+        db_val, parsed_val = self._db._get_versioned_object_data(
+            key, self._transaction_num
+        )
 
         db_val = self._get_dbkey(key)
 
@@ -286,7 +327,9 @@ class DatabaseView(object):
 
         parsed_val = _encoder.from_json(db_val, type)
 
-        self._db._update_versioned_object_data_cache(key, self._transaction_num, parsed_val)
+        self._db._update_versioned_object_data_cache(
+            key, self._transaction_num, parsed_val
+        )
 
         return parsed_val
 
@@ -318,10 +361,12 @@ class DatabaseView(object):
         existing_index_vals = self._compute_index_vals(obj, obj_typename)
 
         self._writes[key] = val
-        
+
         new_index_vals = self._compute_index_vals(obj, obj_typename)
 
-        self._update_indices(obj, obj_typename, identity, existing_index_vals, new_index_vals)
+        self._update_indices(
+            obj, obj_typename, identity, existing_index_vals, new_index_vals
+        )
 
     def _compute_index_vals(self, obj, obj_typename):
         existing_index_vals = {}
@@ -332,7 +377,9 @@ class DatabaseView(object):
 
         return existing_index_vals
 
-    def _update_indices(self, obj, obj_typename, identity, existing_index_vals, new_index_vals):
+    def _update_indices(
+        self, obj, obj_typename, identity, existing_index_vals, new_index_vals
+    ):
         if obj_typename in self._db._indices:
             for index_name, index_fun in self._db._indices[obj_typename].items():
                 new_index_val = new_index_vals.get(index_name, None)
@@ -340,12 +387,18 @@ class DatabaseView(object):
 
                 if cur_index_val != new_index_val:
                     if cur_index_val is not None:
-                        old_index_name = index_key(obj_typename, index_name, cur_index_val)
+                        old_index_name = index_key(
+                            obj_typename, index_name, cur_index_val
+                        )
                         cur_index_list = tuple(self._get_dbkey(old_index_name) or ())
-                        self._writes[old_index_name] = tuple([x for x in cur_index_list if x != identity])
+                        self._writes[old_index_name] = tuple(
+                            [x for x in cur_index_list if x != identity]
+                        )
 
                     if new_index_val is not None:
-                        new_index_name = index_key(obj_typename, index_name, new_index_val)
+                        new_index_name = index_key(
+                            obj_typename, index_name, new_index_val
+                        )
                         new_index_list = tuple(self._get_dbkey(new_index_name) or ())
                         self._writes[new_index_name] = new_index_list + (identity,)
 
@@ -353,7 +406,10 @@ class DatabaseView(object):
         assert len(kwargs) == 1, "Can only lookup one index at a time."
         tname, value = list(kwargs.items())[0]
 
-        if type.__name__ not in self._db._indices or tname not in self._db._indices[type.__name__]:
+        if (
+            type.__name__ not in self._db._indices
+            or tname not in self._db._indices[type.__name__]
+        ):
             raise Exception("No index enabled for %s.%s" % (type.__name__, tname))
 
         if not hasattr(_cur_view, "view"):
@@ -364,18 +420,23 @@ class DatabaseView(object):
         if keyname in self._writes:
             identities = self._writes[keyname]
         else:
-            identities = self._db._get_versioned_object_data(keyname, self._transaction_num)[0]
-            
+            identities = self._db._get_versioned_object_data(
+                keyname, self._transaction_num
+            )[0]
+
         if not identities:
             return ()
-        
+
         return tuple([type(str(x)) for x in identities])
 
     def indexLookupAny(self, type, **kwargs):
         assert len(kwargs) == 1, "Can only lookup one index at a time."
         tname, value = list(kwargs.items())[0]
 
-        if type.__name__ not in self._db._indices or tname not in self._db._indices[type.__name__]:
+        if (
+            type.__name__ not in self._db._indices
+            or tname not in self._db._indices[type.__name__]
+        ):
             raise Exception("No index enabled for %s.%s" % (type.__name__, tname))
 
         if not hasattr(_cur_view, "view"):
@@ -386,11 +447,13 @@ class DatabaseView(object):
         if keyname in self._writes:
             identities = self._writes[keyname]
         else:
-            identities = self._db._get_versioned_object_data(keyname, self._transaction_num)[0]
-            
+            identities = self._db._get_versioned_object_data(
+                keyname, self._transaction_num
+            )[0]
+
         if not identities:
             return None
-        
+
         return type(str(identities[0]))
 
     def commit(self):
@@ -400,30 +463,35 @@ class DatabaseView(object):
         if self._writes:
             writes = {key: (_encoder.to_json(v), v) for key, v in self._writes.items()}
             tid = self._transaction_num
-            
+
             self._db._set_versioned_object_data(writes, tid)
 
     def nocommit(self):
         class Scope:
             def __enter__(scope):
-                assert not hasattr(_cur_view, 'view')
+                assert not hasattr(_cur_view, "view")
                 _cur_view.view = self
 
             def __exit__(self, *args):
                 del _cur_view.view
+
         return Scope()
 
     def __enter__(self):
         self._t0 = time.time()
         self._stack = traceback.format_stack()
 
-        assert not hasattr(_cur_view, 'view')
+        assert not hasattr(_cur_view, "view")
         _cur_view.view = self
         return self
 
     def __exit__(self, type, val, tb):
         if time.time() - self._t0 > 30.0:
-            logging.warn("long db transaction: %s elapsed.\n%s", time.time() - self._t0, "".join(self._stack))
+            logging.warn(
+                "long db transaction: %s elapsed.\n%s",
+                time.time() - self._t0,
+                "".join(self._stack),
+            )
         del _cur_view.view
         if type is None and self._writes:
             self.commit()
@@ -438,10 +506,9 @@ class DatabaseView(object):
             raise Exception("Multiple instances of %s found with %s" % (type, kwargs))
         return res[0]
 
+
 class DatabaseTransaction(DatabaseView):
     _writeable = True
-
-
 
 
 class Database:
@@ -449,59 +516,59 @@ class Database:
         self._kvstore = kvstore
         self._lock = threading.Lock()
 
-        #transaction of what's in the KV store
+        # transaction of what's in the KV store
         self._cur_transaction_num = 0
 
-        #minimum transaction we can support. This is the implicit transaction
-        #for all the 'tail values'
+        # minimum transaction we can support. This is the implicit transaction
+        # for all the 'tail values'
         self._min_transaction_num = 0
 
         self._types = {}
-        #typename -> indexname -> fun(object->value)
+        # typename -> indexname -> fun(object->value)
         self._indices = {}
 
-        #for each version number in _version_numbers, how many views referring to it
+        # for each version number in _version_numbers, how many views referring to it
         self._version_number_counts = {}
         self._min_reffed_version_number = -1
 
-        #list of outstanding version numbers in increasing order where we have writes
-        #_min_transaction_num is the minimum of these and the current transaction
+        # list of outstanding version numbers in increasing order where we have writes
+        # _min_transaction_num is the minimum of these and the current transaction
         self._version_numbers = []
 
-        #for each version number, a set of keys that were set
+        # for each version number, a set of keys that were set
         self._version_number_objects = {}
 
-        #for each key, a sorted list of version numbers outstanding and the relevant objects
+        # for each key, a sorted list of version numbers outstanding and the relevant objects
         self._key_version_numbers = {}
 
-        #for each (key, version), the object, as (json, actual_object)
+        # for each (key, version), the object, as (json, actual_object)
         self._key_and_version_to_object = {}
 
-        #for each key with versions, the value replaced by the oldest key. (json, actual_object)
+        # for each key with versions, the value replaced by the oldest key. (json, actual_object)
         self._tail_values = {}
 
-        #our parsed representation of each thing in the database
+        # our parsed representation of each thing in the database
         self._current_database_object_cache = {}
 
-        #cache-name to cache function
+        # cache-name to cache function
         self._calcCacheFunctions = {}
 
-        #cache-key (cachename, (arg1,arg2,...)) -> cache value
+        # cache-key (cachename, (arg1,arg2,...)) -> cache value
         self._calcCacheValues = {}
 
-        #cache-key -> tid before which this cache calc is definitely invalid.
+        # cache-key -> tid before which this cache calc is definitely invalid.
         self._calcCacheMinTransactionId = {}
 
-        #cache-key to keys that it depends on
+        # cache-key to keys that it depends on
         self._calcCacheKeysNeeded = {}
 
-        #cache-key to other calcs that it depends on
+        # cache-key to other calcs that it depends on
         self._calcCacheToCalcCacheNeeded = {}
 
-        #key -> set(cache_keys)
+        # key -> set(cache_keys)
         self._keyToCacheKeyDepending = {}
 
-        #cache_key -> set(cache_key), cache-keys depending on this one
+        # cache_key -> set(cache_key), cache-keys depending on this one
         self._calcCacheToCalcCacheDepending = {}
 
     def clearCache(self):
@@ -522,7 +589,7 @@ class Database:
     def addCalculationCache(self, name, function=None):
         self._calcCacheFunctions[name] = function or name
 
-    def addIndex(self, type, prop, fun = None):
+    def addIndex(self, type, prop, fun=None):
         if type.__name__ not in self._indices:
             self._indices[type.__name__] = {}
 
@@ -535,7 +602,7 @@ class Database:
         if typename[:1] == "_":
             self.__dict__[typename] = val
             return
-        
+
         self._types[typename] = val
 
     def __getattr__(self, typename):
@@ -543,6 +610,7 @@ class Database:
             return self.__dict__[typename]
 
         if typename not in self._types:
+
             class cls(DatabaseObject):
                 pass
 
@@ -573,7 +641,9 @@ class Database:
             if self._min_reffed_version_number is None:
                 self._min_reffed_version_number = transaction_id
             else:
-                self._min_reffed_version_number = min(transaction_id, self._min_reffed_version_number)
+                self._min_reffed_version_number = min(
+                    transaction_id, self._min_reffed_version_number
+                )
         else:
             self._version_number_counts[transaction_id] += 1
 
@@ -592,7 +662,6 @@ class Database:
                     self._min_reffed_version_number = -1
                 else:
                     self._min_reffed_version_number = min(self._version_number_counts)
-
 
     def transaction(self):
         """Only one transaction may be committed on the current transaction number."""
@@ -617,14 +686,14 @@ class Database:
         """Get rid of old objects we don't need to keep around and increase the min_transaction_id"""
         while True:
             if not self._version_numbers:
-                #nothing to cleanup because we have no transactions
+                # nothing to cleanup because we have no transactions
                 return
 
-            #this is the lowest write we have in the in-mem database
+            # this is the lowest write we have in the in-mem database
             lowest = self._version_numbers[0]
 
             if self._min_reffed_version_number < lowest:
-                #some transactions still refer to values before this version
+                # some transactions still refer to values before this version
                 return
 
             self._version_numbers.pop(0)
@@ -633,7 +702,7 @@ class Database:
             del self._version_number_objects[lowest]
 
             if not self._version_numbers:
-                #views have caught up with the current transaction
+                # views have caught up with the current transaction
                 self._min_transaction_num = self._cur_transaction_num
                 self._key_version_numbers = {}
                 self._key_and_version_numbers = {}
@@ -644,15 +713,17 @@ class Database:
                 for key in keys_touched:
                     assert self._key_version_numbers[key][0] == lowest
                     if len(self._key_version_numbers[key]) == 1:
-                        #this key is now current in the database
+                        # this key is now current in the database
                         del self._key_version_numbers[key]
                         del self._key_and_version_to_object[key, lowest]
 
-                        #it's OK to keep the key around if it's not None
+                        # it's OK to keep the key around if it's not None
                         del self._tail_values[key]
                     else:
                         self._key_version_numbers[key].pop(0)
-                        self._tail_values[key] = self._key_and_version_to_object[key, lowest]
+                        self._tail_values[key] = self._key_and_version_to_object[
+                            key, lowest
+                        ]
                         del self._key_and_version_to_object[key, lowest]
 
     def _update_versioned_object_data_cache(self, key, transaction_id, parsed_val):
@@ -663,20 +734,18 @@ class Database:
                 else:
                     self._current_database_object_cache[key] = parsed_val
             else:
-                #get the largest version number less than or equal to transaction_id
-                version = self._best_version_for(transaction_id, self._key_version_numbers[key])
+                # get the largest version number less than or equal to transaction_id
+                version = self._best_version_for(
+                    transaction_id, self._key_version_numbers[key]
+                )
 
                 if version is not None:
                     self._key_and_version_to_object[key, version] = (
                         self._key_and_version_to_object[key, version][0],
-                        parsed_val
-                        )
+                        parsed_val,
+                    )
                 else:
-                    self._tail_values[key] = (
-                        self._tail_values[key][0],
-                        parsed_val
-                        )
-
+                    self._tail_values[key] = (self._tail_values[key][0], parsed_val)
 
     def _get_versioned_object_data(self, key, transaction_id):
         with self._lock:
@@ -686,10 +755,15 @@ class Database:
                 if key in self._tail_values:
                     return self._tail_values[key]
 
-                return (self._kvstore.get(key), self._current_database_object_cache.get(key))
+                return (
+                    self._kvstore.get(key),
+                    self._current_database_object_cache.get(key),
+                )
 
-            #get the largest version number less than or equal to transaction_id
-            version = self._best_version_for(transaction_id, self._key_version_numbers[key])
+            # get the largest version number less than or equal to transaction_id
+            version = self._best_version_for(
+                transaction_id, self._key_version_numbers[key]
+            )
 
             if version is not None:
                 return self._key_and_version_to_object[key, version]
@@ -719,24 +793,27 @@ class Database:
 
             self._cur_transaction_num += 1
 
-            #we were viewing objects at the old transaction layer. now we write a new one.
+            # we were viewing objects at the old transaction layer. now we write a new one.
             transaction_id += 1
-            
-            for key in key_value:
-                #if this object is not versioned already, we need to keep the old value around
-                if key not in self._key_version_numbers:
-                    self._tail_values[key] = (self._kvstore.get(key), self._current_database_object_cache.get(key))
 
-            #set the json representation in the database
-            self._kvstore.setSeveral({k: v[0] for k,v in key_value.items()})
-            for k,v in key_value.items():
+            for key in key_value:
+                # if this object is not versioned already, we need to keep the old value around
+                if key not in self._key_version_numbers:
+                    self._tail_values[key] = (
+                        self._kvstore.get(key),
+                        self._current_database_object_cache.get(key),
+                    )
+
+            # set the json representation in the database
+            self._kvstore.setSeveral({k: v[0] for k, v in key_value.items()})
+            for k, v in key_value.items():
                 if v[1] is None:
                     if k in self._current_database_object_cache:
                         del self._current_database_object_cache[k]
                 else:
                     self._current_database_object_cache[k] = v[1]
 
-            #record what objects we touched
+            # record what objects we touched
             self._version_number_objects[transaction_id] = list(key_value.keys())
             self._version_numbers.append(transaction_id)
 
@@ -745,9 +822,9 @@ class Database:
                     self._key_version_numbers[key] = []
                 self._key_version_numbers[key].append(transaction_id)
 
-                self._key_and_version_to_object[key,transaction_id] = value
+                self._key_and_version_to_object[key, transaction_id] = value
 
-                #invalidate the calculation cache
+                # invalidate the calculation cache
                 if key in self._keyToCacheKeyDepending:
                     for cacheKey in list(self._keyToCacheKeyDepending[key]):
                         self._invalidateCachedCalc(cacheKey)
@@ -775,12 +852,14 @@ class Database:
 
     def lookupCachedCalculation(self, name, args):
         if not hasattr(_cur_view, "view"):
-            raise Exception("Please access properties from within a view or transaction.")
-        
+            raise Exception(
+                "Please access properties from within a view or transaction."
+            )
+
         view = _cur_view.view
-        
-        #don't cache values from writeable views - too hard to keep track of 
-        #whether we invalidated things mid-transaction.
+
+        # don't cache values from writeable views - too hard to keep track of
+        # whether we invalidated things mid-transaction.
         if view._writeable:
             return self._calcCacheFunctions[name](*args)
 
@@ -791,25 +870,25 @@ class Database:
         if origReadWatcher:
             origReadWatcher("cache", (name, args))
 
-        cacheKey = (name,args)
+        cacheKey = (name, args)
         with self._lock:
             if cacheKey in self._calcCacheMinTransactionId:
                 minTID = self._calcCacheMinTransactionId.get(cacheKey)
                 if minTID is None or minTID <= view._transaction_num:
-                    #this is a cache hit!
+                    # this is a cache hit!
                     return self._calcCacheValues[cacheKey]
 
         readKeys = set()
         readCaches = set()
 
         def readWatcher(readKind, readKey):
-            if readKind == 'cache':
+            if readKind == "cache":
                 readCaches.add(readKey)
             elif readKind == "key":
                 readKeys.add(readKey)
             else:
-                assert False 
-        
+                assert False
+
         try:
             view._readWatcher = readWatcher
 
@@ -817,23 +896,27 @@ class Database:
         finally:
             view._readWatcher = origReadWatcher
 
-        self._writeCachedValue((name, args), view._transaction_num, readKeys, readCaches, cachedValue)
+        self._writeCachedValue(
+            (name, args), view._transaction_num, readKeys, readCaches, cachedValue
+        )
 
         return cachedValue
 
-    def _writeCachedValue(self, cacheKey, asOfTransId, readKeys, readCaches, cachedValue):
+    def _writeCachedValue(
+        self, cacheKey, asOfTransId, readKeys, readCaches, cachedValue
+    ):
         with self._lock:
             minValidTID = -1
             for key in readKeys:
                 if key not in self._key_version_numbers:
-                    #do nothing - there is only one version of this object around!
+                    # do nothing - there is only one version of this object around!
                     pass
                 else:
                     tid = self._key_version_numbers[key][-1]
                     minValidTID = max(minValidTID, tid)
             for key in readCaches:
                 if key not in self._calcCacheMinTransactionId:
-                    #we read from a now-invalidated cache!
+                    # we read from a now-invalidated cache!
                     return
                 else:
                     minValidTID = max(minValidTID, self._calcCacheMinTransactionId[key])
@@ -855,11 +938,8 @@ class Database:
             for c in readCaches:
                 self._calcCacheToCalcCacheDepending[c].add(cacheKey)
 
-
     def _get(self, obj_typename, identity, field_name, type):
         raise Exception("Please open a transaction or a view")
 
     def _set(self, obj, obj_typename, identity, field_name, type, val):
         raise Exception("Please open a transaction")
-
-

@@ -22,15 +22,11 @@ import test_looper.core.ArtifactStorage as ArtifactStorage
 
 def createArgumentParser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('config',
-                        help="Configuration file")
-    parser.add_argument('machineId',
-                        type=str,
-                        help="Number of workers to run")
-    parser.add_argument('worker_path',
-                        type=str,
-                        help="Path to storage we can use")
+    parser.add_argument("config", help="Configuration file")
+    parser.add_argument("machineId", type=str, help="Number of workers to run")
+    parser.add_argument("worker_path", type=str, help="Path to storage we can use")
     return parser
+
 
 def configureLogging(verbose=False):
     if logging.getLogger().handlers:
@@ -44,23 +40,23 @@ def configureLogging(verbose=False):
     handler.setLevel(loglevel)
     handler.setFormatter(
         logging.Formatter(
-            '%(asctime)s %(levelname)s %(filename)s:%(lineno)s@%(funcName)s %(name)s - %(message)s'
-            )
+            "%(asctime)s %(levelname)s %(filename)s:%(lineno)s@%(funcName)s %(name)s - %(message)s"
         )
+    )
     logging.getLogger().addHandler(handler)
 
 
 def createTestWorker(config, worker_path, machineId):
-    #older versions of the looper may have cached AMIs with source-control
-    #information hardcoded. we don't need it any more, but we dont want to fail
-    #just because we're passed such data.
+    # older versions of the looper may have cached AMIs with source-control
+    # information hardcoded. we don't need it any more, but we dont want to fail
+    # just because we're passed such data.
     if "source_control" in config:
         del config["source_control"]
 
     config = algebraic_to_json.Encoder().from_json(config, Config.WorkerConfig)
-    
+
     artifact_storage = ArtifactStorage.storageFromConfig(config.artifacts)
-    
+
     workerState = WorkerState.WorkerState(
         name_prefix="test_looper_worker",
         worker_directory=worker_path,
@@ -68,16 +64,20 @@ def createTestWorker(config, worker_path, machineId):
         machineId=machineId,
         hardwareConfig=Config.HardwareConfig(
             cores=multiprocessing.cpu_count(),
-            ram_gb=int(psutil.virtual_memory().total / 1024.0 / 1024.0 / 1024.0 + .1)
-            ),
-        docker_image_repo=config.server_ports.docker_image_repo
-        )
+            ram_gb=int(psutil.virtual_memory().total / 1024.0 / 1024.0 / 1024.0 + 0.1),
+        ),
+        docker_image_repo=config.server_ports.docker_image_repo,
+    )
 
-    return TestLooperWorker.TestLooperWorker(workerState, machineId, config.server_ports, True, 2.0)
+    return TestLooperWorker.TestLooperWorker(
+        workerState, machineId, config.server_ports, True, 2.0
+    )
+
 
 def loadConfiguration(configFile):
-    with open(configFile, 'r') as fin:
+    with open(configFile, "r") as fin:
         return json.loads(fin.read())
+
 
 if __name__ == "__main__":
     configureLogging()
@@ -86,10 +86,10 @@ if __name__ == "__main__":
     config = loadConfiguration(args.config)
 
     logging.info(
-        "Starting test-looper on %s with and config\n%s", 
-        "machineId", 
-        pprint.PrettyPrinter().pformat(config)
-        )
+        "Starting test-looper on %s with and config\n%s",
+        "machineId",
+        pprint.PrettyPrinter().pformat(config),
+    )
 
     testLooperWorker = createTestWorker(config, args.worker_path, args.machineId)
 
@@ -97,8 +97,7 @@ if __name__ == "__main__":
 
     try:
         while True:
-            testLooperWorker.thread.join(.1)
+            testLooperWorker.thread.join(0.1)
     except KeyboardInterrupt:
         logging.info("Stopping worker thread and exiting on keyboard interrupt.")
         testLooperWorker.stop()
-

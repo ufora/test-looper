@@ -3,21 +3,27 @@ import copy
 
 stackIds = [0]
 stackLock = threading.Lock()
+
+
 def allocateStackId():
     with stackLock:
         stackIds[0] += 1
         return stackIds[0]
 
+
 class ThreadLocalStack(object):
     """
     Implements a stack data structure held in thread local storage.
     """
+
     threadLocalStorage = threading.local()
 
     @staticmethod
     def copyContents():
-        return dict((copy.copy(key), copy.copy(value)) for key, value in
-                ThreadLocalStack.threadLocalStorage.__dict__.items())
+        return dict(
+            (copy.copy(key), copy.copy(value))
+            for key, value in ThreadLocalStack.threadLocalStorage.__dict__.items()
+        )
 
     @staticmethod
     def setContents(contentsDict):
@@ -34,7 +40,7 @@ class ThreadLocalStack(object):
         stack = self.getStackAssertIfEmpty()
         stack.pop()
         remaining = len(stack)
-        if (remaining == 0):
+        if remaining == 0:
             setattr(ThreadLocalStack.threadLocalStorage, str(self.stackId_), None)
         return remaining
 
@@ -46,8 +52,7 @@ class ThreadLocalStack(object):
     @property
     def topOrNone(self):
         stack = self.getStack()
-        return None if stack is None or len(stack) == 0 \
-               else stack[-1]
+        return None if stack is None or len(stack) == 0 else stack[-1]
 
     def getOrCreateStack(self):
         stack = self.getStack()
@@ -68,8 +73,9 @@ class ThreadLocalStack(object):
         return stack
 
 
-#map from type to the actual type descending from ThreadLocalStackPushable.
+# map from type to the actual type descending from ThreadLocalStackPushable.
 threadLocalStackPushableDescendents_ = {}
+
 
 def threadLocalStackPushClassFor_(t):
     """Given 'T', figure out which class actually descended directly from ThreadLocalStackPushable.
@@ -78,9 +84,12 @@ def threadLocalStackPushClassFor_(t):
     looked up by the interface"""
 
     if type not in threadLocalStackPushableDescendents_:
-        threadLocalStackPushableDescendents_[t] = computeThreadLocalStackPushClassFor_(t)
+        threadLocalStackPushableDescendents_[t] = computeThreadLocalStackPushClassFor_(
+            t
+        )
 
     return threadLocalStackPushableDescendents_[t]
+
 
 def computeThreadLocalStackPushClassFor_(t):
     for b in t.__bases__:
@@ -93,6 +102,7 @@ def computeThreadLocalStackPushClassFor_(t):
             return candidate
 
     return None
+
 
 class NullContextPusher(object):
     def __init__(self, classToPush):
@@ -107,7 +117,6 @@ class NullContextPusher(object):
         ThreadLocalStackPushable.classToStackMap[toLookup].pop()
 
 
-
 class ThreadLocalStackPushable(object):
     classToStackMap = {}
 
@@ -115,7 +124,7 @@ class ThreadLocalStackPushable(object):
         toLookup = threadLocalStackPushClassFor_(type(self))
         if toLookup not in ThreadLocalStackPushable.classToStackMap:
             ThreadLocalStackPushable.classToStackMap[toLookup] = ThreadLocalStack()
-    
+
     def __enter__(self):
         toLookup = threadLocalStackPushClassFor_(type(self))
         ThreadLocalStackPushable.classToStackMap[toLookup].push(self)
@@ -131,8 +140,7 @@ class ThreadLocalStackPushable(object):
             return None
 
         return ThreadLocalStackPushable.classToStackMap[toLookup].topOrNone
-        
+
     @classmethod
     def getNullContext(cls):
         return NullContextPusher(cls)
-

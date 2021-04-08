@@ -9,6 +9,7 @@ import cherrypy
 octicon = HtmlGeneration.octicon
 card = HtmlGeneration.card
 
+
 class Context(object):
     def __init__(self, renderer, options):
         self.renderer = renderer
@@ -24,12 +25,12 @@ class Context(object):
     def popToDash(items):
         try:
             ix = items.index("-")
-            return items[:ix], items[ix+1:]
+            return items[:ix], items[ix + 1 :]
         except ValueError:
             return items, []
 
     def redirect(self):
-        return self.renderer.redirect()        
+        return self.renderer.redirect()
 
     def urlBase(self):
         assert False, "Subclasses Implement"
@@ -44,7 +45,11 @@ class Context(object):
             if kwargs[k] is None:
                 del finalArgs[k]
 
-        return "/" + self.urlBase() + ("?" + urllib.parse.urlencode(finalArgs) if finalArgs else "")
+        return (
+            "/"
+            + self.urlBase()
+            + ("?" + urllib.parse.urlencode(finalArgs) if finalArgs else "")
+        )
 
     def renderNavbarLink(self):
         return self.renderLink()
@@ -68,7 +73,7 @@ class Context(object):
         return viewName
 
     def currentView(self):
-        return self.options.get('view', self.defaultView())
+        return self.options.get("view", self.defaultView())
 
     def defaultView(self):
         return self.contextViews()[0]
@@ -98,13 +103,13 @@ class Context(object):
             if children:
                 dd_items = [
                     '<a class="dropdown-item{active}" href="{link}" title="{title}">{contents}</a>'.format(
-                        active=" active" if child == curContext else "", 
+                        active=" active" if child == curContext else "",
                         link=child.borrowFromContextIfPossible(self).urlString(),
                         contents=child.renderMenuItemText(isHeader=False),
-                        title=child.renderMenuItemTitle(isHeader=False)
-                        )
+                        title=child.renderMenuItemTitle(isHeader=False),
+                    )
                     for child in children
-                    ]
+                ]
 
                 item = """<div class="btn-group">
                   <a role="button" href="{url}" class="btn btn-xs {btnstyle}" title="{title}">{elt}</a>
@@ -116,19 +121,25 @@ class Context(object):
                   
                 </div>
                 """.format(
-                    url=curContext.withOptionsReset(view=curContext.options.get("view")).urlString(),
+                    url=curContext.withOptionsReset(
+                        view=curContext.options.get("view")
+                    ).urlString(),
                     elt=curContext.renderMenuItemText(isHeader=True),
                     title=curContext.renderMenuItemTitle(isHeader=True),
-                    dd_items = "".join(dd_items),
-                    btnstyle="btn-outline-secondary"
-                    )
+                    dd_items="".join(dd_items),
+                    btnstyle="btn-outline-secondary",
+                )
             else:
                 item = curContext.renderNavbarLink()
 
             if not isinstance(item, str):
                 item = item.render()
 
-            headers = [item] + ['<span class="px-1">&#x2F;</span>' if headers else ""] + headers
+            headers = (
+                [item]
+                + ['<span class="px-1">&#x2F;</span>' if headers else ""]
+                + headers
+            )
 
             for preItem in reversed(curContext.renderBreadcrumbPrefixes()):
                 headers = [preItem, '<span class="px-1">&#x2F;</span>'] + headers
@@ -136,33 +147,41 @@ class Context(object):
             curContext = parent
 
         if self.options.get("testGroup"):
-            headers += ['<span class="px-1">&#x2F;</span>'] + [octicon("beaker") + self.options.get("testGroup")]
+            headers += ['<span class="px-1">&#x2F;</span>'] + [
+                octicon("beaker") + self.options.get("testGroup")
+            ]
         else:
             if self.contextViews():
                 headers = headers + ['<span class="px-4">::</span>']
                 buttons = []
                 curView = self.options.get("view", self.defaultView())
-                    
+
                 for view in self.contextViews():
                     buttons.append(
                         '<a role="button" href="{url}" title="{title}" class="btn btn-xs {btnstyle}">{elt}</a>'.format(
-                            url=self.contextFor(self.primaryObject(), view=view).urlString(),
+                            url=self.contextFor(
+                                self.primaryObject(), view=view
+                            ).urlString(),
                             elt=self.renderViewMenuItem(view),
                             title=self.renderMenuItemTitle(view),
-                            btnstyle="btn-primary" if view == curView else "btn-outline-secondary"
-                            )
+                            btnstyle="btn-primary"
+                            if view == curView
+                            else "btn-outline-secondary",
                         )
+                    )
 
                 headers = headers + [
-                    """<div class="btn-group" role="group">{buttons}</div>"""
-                        .format(buttons="".join(buttons))
-                    ]
+                    """<div class="btn-group" role="group">{buttons}</div>""".format(
+                        buttons="".join(buttons)
+                    )
+                ]
 
         postfix = self.renderPostViewSelector()
-        
+
         headers = ["<span class='tl-navbar-item'>%s</span>" % h for h in headers]
 
-        headers.append("""
+        headers.append(
+            """
             <span class="tl-navbar-fill">
                 <span class="tl-navbar tl-navbar-fromright">
                     <span class="tl-navbar-item">
@@ -176,34 +195,42 @@ class Context(object):
                         </span>
                     </span>
                 </span>
-            </span>"""
-                .format(postfix=postfix, rightside=self.renderer.reload_link().render())
+            </span>""".format(
+                postfix=postfix, rightside=self.renderer.reload_link().render()
             )
+        )
 
         return '<div class="p-2 bg-light mr-auto tl-navbar">%s</div>' % "".join(headers)
 
     def renderWholePage(self):
         if self.options.get("bodyOnly"):
             return self.renderPageBody()
-        
+
         try:
-            pageBody = card("Invalid Object") if not self.primaryObject() else self.renderPageBody()
+            pageBody = (
+                card("Invalid Object")
+                if not self.primaryObject()
+                else self.renderPageBody()
+            )
         except cherrypy.HTTPRedirect:
             raise
         except:
-            pageBody = card("<h1>Internal Error:</h1><div>&nbsp;</div><pre><code>%s</code></pre>" % cgi.escape(traceback.format_exc()))
+            pageBody = card(
+                "<h1>Internal Error:</h1><div>&nbsp;</div><pre><code>%s</code></pre>"
+                % cgi.escape(traceback.format_exc())
+            )
 
         if isinstance(pageBody, HtmlGeneration.Redirect):
             return pageBody
 
         return (
-            HtmlGeneration.headers + 
-            self.renderPageHeader() + 
-            '<main class="py-md-2"><div class="container-fluid">' + 
-            pageBody +
-            "</div></main>" + 
-            HtmlGeneration.footers
-            )
+            HtmlGeneration.headers
+            + self.renderPageHeader()
+            + '<main class="py-md-2"><div class="container-fluid">'
+            + pageBody
+            + "</div></main>"
+            + HtmlGeneration.footers
+        )
 
     def contextFor(self, entity, **kwargs):
         if entity in self._contextCache and not kwargs:
@@ -217,15 +244,13 @@ class Context(object):
         return res
 
     def withOptionsReset(self, **options):
-        options = {k:v for k,v in options.items() if v is not None}
+        options = {k: v for k, v in options.items() if v is not None}
         return self.renderer.contextFor(self.primaryObject(), options)
 
     def withOptions(self, **kwargs):
         options = dict(self.options)
         options.update(kwargs)
 
-        options = {k:v for k,v in options.items() if v is not None}
+        options = {k: v for k, v in options.items() if v is not None}
 
         return self.renderer.contextFor(self.primaryObject(), options)
-
-    

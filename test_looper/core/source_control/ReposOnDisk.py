@@ -12,6 +12,7 @@ from test_looper.core.source_control import SourceControl
 from test_looper.core.tools.Git import Git
 import test_looper.core.source_control.RemoteRepo as RemoteRepo
 
+
 class ReposOnDisk(SourceControl.SourceControl):
     def __init__(self, path_to_local_repo_cache, config):
         super(ReposOnDisk, self).__init__()
@@ -38,7 +39,7 @@ class ReposOnDisk(SourceControl.SourceControl):
 
                 if not os.path.exists(os.path.join(self.path_to_repos, repoName)):
                     return None
-                
+
                 self.repos[repoName] = RemoteRepo.RemoteRepo(repoName, path, self)
 
                 self.repos[repoName].ensureInitialized()

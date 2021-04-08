@@ -1,6 +1,7 @@
 import hashlib
 import struct
 
+
 class Hash(object):
     def __init__(self, digest):
         self.digest = digest
@@ -16,7 +17,7 @@ class Hash(object):
     @staticmethod
     def from_string(string):
         hasher = hashlib.sha1()
-        hasher.update(string.encode('utf8') if isinstance(string, str) else string)
+        hasher.update(string.encode("utf8") if isinstance(string, str) else string)
         return Hash(hasher.digest())
 
     def __add__(self, other):

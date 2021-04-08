@@ -5,5 +5,5 @@ import sys
 import time
 
 for i in range(300):
-	print("pass ", i)
-	time.sleep(.1)
+    print("pass ", i)
+    time.sleep(0.1)

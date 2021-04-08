@@ -1,7 +1,7 @@
 import os
 import sys
 
-if sys.platform=="win32":
+if sys.platform == "win32":
     fcntl = None
 else:
     import fcntl
@@ -15,17 +15,19 @@ import traceback
 import test_looper.core.ManagedThread as ManagedThread
 import subprocess
 
+
 class SubprocessRunner(object):
-    def __init__(self,
-                 subprocessArguments,
-                 onStdOut,
-                 onStdErr,
-                 env=None,
-                 enablePartialLineOutput=False,
-                 closeFds=False,
-                 shell=False
-                 ):
-        self.shell=shell
+    def __init__(
+        self,
+        subprocessArguments,
+        onStdOut,
+        onStdErr,
+        env=None,
+        enablePartialLineOutput=False,
+        closeFds=False,
+        shell=False,
+    ):
+        self.shell = shell
         self.onStdOut = onStdOut
         self.onStdErr = onStdErr
         self.subprocessArguments = subprocessArguments
@@ -58,58 +60,62 @@ class SubprocessRunner(object):
         self.subprocessErrThread = None
 
     def start(self):
-        assert self.subprocessOutThread is None or not self.subprocessOutThread.is_alive()
+        assert (
+            self.subprocessOutThread is None or not self.subprocessOutThread.is_alive()
+        )
 
         stdInRead, stdInWrite = os.pipe()
         stdOutRead, stdOutWrite = os.pipe()
         stdErrRead, stdErrWrite = os.pipe()
 
-        self.subprocessStdIn = os.fdopen(stdInWrite, 'w', 1)
-        self.subprocessStdOut = os.fdopen(stdOutRead, 'r', 1)
-        self.subprocessStdErr = os.fdopen(stdErrRead, 'r', 1)
-
+        self.subprocessStdIn = os.fdopen(stdInWrite, "w", 1)
+        self.subprocessStdOut = os.fdopen(stdOutRead, "r", 1)
+        self.subprocessStdErr = os.fdopen(stdErrRead, "r", 1)
 
         if self.enablePartialLineOutput and sys.platform != "win32":
             # enable non-blocking reads
             fcntl.fcntl(self.subprocessStdOut, fcntl.F_SETFL, os.O_NONBLOCK)
             fcntl.fcntl(self.subprocessStdErr, fcntl.F_SETFL, os.O_NONBLOCK)
 
-
         self.subprocessStdInFileDescriptor = stdInWrite
         self.subprocessStdOutFileDescriptor = stdOutRead
         self.subprocessStdErrFileDescriptor = stdErrRead
 
-        self.subprocessStdOutFromOtherSide = os.fdopen(stdOutWrite, 'w', 1)
-        self.subprocessStdErrFromOtherSide = os.fdopen(stdErrWrite, 'w', 1)
+        self.subprocessStdOutFromOtherSide = os.fdopen(stdOutWrite, "w", 1)
+        self.subprocessStdErrFromOtherSide = os.fdopen(stdErrWrite, "w", 1)
 
-        #start our reading threads BEFORE we open the process
+        # start our reading threads BEFORE we open the process
         self.subprocessOutThread = ManagedThread.ManagedThread(
             target=self.processOutputLoop,
-            args=('stdOut', self.subprocessStdOut, self.onStdOut)
-            )
+            args=("stdOut", self.subprocessStdOut, self.onStdOut),
+        )
 
         self.subprocessOutThread.start()
 
         self.subprocessErrThread = ManagedThread.ManagedThread(
             target=self.processOutputLoop,
-            args=('stdErr', self.subprocessStdErr, self.onStdErr)
-            )
+            args=("stdErr", self.subprocessStdErr, self.onStdErr),
+        )
         self.subprocessErrThread.start()
 
-        logging.debug("SubprocessRunner subprocess.Popen call starting with arguments %s",
-                     self.subprocessArguments)
+        logging.debug(
+            "SubprocessRunner subprocess.Popen call starting with arguments %s",
+            self.subprocessArguments,
+        )
 
         subprocessEvent = threading.Event()
+
         def startSubprocess():
             try:
-                self.process = subprocess.Popen(self.subprocessArguments,
-                                                stdin=stdInRead,
-                                                stdout=stdOutWrite,
-                                                stderr=stdErrWrite,
-                                                env=self.env,
-                                                close_fds=self.closeFds,
-                                                shell=self.shell
-                                                )
+                self.process = subprocess.Popen(
+                    self.subprocessArguments,
+                    stdin=stdInRead,
+                    stdout=stdOutWrite,
+                    stderr=stdErrWrite,
+                    env=self.env,
+                    close_fds=self.closeFds,
+                    shell=self.shell,
+                )
                 subprocessEvent.set()
             except:
                 logging.error("Failed to start subprocess:\n%s", traceback.format_exc())
@@ -135,7 +141,10 @@ class SubprocessRunner(object):
             return self.process.pid
 
     def __str__(self):
-        return "Subprocess(isStarted=%s, args=%s)" % (self.isStarted, self.subprocessArguments)
+        return "Subprocess(isStarted=%s, args=%s)" % (
+            self.isStarted,
+            self.subprocessArguments,
+        )
 
     def write(self, content):
         assert self.isStarted, "Process is not started."
@@ -147,7 +156,7 @@ class SubprocessRunner(object):
     def stop(self):
         try:
             if self.process:
-                #disconnect the subprocess
+                # disconnect the subprocess
                 try:
                     if self.process.poll() is None:
                         self.process.terminate()
@@ -177,7 +186,7 @@ class SubprocessRunner(object):
         assert self.isStarted
         self.process.terminate()
 
-    def wait(self, timeout=None, interval=.1):
+    def wait(self, timeout=None, interval=0.1):
         if timeout is None:
             return self.process.wait()
 
@@ -193,13 +202,14 @@ class SubprocessRunner(object):
     def isSuprocessErrThread(self):
         return threading.currentThread().ident == self.subprocessOutThread.ident
 
-
     def processOutputLoop(self, description, outputFile, onDataCallback):
         try:
             while not self.isShuttingDown:
                 if self.enablePartialLineOutput:
-                    if sys.platform=="win32":
-                        stdErrMessage = os.read(outputFile.fileno(), self.pipeReadBufferSize)
+                    if sys.platform == "win32":
+                        stdErrMessage = os.read(
+                            outputFile.fileno(), self.pipeReadBufferSize
+                        )
                     else:
                         r, _, _ = select.select([outputFile], [], [])
                         if len(r):
@@ -211,17 +221,20 @@ class SubprocessRunner(object):
                     if not self.isShuttingDown:
                         onDataCallback(stdErrMessage)
                 except:
-                    logging.error("%s threw exception: %s",
-                                  onDataCallback.__name__,
-                                  traceback.format_exc())
+                    logging.error(
+                        "%s threw exception: %s",
+                        onDataCallback.__name__,
+                        traceback.format_exc(),
+                    )
         finally:
             logging.debug("SubprocessRunner closing %s to subprocess", description)
             outputFile.close()
 
 
-
 def callAndReturnResultWithoutOutput(args, timeout=60.0, shell=False, env=None):
-    sub_process = SubprocessRunner(args, lambda msg: None, lambda msg: None, shell=shell, env=env)
+    sub_process = SubprocessRunner(
+        args, lambda msg: None, lambda msg: None, shell=shell, env=env
+    )
     sub_process.start()
     result = sub_process.wait(timeout)
     sub_process.stop()
@@ -229,26 +242,33 @@ def callAndReturnResultWithoutOutput(args, timeout=60.0, shell=False, env=None):
     assert result is not None, "Subprocess failed to return: %s" % args
     return result
 
+
 def callAndReturnResultAndOutput(args, timeout=60.0, shell=False, env=None):
     stdOut = []
     stdErr = []
 
-    sub_process = SubprocessRunner(args, stdOut.append, stdErr.append, shell=shell, env=env)
+    sub_process = SubprocessRunner(
+        args, stdOut.append, stdErr.append, shell=shell, env=env
+    )
     sub_process.start()
     result = sub_process.wait(timeout)
     sub_process.stop()
 
     return result, stdOut, stdErr
 
+
 def callAndReturnResultAndMergedOutput(args, timeout=60.0, shell=False, env=None):
     output = []
 
-    sub_process = SubprocessRunner(args, output.append, output.append, shell=shell, env=env)
+    sub_process = SubprocessRunner(
+        args, output.append, output.append, shell=shell, env=env
+    )
     sub_process.start()
     result = sub_process.wait(timeout)
     sub_process.stop()
 
     return result, output
+
 
 def callAndReturnResultAndOutputMerged(args, timeout=60.0, shell=False, env=None):
     out = []
@@ -260,8 +280,11 @@ def callAndReturnResultAndOutputMerged(args, timeout=60.0, shell=False, env=None
 
     return result, out
 
+
 def callAndAssertSuccess(args, timeout=60.0, shell=False, env=None):
-    res, out, err = callAndReturnResultAndOutput(args, timeout=timeout, shell=shell, env=env)
+    res, out, err = callAndReturnResultAndOutput(
+        args, timeout=timeout, shell=shell, env=env
+    )
 
     if res != 0.0:
         print("failed " + " ".join(args))
@@ -277,9 +300,9 @@ def callAndAssertSuccess(args, timeout=60.0, shell=False, env=None):
 
         assert False
 
+
 def callAndReturnOutput(args, timeout=60.0, shell=False, env=None):
     result, out, _ = callAndReturnResultAndOutput(args, timeout, shell=shell, env=env)
     if result is None:
         return None
     return "\n".join(out)
-

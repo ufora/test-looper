@@ -4,6 +4,7 @@ import time
 
 secondsUpToString = HtmlGeneration.secondsUpToString
 
+
 class DeploymentsContext(Context.Context):
     def __init__(self, renderer, options):
         Context.Context.__init__(self, renderer, options)
@@ -24,9 +25,9 @@ class DeploymentsContext(Context.Context):
     def renderPageBody(self):
         deployments = sorted(
             self.testManager.database.Deployment.lookupAll(isAlive=True),
-            key=lambda d:d.createdTimestamp
-            )
-        
+            key=lambda d: d.createdTimestamp,
+        )
+
         grid = [["COMMIT", "TEST", "BOOTED AT", "UP FOR", "CLIENTS", "", ""]]
 
         for d in deployments:
@@ -43,7 +44,9 @@ class DeploymentsContext(Context.Context):
 
             row.append(secondsUpToString(time.time() - d.createdTimestamp))
 
-            row.append(str(self.testManager.streamForDeployment(d._identity).clientCount()))
+            row.append(
+                str(self.testManager.streamForDeployment(d._identity).clientCount())
+            )
 
             row.append(self.connectDeploymentLink(d))
 
@@ -54,26 +57,26 @@ class DeploymentsContext(Context.Context):
         return HtmlGeneration.grid(grid)
 
     def connectDeploymentLink(self, d):
-        return HtmlGeneration.Link( 
+        return HtmlGeneration.Link(
             "/terminalForDeployment?deploymentId=" + d._identity,
             "connect",
             is_button=True,
             new_tab=True,
-            button_style='btn-primary btn-xs'
-            )
+            button_style="btn-primary btn-xs",
+        )
 
     def shutdownDeploymentLink(self, d):
-        return HtmlGeneration.Link( 
+        return HtmlGeneration.Link(
             "/shutdownDeployment?deploymentId=" + d._identity,
             "shutdown",
             is_button=True,
             new_tab=True,
-            button_style='btn-primary btn-xs'
-            )
-    
+            button_style="btn-primary btn-xs",
+        )
+
     def childContexts(self, currentChild):
         return []
-    
+
     def parentContext(self):
         return self.contextFor("root")
 

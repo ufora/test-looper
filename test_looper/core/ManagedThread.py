@@ -5,8 +5,8 @@ import traceback
 import test_looper.core.ThreadLocalStack as ThreadLocalStack
 import test_looper.core.StackInfo as StackInfo
 
-#ManagedThread deliberately tracks every unique thread we ever make. We need to keep track of
-#them so that we can distinguish them by their IDs
+# ManagedThread deliberately tracks every unique thread we ever make. We need to keep track of
+# them so that we can distinguish them by their IDs
 _threadStartedLocation = {}
 
 
@@ -16,20 +16,25 @@ def nameForIdentity(identity):
         return _threadStartedLocation[identity].name.ljust(30)
     return str(identity).ljust(30)
 
+
 class ManagedThread(threading.Thread):
     def __init__(self, *args, **kwargs):
         super(ManagedThread, self).__init__(*args, **kwargs)
         self.daemon = True
         self.criticalErrorHandler = self.logExceptionAndAbort
         self.onCompletion = self.logCompletion
-        self.creatorStacktrace = ''.join(traceback.format_stack())
-        self.creatorThreadLocalStorageDict = ThreadLocalStack.ThreadLocalStack.copyContents()
-
+        self.creatorStacktrace = "".join(traceback.format_stack())
+        self.creatorThreadLocalStorageDict = (
+            ThreadLocalStack.ThreadLocalStack.copyContents()
+        )
 
     @staticmethod
     def allManagedThreads():
-        return [t for t in threading.enumerate()
-                if ManagedThread.threadByObjectId(id(t)) is not None]
+        return [
+            t
+            for t in threading.enumerate()
+            if ManagedThread.threadByObjectId(id(t)) is not None
+        ]
 
     @staticmethod
     def threadByObjectId(objectId):
@@ -40,7 +45,9 @@ class ManagedThread(threading.Thread):
     def run(self):
         super(ManagedThread, self)
 
-        ThreadLocalStack.ThreadLocalStack.setContents(self.creatorThreadLocalStorageDict)
+        ThreadLocalStack.ThreadLocalStack.setContents(
+            self.creatorThreadLocalStorageDict
+        )
 
         _threadStartedLocation[id(self)] = self
 
@@ -52,8 +59,8 @@ class ManagedThread(threading.Thread):
             logging.critical(
                 "ManagedThread caught exception:\n%s\n\nThread started from\n%s",
                 traceback.format_exc(),
-                "".join(self.creatorStacktrace)
-                )
+                "".join(self.creatorStacktrace),
+            )
         finally:
             self.onCompletion()
 
@@ -68,6 +75,6 @@ class ManagedThread(threading.Thread):
     def __str__(self):
         traces = StackInfo.getTraces()
         if self.ident in traces:
-            return 'ManagedThread(%s)' % "".join(traces[self.ident])
+            return "ManagedThread(%s)" % "".join(traces[self.ident])
         else:
             return "ManagedThread(<unknown>)"

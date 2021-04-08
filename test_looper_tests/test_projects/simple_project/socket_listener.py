@@ -15,6 +15,7 @@ Listens on PORT and waits to get "MSG" at which point it exits happily.
 This is test code, so we exit(1) if we exceed 10 seconds without getting a message.
 """
 
+
 def killer():
     time.sleep(10)
     print("Didn't get a message in 10 seconds. Exiting.")
@@ -22,16 +23,17 @@ def killer():
     sys.stderr.flush()
     os._exit(1)
 
+
 t = threading.Thread(target=killer)
-t.daemon=True
+t.daemon = True
 t.start()
- 
-target=sys.argv[2]
+
+target = sys.argv[2]
 
 print("listening on port %s for msg %s" % (sys.argv[1], target))
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.bind(('', int(sys.argv[1])))
+s.bind(("", int(sys.argv[1])))
 s.listen(1)
 conn, addr = s.accept()
 
@@ -45,6 +47,6 @@ if data == target:
     sys.stdout.flush()
     os._exit(0)
 else:
-    print("ERROR: received %s, expecting %s." % (data,target))
+    print("ERROR: received %s, expecting %s." % (data, target))
     sys.stdout.flush()
     os._exit(1)

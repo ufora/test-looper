@@ -5,14 +5,18 @@ import test_looper.server.rendering.TestSummaryRenderer as TestSummaryRenderer
 import time
 import logging
 
+
 class TestGridRenderer:
-    def __init__(self, rows, testsForRowFun, 
-            headerLinkFun = lambda group: "", 
-            cellLinkFun = lambda group, row: '', 
-            groupFun = lambda test: TestManager.TestManager.configurationForTest(test),
-            cacheName = None,
-            database = None
-            ):
+    def __init__(
+        self,
+        rows,
+        testsForRowFun,
+        headerLinkFun=lambda group: "",
+        cellLinkFun=lambda group, row: "",
+        groupFun=lambda test: TestManager.TestManager.configurationForTest(test),
+        cacheName=None,
+        database=None,
+    ):
         self.rows = rows
         self.headerLinkFun = headerLinkFun
         self.testsForRowFun = testsForRowFun
@@ -23,8 +27,12 @@ class TestGridRenderer:
         self.database = database
 
         if self.cacheName is not None:
-            self.database.addCalculationCache((self.cacheName, "cells"), self.calculateCellContents)
-            self.database.addCalculationCache((self.cacheName, "rows"), self.calculateGroupsForRow)
+            self.database.addCalculationCache(
+                (self.cacheName, "cells"), self.calculateCellContents
+            )
+            self.database.addCalculationCache(
+                (self.cacheName, "rows"), self.calculateGroupsForRow
+            )
 
         if self.cacheName is None:
             for r in rows:
@@ -34,8 +42,10 @@ class TestGridRenderer:
         else:
             for r in rows:
                 self.groups.update(
-                    self.database.lookupCachedCalculation((self.cacheName, "rows"), (r,))
+                    self.database.lookupCachedCalculation(
+                        (self.cacheName, "rows"), (r,)
                     )
+                )
 
     def headers(self):
         if not self.headerLinkFun:
@@ -48,7 +58,7 @@ class TestGridRenderer:
                     res.append(link)
                 else:
                     res.append(g)
-            
+
             return res
 
     def grid(self):
@@ -62,22 +72,29 @@ class TestGridRenderer:
 
         return groups
 
-
     def calculateCellContents(self, group, row):
         logging.info("Recalculating cell contents for %s, %s", group, row)
 
         tests = []
         for t in self.testsForRowFun(row):
-            if t.testDefinitionSummary.type != "Deployment" and self.groupFun(t) == group:
+            if (
+                t.testDefinitionSummary.type != "Deployment"
+                and self.groupFun(t) == group
+            ):
                 tests.append(t)
 
         return TestSummaryRenderer.TestSummaryRenderer(
-                    tests,
-                    testSummaryUrl=self.cellLinkFun(group=group,row=row) if tests else ""
-                    ).renderSummary()
+            tests,
+            testSummaryUrl=self.cellLinkFun(group=group, row=row) if tests else "",
+        ).renderSummary()
 
     def gridRow(self, row):
         if self.cacheName:
-            return [self.database.lookupCachedCalculation((self.cacheName, "cells"), (g,row)) for g in self.groups]
+            return [
+                self.database.lookupCachedCalculation(
+                    (self.cacheName, "cells"), (g, row)
+                )
+                for g in self.groups
+            ]
         else:
             return [self.calculateCellContents(g, row) for g in sorted(self.groups)]

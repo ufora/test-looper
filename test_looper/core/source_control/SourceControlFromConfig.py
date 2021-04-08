@@ -5,6 +5,7 @@ import test_looper.core.source_control.Multiple as Multiple
 import os
 import os.path
 
+
 def getFromConfig(path_to_local_repo_cache, config):
     if config.matches.Gitlab:
         return Gitlab.Gitlab(path_to_local_repo_cache, config)
@@ -14,8 +15,10 @@ def getFromConfig(path_to_local_repo_cache, config):
         return ReposOnDisk.ReposOnDisk(path_to_local_repo_cache, config)
     if config.matches.Multiple:
         return Multiple.Multiple(
-            {serverName: getFromConfig(
-                os.path.join(path_to_local_repo_cache, serverName),
-                serverConfig
-            ) for serverName, serverConfig in config.sources.items()}
+            {
+                serverName: getFromConfig(
+                    os.path.join(path_to_local_repo_cache, serverName), serverConfig
+                )
+                for serverName, serverConfig in config.sources.items()
+            }
         )
