@@ -39,9 +39,19 @@ echo 'df -h $STORAGE'
 df -h $STORAGE
 echo "****************"
 
+log "TestLooper%20Updating%20apt"
+
+sudo apt-get update
+
 log "TestLooper%20Installing%20Docker"
 
-sudo apt-get install -y docker.io
+if ! command -v docker &> /dev/null
+then
+    echo "Docker is not installed. installing it using apt."
+
+    sudo apt-get install -y docker.io
+    sudo service docker start
+fi
 
 log "TestLooper%20Installing%20GCC"
 
@@ -50,11 +60,11 @@ sudo apt-get install -y gcc
 log "TestLooper%20Installing%20GIT"
 
 sudo apt-get install -y git
-
 sudo apt-get install -y python3
 sudo apt-get install -y python3-pip
 
 echo "Moving docker directory to $STORAGE"
+sudo service docker stop
 sudo cp /var/lib/docker $STORAGE -r
 sudo rm /var/lib/docker -rf
 (cd /var/lib; sudo ln -s $STORAGE/docker)
@@ -65,7 +75,7 @@ sudo service docker start
 
 log "TestLooper%20Installing%20Python%20Dependencies"
 
-sudo pip install boto3 psutil docker==2.6.1
+sudo pip3 install boto3 psutil docker==2.6.1
 
 sudo chmod 777 /var/run/docker.sock
 
@@ -116,7 +126,7 @@ do
 	log "Executing%20test-looper"
 
 	echo `date`": booting test-looper." >> logs/worker_log.txt
-	python -u test_looper/worker/test-looper.py worker_config.json $machineId $TEST_LOOPER_INSTALL >> logs/worker_log.txt 2>&1
+	python3 -u test_looper/worker/test-looper.py worker_config.json $machineId $TEST_LOOPER_INSTALL >> logs/worker_log.txt 2>&1
 
 	succeeded=0
 	while [ $succeeded -eq 0 ];
