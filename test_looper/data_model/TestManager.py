@@ -295,7 +295,7 @@ class TestManager(object):
             match = version_pattern.match(branchname)
             if not match:
                 # sort last
-                fields.append("XXX")
+                fields.append(["XXX"])
             else:
                 version = match.groups()[0]
                 for char in ".-_":
