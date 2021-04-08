@@ -382,6 +382,13 @@ class AwsMachineManagement(MachineManagement):
             if os_config.matches.LinuxWithDocker:
                 platform = "linux"
                 amiOverride = None
+            elif os_config.matches.LinuxVM:
+                platform = "linux"
+                amiOverride = os_config.ami
+                if amiOverride is None:
+                    raise UnbootableWorkerCombination(hardware_config, os_config)
+                if os_config.setupHash:
+                    amiOverride = self.api.lookupActualAmiForScriptHash(amiOverride, os_config.setupHash)
             elif os_config.matches.WindowsVM:
                 platform = "windows"
                 amiOverride = os_config.ami

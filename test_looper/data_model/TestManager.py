@@ -440,7 +440,7 @@ class TestManager(object):
 
         deploymentId = deployment._identity
         cat = self._machineCategoryForTest(deployment.test)
-        cat.desired = cat.desired - 1
+        cat.desired = max(cat.desired - 1, 0)
 
         self.streamForDeployment(deploymentId).addMessageFromDeployment(
             "\r\n\r\n" +
@@ -2383,7 +2383,7 @@ class TestManager(object):
             net_change = test.targetMachineBoot - oldTargetMachineBoot
 
             if net_change != 0:
-                category.desired = category.desired + net_change
+                category.desired = max(0, category.desired + net_change)
                 self._scheduleBootCheck()
 
 
@@ -2720,7 +2720,7 @@ class TestManager(object):
             elif env.image.matches.AMI:
                 return MachineManagement.OsConfig.LinuxVM(
                     ami=env.image.base_ami,
-                    setupHash=sha_hash(env.image.setup_script_contents).hexdigest
+                    setupHash=sha_hash(env.image.setup_script_contents).hexdigest if env.image.setup_script_contents else ''
                     )
             else:
                 logging.warn("Test %s has an invalid image %s for linux", test.hash + "/" + test.name, env.image)
@@ -2732,7 +2732,7 @@ class TestManager(object):
             elif env.image.matches.AMI:
                 return MachineManagement.OsConfig.WindowsVM(
                     ami=env.image.base_ami,
-                    setupHash=sha_hash(env.image.setup_script_contents).hexdigest
+                    setupHash=sha_hash(env.image.setup_script_contents).hexdigest if env.image.setup_script_contents else ''
                     )
             else:
                 logging.warn("Test %s has an invalid image %s for windows", test.hash + "/" + test.name, env.image)
