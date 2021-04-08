@@ -22,10 +22,17 @@ function log() {
 log "TestLooper%20Mounting%20External%20Storage"
 
 echo "****************"
-echo "Mounting /dev/xvdb to $STORAGE"
-sudo mkfs -t ext4 /dev/xvdb
-sudo mkdir -p $STORAGE
-sudo mount /dev/xvdb $STORAGE
+if [ -b /dev/xvdb ]; then
+    echo "Mounting /dev/xvdb to $STORAGE"
+    sudo mkfs -t ext4 /dev/xvdb
+    sudo mkdir -p $STORAGE
+    sudo mount /dev/xvdb $STORAGE
+else
+    echo "Mounting /dev/nvme1n1 to $STORAGE"
+    sudo mkfs -t ext4 /dev/nvme1n1
+    sudo mkdir -p $STORAGE
+    sudo mount /dev/nvme1n1 $STORAGE
+fi
 
 echo "****************"
 echo 'df -h $STORAGE'
