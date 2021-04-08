@@ -94,7 +94,7 @@ class TestLooperClient(object):
             if msg is not None:
                 try:
                     self._writeString(
-                        json.dumps(algebraic_to_json.Encoder().to_json(msg))
+                        json.dumps(algebraic_to_json.Encoder().to_json(msg)).encode("utf8")
                     )
                 except:
                     logging.error(
