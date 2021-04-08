@@ -139,7 +139,7 @@ class Session(object):
             self.socket.close()
 
     def send(self, msg):
-        self.writeString(json.dumps(algebraic_to_json.Encoder().to_json(msg)))
+        self.writeString(json.dumps(algebraic_to_json.Encoder().to_json(msg)).encode('utf8'))
 
     def processMsg(self, msg):
         if msg.matches.CurrentState:

@@ -290,6 +290,8 @@ class TestManager(object):
                 fields.append(2)
             elif "trunk" in branchname:
                 fields.append(3)
+            else:
+                fields.append(4)
 
             # look for a version number
             match = version_pattern.match(branchname)

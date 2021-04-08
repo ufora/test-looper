@@ -39,7 +39,7 @@ def readBytes(sock, byteCount):
             raise SocketException("Socket Disconnected")
         byteCount -= len(dat)
         tr.append(dat)
-    tr = "".join(tr)
+    tr = b"".join(tr)
     return tr
 
 
@@ -56,7 +56,7 @@ def readString(sock):
     if l:
         return readBytes(sock, l)
     else:
-        return ""
+        return b""
 
 
 def writeString(sock, s):
@@ -110,7 +110,7 @@ def _sendDataNonblock(sock, s):
                 # not tested, but this seems right
                 return s[sent:]
             raise e
-    return ""
+    return b""
 
 
 def readIntoBufferNonblock(sock, buff):

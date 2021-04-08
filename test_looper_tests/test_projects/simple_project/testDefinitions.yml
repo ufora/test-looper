@@ -12,6 +12,10 @@ environments:
     platform: linux
     image:
       dockerfile: "Dockerfile.txt"
+  linux_naked:
+    platform: linux
+    image:
+      base_ami: ami-dummy
 builds:
   build/linux:
     dependencies:
@@ -19,6 +23,11 @@ builds:
     command: |
       cp $TEST_INPUTS/src/build_file $TEST_BUILD_OUTPUT_DIR/build_file
 tests:
+  - naked/linux_naked:
+      command: |
+        ls src/script.py
+      dependencies:
+        src: HEAD
   - good/linux:
       command: "src/script.py 0"
       dependencies:

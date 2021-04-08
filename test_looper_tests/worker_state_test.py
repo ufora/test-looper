@@ -185,6 +185,50 @@ class WorkerStateTests(unittest.TestCase):
         )
         return worker.artifactStorage.get_failure_log(test_def.hash, testId)
 
+    def getTestResult(self, worker, repoName, commitHash, testName, testId, key):
+        """Return the archived result of a single test.
+
+        Args:
+            worker - the Worker object
+            repoName - string name of the repo
+            commitHash - the commit
+            testName - the name of the test
+            testId - testId, as specified in 'runWorkerTest'
+            key - the name of the file ('test_looper_log.txt', for instance)
+
+        Returns:
+            the bytes of the artifact.
+        """
+        testHash = self.get_fully_resolved_definition(
+            worker, repoName, commitHash, testName
+        ).hash
+
+        keys = worker.artifactStorage.testResultKeysFor(testHash, testId)
+
+        print("keys are ", keys)
+
+        return worker.artifactStorage.testContents(testHash, testId, key)
+
+    def test_worker_naked_image(self):
+        # check that a simple 'naked image' command works.
+        repo, repoName, commitHash, worker = self.get_worker("simple_project")
+
+        result = self.runWorkerTest(
+            worker,
+            "testId",
+            repoName,
+            commitHash,
+            "naked/linux_naked",
+            self.callbacksWithUploader(worker),
+            False,
+        )
+
+        log = self.getTestResult(
+            worker, repoName, commitHash, "naked/linux_naked", "testId", "test_looper_log.txt"
+        )
+
+        self.assertTrue(result, log)
+        
     def test_worker_basic(self):
         repo, repoName, commitHash, worker = self.get_worker("simple_project")
 

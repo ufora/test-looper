@@ -60,7 +60,7 @@ class Gitlab(SourceControl.SourceControl):
 
         def get_hooks(page):
             url = self.gitlab_api_url + (
-                "/projects/%s/hooks?" % (urllib.quote(reponame, safe=""))
+                "/projects/%s/hooks?" % (urllib.parse.quote(reponame, safe=""))
                 + urllib.parse.urlencode(
                     {
                         "private_token": self.private_token,
@@ -107,7 +107,7 @@ class Gitlab(SourceControl.SourceControl):
             else "",
         )
 
-        target = self.gitlab_api_url + "/projects/%s/hooks" % urllib.quote(
+        target = self.gitlab_api_url + "/projects/%s/hooks" % urllib.parse.quote(
             reponame, safe=""
         )
 

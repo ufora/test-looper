@@ -26,12 +26,14 @@ class SubprocessRunner(object):
         enablePartialLineOutput=False,
         closeFds=False,
         shell=False,
+        cwd=None
     ):
         self.shell = shell
         self.onStdOut = onStdOut
         self.onStdErr = onStdErr
         self.subprocessArguments = subprocessArguments
         self.env = env
+        self.cwd = cwd
 
         self.enablePartialLineOutput = enablePartialLineOutput
         self.pipeReadBufferSize = 1024
@@ -115,6 +117,7 @@ class SubprocessRunner(object):
                     env=self.env,
                     close_fds=self.closeFds,
                     shell=self.shell,
+                    cwd=self.cwd
                 )
                 subprocessEvent.set()
             except:

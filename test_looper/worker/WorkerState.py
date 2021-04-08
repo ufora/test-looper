@@ -767,7 +767,12 @@ class WorkerState(object):
             + " TestLooper> Process exited with code %s\n" % ret_code
         )
 
-        return ret_code.get("StatusCode") == 0
+        def getCode(r):
+            if isinstance(r, int):
+                return r
+            return r.get('StatusCode')
+
+        return getCode(ret_code) == 0
 
     def _run_test_command_linux(
         self,
@@ -782,6 +787,11 @@ class WorkerState(object):
         tail_proc = None
 
         try:
+            env = dict(env)
+            for key in PASSTHROUGH_KEYS:
+                if os.getenv(key):
+                    env[key] = os.getenv(key)
+
             log_filename = os.path.join(self.directories.command_dir, "log.txt")
 
             with open(log_filename, "w") as build_log:
@@ -810,47 +820,95 @@ class WorkerState(object):
                 "Running command: '%s'. Log: %s. Docker Image: %s",
                 command,
                 log_filename,
-                docker_image.image if docker_image is not None else "<none>",
+                docker_image.image if docker_image is not NAKED_MACHINE else "<none>",
             )
 
-            with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
-                print(command, file=f)
+            if docker_image is not NAKED_MACHINE:
+                with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
+                    print(command, file=f)
 
-            with open(
-                os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w"
-            ) as f:
-                print("hostname testlooperworker", file=f)
-                print(
-                    "bash /test_looper/command/cmd.sh >> /test_looper/command/log.txt 2>&1",
-                    file=f,
+                with open(
+                    os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w"
+                ) as f:
+                    print("hostname testlooperworker", file=f)
+                    print(
+                        "bash /test_looper/command/cmd.sh >> /test_looper/command/log.txt 2>&1",
+                        file=f,
+                    )
+
+                with DockerWatcher.DockerWatcher(
+                    self.name_prefix + str(uuid.uuid4()) + "_"
+                ) as watcher:
+                    container = watcher.run(
+                        docker_image,
+                        ["/bin/bash", "/test_looper/command/cmd_invoker.sh"],
+                        volumes=self.volumesToExpose(),
+                        privileged=True,
+                        shm_size="1G",
+                        environment=env,
+                        working_dir=working_directory,
+                    )
+
+                    t0 = time.time()
+                    ret_code = None
+                    extra_message = None
+                    while ret_code is None:
+                        try:
+                            ret_code = container.wait(timeout=HEARTBEAT_INTERVAL)
+                        except requests.exceptions.ReadTimeout:
+                            pass
+                        except requests.exceptions.ConnectionError:
+                            pass
+
+                        log_function("")
+                        if time.time() - t0 > timeout:
+                            ret_code = 1
+                            container.stop()
+                            extra_message = (
+                                "Test timed out after "
+                                + str(time.time() - t0)
+                                + " > "
+                                + str(timeout)
+                                + " seconds, so we're stopping the test."
+                            )
+
+                    logging.info("Command returned %s", ret_code)
+
+                    with open(log_filename, "a") as build_log:
+                        print(container.logs(), file=build_log)
+                        print(file=build_log)
+                        if extra_message:
+                            print(extra_message, file=build_log)
+                        print("Process exited with code ", ret_code, file=build_log)
+                        build_log.flush()
+            else:
+                with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
+                    print(command, file=f)
+
+                with open(
+                    os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w"
+                ) as f:
+                    print(
+                        f"bash {self.directories.command_dir}/cmd.sh >> {self.directories.command_dir}/log.txt 2>&1",
+                        file=f,
+                    )
+
+                runCommand = SubprocessRunner.SubprocessRunner(
+                    ["/bin/bash", os.path.join(self.directories.command_dir, "cmd_invoker.sh")],
+                    log_function,
+                    log_function,
+                    enablePartialLineOutput=True,
+                    cwd=working_directory,
+                    env=env
                 )
-
-            assert docker_image is not None
-
-            env = dict(env)
-            for key in PASSTHROUGH_KEYS:
-                if os.getenv(key):
-                    env[key] = os.getenv(key)
-
-            with DockerWatcher.DockerWatcher(
-                self.name_prefix + str(uuid.uuid4()) + "_"
-            ) as watcher:
-                container = watcher.run(
-                    docker_image,
-                    ["/bin/bash", "/test_looper/command/cmd_invoker.sh"],
-                    volumes=self.volumesToExpose(),
-                    privileged=True,
-                    shm_size="1G",
-                    environment=env,
-                    working_dir=working_directory,
-                )
+                runCommand.start()
 
                 t0 = time.time()
                 ret_code = None
                 extra_message = None
                 while ret_code is None:
                     try:
-                        ret_code = container.wait(timeout=HEARTBEAT_INTERVAL)
+                        ret_code = runCommand.wait(timeout=HEARTBEAT_INTERVAL)
                     except requests.exceptions.ReadTimeout:
                         pass
                     except requests.exceptions.ConnectionError:
@@ -859,7 +917,7 @@ class WorkerState(object):
                     log_function("")
                     if time.time() - t0 > timeout:
                         ret_code = 1
-                        container.stop()
+                        runCommand.stop()
                         extra_message = (
                             "Test timed out after "
                             + str(time.time() - t0)
@@ -868,17 +926,19 @@ class WorkerState(object):
                             + " seconds, so we're stopping the test."
                         )
 
-                logging.info("Command returned %s", ret_code)
-
                 with open(log_filename, "a") as build_log:
-                    print(container.logs(), file=build_log)
                     print(file=build_log)
                     if extra_message:
                         print(extra_message, file=build_log)
                     print("Process exited with code ", ret_code, file=build_log)
                     build_log.flush()
+                
+            def getCode(r):
+                if isinstance(r, int):
+                    return r
+                return r.get('StatusCode')
 
-            return ret_code.get("StatusCode") == 0
+            return getCode(ret_code) == 0
         finally:
             if tail_proc is not None:
                 tail_proc.stop()
@@ -958,7 +1018,11 @@ class WorkerState(object):
         command_override=None,
         historicalTestFailureRates=None,
     ):
-        """Run a test (given by name) on a given commit and return a TestResultOnMachine"""
+        """Run a test (given by name) on a given commit.
+
+        Returns:
+            (success, individualTestResults)
+        """
         self.cleanup()
 
         testName = testDefinition.name
