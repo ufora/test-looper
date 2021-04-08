@@ -116,7 +116,7 @@ The default configuration of TestLooper looks like this:
             [{"cores": 4, "ram_gb": 16}, "m5.xlarge"],
             [{"cores": 32, "ram_gb": 244}, "r3.8xlarge"]
             ],
-        "linux_ami": "ami-55ef662f",
+        "linux_ami": "ami-04c7777d0979422a2",
         "windows_ami": "ami-08910872",
         "host_ips": {
             "gitlab.COMPANYNAME.com": "...",
