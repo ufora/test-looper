@@ -332,33 +332,6 @@ class TestLooperHttpServer(object):
             )
         return is_authorized
 
-    @cherrypy.expose
-    def reloadSource(self, redirect="/"):
-        self._reloadSource()
-        raise cherrypy.HTTPRedirect(redirect)
-
-    def _reloadSource(self):
-        toReload = []
-        for name, module in sys.modules.items():
-            if module and module.__name__.startswith("test_looper.server.rendering."):
-                toReload.append(module)
-
-        def edgeFun(m):
-            return [x for x in toReload if x in m.__dict__.values()]
-
-        levels = GraphUtil.placeNodesInLevels(toReload, edgeFun)
-
-        reload(HtmlGeneration)
-
-        for level in reversed(levels):
-            for module in level:
-                print(module.__name__, [x.__name__ for x in edgeFun(module)])
-                reload(module)
-
-        reload(TestLooperHtmlRendering)
-
-        self.regular_renderer = TestLooperHtmlRendering.Renderer(self)
-
     def authorize(self, read_only):
         if not self.is_authenticated():
             # this redirects to the login page. Authorization will take place
@@ -661,12 +634,9 @@ class TestLooperHttpServer(object):
     @cherrypy.expose
     def default(self, *args, **kwargs):
         self.authenticate()
-        try:
-            res = self.renderer.default(*args, **kwargs)
-        except:
-            self._reloadSource()
-            raise
-
+        
+        res = self.renderer.default(*args, **kwargs)
+        
         if isinstance(res, HtmlGeneration.Redirect):
             raise cherrypy.HTTPRedirect(res.url)
         return res

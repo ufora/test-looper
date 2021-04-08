@@ -308,7 +308,10 @@ class TestManager(object):
             return tuple(fields)
 
         # pick the least feature-branchy name we can
-        best_branch = sorted(branches, key=lambda b: masteryness(b.branchname))[0]
+        try:
+            best_branch = sorted(branches, key=lambda b: masteryness(b.branchname))[0]
+        except:
+            raise Exception("Failed to sort " + str([masteryness(b.branchname) for b in branches]))
 
         if commit.repo not in self._repoCommitCalcCache:
             self._repoCommitCalcCache[commit.repo] = {}
