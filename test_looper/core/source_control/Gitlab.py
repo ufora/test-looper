@@ -153,15 +153,15 @@ class Gitlab(SourceControl.SourceControl):
         response = requests.get(url, headers=headers, verify=self.shouldVerify())
 
         try:
-            json = json.loads(response.content)
-            if "message" in json:
+            jsonContents = json.loads(response.content)
+            if "message" in jsonContents:
                 logging.error("Got an error response: %s", response.content)
             else:
-                for r in json:
+                for r in jsonContents:
                     try:
                         res.append(r["namespace"]["full_path"] + "/" + r["name"])
                     except:
-                        logging.error("failed with: %s", json)
+                        logging.error("failed with: %s", jsonContents)
                         logging.error(traceback.format_exc())
         except:
             logging.error(traceback.format_exc())

@@ -344,7 +344,7 @@ class TestLooperServer(SimpleServer.SimpleServer):
                             )
 
                         previousUploadTimestamps[toUpload] = time.time()
-                except Queue.Empty:
+                except queue.Empty:
                     pass
         except:
             logging.critical(

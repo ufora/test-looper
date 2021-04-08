@@ -173,7 +173,7 @@ class TestLooperClient(object):
                         waitTime - (time.time() - t0),
                     )
                 )
-            except Queue.Empty as e:
+            except queue.Empty as e:
                 pass
 
             if msg is not None:
@@ -258,7 +258,7 @@ class TestLooperClient(object):
                     self._curDeploymentId = None
                     self._curOutputs = None
                     self._curArtifacts = None
-        except Queue.Empty:
+        except queue.Empty:
             pass
 
     def heartbeat(self, msg=None):

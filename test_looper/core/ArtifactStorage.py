@@ -123,7 +123,7 @@ class ArtifactStorage(object):
                 counts -= 1
                 if counts % 10 == 0 and logger:
                     logger("%s artifacts remaining" % counts)
-        except Queue.Empty:
+        except queue.Empty:
             if logger:
                 logger(
                     "Timed out uploading individual artifacts. %s remaining" % counts
