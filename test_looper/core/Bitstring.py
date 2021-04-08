@@ -2,13 +2,13 @@ from test_looper.core.hash import sha_hash
 
 _index_to_char = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/"
 assert len(_index_to_char) == 64
-_char_to_index = {_index_to_char[i]: i for i in xrange(len(_index_to_char))}
+_char_to_index = {_index_to_char[i]: i for i in range(len(_index_to_char))}
 
 def _packBitstringToInt(bools):
     """Given an array of up to 6 bools, pack them into an 6-bit integer, first bool as least significant bit."""
     res = 0
     bit = 1
-    for i in xrange(len(bools)):
+    for i in range(len(bools)):
         if bools[i]:
             res += bit
         bit *= 2

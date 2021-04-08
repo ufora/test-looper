@@ -166,12 +166,12 @@ class SimpleServer(Stoppable.Stoppable):
                                 clientSocket.setblocking(1)
                         self._onConnect(clientSocket, address)
                     except socket.error as e:
-                        logging.error('socket error in listener loop!\n%s', traceback.format_exc(e))
+                        logging.error('socket error in listener loop!\n%s', traceback.format_exc())
             except Exception as e:
                 if self.shouldStop():
                     return
 
-                logging.warn("error in start loop\n" + traceback.format_exc(e))
+                logging.warn("error in start loop\n" + traceback.format_exc())
                 self.stop()
                 sys.exit(1)
 
@@ -197,7 +197,7 @@ class SimpleServer(Stoppable.Stoppable):
                             s.bind(prebind())
                             bound = True
                         except socket.error as e:
-                            print e
+                            print(e)
                             time.sleep(1)
                 else:
                     s.bind(prebind)

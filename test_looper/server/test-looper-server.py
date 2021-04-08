@@ -98,7 +98,7 @@ def exportToFile(testManager, exportDir):
 
     logging.info("Dumping yaml file to %s", exportPath)
     with open(exportPath, "w") as f:
-        print >> f, yaml.dump(res)
+        print(yaml.dump(res), file=f)
     logging.info("Done dumping yaml file to %s", exportPath)
 
 def main():
@@ -121,9 +121,9 @@ def main():
     src_ctrl = SourceControlFromConfig.getFromConfig(config.server.path_to_local_repos, config.source_control)
 
     if parsedArgs.repocheck:
-        print "repos: "
+        print("repos: ")
         for r in sorted(src_ctrl.listRepos()):
-            print "\t", r, src_ctrl.isWebhookInstalled(r, config.server_ports)
+            print("\t", r, src_ctrl.isWebhookInstalled(r, config.server_ports))
         sys.exit(0)
 
     artifact_storage = ArtifactStorage.storageFromConfig(config.artifacts)
@@ -158,24 +158,24 @@ def main():
 
         errors = exporter.importResults(res)
 
-        print "burning down background work"
+        print("burning down background work")
         while testManager.performBackgroundWorkSynchronously(time.time(), 100):
             pass
 
         if errors:
-            print "*****************"
-            print "import errors: "
+            print("*****************")
+            print("import errors: ")
             for e in errors:
-                print "\t", e
+                print("\t", e)
 
             sys.exit(1)
         else:
-            print "imported successfully"
+            print("imported successfully")
 
             sys.exit(0)
     
     if parsedArgs.flush_tasks:
-        print "Before booting, cleaning up old tasks..."
+        print("Before booting, cleaning up old tasks...")
         while testManager.performBackgroundWorkSynchronously(time.time(), 100):
             pass
 

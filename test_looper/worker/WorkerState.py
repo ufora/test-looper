@@ -5,7 +5,7 @@ import logging
 import os
 import shutil
 import signal
-import simplejson
+import json
 import sys
 import tarfile
 import threading
@@ -16,7 +16,7 @@ import subprocess
 import base64
 import fnmatch
 import tempfile
-import cStringIO as StringIO
+import io
 import uuid
 
 MAX_UNIQUE_TESTS = 100000
@@ -106,7 +106,7 @@ class WorkerState(object):
 
         self.name_prefix = name_prefix
 
-        assert isinstance(worker_directory, (str,unicode)), worker_directory
+        assert isinstance(worker_directory, str), worker_directory
         worker_directory = str(worker_directory)
 
         self.worker_directory = worker_directory
@@ -231,7 +231,7 @@ class WorkerState(object):
             }
 
     def _run_deployment(self, env, workerCallback, docker_image, extra_commands, working_directory, extraPorts=None):
-        build_log = StringIO.StringIO()
+        build_log = io.StringIO()
 
         self.dumpPreambleLog(build_log, env, docker_image, "", working_directory)
 
@@ -251,14 +251,14 @@ class WorkerState(object):
 
             command_path = os.path.join(self.directories.command_dir,"command.ps1")
             with open(command_path,"w") as cmd_file:
-                print >> cmd_file, "cd '" + working_directory + "'"
-                print >> cmd_file, "echo 'Welcome to TestLooper on Windows. Here is the current environment:'"
-                print >> cmd_file, "gci env:* | sort-object name"
-                print >> cmd_file, "echo '********************************'"
-                print >> cmd_file, "echo 'HERE ARE AVAILABLE SERVICES:'"
-                print >> cmd_file, "Get-Service | Format-Table -Property Name, Status, StartType, DisplayName"
-                print >> cmd_file, "echo '********************************'"
-                print >> cmd_file, extra_commands
+                print("cd '" + working_directory + "'", file=cmd_file)
+                print("echo 'Welcome to TestLooper on Windows. Here is the current environment:'", file=cmd_file)
+                print("gci env:* | sort-object name", file=cmd_file)
+                print("echo '********************************'", file=cmd_file)
+                print("echo 'HERE ARE AVAILABLE SERVICES:'", file=cmd_file)
+                print("Get-Service | Format-Table -Property Name, Status, StartType, DisplayName", file=cmd_file)
+                print("echo '********************************'", file=cmd_file)
+                print(extra_commands, file=cmd_file)
 
             if workerCallback.localTerminal:
                 try:
@@ -270,14 +270,14 @@ class WorkerState(object):
                         )
                     running_subprocess.wait()
                 except:
-                    print "EXCEPTION"
-                print "Exiting subshell."
+                    print("EXCEPTION")
+                print("Exiting subshell.")
             else:
                 invoker_path = os.path.join(self.directories.command_dir,"command_invoker.ps1")
 
                 with open(invoker_path,"w") as cmd_file:
-                    print >> cmd_file, "powershell.exe " + command_path
-                    print >> cmd_file, "powershell.exe"
+                    print("powershell.exe " + command_path, file=cmd_file)
+                    print("powershell.exe", file=cmd_file)
 
                 running_subprocess = subprocess.Popen(
                     ["powershell.exe", "-ExecutionPolicy", "Bypass", invoker_path],
@@ -348,13 +348,13 @@ class WorkerState(object):
                     readthreadStop.set()
         else:
             with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
-                print >> f, extra_commands
+                print(extra_commands, file=f)
 
             with open(os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w") as f:
-                print >> f, "hostname testlooperworker"
-                print >> f, "bash /test_looper/command/cmd.sh"
-                print >> f, "export PS1='${debian_chroot:+($debian_chroot)}\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ '"
-                print >> f, "bash --noprofile --norc"
+                print("hostname testlooperworker", file=f)
+                print("bash /test_looper/command/cmd.sh", file=f)
+                print("export PS1='${debian_chroot:+($debian_chroot)}\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ '", file=f)
+                print("bash --noprofile --norc", file=f)
 
             assert docker_image is not None
 
@@ -466,27 +466,27 @@ class WorkerState(object):
                         readthread.join()
                         
     def dumpPreambleLog(self, build_log, env, docker_image, command, working_directory):
-        print >> build_log, "********************************************"
+        print("********************************************", file=build_log)
 
-        print >> build_log, "TestLooper Environment Variables:"
+        print("TestLooper Environment Variables:", file=build_log)
         for e in sorted(env):
-            print >> build_log, "\t%s=%s" % (e, env[e])
-        print >> build_log
+            print("\t%s=%s" % (e, env[e]), file=build_log)
+        print(file=build_log)
 
         if docker_image is not NAKED_MACHINE:
-            print >> build_log, "DockerImage is ", docker_image.image
+            print("DockerImage is ", docker_image.image, file=build_log)
         build_log.flush()
 
-        print >> build_log, "Working Directory: " + working_directory
+        print("Working Directory: " + working_directory, file=build_log)
         build_log.flush()
 
         if command:
-            print >> build_log, "TestLooper Running command:"
-            print >> build_log, command
+            print("TestLooper Running command:", file=build_log)
+            print(command, file=build_log)
             build_log.flush()
 
-        print >> build_log, "********************************************"
-        print >> build_log
+        print("********************************************", file=build_log)
+        print(file=build_log)
         build_log.flush()
 
 
@@ -506,7 +506,7 @@ class WorkerState(object):
 
         env_to_pass = dict(os.environ)
 
-        for k,v in sorted(env.iteritems()):
+        for k,v in sorted(env.items()):
             env_to_pass[k.upper()] = v
 
         for key in PASSTHROUGH_KEYS:
@@ -518,8 +518,8 @@ class WorkerState(object):
         #generate a vars file to override the current environment if we want to 'pop into' this 
         #session later.
         with open(os.path.join(self.directories.command_dir,"vars.bat"), "w") as f:
-            print >> f, "@ECHO OFF"
-            print >> f, "REM AUTOGENERATED BATCH VARIABLES"
+            print("@ECHO OFF", file=f)
+            print("REM AUTOGENERATED BATCH VARIABLES", file=f)
             
             def escape(v):
                 v = v.replace("%", "%%")
@@ -527,9 +527,9 @@ class WorkerState(object):
                     v = v.replace(char, "^" + char)
                 return v
 
-            for k,v in env.iteritems():
-                print >> f, "SET %s=%s" % (k, escape(v))
-            print >> f, "@ECHO ON"
+            for k,v in env.items():
+                print("SET %s=%s" % (k, escape(v)), file=f)
+            print("@ECHO ON", file=f)
 
         #generate a vars file to override the current environment if we want to 'pop into' this 
         #session later.
@@ -539,23 +539,23 @@ class WorkerState(object):
                     v = v.replace(char, "`" + char)
                 return v
 
-            for k,v in env.iteritems():
-                print >> f, '$env:%s="%s"' % (k, escape(v))
+            for k,v in env.items():
+                print('$env:%s="%s"' % (k, escape(v)), file=f)
 
 
         command_path = os.path.join(self.directories.command_dir,"command.ps1")
         with open(command_path,"w") as cmd_file:
-            print >> cmd_file, "cd '" + working_directory + "'"
+            print("cd '" + working_directory + "'", file=cmd_file)
             if dumpPreambleLog:
-                print >> cmd_file, "echo 'Welcome to TestLooper on Windows. Here is the current environment:'"
-                print >> cmd_file, "gci env:* | sort-object name"
-                print >> cmd_file, "echo '********************************'"
-                print >> cmd_file, "echo 'HERE ARE AVAILABLE SERVICES:'"
-                print >> cmd_file, "Get-Service | Format-Table -Property Name, Status, StartType, DisplayName"
-                print >> cmd_file, "echo '********************************'"
+                print("echo 'Welcome to TestLooper on Windows. Here is the current environment:'", file=cmd_file)
+                print("gci env:* | sort-object name", file=cmd_file)
+                print("echo '********************************'", file=cmd_file)
+                print("echo 'HERE ARE AVAILABLE SERVICES:'", file=cmd_file)
+                print("Get-Service | Format-Table -Property Name, Status, StartType, DisplayName", file=cmd_file)
+                print("echo '********************************'", file=cmd_file)
                 
-            print >> cmd_file, command
-            print >> cmd_file, "exit $lastexitcode"
+            print(command, file=cmd_file)
+            print("exit $lastexitcode", file=cmd_file)
 
         running_subprocess = subprocess.Popen(
             ["powershell.exe", "-ExecutionPolicy", "Bypass", command_path],
@@ -616,7 +616,7 @@ class WorkerState(object):
         
         log_function("\n\n" + time.asctime() + " TestLooper> Process exited with code %s\n" % ret_code)
 
-        return ret_code == 0
+        return ret_code.get('StatusCode') == 0
 
     def _run_test_command_linux(self, command, timeout, env, log_function, docker_image, working_directory, dumpPreambleLog):
         tail_proc = None
@@ -631,24 +631,24 @@ class WorkerState(object):
                 if dumpPreambleLog:
                     self.dumpPreambleLog(build_log, env, docker_image, command, working_directory)
                 else:
-                    print >> build_log, "TestLooper Running command"
-                    print >> build_log, command
-                    print >> build_log, "********************************************"
-                    print >> build_log
+                    print("TestLooper Running command", file=build_log)
+                    print(command, file=build_log)
+                    print("********************************************", file=build_log)
+                    print(file=build_log)
                     build_log.flush()
 
             logging.info("Running command: '%s'. Log: %s. Docker Image: %s", 
                 command, 
                 log_filename,
                 docker_image.image if docker_image is not None else "<none>"
-                )
+            )
 
             with open(os.path.join(self.directories.command_dir, "cmd.sh"), "w") as f:
-                print >> f, command
+                print(command, file=f)
 
             with open(os.path.join(self.directories.command_dir, "cmd_invoker.sh"), "w") as f:
-                print >> f, "hostname testlooperworker"
-                print >> f, "bash /test_looper/command/cmd.sh >> /test_looper/command/log.txt 2>&1"
+                print("hostname testlooperworker", file=f)
+                print("bash /test_looper/command/cmd.sh >> /test_looper/command/log.txt 2>&1", file=f)
 
             assert docker_image is not None
 
@@ -666,7 +666,7 @@ class WorkerState(object):
                     shm_size="1G",
                     environment=env,
                     working_dir=working_directory
-                    )
+                )
 
                 t0 = time.time()
                 ret_code = None
@@ -685,16 +685,17 @@ class WorkerState(object):
                         container.stop()
                         extra_message = "Test timed out after " + str(time.time() - t0) + " > " + str(timeout) + " seconds, so we're stopping the test."
 
+                logging.info("Command returned %s", ret_code)
 
                 with open(log_filename, 'a') as build_log:
-                    print >> build_log, container.logs()
-                    print >> build_log
+                    print(container.logs(), file=build_log)
+                    print(file=build_log)
                     if extra_message:
-                        print >> build_log, extra_message
-                    print >> build_log, "Process exited with code ", ret_code
+                        print(extra_message, file=build_log)
+                    print("Process exited with code ", ret_code, file=build_log)
                     build_log.flush()
                     
-            return ret_code == 0
+            return ret_code.get('StatusCode') == 0
         finally:
             if tail_proc is not None:
                 tail_proc.stop()
@@ -788,9 +789,9 @@ class WorkerState(object):
                 log_function("\nInterrupted by Ctrl-C\n")
                 return False, {}
             except:
-                print "*******************"
-                print traceback.format_exc()
-                print "*******************"
+                print("*******************")
+                print(traceback.format_exc())
+                print("*******************")
                 error_message = "Test failed because of exception: %s" % traceback.format_exc()
                 logging.error(error_message)
                 log_function(error_message)
@@ -935,7 +936,7 @@ class WorkerState(object):
 
         with self.callHeartbeatInBackground(
                 heartbeatWithLock, 
-                "Pulling dependencies:\n%s" % "\n".join(["\t%s -> %s" % (k,v) for k,v in sorted(all_dependencies.iteritems())])
+                "Pulling dependencies:\n%s" % "\n".join(["\t%s -> %s" % (k,v) for k,v in sorted(all_dependencies.items())])
                 ):
 
             results = {}
@@ -951,7 +952,7 @@ class WorkerState(object):
 
 
             def callFun(expose_as, dep):
-                for tries in xrange(3):
+                for tries in range(3):
                     try:
                         results[expose_as] = self.grabDependency(heartbeatWithLock, expose_as, dep, worker_callback)
                         heartbeatWithLock(time.asctime() + " TestLooper> Done pulling %s.\n" % dep)
@@ -966,7 +967,7 @@ class WorkerState(object):
 
             waiting_threads.append(threading.Thread(target=pullImage))
 
-            for expose_as_and_dep in all_dependencies.iteritems():
+            for expose_as_and_dep in all_dependencies.items():
                 waiting_threads.append(threading.Thread(target=callFun, args=expose_as_and_dep))
 
             running_threads = []
@@ -1066,7 +1067,7 @@ class WorkerState(object):
         historicalTestFailureRates = historicalTestFailureRates or {}
 
         historicallyCompletelyBroken = set()
-        for testName, (failures, runs) in historicalTestFailureRates.iteritems():
+        for testName, (failures, runs) in historicalTestFailureRates.items():
             if runs >= 3 and failures == runs:
                 historicallyCompletelyBroken.add(testName)
 
@@ -1175,7 +1176,7 @@ class WorkerState(object):
 
                 with open(os.path.join(externalCmd,"tests_to_run.txt"), "w") as testlist_file:
                     for t in testsToRun:
-                        print >> testlist_file, t
+                        print(t, file=testlist_file)
 
                 passT0 = time.time()
                 
@@ -1249,16 +1250,20 @@ class WorkerState(object):
 
             if os.path.exists(testSummaryJsonPath):
                 try:
-                    contents = open(testSummaryJsonPath,"r").read()
+                    contents = open(testSummaryJsonPath,"r").read().strip()
 
                     #remove the file, so that future runs won't accidentally replace this!
                     os.remove(testSummaryJsonPath)
 
-                    individualTestSuccesses = json.loads(contents)
+                    if contents:
+                        individualTestSuccesses = json.loads(contents)
+                    else:
+                        log_function("Warning: testSummary.json was empty")
+                        individualTestSuccesses = {}
 
                     if isinstance(individualTestSuccesses, dict):
                         res = []
-                        for testname, data in sorted(individualTestSuccesses.iteritems()):
+                        for testname, data in sorted(individualTestSuccesses.items()):
                             if not isinstance(data, dict):
                                 data = {'success': data}
                             else:
@@ -1291,7 +1296,7 @@ class WorkerState(object):
                             started = None
 
                             for k in entry:
-                                assert isinstance(k, (str, unicode)) and k in ['testName', 'success', 'logs', 'elapsed', 'startTimestamp']
+                                assert isinstance(k, str) and k in ['testName', 'success', 'logs', 'elapsed', 'startTimestamp']
                             
                             if 'success' in entry:
                                 success = bool(entry['success'])
@@ -1302,7 +1307,7 @@ class WorkerState(object):
                             if 'logs' in entry:
                                 logs = entry['logs']
                                 for l in logs:
-                                    assert isinstance(l, (str, unicode))
+                                    assert isinstance(l, str)
 
                                 for path in entry['logs']:
                                     pathVisibleToWorker = self.mapInternalToExternalPath(path, image is not NAKED_MACHINE)

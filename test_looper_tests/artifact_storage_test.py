@@ -6,12 +6,12 @@ import os
 import shutil
 import test_looper.core.Config as Config
 import test_looper.core.ArtifactStorage as ArtifactStorage
-import StringIO
+import io
 import tarfile
 import requests
 
 def put_into(dir, things):
-    for itemname, item in things.iteritems():
+    for itemname, item in things.items():
         if isinstance(item, dict):
             try:
                 os.makedirs(os.path.join(dir, itemname))
@@ -40,14 +40,14 @@ class Mixin:
             return contents
 
     def test_upload_build(self):
-        put_into(self.scratchdir, {"worker": {"out.tar.gz": "some_tarball"}})
+        put_into(self.scratchdir, {"worker": {"out.tar.gz": b"some_tarball"}})
 
         self.assertFalse(self.artifactStorage.build_exists("testhash", "build_key"))
         self.artifactStorage.upload_build("testhash", "build_key", os.path.join(self.scratchdir, "worker", "out.tar.gz"))
         self.assertTrue(self.artifactStorage.build_exists("testhash", "build_key"))
         self.artifactStorage.download_build("testhash", "build_key", os.path.join(self.scratchdir, "worker", "out2.tar.gz"))
 
-        self.assertEqual(open(os.path.join(self.scratchdir, "worker", "out2.tar.gz"), "rb").read(), "some_tarball")
+        self.assertEqual(open(os.path.join(self.scratchdir, "worker", "out2.tar.gz"), "rb").read(), b"some_tarball")
 
 
 class LocalArtifactStorageTest(unittest.TestCase, Mixin):

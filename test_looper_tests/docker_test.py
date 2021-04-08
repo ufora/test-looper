@@ -32,7 +32,7 @@ class DockerTests(unittest.TestCase):
                 ["python", 
                     "-c", 
                     "import docker; i=docker.from_env().images.get('ubuntu:16.04');"
-                    "print docker.from_env().containers.run(i,['sleep','60'], detach=True)"]
+                    "print(docker.from_env().containers.run(i,['sleep','60'], detach=True))"]
                 )
             
             container.wait()
@@ -61,10 +61,10 @@ class DockerTests(unittest.TestCase):
                 ["python", 
                     "-c", 
                     "import docker; i=docker.from_env().images.get('ubuntu:16.04');"
-                    "print 'booting ', docker.from_env().containers.run(i,['sleep','60'], detach=True).name"]
+                    "print('booting ', docker.from_env().containers.run(i,['sleep','60'], detach=True).name)"]
                 )
 
-            print "booted container ", container.name
+            print("booted container ", container.name)
             
             container.wait()
 
@@ -110,11 +110,13 @@ class DockerTests(unittest.TestCase):
                     sender2.wait()
                     ]
 
+                expected = [{'Error': None, 'StatusCode': 0}] * 4
+
                 self.assertEqual(
                     results, 
-                    [0,0,0,0], 
-                    str(results) + " != [0,0,0,0]\n\n" + 
-                    "\n".join(["*******\n" + x for x in [l.logs(stdout=True,stderr=True) for l in [listener1, listener2, sender1, sender2]]])
+                    [{'Error': None, 'StatusCode': 0}] * 4, 
+                    str(results) + " != " + str(expected) + "\n\n" + 
+                    "\n".join(["*******\n" + x for x in [l.logs(stdout=True,stderr=True).decode("ASCII") for l in [listener1, listener2, sender1, sender2]]])
                     )
 
         containers2 = docker_client.containers.list(all=True)
@@ -163,11 +165,13 @@ class DockerTests(unittest.TestCase):
                     sender2.wait()
                     ]
 
+                expected = [{'Error': None, 'StatusCode': 0}] * 4
+
                 self.assertEqual(
                     results, 
-                    [0,0,0,0], 
-                    str(results) + " != [0,0,0,0]\n\n" + 
-                    "\n".join(["*******\n" + x for x in [l.logs(stdout=True,stderr=True) for l in [
+                    expected, 
+                    str(results) + " != " + str(expected) + "\n\n" + 
+                    "\n".join(["*******\n" + x for x in [l.logs(stdout=True,stderr=True).decode('ASCII') for l in [
                         listener1, listener2, 
                         sender1, sender2
                         ]]])

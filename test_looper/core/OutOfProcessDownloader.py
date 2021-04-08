@@ -1,22 +1,22 @@
 import sys
-import cPickle as pickle
+import pickle
 
 if __name__ == '__main__':
-    sys.path = pickle.loads(sys.argv[3])
+    sys.path = pickle.loads(bytes.fromhex(sys.argv[3]))
 
 import logging
 import traceback
 import time
 import threading
 import os
-import Queue as Queue
+import queue
 
 import test_looper.core.ManagedThread as ManagedThread
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import test_looper.core.socket_util as socket_util
 
-BYTE_DATA = "D"
-BYTE_EXCEPTION = "E"
+BYTE_DATA = b"D"
+BYTE_EXCEPTION = b"E"
 FORK_START_TIMEOUT = 5.0
 
 class OutOfProcessDownloader:
@@ -32,7 +32,7 @@ class OutOfProcessDownloader:
         self.childSubprocess = None
         self.backgroundThread = None
         self.lock = threading.Lock()
-        self.writeQueue = Queue.Queue()
+        self.writeQueue = queue.Queue()
         self.actuallyRunOutOfProcess = actuallyRunOutOfProcess
         self.verbose = verbose
 
@@ -82,12 +82,15 @@ class OutOfProcessDownloader:
                 if self.verbose:
                     logging.info("OutOfProcessDownloader Err> %s", msg)
 
+            os.set_inheritable(self.childWriteFD, True)
+            os.set_inheritable(self.childReadFD, True)
+
             self.childSubprocess = SubprocessRunner.SubprocessRunner(
                 [sys.executable, 
                     __file__, 
                     str(self.childWriteFD), 
                     str(self.childReadFD),
-                    pickle.dumps(sys.path)
+                    pickle.dumps(sys.path).hex()
                     ],
                 onStdout,
                 onStderr
@@ -150,7 +153,7 @@ class OutOfProcessDownloader:
                                 traceback.format_exc()
                                 )
 
-                        outgoingMessage = str(e)
+                        outgoingMessage = str(e).encode('utf8')
                         isException = True
                 else:
                     t0 = time.time()
@@ -179,7 +182,7 @@ class OutOfProcessDownloader:
                                 traceback.format_exc()
                                 )
 
-                        outgoingMessage = str(e)
+                        outgoingMessage = str(e).encode('utf8')
                         isException = True
 
 
@@ -192,7 +195,7 @@ class OutOfProcessDownloader:
         except KeyboardInterrupt as e:
             self.executeChild__()
         except:
-            logging.error("Main OutOfProcessDownloader loop failed: %s", traceback.format_exc())
+            logging.error("Main OutOfProcessDownloader loop failed: %s\n%s", traceback.format_exc())
         finally:
             #bail
             if self.actuallyRunOutOfProcess:
@@ -213,14 +216,14 @@ class OutOfProcessDownloader:
 
             prefix = os.read(self.parentReadFD, 5)
 
-            assert prefix[0] in (BYTE_EXCEPTION, BYTE_DATA), prefix
-            isException = prefix[0] == BYTE_EXCEPTION
+            assert prefix[:1] in (BYTE_EXCEPTION, BYTE_DATA), prefix
+            isException = prefix[:1] == BYTE_EXCEPTION
 
             msgSize = socket_util.stringToLong(prefix[1:5])
 
             if isException:
                 pickledException = os.read(self.parentReadFD, msgSize)
-                raise Exception(pickledException)
+                raise Exception(pickledException.decode('utf8'))
             else:
                 callbackTakingFDAndSize(self.parentReadFD, msgSize)
 
@@ -228,7 +231,7 @@ class OutOfProcessDownloader:
 class OutOfProcessDownloaderPool:
     """Models a pool of out-of-process-downloaders"""
     def __init__(self, maxProcesses, actuallyRunOutOfProcess=True):
-        self.downloadersQueue = Queue.Queue()
+        self.downloadersQueue = queue.Queue()
 
         self.allDownloaders = []
 

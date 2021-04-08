@@ -157,13 +157,13 @@ class HtmlElement(object):
         return [self]
 
     def __add__(self, other):
-        if isinstance(other, basestring):
+        if isinstance(other, str):
             return self + HtmlString(other)
 
         return HtmlElements(self.elementList() + other.elementList())
 
     def __radd__(self, other):
-        if isinstance(other, basestring):
+        if isinstance(other, str):
             return HtmlString(other) + self
 
         return HtmlElements(other.elementList() + self.elementList())
@@ -185,13 +185,13 @@ class TextTag(HtmlElement):
 
     def render(self):
         return (("<%s " % self.tag) +
-                " ".join(['%s="%s"' % (k, v) for k, v in self.mods.iteritems()]) + ">" +
+                " ".join(['%s="%s"' % (k, v) for k, v in self.mods.items()]) + ">" +
                 self.contained.render() + "</%s>" % self.tag)
 
 class ParagraphTag(TextTag):
     def __init__(self, contained, mods):
         if isinstance(contained, TextTag):
-            for k, v in contained.mods.iteritems():
+            for k, v in contained.mods.items():
                 mod = mods.get(k)
                 mods[k] = "%s %s" % (mod, v) if k else v
             contained = contained.contained
@@ -216,7 +216,7 @@ class SpanTag(HtmlElement):
         return len(self.contained)
 
     def render(self):
-        return ("<span " + " ".join(['%s="%s"' % (k,v) for k,v in self.mods.iteritems()]) + ">" +
+        return ("<span " + " ".join(['%s="%s"' % (k,v) for k,v in self.mods.items()]) + ">" +
                 self.contained.render() + "</span>")
 
 def makeHtmlElement(elt):
@@ -227,7 +227,7 @@ def makeHtmlElement(elt):
 class HtmlString(HtmlElement):
     def __init__(self, text):
         try:
-            self.text = text.encode('ascii', 'xmlcharrefreplace')
+            self.text = text.encode('ascii', 'xmlcharrefreplace').decode("ascii")
         except UnicodeDecodeError:
             self.text = "_bad unicode_"
 
@@ -248,7 +248,13 @@ class HtmlElements(HtmlElement):
         return self.elts
 
     def render(self):
-        return "".join([x.render() for x in self.elts])
+        res = []
+        for e in self.elts:
+            r = e.render()
+            assert isinstance(r, str), type(e)
+            res.append(r)
+
+        return "".join(res)
 
     def __len__(self):
         if self.lengthStash is None:
@@ -325,7 +331,7 @@ def elementTextLength(e):
 def transposeGrid(grid):
     colcount = max([len(x) for x in grid])
     rowcount = len(grid)
-    return [[grid[y][x] if x < len(grid[y]) else "" for y in xrange(rowcount)] for x in xrange(colcount)]
+    return [[grid[y][x] if x < len(grid[y]) else "" for y in range(rowcount)] for x in range(colcount)]
 
 def grid(rows, header_rows=1, rowHeightOverride=None, fitWidth=True, transpose=False, dataTables=False):
     """Given a list-of-lists (e.g. row of column values), format as a grid.
@@ -472,7 +478,7 @@ def tabs(name, tabSeq):
     pils = []
     bodies = []
 
-    for ix in xrange(len(tabSeq)):
+    for ix in range(len(tabSeq)):
         header, contents, selector = tabSeq[ix]
 
         active = "active" if ix == 0 else ""

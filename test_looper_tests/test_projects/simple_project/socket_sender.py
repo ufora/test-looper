@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 """
 A simple script to send a message on a port
@@ -15,7 +15,7 @@ import traceback
 
 t0 = time.time()
 
-print "Sending %s to %s:%s" % (sys.argv[3], sys.argv[1], sys.argv[2])
+print("Sending %s to %s:%s" % (sys.argv[3], sys.argv[1], sys.argv[2]))
 
 while True:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)

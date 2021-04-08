@@ -70,7 +70,7 @@ class IndividualTestGridRenderer:
                     testHasLogs = run.testStepHasLogs
                     testSuiteName = run.test.testDefinitionSummary.name
 
-                    for i in xrange(len(run.testStepNameIndex)):
+                    for i in range(len(run.testStepNameIndex)):
                         cur_runs, cur_successes, testIfHasLogs = res.get(testNames[testNameIndices[i]], (0,0,None))
 
                         cur_runs += 1

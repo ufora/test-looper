@@ -11,9 +11,8 @@ import tempfile
 import threading
 import markdown
 import urllib
-import urlparse
 import pytz
-import simplejson
+import json
 import struct
 import os
 import test_looper.core.GraphUtil as GraphUtil
@@ -144,7 +143,7 @@ def MakeWebsocketHandler(httpServer):
             def initialize(self):
                 try:
                     try:
-                        query = urlparse.parse_qs(urlparse.urlparse(self.environ["REQUEST_URI"]).query)
+                        query = urllib.parse.parse_qs(urllib.parse.urlparse(self.environ["REQUEST_URI"]).query)
                     except:
                         self.send("Invalid query string.", False)
                         return
@@ -260,7 +259,7 @@ class TestLooperHttpServer(object):
             )
         return cherrypy.url(
             qs="&".join("%s=%s" % (k, v)
-                        for k, v in query_string.iteritems()
+                        for k, v in query_string.items()
                         if k not in remove_query_params)
             ).replace('http://', 'https://')
 
@@ -300,7 +299,7 @@ class TestLooperHttpServer(object):
 
     def _reloadSource(self):
         toReload = []
-        for name, module in sys.modules.iteritems():
+        for name, module in sys.modules.items():
             if module and module.__name__.startswith("test_looper.server.rendering."):
                 toReload.append(module)
 
@@ -313,7 +312,7 @@ class TestLooperHttpServer(object):
 
         for level in reversed(levels):
             for module in level:
-                print module.__name__, [x.__name__ for x in edgeFun(module)]
+                print(module.__name__, [x.__name__ for x in edgeFun(module)])
                 reload(module)
 
         reload(TestLooperHtmlRendering)
@@ -453,9 +452,9 @@ class TestLooperHttpServer(object):
             raise cherrypy.HTTPError(400, "Missing Content-Length header")
 
         if cherrypy.request.headers['Content-Type'] == "application/x-www-form-urlencoded":
-            payload = simplejson.loads(cherrypy.request.body_params['payload'])
+            payload = json.loads(cherrypy.request.body_params['payload'])
         else:
-            payload = simplejson.loads(cherrypy.request.body.read(int(cherrypy.request.headers['Content-Length'])))
+            payload = json.loads(cherrypy.request.body.read(int(cherrypy.request.headers['Content-Length'])))
 
         event = self.src_ctrl.verify_webhook_request(cherrypy.request.headers, payload)
 
@@ -473,11 +472,11 @@ class TestLooperHttpServer(object):
 
     @cherrypy.expose
     def terminalForTest(self, testId):
-        return self.websocketText(urllib.urlencode({"testId":testId}))
+        return self.websocketText(urllib.parse.urlencode({"testId":testId}))
 
     @cherrypy.expose
     def terminalForDeployment(self, deploymentId):
-        return self.websocketText(urllib.urlencode({"deploymentId":deploymentId}))
+        return self.websocketText(urllib.parse.urlencode({"deploymentId":deploymentId}))
 
     @cherrypy.expose
     def machineHeartbeatMessage(self, machineId, heartbeatmsg):

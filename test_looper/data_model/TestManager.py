@@ -3,7 +3,7 @@ import logging
 import random
 import time
 import traceback
-import simplejson
+import json
 import threading
 import fnmatch
 import textwrap
@@ -224,7 +224,7 @@ class TestManager(object):
         if not commit.data:
             return []
 
-        return commit.data.tests.values()
+        return list(commit.data.tests.values())
 
     def allTestsDependedOnByTest(self, test):
         res = []
@@ -650,7 +650,7 @@ class TestManager(object):
                 testSucceeded=testRun.testStepSucceeded[i],
                 hasLogs=testRun.testStepHasLogs[i],
                 testPassIx=timesSeen(testRun.testStepNameIndex[i])
-                ) for i in xrange(len(testRun.testStepNameIndex))
+                ) for i in range(len(testRun.testStepNameIndex))
                 ]
 
     def _importTestRun(self, test, identity, startedTimestamp, lastHeartbeat, endTimestamp, success,
@@ -851,7 +851,7 @@ class TestManager(object):
 
         avgFailureRate = 0.0
         totalTestCount = 0
-        for ix in xrange(len(runs)):
+        for ix in range(len(runs)):
             if runs[ix] > 0:
                 avgFailureRate += float(failures[ix]) / float(runs[ix])
                 totalTestCount += 1
@@ -1292,7 +1292,7 @@ class TestManager(object):
                 sum([r.commits for r in  self.database.Repo.lookupAll(isActive=True)])
                 )
 
-            for i in xrange(count):
+            for i in range(count):
                 task = self.database.DataTask.lookupAny(status=running)
                 if task is None:
                     task = self.database.DataTask.lookupAny(status=pendingVeryHigh)
@@ -1547,7 +1547,7 @@ class TestManager(object):
         if not source_branch.head.data.repos[template.def_to_replace].matches.Pin:
             return "Targeted reporef is not updatable."
 
-        newRepoDefs = dict({k:v for k,v in source_branch.head.data.repos.iteritems() if v.matches.Pin})
+        newRepoDefs = dict({k:v for k,v in source_branch.head.data.repos.items() if v.matches.Pin})
 
         if template.disableOtherAutos:
             for defname in list(newRepoDefs):
@@ -1677,7 +1677,7 @@ class TestManager(object):
                 )
 
 
-        for branchname, branchHash in branchnamesAndHashes.iteritems():
+        for branchname, branchHash in branchnamesAndHashes.items():
             try:
                 branch = self.database.Branch.lookupOne(reponame_and_branchname=(db_repo.name, branchname))
                 if not branch.head or branch.head.hash != branchHash:
@@ -1942,7 +1942,7 @@ class TestManager(object):
 
             logging.warn("Got an error parsing tests for %s/%s:\n%s", commit.repo.name, commit.hash, traceback.format_exc())
 
-            commit.data.testDefinitionsError=traceback.format_exc(e)
+            commit.data.testDefinitionsError = traceback.format_exc()
 
             commit.data.testsParsed = True
 
@@ -2110,7 +2110,7 @@ class TestManager(object):
             p.delete()
 
         if branch.head and branch.head.data:
-            for repo_def, target in branch.head.data.repos.iteritems():
+            for repo_def, target in branch.head.data.repos.items():
                 reponame = target.reponame()
 
                 if target.matches.Pin:
@@ -2483,7 +2483,7 @@ class TestManager(object):
 
                 desired[cat] += 1
 
-        for cat, desiredCount in desired.iteritems():
+        for cat, desiredCount in desired.items():
             if cat not in booted:
                 booted[cat] = 0
 
@@ -2752,7 +2752,7 @@ class TestManager(object):
         all_dependencies.update(testDefinition.dependencies)
 
         #now first check whether this test has any unresolved dependencies
-        for depname, dep in all_dependencies.iteritems():
+        for depname, dep in all_dependencies.items():
             if dep.matches.ExternalBuild:
                 assert False
             elif dep.matches.InternalBuild:

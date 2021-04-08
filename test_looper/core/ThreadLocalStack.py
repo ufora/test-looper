@@ -17,7 +17,7 @@ class ThreadLocalStack(object):
     @staticmethod
     def copyContents():
         return dict((copy.copy(key), copy.copy(value)) for key, value in
-                ThreadLocalStack.threadLocalStorage.__dict__.iteritems())
+                ThreadLocalStack.threadLocalStorage.__dict__.items())
 
     @staticmethod
     def setContents(contentsDict):

@@ -214,7 +214,7 @@ TestDefinition.Deployment = {
 def merge_dicts(d1, d2):
     "Return the union of d1 and d2, with keys in d2 taking priority over d1 in case of conflict."
     res = dict(d1)
-    for k,v in d2.iteritems():
+    for k,v in d2.items():
         res[k] = v
     return res
 
@@ -398,7 +398,7 @@ def apply_substitutions_to_dependency(dep, vardefs):
 def apply_substitutions_to_dependencies(deps, vardefs):
     return {VariableSubstitution.substitute_variables(k, vardefs):
                         apply_substitutions_to_dependency(v, vardefs)
-                    for k,v in deps.iteritems()}
+                    for k,v in deps.items()}
 
 def apply_environment_substitutions(env):
     """Apply replacement logic to variable definitions in an environment.

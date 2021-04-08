@@ -10,7 +10,7 @@ import test_looper.core.socket_util as socket_util
 import test_looper.server.TestLooperServer as TestLooperServer
 import test_looper.core.algebraic_to_json as algebraic_to_json
 import base64
-import Queue
+import queue
 
 class ProtocolMismatchException(Exception):
     pass
@@ -26,8 +26,8 @@ class TestLooperClient(object):
         self._shouldStop = False
         self._socketLock = threading.Lock()
         self._socket = None
-        self._clientToServerMessageQueue = Queue.Queue()
-        self._serverToClientMessageQueue = Queue.Queue()
+        self._clientToServerMessageQueue = queue.Queue()
+        self._serverToClientMessageQueue = queue.Queue()
         self._readThread = threading.Thread(target=self._readLoop)
         self._writeThread = threading.Thread(target=self._writeLoop)
         self._curTestId = None

@@ -15,7 +15,7 @@ def getTraces(limit = None):
 
     threadDict = {}
 
-    for id, frame in sys._current_frames().iteritems():
+    for id, frame in sys._current_frames().items():
         if id in aliveThreadIds:
             threadDict[id] = traceback.format_stack(frame, limit)
 

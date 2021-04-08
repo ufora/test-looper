@@ -50,7 +50,7 @@ class RedisJsonStore(object):
         with self.lock:
             pipe = self.redis.pipeline()
 
-            for key, value in kvs.iteritems():
+            for key, value in kvs.items():
                 if value is None:
                     pipe.delete(key)
                     if key in self.cache:

@@ -4,14 +4,14 @@ import random
 
 class BitstringTests(unittest.TestCase):
     def test_basic(self):
-        for i in xrange(10):
+        for i in range(10):
             random.seed(i+1)
 
             length = i * 20
 
-            some_bools = [random.random() > .5 for _ in xrange(length)]
+            some_bools = [random.random() > .5 for _ in range(length)]
             bitstring = Bitstring.Bitstring.fromBools(some_bools)
 
-            for ix in xrange(length):
+            for ix in range(length):
                 self.assertEqual(some_bools[ix], bitstring[ix])
 

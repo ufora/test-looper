@@ -1,8 +1,8 @@
 import unittest
 import os
 import logging
-import urlparse
 import tempfile
+import urllib
 
 import test_looper_tests.common as common
 import test_looper_tests.TestYamlFiles as TestYamlFiles
@@ -103,18 +103,16 @@ class HtmlRenderingTest(unittest.TestCase):
                 for object in objectAndChildren(o):
                     objContext = self.renderer.contextFor(object, {})
 
-                    self.assertEqual(objContext.primaryObject(), object)
-
-                    parsed = urlparse.urlparse(objContext.urlString())
+                    parsed = urllib.parse.urlparse(objContext.urlString())
                     path = [x for x in parsed.path.split("/") if x]
 
-                    kwargs = urlparse.parse_qs(parsed.query)
+                    kwargs = urllib.parse.parse_qs(parsed.query)
 
                     parsedContext = self.renderer.getFromEncoding(path, kwargs)
 
                     self.assertTrue(parsedContext, (path,kwargs))
 
-                    self.assertEqual(parsedContext.primaryObject(), object)
+                    self.assertEqual(parsedContext, objContext)
 
                     parsedContext.parentContext().childContexts(parsedContext)
 

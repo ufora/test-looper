@@ -78,7 +78,7 @@ class IndividualTestContext(Context.Context):
 
             for testRun in [t for t in self.relevantTestRuns() if not t.canceled and t.endTimestamp]:
                 timesSeen = -1
-                for ix in xrange(len(testRun.testStepNameIndex)):
+                for ix in range(len(testRun.testStepNameIndex)):
                     name = testRun.testNames.test_names[testRun.testStepNameIndex[ix]]
                     if name == self.individualTestName:
                         timesSeen += 1

@@ -17,8 +17,8 @@ class Context(object):
         self.options = options
         self._contextCache = {}
 
-    def __cmp__(self, other):
-        return cmp(self.primaryObject(), other.primaryObject())
+    def __eq__(self, other):
+        return self.primaryObject() == other.primaryObject()
 
     @staticmethod
     def popToDash(items):
@@ -44,7 +44,7 @@ class Context(object):
             if kwargs[k] is None:
                 del finalArgs[k]
 
-        return "/" + self.urlBase() + ("?" + urllib.urlencode(finalArgs) if finalArgs else "")
+        return "/" + self.urlBase() + ("?" + urllib.parse.urlencode(finalArgs) if finalArgs else "")
 
     def renderNavbarLink(self):
         return self.renderLink()
@@ -217,14 +217,14 @@ class Context(object):
         return res
 
     def withOptionsReset(self, **options):
-        options = {k:v for k,v in options.iteritems() if v is not None}
+        options = {k:v for k,v in options.items() if v is not None}
         return self.renderer.contextFor(self.primaryObject(), options)
 
     def withOptions(self, **kwargs):
         options = dict(self.options)
         options.update(kwargs)
 
-        options = {k:v for k,v in options.iteritems() if v is not None}
+        options = {k:v for k,v in options.items() if v is not None}
 
         return self.renderer.contextFor(self.primaryObject(), options)
 

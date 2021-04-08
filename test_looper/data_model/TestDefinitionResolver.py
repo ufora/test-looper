@@ -26,11 +26,12 @@ def pathJoin(path1, path2):
     return "/".join(path1.split("/") + path2.split("/"))
 
 class TestResolutionException(Exception):
-    def __init__(self, msg):
-        Exception.__init__(self, msg)
+    pass
 
 class MissingDependencyException(TestResolutionException):
     def __init__(self, reponame, commitHash):
+        super().__init__("MissingDependencyException")
+
         self.reponame = reponame
         self.commitHash = commitHash
 
@@ -65,7 +66,7 @@ class TestDefinitionResolver:
     def unprocessedRepoPinsFor(self, repoName, commitHash):
         repos = self.unprocessedTestsEnvsAndReposFor_(repoName, commitHash)[2]
 
-        return {k:v for k,v in repos.iteritems() if v.matches.Pin}
+        return {k:v for k,v in repos.items() if v.matches.Pin}
 
     def unprocessedTestsEnvsAndReposFor_(self, repoName, commitHash):
         if (repoName, commitHash) in self.rawDefinitionsCache:
@@ -111,7 +112,7 @@ class TestDefinitionResolver:
                     repos[r] = raw_repos[r]
 
         if any([r.commitHash() == "HEAD" for r in repos.values()]) and curRepoName != "__root":
-            return {r: v for r,v in repos.iteritems() if v.matches.Pin or v.matches.Reference}
+            return {r: v for r,v in repos.items() if v.matches.Pin or v.matches.Reference}
 
         def resolveRepoRef(refName, ref, pathSoFar):
             if refName in pathSoFar:
@@ -248,7 +249,7 @@ class TestDefinitionResolver:
 
             return sorted(res)
 
-        testSets = {k: testsMatching(v) for k,v in test_sets_with_globs.iteritems()}
+        testSets = {k: testsMatching(v) for k,v in test_sets_with_globs.items()}
         triggeredTestSets = set()
 
         allDiffs = self._computeAllDiffs(repoName, commitHash)
@@ -499,7 +500,7 @@ class TestDefinitionResolver:
 
 
         environment = environment._withReplacement(dependencies=
-            {depname: resolveTestDep(dep) for depname, dep in environment.dependencies.iteritems()}
+            {depname: resolveTestDep(dep) for depname, dep in environment.dependencies.items()}
             )
         
         if environment.matches.Environment:
@@ -664,7 +665,7 @@ class TestDefinitionResolver:
         """
 
         parts = testName.split("/")
-        for i in xrange(len(parts)+1):
+        for i in range(len(parts)+1):
             if "/".join(parts[:i]) in testSet:
                 name, artifact = "/".join(parts[:i]), "/".join(parts[i:])
 
@@ -815,7 +816,7 @@ class TestDefinitionResolver:
                             raise TestResolutionException("Can't have a 'TestStage' in a build. (%s)" % testName)
 
                     resolved_tests[testName] = testDef._withReplacement(
-                        dependencies={k:resolveTestDep(v) for k,v in testDef.dependencies.iteritems()},
+                        dependencies={k:resolveTestDep(v) for k,v in testDef.dependencies.items()},
                         stages=self.sortTestStages(testDef.stages)
                         )
 

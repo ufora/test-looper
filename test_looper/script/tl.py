@@ -19,7 +19,7 @@ import yaml
 ##############
 # dependencies
 # pip install pyyaml
-# pip install simplejson
+# pip install json
 # pip install requests
 # pip install psutil
 # 
@@ -56,7 +56,7 @@ if os.getenv("TESTLOOPER_AWS_CREDS"):
             os.environ["AWS_SECRET_ACCESS_KEY"] = str(creds["secret_access_key"])
             os.environ["AWS_SESSION_TOKEN"] = str(creds["session_token"])
     except:
-        print "WARNING: couldn't read credentials from ", os.getenv("TESTLOOPER_AWS_CREDS")
+        print("WARNING: couldn't read credentials from ", os.getenv("TESTLOOPER_AWS_CREDS"))
 
 ROOT_CHECKOUT_NAME = "__root"
 
@@ -65,17 +65,17 @@ def printGrid(grid):
 
     col_count = max([len(row) for row in grid])
     gridWidths = []
-    for col in xrange(col_count):
-        gridWidths.append(max([len(grid[row][col]) if col < len(grid[row]) else 0 for row in xrange(len(grid))]))
+    for col in range(col_count):
+        gridWidths.append(max([len(grid[row][col]) if col < len(grid[row]) else 0 for row in range(len(grid))]))
 
     grid = grid[:1] + [["-" * g for g in gridWidths]] + grid[1:]
 
     rows = []
     for row in grid:
-        fmt = "  ".join(["%-" + str(gridWidths[col]) + "s" for col in xrange(len(row))])
+        fmt = "  ".join(["%-" + str(gridWidths[col]) + "s" for col in range(len(row))])
         rows.append(fmt % tuple(row))
 
-    print "\n".join(rows) + "\n",
+    print("\n".join(rows) + "\n")4
 
 def configureLogging(verbose=False):
     loglevel = logging.INFO if verbose else logging.WARN
@@ -342,7 +342,7 @@ class WorkerStateOverride(WorkerState.WorkerState):
         if os.path.exists(self.directories.repo_copy_dir):
             os.rmdir(self.directories.repo_copy_dir)
 
-        for k,v in self.extra_mappings.iteritems():
+        for k,v in self.extra_mappings.items():
             if not os.path.exists(os.path.dirname(v)):
                 os.makedirs(os.path.dirname(v))
             
@@ -516,7 +516,7 @@ class TestLooperCtl:
                 threads[-1].daemon=True
                 threads[-1].start()
 
-        print "fetching origin for ", len(threads), " repos..."
+        print("fetching origin for ", len(threads), " repos...")
 
         for t in threads:
             t.join()
@@ -579,7 +579,7 @@ class TestLooperCtl:
                     shutil.rmtree(clone_root)
                 return None
             else:
-                print "Cloned " + clone_root + " into " + self.repos[reponame].path_to_repo
+                print("Cloned " + clone_root + " into " + self.repos[reponame].path_to_repo)
         
         return self.repos[reponame]
 
@@ -636,7 +636,7 @@ class TestLooperCtl:
         else:
             commitHash = repo.gitCommitData("origin/" + committish)[0]
 
-        print "Checking out", reponame, commitHash
+        print("Checking out", reponame, commitHash)
 
         self.checkout_root = (reponame, commitHash)
         
@@ -670,7 +670,7 @@ class TestLooperCtl:
             all_paths = self.allCheckoutPaths()
             for path in all_paths:
                 if path not in paths_visited:
-                    print "Removing", path
+                    print("Removing", path)
                     try:
                         shutil.rmtree(path)
                     except:
@@ -698,18 +698,18 @@ class TestLooperCtl:
         repo = Git.Git(path)
 
         if not repo.isInitialized():
-            print "Checking out ", hash, " from ", actualRepoName, " to ", path
+            print("Checking out ", hash, " from ", actualRepoName, " to ", path)
             self.getGitRepo(actualRepoName).resetToCommitInDirectory(hash, path)
         else:
             if repo.getSourceRepoName("origin") != actualRepoName:
                 if repo.currentFileNumStat():
-                    print "Repo reference for ", "/".join(reponame.split(":")[:-1]), "changed from ", repo.getSourceRepoName("origin"), "to", actualRepoName
-                    print
-                    print "You have outstanding changes. Please remove them before continuing."
+                    print("Repo reference for ", "/".join(reponame.split(":")[:-1]), "changed from ", repo.getSourceRepoName("origin"), "to", actualRepoName)
+                    print()
+                    print("You have outstanding changes. Please remove them before continuing.")
                     os._exit(1)
                 else:
-                    print "Repo reference for ", "/".join(reponame.split(":")[:-1]), "changed from ", repo.getSourceRepoName("origin"), "to", actualRepoName
-                    print "No files are modified so we're replacing the directory."
+                    print("Repo reference for ", "/".join(reponame.split(":")[:-1]), "changed from ", repo.getSourceRepoName("origin"), "to", actualRepoName)
+                    print("No files are modified so we're replacing the directory.")
                     shutil.rmtree(path)
                     self.getGitRepo(actualRepoName).resetToCommitInDirectory(hash, path)
 
@@ -717,19 +717,19 @@ class TestLooperCtl:
                 if hard:
                     repo.resetHard()
 
-                print "Checkout commit ", hash, " to ", path, " currently at ", Git.Git(path).currentCheckedOutCommit()
+                print("Checkout commit ", hash, " to ", path, " currently at ", Git.Git(path).currentCheckedOutCommit())
 
                 repo.checkoutCommit(hash)
 
                 if repo.currentCheckedOutCommit() != hash:
-                    print "Fetching origin for ", path
+                    print("Fetching origin for ", path)
                     repo.fetchOrigin()
                     repo.checkoutCommit(hash)
 
                 if repo.currentCheckedOutCommit() != hash:
-                    print "Failed to checkout ", hash, " into ", path
+                    print("Failed to checkout ", hash, " into ", path)
                     if repo.currentFileNumStat():
-                        print "You have outstanding changes that are conflicting with the checkout."
+                        print("You have outstanding changes that are conflicting with the checkout.")
 
                     os._exit(1)
 
@@ -754,8 +754,8 @@ class TestLooperCtl:
 
         allTestsByName = {}
 
-        for (repo, hash), testDict in resolver.testDefinitionCache.iteritems():
-            for testName, testDefinition in testDict.iteritems():
+        for (repo, hash), testDict in resolver.testDefinitionCache.items():
+            for testName, testDefinition in testDict.items():
                 if repo == ROOT_CHECKOUT_NAME:
                     allTestsByName[testName] = (testDefinition, repo)
                 else:
@@ -771,9 +771,9 @@ class TestLooperCtl:
     def run(self, args):
         if args.interactive:
             if not args.nodeps:
-                print "Interactive implies no dependencies."
+                print("Interactive implies no dependencies.")
             if not args.nologcapture:
-                print "Interactive implies nologcapture"
+                print("Interactive implies nologcapture")
             args.nologcapture = True
             args.nodeps = True
 
@@ -786,9 +786,9 @@ class TestLooperCtl:
         possible_tests = {t:all_tests[t] for t in all_tests if fnmatch.fnmatchcase(t, args.testpattern)}
 
         if not possible_tests:
-            print "Can't find a test or build matching pattern '%s' amongst " % args.testpattern
+            print("Can't find a test or build matching pattern '%s' amongst " % args.testpattern)
             for test in sorted(all_tests):
-                print "    " + test
+                print("    " + test)
         else:
             if args.cmd and len(possible_tests) != 1:
                 raise UserWarning("Explicit commands can only be passed to one target.")
@@ -818,7 +818,7 @@ class TestLooperCtl:
 
         seen_already.add(path)
 
-        for depname, dep in testDef.dependencies.iteritems():
+        for depname, dep in testDef.dependencies.items():
             if dep.matches.Build:
                 test_and_repo = None
 
@@ -849,7 +849,7 @@ class TestLooperCtl:
         seen_already.add(path)
 
         if not nodeps:
-            for depname, dep in testDef.dependencies.iteritems():
+            for depname, dep in testDef.dependencies.items():
                 if dep.matches.Build:
                     test_and_repo = None
 
@@ -861,10 +861,10 @@ class TestLooperCtl:
                         subdef, subrepo = test_and_repo
                         if not self.runBuildOrTest(all_tests, subrepo, subdef, cores, nologcapture, nodeps, 
                                     interactive, seen_already, artifactSubsetByBuildName=artifactSubsetByBuildName, volumesToExpose=volumesToExpose):
-                            print "Dependent build ", self.repoShortname(subrepo.split(":")[-1]), subdef.name, " failed"
+                            print("Dependent build ", self.repoShortname(subrepo.split(":")[-1]), subdef.name, " failed")
                             return False
             
-        print "Building", self.repoShortname(reponame.split(":")[-1]), testDef.name
+        print("Building", self.repoShortname(reponame.split(":")[-1]), testDef.name)
 
         artifactsNeeded = None
 
@@ -874,7 +874,7 @@ class TestLooperCtl:
 
             #determine if we just want to run a subset of the stages in the build.
             if artifactsDefined and set(artifactsRequested) != set(artifactsDefined) and artifactsDefined[-1] not in artifactsRequested:
-                print "\tOnly building until we've produced the following: ", artifactSubsetByBuildName[testDef.name]
+                print("\tOnly building until we've produced the following: ", artifactSubsetByBuildName[testDef.name])
                 artifactsNeeded = artifactSubsetByBuildName[testDef.name]
             
         worker_state = WorkerStateOverride("test_looper_interactive_", path, self, cores, volumesToExpose)
@@ -888,7 +888,7 @@ class TestLooperCtl:
             log_path = os.path.join(logfile_dir, "Log-%s-%s-%s-%s-%s-%s.txt" % (t.tm_year, t.tm_mon, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec))
             logfile = open(log_path, "w")
 
-            print "\tlogging output to ", log_path
+            print("\tlogging output to ", log_path)
 
         if not interactive:
             class Callbacks:
@@ -904,7 +904,7 @@ class TestLooperCtl:
                         logfile.write(logMessage)
                         self.total_lines += logMessage.count("\n")
                         if time.time() - self.t0 > 10 and not nologcapture:
-                            print "\t", time.asctime(), " - ", self.total_lines, " logged"
+                            print("\t", time.asctime(), " - ", self.total_lines, " logged")
                             self.t0 = time.time()
                             logfile.flush()
 
@@ -923,19 +923,19 @@ class TestLooperCtl:
             callbacks = WorkerState.DummyWorkerCallbacks(localTerminal=True)
 
         def onStageFinished(artifact):
-            print "\tFinished producing artifact", artifact
+            print("\tFinished producing artifact", artifact)
             if artifactsNeeded is not None:
                 if artifact in artifactsNeeded:
                     artifactsNeeded.remove(artifact)
                 if not artifactsNeeded:
                     #condition for early stopping
-                    print "Stopping build early after artifact", artifact,"completed."
+                    print("Stopping build early after artifact", artifact,"completed.")
                     return True
 
         callbacks.recordArtifactUploaded = onStageFinished
 
         if not worker_state.runTest("interactive", callbacks, testDef, interactive, command_override=explicit_cmd)[0]:
-            print "Build failed. Exiting."
+            print("Build failed. Exiting.")
             return False
 
         return True
@@ -957,38 +957,38 @@ class TestLooperCtl:
             printGrid(grid)
 
     def infoForTest(self, test, testDef, showAll):
-        print test
-        print "  type: ", testDef._which
+        print(test)
+        print("  type: ", testDef._which)
 
-        print "  dependencies: "
+        print("  dependencies: ")
 
         allDeps = dict(testDef.environment.dependencies)
         allDeps.update(testDef.dependencies)
 
-        for depname, dep in sorted(allDeps.iteritems()):
+        for depname, dep in sorted(allDeps.items()):
             if dep.matches.InternalBuild:
-                print "    " + depname + ":", dep.name
+                print("    " + depname + ":", dep.name)
             elif dep.matches.ExternalBuild:
                 if self.repoShouldBeDisplayed(dep.repo) or showAll:
-                    print "    " + depname + ":", self.repoShortname(dep.repo) + ", commit=" + dep.commitHash + ", name=" + dep.name
+                    print("    " + depname + ":", self.repoShortname(dep.repo) + ", commit=" + dep.commitHash + ", name=" + dep.name)
             elif dep.matches.Source:
                 if self.repoShouldBeDisplayed(dep.repo) or showAll:
-                    print "    " + depname + ":", self.repoShortname(dep.repo) + "/" + dep.commitHash
+                    print("    " + depname + ":", self.repoShortname(dep.repo) + "/" + dep.commitHash)
             elif dep.matches.Build:
                 if self.repoShouldBeDisplayed(dep.repo) or showAll:
-                    print "    " + depname + ":", self.repoShortname(dep.repo) + ", hash=" + dep.buildHash, ", name=", dep.name
+                    print("    " + depname + ":", self.repoShortname(dep.repo) + ", hash=" + dep.buildHash, ", name=", dep.name)
             else:
-                print "    " + depname + ":", "(unknown!!)", repr(dep)
+                print("    " + depname + ":", "(unknown!!)", repr(dep))
 
         def kvprint(key, value, indent):
             if isinstance(value, str) and "\n" in value:
-                print indent + key + ": |"
-                print "\n".join([indent + "  " + x for x in value.split("\n")])
+                print(indent + key + ": |")
+                print("\n".join([indent + "  " + x for x in value.split("\n")]))
             else:
-                print indent + key + ":" + repr(value)
+                print(indent + key + ":" + repr(value))
 
-        print "  variables: "
-        for var, varval in sorted(testDef.variables.iteritems()):
+        print("  variables: ")
+        for var, varval in sorted(testDef.variables.items()):
             kvprint(var, varval, "    ")
 
         toPrint = [
@@ -999,17 +999,17 @@ class TestLooperCtl:
         for key in toPrint:
             kvprint(key, getattr(testDef, key), "  ")
 
-        print "  stages:"
+        print("  stages:")
         stage_ix = 0
         for stage in testDef.stages:
-            print "    stage %s:" % stage_ix
+            print("    stage %s:" % stage_ix)
             for key in ["order","command","cleanup"]:
                 kvprint(key, getattr(stage, key), "      ")
 
             if stage.artifacts:
-                print "      artifacts:"
+                print("      artifacts:")
             for artifact in stage.artifacts:
-                print "        " + artifact.name + ":"
+                print("        " + artifact.name + ":")
 
                 kvprint("directory", artifact.name, "          ")
                 kvprint("include_patterns", str(artifact.include_patterns), "          ")
@@ -1021,42 +1021,42 @@ class TestLooperCtl:
     def infoForRepo(self, reponame):
         reponame = self.bestRepo(reponame)
 
-        print "repo: ", self.repoShortname(reponame)
+        print("repo: ", self.repoShortname(reponame))
 
         git_repo = self.getGitRepo(reponame)
         
-        for branchname, sha_hash in git_repo.listBranchesForRemote("origin").iteritems():
-            print "\t", branchname, " -> ", sha_hash
+        for branchname, sha_hash in git_repo.listBranchesForRemote("origin").items():
+            print("\t", branchname, " -> ", sha_hash)
 
         for branchname in self.branchesCheckedOutForRepo(reponame):
-            print reponame, branchname
+            print(reponame, branchname)
             tests, environments, repos = self.resolver.testEnvironmentAndRepoDefinitionsFor(reponame, branchname)
 
-            print branchname
+            print(branchname)
 
-            print "\tbuilds: "
-            for test, testDef in sorted(tests.iteritems()):
+            print("\tbuilds: ")
+            for test, testDef in sorted(tests.items()):
                 if testDef.matches.Build:
-                    print "\t\t", test
+                    print("\t\t", test)
 
-            print "\ttests: "
-            for test, testDef in sorted(tests.iteritems()):
+            print("\ttests: ")
+            for test, testDef in sorted(tests.items()):
                 if testDef.matches.Test:
-                    print "\t\t", test
+                    print("\t\t", test)
 
-            print "\trepos: "
-            for repo, repoDef in sorted(repos.iteritems()):
+            print("\trepos: ")
+            for repo, repoDef in sorted(repos.items()):
                 if repoDef.matches.Pin:
-                    print "\t\t", repo, "->", "/".join(repoDef.reference.split("/")[:-1] + [repoDef.branch]), "=", repoDef.commitHash()
+                    print("\t\t", repo, "->", "/".join(repoDef.reference.split("/")[:-1] + [repoDef.branch]), "=", repoDef.commitHash())
 
-            print "\trepo imports: "
-            for repo, repoDef in sorted(repos.iteritems()):
+            print("\trepo imports: ")
+            for repo, repoDef in sorted(repos.items()):
                 if repoDef.matches.ImportedReference:
-                    print "\t\t", repo, "from", repoDef.import_source, "=", repoDef.orig_reference, "=", repoDef.commitHash()
+                    print("\t\t", repo, "from", repoDef.import_source, "=", repoDef.orig_reference, "=", repoDef.commitHash())
 
-            print "\tenvironments: "
-            for envName, envDef in sorted(environments.iteritems()):
-                print "\t\t", envName
+            print("\tenvironments: ")
+            for envName, envDef in sorted(environments.items()):
+                print("\t\t", envName)
 
     def bestRepo(self, reponame):
         if reponame in self.allRepoNames:
@@ -1104,7 +1104,7 @@ class TestLooperCtl:
 
     def status(self, args):
         if self.checkout_root is None:
-            print "Nothing checked out..."
+            print("Nothing checked out...")
             return
 
         def printer(path, localname, remotename):
@@ -1115,14 +1115,14 @@ class TestLooperCtl:
 
                 diffstat = git.currentFileNumStat() if git.isInitialized() else None
 
-                print "%-50s" % localname, "%-50s" % self.repoShortname(remotename), hash #, git.branchnameForCommitSloppy(hash)
+                print("%-50s" % localname, "%-50s" % self.repoShortname(remotename), hash) #, git.branchnameForCommitSloppy(hash)
                 
                 if git.isInitialized():
                     diffstat = git.currentFileNumStat()
                     for path in diffstat:
-                        print "\t++ %-5d  -- %-5d   %s" % (diffstat[path][0], diffstat[path][1], path)
+                        print("\t++ %-5d  -- %-5d   %s" % (diffstat[path][0], diffstat[path][1], path))
                 else:
-                    print "\tNOT INITIALIZED"
+                    print("\tNOT INITIALIZED")
 
         self.walkCheckedOutRepos(printer)
         
@@ -1130,8 +1130,7 @@ def main(argv):
     try:
         Git.Git.versionCheck()
     except UserWarning as e:
-        print "Error:\n\n%s" % str(e)
-        #print traceback.format_exc()
+        print("Error:\n\n%s" % str(e))
         return 1    
 
     parsedArgs = createArgumentParser().parse_args()
@@ -1164,8 +1163,7 @@ def main(argv):
                 ctl.writeState()
 
     except UserWarning as e:
-        print "Error:\n\n%s" % str(e)
-        #print traceback.format_exc()
+        print("Error:\n\n%s" % str(e))
         return 1    
 
     return 0

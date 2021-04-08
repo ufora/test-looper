@@ -4,8 +4,8 @@ import random
 import time
 
 if sys.argv[1] == "--list":
-	for i in xrange(100):
-		print "Test_%02d" % i
+	for i in range(100):
+		print("Test_%02d" % i)
 if sys.argv[1] == "--run":
 	with open(sys.argv[2],"r") as f:
 		tests = [x.strip() for x in f.readlines()]
@@ -29,4 +29,4 @@ if sys.argv[1] == "--run":
 			})
 		time.sleep(0.01)
 
-	print json.dumps(jsonOutput, indent=2)
+	print(json.dumps(jsonOutput, indent=2))

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import sys
@@ -7,7 +7,7 @@ class DISCARD_CHUNK:
 	pass
 
 if len(sys.argv) != 3:
-	print "Usage: git-diff-svn-friendly rev1 rev2"
+	print("Usage: git-diff-svn-friendly rev1 rev2")
 	sys.exit(1)
 
 result, lines = SubprocessRunner.callAndReturnResultAndMergedOutput(
@@ -15,7 +15,7 @@ result, lines = SubprocessRunner.callAndReturnResultAndMergedOutput(
 	)
 
 if result != 0:
-	print >> sys.stderr, "\n".join(lines)
+	print("\n".join(lines), file=sys.stderr)
 	sys.exit(result)
 
 def split_into_chunks(lines):
@@ -69,7 +69,7 @@ def reformat_chunk(chunk, src_revision, dest_revision):
 	if fname is DISCARD_CHUNK:
 		return []
 
-	for i in xrange(len(chunk)):
+	for i in range(len(chunk)):
 		if chunk[i].startswith("@@") or chunk[i].startswith("Binary files"):
 			chunk[:i] = make_svn_header(fname, src_revision, dest_revision)
 			return chunk
@@ -106,4 +106,4 @@ dest_revision = infer_revision(sys.argv[2])
 for c in chunks:
 	reformat_chunk(c, src_revision, dest_revision)
 
-print "\n".join(["\n".join(lines) for lines in chunks])
+print("\n".join(["\n".join(lines) for lines in chunks]))

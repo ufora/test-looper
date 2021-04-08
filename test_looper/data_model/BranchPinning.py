@@ -353,7 +353,7 @@ class BranchPinning:
 
             branch_new_hashes[branch] = self._updatePinsInCommitAndReturnHash(
                 branch,
-                {p: c.hash for p,c in initialPinsToUpdate[branch].iteritems()},
+                {p: c.hash for p,c in initialPinsToUpdate[branch].items()},
                 standard_git_commit_message
                 )
 
@@ -373,7 +373,7 @@ class BranchPinning:
 
                 pins = self.branchGetAllAutopins(branch_to_update)
 
-                pins_to_update = {p: c.hash for p,c in initialPinsToUpdate.get(branch_to_update, {}).iteritems()}
+                pins_to_update = {p: c.hash for p,c in initialPinsToUpdate.get(branch_to_update, {}).items()}
 
                 for pin in pins:
                     pinned_to_branch = self.pinGetPinnedToBranchAndCommit(pin)[0]
@@ -418,7 +418,7 @@ class BranchPinning:
 
         anyPinsApplied = False
 
-        for pin, newCommitHash in pinToNewCommitHash.iteritems():
+        for pin, newCommitHash in pinToNewCommitHash.items():
             assert pin, "Branch %s/%s has no pin named %s" % (branch.repo.name, branch.branchname, pin.repo_def)
 
             target_repo_name = pin.pinned_to_repo
@@ -483,7 +483,7 @@ class BranchPinning:
         contents = repo.source_repo.getFileContents(branchCommitHash, path)
         orig_contents = contents
 
-        for pin, newPinVal in pinRewrite.iteritems():
+        for pin, newPinVal in pinRewrite.items():
             contents = self.updatePinInContents(contents, pin, origPins[pin], newPinVal)
             
         new_hash = repo.source_repo.createCommit(
@@ -513,7 +513,7 @@ class BranchPinning:
             return len(ln) - len(ln.lstrip())
 
         blockEnds = len(subsequentLines)
-        for i in xrange(1, len(subsequentLines)):
+        for i in range(1, len(subsequentLines)):
             if indentLevel(subsequentLines[i]) <= indentLevel(subsequentLines[0]):
                 blockEnds = i
                 break
@@ -537,8 +537,6 @@ class BranchPinning:
         subsequentLines[:blockEnds] = newVal
 
         finalContents = contents[:index] + "\n".join(subsequentLines)
-
-        print finalContents
 
         return finalContents
 

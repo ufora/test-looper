@@ -42,7 +42,7 @@ def valid_type(t):
     return False
 
 def coerce_instance(instance, to_type):
-    if isinstance(instance, unicode):
+    if isinstance(instance, str):
         instance = str(instance)
     
     if isinstance(to_type, Alternative):
@@ -68,7 +68,7 @@ def coerce_instance(instance, to_type):
             return None
 
         res = {}
-        for k,v in instance.iteritems():
+        for k,v in instance.items():
             res[coerce_instance(k, to_type.keytype)] = coerce_instance(v, to_type.valtype)
 
         return res
@@ -81,7 +81,7 @@ def coerce_instance(instance, to_type):
         res = []
         while True:
             try:
-                val = coerce_instance(i.next(), to_type.subtype)
+                val = coerce_instance(next(i), to_type.subtype)
                 if val is None:
                     return None
                 res.append(val)

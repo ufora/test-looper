@@ -96,7 +96,7 @@ class ObjectDatabaseTests(unittest.TestCase):
 
         objects = {}
         with db.transaction():
-            for i in xrange(100):
+            for i in range(100):
                 root = db.Root.New()
 
                 e = expr.Constant(value=i)
@@ -112,18 +112,18 @@ class ObjectDatabaseTests(unittest.TestCase):
         db = object_database.Database(mem_store)
         initialize_types(db)
 
-        objects = {k: db.Root(v._identity) for k,v in objects.iteritems()}
+        objects = {k: db.Root(v._identity) for k,v in objects.items()}
 
         t0 = time.time()
         count = 0
         steps = 0
         while time.time() < t0 + 1.0:
             with db.transaction() as t:
-                for i in xrange(100):
+                for i in range(100):
                     count += objects[i].obj.k.l.r.l.value
                     steps += 1
         
-        print steps
+        print(steps)
 
 
     def test_transactions(self):
@@ -195,7 +195,7 @@ class ObjectDatabaseTests(unittest.TestCase):
 
         #seed the initial state
         with db.transaction():
-            for i in xrange(20):
+            for i in range(20):
                 counter = db.Counter.New(_identity="C_%s" % i)
                 counter.k = int(random.random() * 100)
                 counters.append(counter)
@@ -204,7 +204,7 @@ class ObjectDatabaseTests(unittest.TestCase):
 
         total_writes = 0
 
-        for passIx in xrange(1000):
+        for passIx in range(1000):
             #print passIx, db._version_numbers
 
             #keyname = "Counter-val:C_19:k"
@@ -212,7 +212,7 @@ class ObjectDatabaseTests(unittest.TestCase):
             #    for tid in sorted(db._key_version_numbers.get(keyname,()))], mem_store.get(keyname)
             
             with db.transaction():
-                for subix in xrange(int(random.random() * 5 + 1)):
+                for subix in range(int(random.random() * 5 + 1)):
                     counter = counters[int(random.random() * len(counters))]
 
                     if counter.exists():
@@ -257,7 +257,7 @@ class ObjectDatabaseTests(unittest.TestCase):
                 views_by_tn = {0: db.view()}
                 counter_vals_by_tn = {0: 
                     {new_counters[ix]: max_counter_vals[counters[ix]] for ix in 
-                        xrange(len(counters)) if counters[ix] in max_counter_vals}
+                        range(len(counters)) if counters[ix] in max_counter_vals}
                     }
 
                 counters = new_counters

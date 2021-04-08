@@ -3,7 +3,7 @@ import hashlib
 import hmac
 import logging
 import requests
-import simplejson
+import json
 import traceback
 import threading
 import os
@@ -55,7 +55,7 @@ class Github(SourceControl.SourceControl):
 
         res = []
         try:
-            for r in simplejson.loads(response.content):
+            for r in json.loads(response.content):
                 res.append(r["name"])
         except:
             logging.error("GOT: %s", response.content)
@@ -116,7 +116,7 @@ class Github(SourceControl.SourceControl):
             verify=self.shouldVerify()
             )
 
-        result = simplejson.loads(response.text)
+        result = json.loads(response.text)
 
         if 'access_token' not in result:
             logging.error("didn't find 'access_token' in %s", response.text)
@@ -148,7 +148,7 @@ class Github(SourceControl.SourceControl):
                 )
             return False
 
-        user = simplejson.loads(response.text)
+        user = json.loads(response.text)
         if not 'user' in user or not 'login' in user['user']:
             logging.info(
                 "Denying access for token %s because auth response didn't include user info",
@@ -179,7 +179,7 @@ class Github(SourceControl.SourceControl):
         if self.auth_disabled:
             return "user"
 
-        return simplejson.loads(
+        return json.loads(
             requests.get(self.github_api_url + "/user?access_token=" + access_token, verify=self.shouldVerify()).text
             )['login']
 

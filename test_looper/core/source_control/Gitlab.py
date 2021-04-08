@@ -4,7 +4,7 @@ import hmac
 import logging
 import requests
 import urllib
-import simplejson
+import json
 import traceback
 import threading
 import os
@@ -63,7 +63,7 @@ class Gitlab(SourceControl.SourceControl):
         def get_hooks(page):
             url = self.gitlab_api_url + (
                 '/projects/%s/hooks?' % (urllib.quote(reponame,safe='')) +
-                 urllib.urlencode({
+                 urllib.parse.urlencode({
                     "private_token": self.private_token,
                     "per_page": "20",
                     "page": str(page)
@@ -72,7 +72,7 @@ class Gitlab(SourceControl.SourceControl):
 
             headers = {'accept': 'application/json'}
 
-            response = simplejson.loads(
+            response = json.loads(
                 requests.get(url, headers=headers, verify=self.shouldVerify()).content
                 )
 
@@ -135,7 +135,7 @@ class Gitlab(SourceControl.SourceControl):
     def listReposAtPage(self, page):
         res = []
 
-        url = self.gitlab_api_url + '/projects?' + urllib.urlencode({
+        url = self.gitlab_api_url + '/projects?' + urllib.parse.urlencode({
             "private_token": self.private_token,
             "per_page": "20",
             "page": str(page)
@@ -150,7 +150,7 @@ class Gitlab(SourceControl.SourceControl):
             )
 
         try:
-            json = simplejson.loads(response.content)
+            json = json.loads(response.content)
             if 'message' in json:
                 logging.error("Got an error response: %s", response.content)
             else:
@@ -229,7 +229,7 @@ class Gitlab(SourceControl.SourceControl):
             verify=self.shouldVerify()
             )
 
-        result = simplejson.loads(response.text)
+        result = json.loads(response.text)
 
         if 'access_token' not in result:
             logging.error("didn't find 'access_token' in %s", response.text)
@@ -261,7 +261,7 @@ class Gitlab(SourceControl.SourceControl):
                 )
             return False
 
-        user = simplejson.loads(response.text)
+        user = json.loads(response.text)
         if not 'user' in user or not 'login' in user['user']:
             logging.info(
                 "Denying access for token %s because auth response didn't include user info",
@@ -292,7 +292,7 @@ class Gitlab(SourceControl.SourceControl):
         if self.auth_disabled:
             return "user"
 
-        return simplejson.loads(
+        return json.loads(
             requests.get(self.gitlab_api_url + "/user?access_token=" + access_token, verify=self.shouldVerify()).text
             )['login']
 

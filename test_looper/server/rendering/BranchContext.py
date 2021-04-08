@@ -120,7 +120,7 @@ class BranchContext(Context.Context):
             if 'all' in c.data.triggeredTestSets or 'all' in c.userEnabledTestSets:
                 return True
 
-            for testSet, tests in c.data.testSetsTopLevel.iteritems():
+            for testSet, tests in c.data.testSetsTopLevel.items():
                 if testSet in c.data.triggeredTestSets or testSet in c.userEnabledTestSets:
                     for t in tests:
                         if shouldIncludeTest(c.data.tests[t]):
@@ -424,7 +424,7 @@ class BranchContext(Context.Context):
     def pinGridWithUpdateButtons(self, branch):
         lines = [["status", "refname", "Cur Commit", "Target Branch"]]
 
-        for refname, repoRef in sorted(branch.head.data.repos.iteritems()):
+        for refname, repoRef in sorted(branch.head.data.repos.items()):
             if repoRef.matches.Pin:
                 lines.append(
                     [self.renderPinUpdateLink(branch, refname, repoRef),
@@ -479,7 +479,7 @@ class BranchContext(Context.Context):
                 "ref": reference_name
                 }
 
-            return ('<a href="/updateBranchPin?' + urllib.urlencode(params) + '" title="' + message + '">'
+            return ('<a href="/updateBranchPin?' + urllib.parse.urlencode(params) + '" title="' + message + '">'
                 '<span class="octicon octicon-sync " aria-hidden="true" />'
                 '</a>')
 
@@ -500,7 +500,7 @@ class BranchContext(Context.Context):
         if not commit:
             return preamble + HtmlGeneration.lightGreyWithHover(repoRef.reference[:--30], "Can't find commit %s" % commitHash[:10])
 
-        branches = {k.branchname: v for k,v in self.testManager.commitFindAllBranches(commit).iteritems()}
+        branches = {k.branchname: v for k,v in self.testManager.commitFindAllBranches(commit).items()}
 
         if repoRef.branch not in branches:
             return preamble + self.contextFor(commit).renderLink()

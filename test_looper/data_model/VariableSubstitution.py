@@ -8,7 +8,7 @@ def variables_referenced(text):
     return set(substitution_pattern.findall(text))
 
 def substitute_variables(text, vars):
-    for varname, vardef in vars.iteritems():
+    for varname, vardef in vars.items():
         text = text.replace("${" + varname + "}", vardef)
     return text
 
@@ -67,7 +67,7 @@ def apply_variable_substitutions_and_merge(vardefs, extra_variables = {}):
     vardefs = dict(vardefs)
 
     deps = {}
-    for var, vardef in vardefs.iteritems():
+    for var, vardef in vardefs.items():
         if identifier_pattern.match(var):
             deps[var] = variables_referenced(vardef)
 

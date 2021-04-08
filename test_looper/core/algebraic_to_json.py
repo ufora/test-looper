@@ -39,7 +39,6 @@ def setupYamlLoadersAndDumpers():
         return dumper.represent_scalar(u'tag:yaml.org,2002:str', value, style=style)
 
     Dumper.add_representer(str, string_representer)
-    Dumper.add_representer(unicode, string_representer)
     Dumper.add_representer(int, lambda dumper, value : \
         dumper.represent_scalar(u'tag:yaml.org,2002:int', str(value), style=''))
     Dumper.add_representer(bool, lambda dumper, value : \
@@ -91,10 +90,6 @@ class Encoder(object):
         self.allowExtraFields=False
 
     def to_json(self, value):
-        if isinstance(value, unicode):
-            value = value.encode('ascii',errors='ignore')
-
-
         if isinstance(value, algebraic.AlternativeInstance):
             if isinstance(value._alternative, algebraic.NullableAlternative):
                 if value.matches.Null:
@@ -118,7 +113,7 @@ class Encoder(object):
             return [self.to_json(x) for x in value]
 
         elif isinstance(value, dict):
-            return {self.to_json(k): self.to_json(v) for k,v in value.iteritems()}
+            return {self.to_json(k): self.to_json(v) for k,v in value.items()}
 
         elif isinstance(value, algebraic._primitive_types):
             return value
@@ -134,9 +129,6 @@ class Encoder(object):
             return self.overrides[algebraic_type](self, value)
         
         try:
-            if isinstance(value, unicode):
-                value = value.encode('ascii',errors='ignore')
-
             if value is None:
                 if isinstance(algebraic_type, algebraic.Dict):
                     return {}
@@ -152,18 +144,18 @@ class Encoder(object):
                 value = list(value)
 
                 assert len(algebraic_type) == len(value), "Can't convert %s to %s" % (value, algebraic_type)
-                return tuple([self.from_json(value[x], algebraic_type[x]) for x in xrange(len(value))])
+                return tuple([self.from_json(value[x], algebraic_type[x]) for x in range(len(value))])
 
             if isinstance(algebraic_type, algebraic.Dict):
                 if isinstance(value, dict):
-                    return {self.from_json(k, algebraic_type.keytype):self.from_json(v, algebraic_type.valtype) for k,v in value.iteritems()}
+                    return {self.from_json(k, algebraic_type.keytype):self.from_json(v, algebraic_type.valtype) for k,v in value.items()}
 
                 if self.mergeListsIntoDicts:
                     if not isinstance(value, (list,tuple)):
                         raise UserWarning("Can't convert %s to a %s" % (value, algebraic_type))
                     res = {}
                     for subitem in value:
-                        for k,v in self.from_json(subitem, algebraic_type).iteritems():
+                        for k,v in self.from_json(subitem, algebraic_type).items():
                             res[k] = v
                     return res
                 else:
@@ -192,9 +184,6 @@ class Encoder(object):
                 return value
 
             if isinstance(algebraic_type, algebraic.Alternative):
-                if isinstance(value, unicode):
-                    value = value.encode('ascii',errors='ignore')
-
                 if isinstance(value, str):
                     zero_arg_types = []
                     single_arg_types = []
@@ -215,9 +204,6 @@ class Encoder(object):
                     assert isinstance(value, dict)
 
                     if '_type' in value:
-                        if isinstance(value['_type'], unicode):
-                            value['_type'] = value['_type'].encode('ascii',errors='ignore')
-
                         if not isinstance(value['_type'], str):
                             raise UserWarning('typenames have to be strings')
 
@@ -271,19 +257,8 @@ class Encoder(object):
 
 
 def encode_and_dump_as_yaml(value):
-    def unicode_to_str(x):
-        if isinstance(x, (str, unicode)):
-            return str(x)
-        if isinstance(x, tuple):
-            return tuple([unicode_to_str(y) for y in x])
-        if isinstance(x, list):
-            return [unicode_to_str(y) for y in x]
-        if isinstance(x, dict):
-            return {unicode_to_str(k): unicode_to_str(v) for k,v in x.iteritems()}
-        return x
-
     return yaml.dump(
-        unicode_to_str(Encoder().to_json(value)),
+        Encoder().to_json(value),
         indent=4,
         default_style='"'
-        )
+    )

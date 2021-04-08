@@ -1,4 +1,4 @@
-import cPickle as pickle
+import pickle
 import logging
 import subprocess
 import traceback
@@ -38,7 +38,7 @@ class SubprocessCheckOutput(object):
     def __call__(self):
         try:
             with DirectoryScope.DirectoryScope(self.path):
-                return pickle.dumps(subprocess.check_output(*self.args, stderr=subprocess.STDOUT, **self.kwds))
+                return pickle.dumps(subprocess.check_output(*self.args, stderr=subprocess.STDOUT, **self.kwds).decode("ASCII"))
         except subprocess.CalledProcessError as e:
             raise Exception("Failed calling " + str(self.args) + ":\n" + e.output)
 
@@ -52,7 +52,7 @@ _outOfProcessDownloaderPool = [None]
 
 class Git(object):
     def __init__(self, path_to_repo):
-        assert isinstance(path_to_repo, (str, unicode))
+        assert isinstance(path_to_repo, str)
 
         self.path_to_repo = str(path_to_repo)
 
@@ -92,7 +92,8 @@ class Git(object):
             f.write(text)
 
     def listRemotes(self):
-        return [x.strip() for x in self.subprocessCheckOutput(["git","remote"]).split("\n") if x.strip() != '']
+        outp = self.subprocessCheckOutput(["git","remote"])
+        return [x.strip() for x in outp.split("\n") if x.strip() != '']
 
     def getUrlForRemote(self, remote="origin"):
         return self.subprocessCheckOutput(["git", "remote", "get-url", remote]).strip()
@@ -201,7 +202,7 @@ class Git(object):
         """
         with self.git_repo_lock:
             self.resetToCommit(commitHash)
-            for file, contents in fileContents.iteritems():
+            for file, contents in fileContents.items():
                 path = os.path.join(self.path_to_repo, file)
 
                 if contents is None:
@@ -238,7 +239,7 @@ class Git(object):
 
     def currentFileNumStat(self):
         """Return a dict from path -> (added,removed) diff"""
-        pat = re.compile("\s*(\d+)\s+(\d+)\s+(.*)\s*")
+        pat = re.compile("\\s*(\\d+)\\s+(\\d+)\\s+(.*)\\s*")
 
         res = {}
         for line in self.subprocessCheckOutput(["git", "diff", "--numstat"]).split("\n"):

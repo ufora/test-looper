@@ -3,7 +3,7 @@ import logging
 import random
 import time
 import traceback
-import simplejson
+import json
 import threading
 import textwrap
 import re
@@ -38,8 +38,8 @@ class DictWrapper:
     def __iter__(self):
         return self._jsonDict.__iter__()
 
-    def iteritems(self):
-        for k,v in self._jsonDict.iteritems():
+    def items(self):
+        for k,v in self._jsonDict.items():
             if isinstance(v,dict):
                 yield k,DictWrapper(v)
             else:
@@ -157,17 +157,17 @@ class ImportExport(object):
             #make sure we have repos and branches
             self.testManager._refreshRepos()
 
-            for reponame, repodef in results.repos.iteritems():
+            for reponame, repodef in results.repos.items():
                 repo = self.database.Repo.lookupAny(name=reponame)
                 if repo:
                     self.testManager._refreshBranches(repo, time.time(), None)
                 else:
                     errors.append(ImportError.UnknownRepo(repo=reponame))
 
-        for reponame, repodef in results.repos.iteritems():
+        for reponame, repodef in results.repos.items():
             with self.database.transaction():
                 logging.info("Starting sync of repo %s", reponame)
-                for branchname, branchdef in repodef.branches.iteritems():
+                for branchname, branchdef in repodef.branches.items():
                     branch = self.database.Branch.lookupAny(reponame_and_branchname=(reponame, branchname))
                     if not branch:
                         errors.append(ImportError.UnknownBranch(repo=reponame, name=branchname))
@@ -179,7 +179,7 @@ class ImportExport(object):
                 transaction = self.database.transaction()
                 transaction.__enter__()
 
-                for hash, commitdef in repodef.commits.iteritems():
+                for hash, commitdef in repodef.commits.items():
                     seen += 1
                     if seen % 100 == 0:
                         transaction.__exit__(None, None, None)
@@ -198,7 +198,7 @@ class ImportExport(object):
 
                     commit.userEnabledTestSets=commitdef.userEnabledTestSets
 
-                    for testname, testdef in commitdef.tests.iteritems():
+                    for testname, testdef in commitdef.tests.items():
                         test = commit.data.tests.get(testname)
 
                         if not test:

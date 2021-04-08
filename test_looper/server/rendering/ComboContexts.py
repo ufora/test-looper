@@ -1,9 +1,9 @@
 
 class ComboContext:
-    def __cmp__(self, other):
+    def __eq__(self, other):
         if not isinstance(other, type(self)):
-            return cmp(type(other), type(self))
-        return cmp(self.toTuple(), other.toTuple())
+            return False
+        return self.toTuple() == other.toTuple()
 
     def __hash__(self):
         return hash(self.toTuple())

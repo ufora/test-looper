@@ -10,7 +10,7 @@ import tarfile
 import shutil
 import gzip
 import re
-import Queue
+import queue
 import test_looper.core.algebraic as algebraic
 import test_looper.core.TimerQueue as TimerQueue
 
@@ -23,7 +23,7 @@ FileContents.Inline = {
     "content_type": str,
     "content_encoding": str,
     "content_disposition": str,
-    "content": str
+    "content": bytes
     }
 FileContents.Redirect = {"url": str}
 
@@ -70,7 +70,7 @@ class ArtifactStorage(object):
         return res
 
     def uploadIndividualTestArtifacts(self, testHash, testId, pathsToUpload, logger=None):
-        queue = Queue.Queue()
+        resultQueue = queue.Queue()
 
         def uploadArtifact(testName, runIx, path):
             try:
@@ -86,11 +86,11 @@ class ArtifactStorage(object):
             except:
                 logging.error("Failed to upload %s:\n%s", path, traceback.format_exc())
             finally:
-                queue.put(filename)
+                resultQueue.put(filename)
 
         counts = 0
 
-        for (testName, runIx), paths in pathsToUpload.iteritems():
+        for (testName, runIx), paths in pathsToUpload.items():
             for path in paths:
                 timerQueue.enqueueWorkItem(uploadArtifact, (testName, runIx, path))
                 counts += 1
@@ -100,7 +100,7 @@ class ArtifactStorage(object):
                 logger("Uploading a total of %s artifacts" % counts)
 
             while counts:
-                item = queue.get(timeout=360)
+                item = resultQueue.get(timeout=360)
                 counts -= 1
                 if counts % 10 == 0 and logger:
                     logger("%s artifacts remaining" % counts)
@@ -304,7 +304,7 @@ class LocalArtifactStorage(ArtifactStorage):
         self.tempfileOverrideDir = None
 
     def _buildContents(self, testHash, key):
-        with open(os.path.join(self.build_storage_path, testHash, key), "r") as f:
+        with open(os.path.join(self.build_storage_path, testHash, key), "rb") as f:
             return f.read()
 
     def buildContentsHtml(self, testHash, key):
@@ -318,7 +318,7 @@ class LocalArtifactStorage(ArtifactStorage):
             )
 
     def testContents(self, testHash, testId, key):
-        with open(os.path.join(self.test_artifacts_storage_path, testHash, testId, key), "r") as f:
+        with open(os.path.join(self.test_artifacts_storage_path, testHash, testId, key), "rb") as f:
             return f.read()
 
     def testContentsHtml(self, testHash, testId, key):
@@ -346,8 +346,8 @@ class LocalArtifactStorage(ArtifactStorage):
             pass
 
         try:
-            with open(dest_path, "w") as target:
-                with open(src_path, "r") as src:
+            with open(dest_path, "wb") as target:
+                with open(src_path, "rb") as src:
                     shutil.copyfileobj(src, target)
         except:
             if os.path.exists(dest_path):

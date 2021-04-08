@@ -9,7 +9,7 @@ import test_looper.data_model.TestDefinition as TestDefinition
 
 import yaml
 import json
-import simplejson 
+import json 
 import logging
 
 #versions we could read
@@ -170,7 +170,7 @@ def map_image(reponame, commitHash, image_def):
         assert False, "Can't convert this kind of image: %s" % image_def
 
 def extract_tests(curRepoName, curCommitHash, testScript, version, externally_defined_repos=None):
-    for repoVarName, repoPin in testScript.repos.iteritems():
+    for repoVarName, repoPin in testScript.repos.items():
         if repoVarName in reservedNames:
             raise Exception("%s is a reserved name and can't be used as a reponame." % repoVarName)
 
@@ -285,7 +285,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 setup_script_contents=envDef.setup_script_contents,
                 variables=envDef.variables,
                 dependencies={
-                    "test_inputs/" + name: map_environment_dep(dep) for name, dep in envDef.dependencies.iteritems()
+                    "test_inputs/" + name: map_environment_dep(dep) for name, dep in envDef.dependencies.items()
                     },
                 test_configuration=envDef.test_configuration,
                 test_timeout=envDef.test_timeout,
@@ -308,7 +308,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
                 image=map_image(curRepoName, curCommitHash, envDef.image),
                 variables=envDef.variables,
                 dependencies={
-                    "test_inputs/" + name: map_environment_dep(dep) for name, dep in envDef.dependencies.iteritems()
+                    "test_inputs/" + name: map_environment_dep(dep) for name, dep in envDef.dependencies.items()
                     },
                 test_configuration=envDef.test_configuration,
                 test_timeout=envDef.test_timeout,
@@ -325,7 +325,7 @@ def extract_tests(curRepoName, curCommitHash, testScript, version, externally_de
 
     environments = {}
 
-    for envName, envDef in testScript.environments.iteritems():
+    for envName, envDef in testScript.environments.items():
         environments[envName] = parseEnvironment(envName)
 
     def convert_build_dep(dep,curEnv):
@@ -498,11 +498,9 @@ def dictionary_cross_product(kv_pairs):
 
 class MacroExpander(object):
     def expand_macros(self, json, variables, isVarDef=False):
-        if isinstance(json, unicode):
-            json = str(json)
         if isinstance(json, str):
             if variables:
-                for k,v in sorted(variables.iteritems()):
+                for k,v in sorted(variables.items()):
                     if isinstance(v, (int, bool, float)):
                         v = str(v)
                     if isinstance(v, str):
@@ -521,7 +519,7 @@ class MacroExpander(object):
         if isinstance(json, dict):
             if sorted(json.keys()) == ["define", "in"]:
                 to_use = dict(variables)
-                for k,v in self.expand_macros(json["define"], variables, True).iteritems():
+                for k,v in self.expand_macros(json["define"], variables, True).items():
                     if k in to_use:
                         raise Exception("Can't redefine variable %s" % k)
                     to_use[k] = v
@@ -539,7 +537,7 @@ class MacroExpander(object):
 
                     child = dict(child)
 
-                    for k,v in squashover.iteritems():
+                    for k,v in squashover.items():
                         if k in child:
                             raise Exception("Can't define %s twice when squashing %s into %s" % (k, squashover, child))
                         child[k] = v
@@ -587,7 +585,7 @@ class MacroExpander(object):
                     for to_append in to_merge:
                         if not isinstance(to_append, dict):
                             raise Exception("Can't apply a merge operation to %s because not all children are dictionaries." % to_merge)
-                        for k,v in to_append.iteritems():
+                        for k,v in to_append.items():
                             if k in res:
                                 raise Exception("merging %s produced key %s twice" % (to_merge, k))
                             res[k] = v
@@ -606,7 +604,7 @@ class MacroExpander(object):
                     #A: [1,2,3]
                     #B: [1,2,3]
                     #will produce 9 items
-                    items = dictionary_cross_product(repeat_over.items())
+                    items = dictionary_cross_product(list(repeat_over.items()))
                 else:
                     items = flatten(repeat_over)
 
@@ -616,7 +614,7 @@ class MacroExpander(object):
 
                     if isinstance(sub_replacements, str):
                         raise Exception("Can't repeat a string: '%s'" % sub_replacements)
-                    for k,v in sub_replacements.iteritems():
+                    for k,v in sub_replacements.items():
                         if k in to_use:
                             raise Exception("Can't redefine variable %s" % k)
                         to_use[k] = v
@@ -627,7 +625,7 @@ class MacroExpander(object):
                         if res is None:
                             res = {}
 
-                        for k,v in expanded.iteritems():
+                        for k,v in expanded.items():
                             if k in res:
                                 raise Exception("Can't define %s twice" % k)
                             res[k] = v
@@ -637,14 +635,12 @@ class MacroExpander(object):
 
                         res.extend(expanded)
                 return res
-            return {self.expand_macros(k,variables, isVarDef): self.expand_macros(v, variables, isVarDef) for k,v in json.iteritems()}
+            return {self.expand_macros(k,variables, isVarDef): self.expand_macros(v, variables, isVarDef) for k,v in json.items()}
 
         return json
 
 class IncludesMacroExpander(MacroExpander):
     def expand_macros(self, json, variables, isVarDef=False):
-        if isinstance(json, unicode):
-            json = str(json)
         if isinstance(json, str) and not isVarDef:
             return {
                 "path": MacroExpander().expand_macros(json, variables), 
@@ -663,13 +659,10 @@ class IncludesMacroExpander(MacroExpander):
         return MacroExpander.expand_macros(self, json, variables, isVarDef)
 
 def extract_postprocessed_test_definitions(extension, text, variable_definitions=None):
-    if isinstance(text, unicode):
-        text = str(text)
-
     if extension == ".yml":
         test_defs_json = yaml.load(text)
     elif extension == ".json":
-        test_defs_json = simplejson.loads(text)
+        test_defs_json = json.loads(text)
     else:
         raise Exception("Can't load testDefinitions from file ending in '%s'. Use json or yml." % extension)
 
@@ -677,7 +670,7 @@ def extract_postprocessed_test_definitions(extension, text, variable_definitions
 
     #process any 'define' clauses at the top of the chain.
     while isinstance(test_defs_json, dict) and sorted(test_defs_json.keys()) == ["define","in"]:
-        for k,v in MacroExpander().expand_macros(test_defs_json["define"], variable_definitions, True).iteritems():
+        for k,v in MacroExpander().expand_macros(test_defs_json["define"], variable_definitions, True).items():
             if k in variable_definitions:
                 raise Exception("Can't redefine variable %s" % k)
             variable_definitions[k] = v
@@ -697,7 +690,7 @@ def extract_postprocessed_test_definitions(extension, text, variable_definitions
     return { k: expandKey(k) for k in test_defs_json }
 
 def parseRepoReference(encoder, value):
-    if isinstance(value, (str, unicode)):
+    if isinstance(value, str):
         return RepoReference.Reference(reference=str(value),path="")
     return algebraic_to_json.Encoder().from_json(value, RepoReference)
 
@@ -713,7 +706,7 @@ def parseVariableDict(encoder, value):
         if isinstance(k, (float,int)):
             return str(k)
         assert False, "Unsupported variable value: %s" % k
-    return {convert(k): convert(v) for k,v in value.iteritems()}
+    return {convert(k): convert(v) for k,v in value.items()}
 
 encoder = algebraic_to_json.Encoder()
 encoder.overrides[VariableDict] = parseVariableDict

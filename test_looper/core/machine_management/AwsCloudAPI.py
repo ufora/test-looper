@@ -266,30 +266,30 @@ class API:
         bucket = self.s3.Bucket(self.config.machine_management.bootstrap_bucket)
         for o in bucket.objects.filter(Prefix=self.bootstrap_key_root):
             if not dry_run:
-                print "deleting key ", o
+                print("deleting key ", o)
                 assert False
                 o.delete()
             else:
-                print "would delete key ", o
+                print("would delete key ", o)
 
         for id in self.machineIdsOfAllWorkers(producingAmis=True):
             instance = self.ec2.Instance(id)
             if instance.state["Name"] in "terminated":
-                print instance, " is already terminated."
+                print(instance, " is already terminated.")
             else:
                 if not dry_run:
-                    print "terminating ", instance
+                    print("terminating ", instance)
                     assert False
                     instance.terminate()
                 else:
-                    print "would terminate ", instance
+                    print("would terminate ", instance)
 
         images = self.listWindowsImages(False)
-        for ((a,h),i) in images.iteritems():
+        for ((a,h),i) in images.items():
             if dry_run:
-                print "would deregister image ", (a,h), i
+                print("would deregister image ", (a,h), i)
             else:
-                print "deregister image ", (a,h), i
+                print("deregister image ", (a,h), i)
                 assert False
                 i.deregister()
 
@@ -334,7 +334,7 @@ class API:
                 .replace("__testlooper_server_and_port__", looper_server_and_port)
                 .replace("__hosts__", "\n\n".join(
                     'echo "%s %s" |  Out-File -Append c:/Windows/System32/Drivers/etc/hosts -Encoding ASCII' % (ip,hostname) for hostname,ip in 
-                        self.config.machine_management.host_ips.iteritems()
+                        self.config.machine_management.host_ips.items()
                     ))
             )
 
@@ -392,7 +392,7 @@ class API:
                     .replace('__test_looper_https_server__', self.config.server_ports.server_address)
                     .replace('__test_looper_https_port__', str(self.config.server_ports.server_https_port))
                     .replace("__hosts__", "\n\n".join(
-                        'echo "%s %s" >> /etc/hosts' % (ip,hostname) for hostname,ip in self.config.machine_management.host_ips.iteritems()
+                        'echo "%s %s" >> /etc/hosts' % (ip,hostname) for hostname,ip in self.config.machine_management.host_ips.items()
                         )
                     )
                 )
@@ -458,6 +458,6 @@ class API:
                     'Tags': [{ 
                         "Key": 'Name', 
                         "Value": nameValue
-                        }] + [{ "Key": k, "Value": v} for (k,v) in (extraTags or {}).iteritems()]
+                        }] + [{ "Key": k, "Value": v} for (k,v) in (extraTags or {}).items()]
                 }]
             )[0].id)

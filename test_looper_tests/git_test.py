@@ -123,7 +123,7 @@ class GitTests(unittest.TestCase):
         self.assertTrue(os.path.exists(tarball_h3_crlf))
         self.assertTrue(os.path.exists(tarball_h3))
 
-        self.assertTrue(os.stat(tarball_dir2).st_size < os.stat(tarball))
+        self.assertTrue(os.stat(tarball_dir2).st_size < os.stat(tarball).st_size)
 
         with tarfile.open(tarball) as tf:
             self.assertEqual(sorted(tf.getnames()), sorted(['.', './.git_commit', './file1', './dir1', './dir1/file2', './dir2', './dir2/file3']))
@@ -132,11 +132,11 @@ class GitTests(unittest.TestCase):
             self.assertEqual(sorted(tf.getnames()), sorted(['.', './.git_commit', './file3']))
         
         with tarfile.open(tarball_crlf) as tf:
-            self.assertEqual(tf.extractfile("./dir2/file3").read(), "contents")
+            self.assertEqual(tf.extractfile("./dir2/file3").read(), b"contents")
         with tarfile.open(tarball) as tf:
-            self.assertEqual(tf.extractfile("./dir2/file3").read(), "contents")
+            self.assertEqual(tf.extractfile("./dir2/file3").read(), b"contents")
 
         with tarfile.open(tarball_h3) as tf:
-            self.assertEqual(tf.extractfile("./dir2/file3").read(), "contents\ncontents_second_line")
+            self.assertEqual(tf.extractfile("./dir2/file3").read(), b"contents\ncontents_second_line")
         with tarfile.open(tarball_h3_crlf) as tf:
-            self.assertEqual(tf.extractfile("./dir2/file3").read(), "contents\r\ncontents_second_line")
+            self.assertEqual(tf.extractfile("./dir2/file3").read(), b"contents\r\ncontents_second_line")

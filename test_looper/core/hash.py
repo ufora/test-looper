@@ -1,7 +1,7 @@
 import hashlib
 import struct
 
-class Hash:
+class Hash(object):
     def __init__(self, digest):
         self.digest = digest
 
@@ -14,9 +14,9 @@ class Hash:
         return Hash.from_string(struct.pack("!d", f))
 
     @staticmethod
-    def from_string(str):
+    def from_string(string):
         hasher = hashlib.sha1()
-        hasher.update(str)
+        hasher.update(string.encode('utf8') if isinstance(string, str) else string)
         return Hash(hasher.digest())
 
     def __add__(self, other):
@@ -28,7 +28,7 @@ class Hash:
 
     @property
     def hexdigest(self):
-        return self.digest.encode("hex")
+        return self.digest.hex()
 
     def __str__(self):
         return "0x" + self.hexdigest
@@ -39,8 +39,8 @@ class Hash:
     def __hash__(self):
         return hash(self.digest)
 
-    def __cmp__(self, other):
-        return cmp(self.digest, other.digest)
+    def __eq__(self, other):
+        return self.digest == other.digest
 
 
 def sha_hash(val):
@@ -57,6 +57,4 @@ def sha_hash(val):
         return Hash.from_float(val)
     if isinstance(val, str):
         return Hash.from_string(val)
-    if isinstance(val, unicode):
-        return Hash.from_string(str(val))
     return val.__sha_hash__()

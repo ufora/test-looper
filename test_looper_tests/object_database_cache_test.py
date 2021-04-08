@@ -17,7 +17,7 @@ class ObjectDatabaseCacheTests(unittest.TestCase):
         self.db.addIndex(self.db.Node, 'x')
 
         with self.db.transaction():
-            for x in xrange(100):
+            for x in range(100):
                 self.nodes.append(self.db.Node.New(x=x,count=0.0))
 
         self.functionRunCount = 0
@@ -42,7 +42,7 @@ class ObjectDatabaseCacheTests(unittest.TestCase):
     def addUpAll(self, depth, viewToUse = None):
         res = 0
         with viewToUse or self.db.view():
-            for x in xrange(-1 - depth, 100 + depth + 1):
+            for x in range(-1 - depth, 100 + depth + 1):
                 res += self.db.lookupCachedCalculation("avg", (x,depth))
         return res
 
@@ -91,7 +91,7 @@ class ObjectDatabaseCacheTests(unittest.TestCase):
 
         someOldViews = []
 
-        for update in xrange(1000):
+        for update in range(1000):
             origRunCount = self.functionRunCount
 
             with self.db.transaction():

@@ -284,7 +284,7 @@ class TestDefinitionScriptTests(unittest.TestCase):
 
     def test_variable_chains_and_cycles(self):
         chain = {}
-        for i in xrange(20):
+        for i in range(20):
           chain["A_%s" % i] = "${A_%s}_" % (i+1)
         chain["A_20"] = ""
         chain_merged = apply_and_merge(chain)

@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 
 import docker
 import os
@@ -31,13 +31,13 @@ def query(query):
 t0 = time.time()
 while time.time() - t0 < 30:
 	res = query("SELECT 1")
-	print "query result = ", repr(res)
-	if '1 rows affected' in res:
-		print "OK"
+	print("query result = ", repr(res))
+	if b'1 rows affected' in res:
+		print("OK")
 		sys.exit(0)
 	else:
 		time.sleep(1)
 
-print "FAIL"
+print("FAIL")
 sys.exit(1)
 

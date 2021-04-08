@@ -104,7 +104,7 @@ class MockGitRepo:
         if remote != "origin":
             return {}
         res = {}
-        for branch, commitId in self.repo.source_control.branch_to_commitId.iteritems():
+        for branch, commitId in self.repo.source_control.branch_to_commitId.items():
             if branch.startswith(self.repo.repoName + "/"):
                 res[branch[len(self.repo.repoName + "/"):]] = commitId.split("/")[-1]
 
@@ -126,8 +126,8 @@ class MockGitRepo:
 
     def filesChangedBetweenCommits(self, firstCommit, secondCommit):
         common = ["testDefinitions.yml", "test_looper/Dockerfile.txt"]
-        files1 = set(self.repo.source_control.commit_files.get(self.repo.repoName + "/" + firstCommit, {}).keys() + common)
-        files2 = set(self.repo.source_control.commit_files.get(self.repo.repoName + "/" + secondCommit, {}).keys() + common)
+        files1 = set(list(self.repo.source_control.commit_files.get(self.repo.repoName + "/" + firstCommit, {}).keys()) + common)
+        files2 = set(list(self.repo.source_control.commit_files.get(self.repo.repoName + "/" + secondCommit, {}).keys()) + common)
 
         res = []
         for f in set(list(files1) + list(files2)):

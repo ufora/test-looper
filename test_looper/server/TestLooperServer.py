@@ -2,7 +2,7 @@ import collections
 import json
 import logging
 import threading
-import Queue
+import queue
 import traceback
 import base64
 import time
@@ -244,7 +244,7 @@ class TestLooperServer(SimpleServer.SimpleServer):
         self.machine_management = machine_management
         self.artifactStorageUploadThread = threading.Thread(target=self.uploadArtifactsInBackground)
         self.artifactStorageUploadThread.daemon = True
-        self.sourceTarballsRequested = Queue.Queue()
+        self.sourceTarballsRequested = queue.Queue()
 
         self.workerThread = threading.Thread(target=self.executeManagerWork)
         self.workerThread.daemon=True

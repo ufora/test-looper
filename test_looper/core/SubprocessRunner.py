@@ -10,10 +10,10 @@ import time
 import select
 import threading
 import logging
-import Queue
+import queue
 import traceback
 import test_looper.core.ManagedThread as ManagedThread
-import test_looper.core.SubprocessingModified as subprocess
+import subprocess
 
 class SubprocessRunner(object):
     def __init__(self,
@@ -40,7 +40,7 @@ class SubprocessRunner(object):
         self.process = None
         self.isStarted = False
         self.messagePumpThread = None
-        self.messagePumpQueue = Queue.Queue()
+        self.messagePumpQueue = queue.Queue()
 
         self.subprocessStdIn = None
         self.subprocessStdOut = None
@@ -206,6 +206,7 @@ class SubprocessRunner(object):
                             stdErrMessage = r[0].read(self.pipeReadBufferSize)
                 else:
                     stdErrMessage = outputFile.readline().rstrip()
+
                 try:
                     if not self.isShuttingDown:
                         onDataCallback(stdErrMessage)
@@ -263,16 +264,16 @@ def callAndAssertSuccess(args, timeout=60.0, shell=False, env=None):
     res, out, err = callAndReturnResultAndOutput(args, timeout=timeout, shell=shell, env=env)
 
     if res != 0.0:
-        print "failed " + " ".join(args)
-        print "captured out: "
-        print "----------------------"
-        print "\n".join(out)
-        print "----------------------"
+        print("failed " + " ".join(args))
+        print("captured out: ")
+        print("----------------------")
+        print("\n".join(out))
+        print("----------------------")
 
-        print "captured err: "
-        print "----------------------"
-        print "\n".join(err)
-        print "----------------------"
+        print("captured err: ")
+        print("----------------------")
+        print("\n".join(err))
+        print("----------------------")
 
         assert False
 

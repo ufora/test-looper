@@ -47,7 +47,7 @@ def hash_files_in_path(path):
 
 def hash_string(s):
     h = md5()
-    h.update(s)
+    h.update(s.encode('utf8'))
     return h.hexdigest()
 
 class MissingImageError(Exception):
@@ -111,7 +111,7 @@ class DockerImage(object):
     def subprocessCommandsToRun(self, command, workingDir, directories, build_env, expose_docker_socket=True, net_host=True):
         options = []
 
-        for path,target in directories.iteritems():
+        for path,target in directories.items():
             path = os.path.abspath(path)
 
             options += ["-v", "%s:%s" % (path,target)]
@@ -189,7 +189,7 @@ class DockerImage(object):
             if logger:
                 logger(msg)
             else:
-                print msg
+                print(msg)
 
         proc = SubprocessRunner.SubprocessRunner(
             [self.binary, "pull", self.image],
@@ -213,9 +213,9 @@ class DockerImage(object):
             shell=True
             )
 
-    def buildFromString(self, dockerfile_text,timeout=None, env_keys_to_passthrough=(), logger=None):
+    def buildFromString(self, dockerfile_text, timeout=None, env_keys_to_passthrough=(), logger=None):
         with tempfile.NamedTemporaryFile() as tmp:
-            print >> tmp, dockerfile_text
+            tmp.write(dockerfile_text.encode('ascii') + b"\n")
             tmp.flush()
 
             output = []
@@ -225,7 +225,7 @@ class DockerImage(object):
                 if logger:
                     logger(m)
                 else:
-                    print m
+                    print(m)
 
             buildargs = []
             for e in env_keys_to_passthrough:
@@ -301,7 +301,7 @@ class DockerImage(object):
             name = '--name=' + name
 
         if env:
-            env = ' '.join('--env {0}={1}'.format(k, v) for k, v in env.iteritems())
+            env = ' '.join('--env {0}={1}'.format(k, v) for k, v in env.items())
 
         if isinstance(volumes, collections.Mapping):
             volumes = ' '.join('--volume %s:%s' % (k, volumes[k]) for k in volumes)

@@ -8,7 +8,7 @@ import sys
 import gzip
 import threading
 import tarfile
-import StringIO
+import io
 
 import test_looper_tests.common as common
 import test_looper.worker.WorkerState as WorkerState
@@ -92,7 +92,7 @@ class WorkerStateTests(unittest.TestCase):
 
         if extra_commit_paths:
             for commit_ix, bundle in enumerate(extra_commit_paths):
-                for fname, data in bundle.iteritems():
+                for fname, data in bundle.items():
                     with open(os.path.join(source_repo.path_to_repo, fname), "w") as f:
                         f.write(data)
 
@@ -144,7 +144,7 @@ class WorkerStateTests(unittest.TestCase):
         c3 = source_repo.commit("a message 3", timestamp)
 
         fds = len(self.get_fds())
-        for i in xrange(10):
+        for i in range(10):
             source_repo.gitCommitData(c1)
             source_repo.gitCommitData(c2)
             source_repo.gitCommitData(c3)
@@ -216,14 +216,14 @@ class WorkerStateTests(unittest.TestCase):
         testIx = 0
 
         #need to use the connection pools because they can leave some sockets open
-        for _ in xrange(3):
+        for _ in range(3):
             testIx += 1
             self.assertTrue(self.runWorkerTest(worker, "testId%s"%testIx, repoName, commitHash, "good/linux", self.callbacksWithUploader(worker), False)[0])
 
         fds = len(self.get_fds())
 
         #but want to verify we're not actually leaking FDs once we're in a steadystate
-        for _ in xrange(3):
+        for _ in range(3):
             testIx += 1
             self.assertTrue(self.runWorkerTest(worker, "testId%s"%testIx, repoName, commitHash, "good/linux", self.callbacksWithUploader(worker), False)[0])
         
@@ -233,7 +233,7 @@ class WorkerStateTests(unittest.TestCase):
 
     def test_SR_doesnt_leak(self):
         fds = len(self.get_fds())
-        for _ in xrange(2):
+        for _ in range(2):
             SubprocessRunner.callAndReturnOutput("ps",shell=True)
         self.assertEqual(len(self.get_fds()), fds)
 
@@ -315,8 +315,8 @@ class WorkerStateTests(unittest.TestCase):
 
             if not name.startswith("build/"):
                 contents = worker.artifactStorage.testContents(testHash, testName, worker.artifactStorage.sanitizeName(name + ".tar.gz"))
-                with tarfile.open(fileobj=StringIO.StringIO(contents)) as tf:
-                    return [x.strip() for x in tf.extractfile("./results.txt").read().split("\n") if x.strip()]
+                with tarfile.open(fileobj=io.BytesIO(contents)) as tf:
+                    return [x.strip().decode('ascii') for x in tf.extractfile("./results.txt").read().split(b"\n") if x.strip()]
 
         runTest("build/k0")
         runTest("build/k1")
@@ -416,7 +416,7 @@ class WorkerStateTests(unittest.TestCase):
                 isDeploy=False
                 )
 
-        self.assertTrue(success)
+        self.assertTrue(success, self.get_failure_log(worker, repoName, commitHash, "testId1"))
 
         testsWithLogs = [t for t in results if t.hasLogs]
 
@@ -437,9 +437,6 @@ class WorkerStateTests(unittest.TestCase):
                 self.assertTrue(
                     worker.artifactStorage.testContentsHtml(test_def.hash, "testId1", k)
                     )
-
-
-
 
     def test_commit_messages(self):
         repo, repoName, commitHash, worker = self.get_worker("simple_project")

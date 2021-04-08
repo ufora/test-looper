@@ -1,15 +1,14 @@
 import docker
 import threading
-import SocketServer
+import socketserver
 import socket
-import httplib
 import tempfile
 import os
 import re
 import select
 import traceback
 import logging
-import simplejson
+import json
 import uuid
 import time
 
@@ -23,7 +22,7 @@ except:
 
 class HTTPRequestBuffer:
     def __init__(self):
-        self.buf = ""
+        self.buf = b""
 
     def write(self, msg):
         self.buf += msg
@@ -36,52 +35,51 @@ class HTTPRequestBuffer:
         else:
             return None
 
-
     def popHttpRequest(self):
-        ix = self.buf.find("\r\n\r\n")
+        ix = self.buf.find(b"\r\n\r\n")
         if ix >= 0:
-            header_lines = self.buf[:ix].split("\r\n")
+            header_lines = self.buf[:ix].split(b"\r\n")
             
-            if header_lines[-1].startswith("Content-Length: "):
-                length = int(header_lines[-1][len("Content-Length: "):])
+            if header_lines[-1].startswith(b"Content-Length: "):
+                length = int(header_lines[-1][len(b"Content-Length: "):])
 
                 if length + ix + 4 <= len(self.buf):
                     self.buf = self.buf[ix+4:]
                     data = self.consume_bytes(length)
                     assert data is not None
 
-                    return "\r\n".join(header_lines[:-1]), data
+                    return b"\r\n".join(header_lines[:-1]), data
             else:
                 self.buf = self.buf[ix+4:]
-                return "\r\n".join(header_lines), ""
+                return b"\r\n".join(header_lines), b""
 
 
 
     def popHttpResponse(self):
-        ix = self.buf.find("\r\n\r\n")
+        ix = self.buf.find(b"\r\n\r\n")
         if ix >= 0:
-            header_lines = self.buf[:ix].split("\r\n")
+            header_lines = self.buf[:ix].split(b"\r\n")
             
-            if header_lines[-1].startswith("Content-Length: "):
-                length = int(header_lines[-1][len("Content-Length: "):])
+            if header_lines[-1].startswith(b"Content-Length: "):
+                length = int(header_lines[-1][len(b"Content-Length: "):])
 
                 if length + ix + 4 <= len(self.buf):
                     self.buf = self.buf[ix+4:]
                     data = self.consume_bytes(length)
                     assert data is not None
 
-                    return "\r\n".join(header_lines) + "\r\n\r\n" + data
+                    return b"\r\n".join(header_lines) + b"\r\n\r\n" + data
 
-            elif header_lines[-1].startswith("Transfer-Encoding: chunked"):
+            elif header_lines[-1].startswith(b"Transfer-Encoding: chunked"):
                 data = self.consumeChunkedTransferEncoding(ix+4)
                 if data is not None:
                     return data
             else:
                 self.buf = self.buf[ix+4:]
-                return "\r\n".join(header_lines) + "\r\n\r\n"
+                return b"\r\n".join(header_lines) + b"\r\n\r\n"
 
     def chunk_line_at(self, ix):
-        next_ix = self.buf.find("\r\n", ix)
+        next_ix = self.buf.find(b"\r\n", ix)
         if next_ix >= 0:
             return self.buf[ix:next_ix + 2]
 
@@ -95,7 +93,7 @@ class HTTPRequestBuffer:
             if chunk_line is None:
                 return None
 
-            if chunk_line[0] == "0":
+            if chunk_line[0] == b"0":
                 length = 0
             else:
                 length = int(chunk_line[:4],16)
@@ -119,11 +117,11 @@ class HTTPRequestBuffer:
 
     @staticmethod
     def is_upgrade(msg):
-        headers = msg.split("\n")
+        headers = msg.split(b"\n")
         for h in headers:
             if h == "":
                 return False
-            if h.strip().upper() == "Connection: Upgrade".upper():
+            if h.strip().upper() == b"Connection: Upgrade".upper():
                 return True
         return False
 
@@ -131,12 +129,12 @@ class HTTPRequestBuffer:
 
         
 
-class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
+class DockerSocketRequestHandler(socketserver.BaseRequestHandler):
     def __init__(self, socket_thread, stop, *args):
         self.socket_thread = socket_thread
         self.stop = stop
 
-        SocketServer.BaseRequestHandler.__init__(self, *args)
+        socketserver.BaseRequestHandler.__init__(self, *args)
 
     def bidirectional(self, sock):
         #just pass data back and forth without inspecting it
@@ -175,8 +173,6 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
                 if self.request in readers:
                     data = self.request.recv(64)
                     
-                    #print "  >>  ", repr(data)
-
                     requestBuf.write(data)
 
                     shouldBail = len(data) == 0
@@ -187,10 +183,14 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
                         if header_and_data:
                             header, data, on_response_message = self.modify_msg(header_and_data[0], header_and_data[1])
 
+                            assert isinstance(header, bytes)
+
                             if data:
-                                out_msg = header + "\r\nContent-Length: %s\r\n\r\n" % len(data) + data
+                                assert isinstance(data, bytes)
+
+                                out_msg = header + ("\r\nContent-Length: %s\r\n\r\n" % len(data)).encode('ascii') + data
                             else:
-                                out_msg = header + "\r\n\r\n"
+                                out_msg = header + b"\r\n\r\n"
 
                             sock.sendall(out_msg)
 
@@ -209,8 +209,6 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
 
                 if sock in readers:
                     data = sock.recv(64)
-
-                    #print "<<    ", repr(data)
 
                     responseBuf.write(data)
 
@@ -236,25 +234,28 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
 
 
     def modify_msg(self, header, data):
-        lines = header.split("\r\n")
+        assert isinstance(header, bytes)
+        assert isinstance(data, bytes)
 
-        result = re.match("POST /[^/]+/containers/([0-9a-f]+)/start.*", lines[0].strip())
+        lines = header.split(b"\r\n")
+
+        result = re.match(b"POST /[^/]+/containers/([0-9a-f]+)/start.*", lines[0].strip())
         if result:
-            containerID = result.group(1)
+            containerID = result.group(1).decode('ASCII')
             self.socket_thread.watcher.new_container(self.socket_thread.containerID, containerID)
             return header, data, lambda msg: None
 
-        result = re.match("POST /([^/]+)/containers/create(|\?name=/?[a-zA-Z0-9_-]+) (.*)", lines[0].strip())
+        result = re.match(b"POST /([^/]+)/containers/create(|\\?name=/?[a-zA-Z0-9_-]+) (.*)", lines[0].strip())
         if result:
-            api = result.group(1)
-            name = result.group(2)
-            post = result.group(3)
+            api = result.group(1).decode('ascii')
+            name = result.group(2).decode('ascii')
+            post = result.group(3).decode('ascii')
             if name != "":
                 name = name[6:]
             else:
                 name = None
 
-            data_json = simplejson.loads(data)
+            data_json = json.loads(data)
             if name is not None:
                 data_json["Name"] = name
 
@@ -272,19 +273,28 @@ class DockerSocketRequestHandler(SocketServer.BaseRequestHandler):
                 lines[0] = "POST /{api}/containers/create {post}".format(api=api,post=post)
 
             def onResponseMessage(msg):
-                lines = msg.split("\r\n")
-                ix = lines.index("")
-                json = simplejson.loads("\r\n".join(lines[ix+1:]))
-                if "Id" in json:
-                    onContainerIDKnown(json["Id"])
-                else:
-                    logging.critical("Didn't understand response: %s", json)
+                responseLines = msg.split(b"\r\n")
+                ix = responseLines.index(b"")
 
-            return "\r\n".join(lines), simplejson.dumps(data_json), onResponseMessage
+                try:
+                    jsonObj = json.loads(b"\r\n".join(responseLines[ix+1:]))
+                except:
+                    raise Exception("Couldn't parse:\n" + b"\r\n".join(responseLines).decode('ascii') + "\nresponse to " + str(lines))
+
+                if "Id" in jsonObj:
+                    onContainerIDKnown(jsonObj["Id"])
+                else:
+                    logging.critical("Didn't understand response: %s", jsonObj)
+
+            return (
+                b"\r\n".join([x.encode("ASCII") if isinstance(x, str) else x for x in lines]), 
+                json.dumps(data_json).encode("ASCII"), 
+                onResponseMessage
+            )
 
         return header, data, lambda msg: None
 
-class Server(SocketServer.ThreadingMixIn, SocketServer.UnixStreamServer):
+class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     pass
 
 class DockerSocket:
@@ -405,7 +415,9 @@ class DockerWatcher:
     def update_bind(self, existing_volumes, bind):
         host, container, rw = bind.split(":")
 
-        for existing_host, existing_container in existing_volumes.iteritems():
+        for existing_host, existing_container in existing_volumes.items():
+            existing_container = existing_container['bind']
+
             if existing_container == host:
                 return existing_host + ":" + container + ":" + rw
             if host.startswith(existing_container + "/"):
@@ -415,6 +427,9 @@ class DockerWatcher:
 
 
     def mangleName_(self, name):
+        if not isinstance(name, str):
+            name = name.decode("ASCII")
+
         if self.name_prefix is None:
             return name
 
@@ -433,7 +448,7 @@ class DockerWatcher:
             try:
                 res.append(docker_client.containers.get(c))
             except:
-                logging.warn("We booted container %s but can't find it now." % c)
+                logging.exception("We booted container %s but can't find it now." % c)
 
         return res
 
@@ -459,6 +474,13 @@ class DockerWatcher:
 
             orig_volumes = dict(volumes)
 
+            # some old code just passes the bind argument directly
+            for k in orig_volumes:
+                if isinstance(orig_volumes[k], str):
+                    orig_volumes[k] = {'bind': orig_volumes[k]}
+
+            volumes = dict(orig_volumes)
+
             if 'name' not in kwargs:
                 kwargs['name'] = "uuid_" + str(uuid.uuid4()).replace("-","")
 
@@ -469,7 +491,7 @@ class DockerWatcher:
 
             sockThread = self.newSocketThread()
 
-            volumes[sockThread.socket_dir] = "/var/run"
+            volumes[sockThread.socket_dir] = {'bind': "/var/run"}
 
             container = docker_client.containers.create(image, args, volumes=volumes, **kwargs)
 

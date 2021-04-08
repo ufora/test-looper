@@ -399,7 +399,7 @@ class TestManagerTests(unittest.TestCase):
         while manager.performBackgroundWork(0.0) is not None:
             pass
 
-        for commitIx in xrange(2, 200):
+        for commitIx in range(2, 200):
             manager.source_control.addCommit("repo0/c%s" % commitIx, ["repo0/c%s" % (commitIx-1)], TestYamlFiles.repo0)
         manager.source_control.setBranch("repo0/master", "repo0/c%s" % commitIx)
 
@@ -407,7 +407,7 @@ class TestManagerTests(unittest.TestCase):
         while manager.performBackgroundWork(0.0) is not None:
             pass
 
-        for commitIx in xrange(200, 203):
+        for commitIx in range(200, 203):
             manager.source_control.addCommit("repo0/c%s" % commitIx, ["repo0/c%s" % (commitIx-1)], TestYamlFiles.repo0)
         manager.source_control.setBranch("repo0/master", "repo0/c%s" % commitIx)
 
@@ -530,7 +530,7 @@ class TestManagerTests(unittest.TestCase):
 
         self.assertEqual(len(harness.manager.machine_management.runningMachines), 4)
 
-        print "Disabling at ", harness.timestamp
+        print("Disabling at ", harness.timestamp)
 
         harness.disableBranchTesting("repo1", "master")
 
@@ -680,7 +680,7 @@ class TestManagerTests(unittest.TestCase):
             harness = TestManagerTestHarness.getHarness()
 
             #make sure it knows about all the repos
-            for reponumber in xrange(4):
+            for reponumber in range(4):
                 harness.manager.source_control.addRepo("repo%s" % reponumber)
                     
             for r in ordering:
@@ -819,10 +819,10 @@ class TestManagerTests(unittest.TestCase):
         harness.consumeBackgroundTasks()
 
         with harness.database.view():
-            print
+            print()
             log = harness.getRepo("repo6").branchCreateLogs
             while log:
-                print log.msg
+                print(log.msg)
                 log = log.prior
 
         self.assertTrue("repo6/a_branch-looper" in harness.manager.source_control.listBranches(),

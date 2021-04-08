@@ -12,9 +12,8 @@ import threading
 import traceback
 import markdown
 import urllib
-import urlparse
 import pytz
-import simplejson
+import json
 import struct
 import os
 import json
@@ -82,11 +81,13 @@ class Renderer:
 
         if isinstance(entity, self.testManager.database.Branch):
             return BranchContext.BranchContext(self, entity, "", "", 0, options)
+
         if isinstance(entity, ComboContexts.BranchAndFilter):
             return BranchContext.BranchContext(self, entity.branch, entity.configurationName, entity.projectName, entity.parentLevel, options)
 
         if isinstance(entity, self.testManager.database.Commit):
             return CommitContext.CommitContext(self, entity, "", "", 0, options)
+
         if isinstance(entity, ComboContexts.CommitAndFilter):
             return CommitContext.CommitContext(self, entity.commit, entity.configurationName, entity.projectName, entity.parentLevel, options)
 
@@ -147,7 +148,7 @@ class Renderer:
         )
 
     def deleteCommitTestsUrl(self, commitId):
-        return self.address + "/clearAllTestRuns?" + urllib.urlencode({"commitId": commitId, "redirect": self.redirect()})
+        return self.address + "/clearAllTestRuns?" + urllib.parse.urlencode({"commitId": commitId, "redirect": self.redirect()})
 
     def deleteTestRunButton(self, testId):
         return HtmlGeneration.Link(
@@ -210,7 +211,7 @@ class Renderer:
         raise cherrypy.HTTPRedirect(redirect)
 
     def deleteTestRunUrl(self, testId):
-        return self.address + "/clearTestRun?" + urllib.urlencode({"testId": testId, "redirect": self.redirect()})
+        return self.address + "/clearTestRun?" + urllib.parse.urlencode({"testId": testId, "redirect": self.redirect()})
 
     def testLogsUrl(self, testId):
         return self.address + "/testLogs?testId=%s" % testId
@@ -227,13 +228,13 @@ class Renderer:
         return self.address + "/terminalForTest?testId=%s" % testId
 
     def testResultDownloadUrl(self, testId, key):
-        return self.address + "/test_contents?" + urllib.urlencode({"testId": testId, "key": key})
+        return self.address + "/test_contents?" + urllib.parse.urlencode({"testId": testId, "key": key})
 
     def build_contents(self, testHash, key):
         return self.processFileContents(self.artifactStorage.buildContentsHtml(testHash, key))
 
     def buildDownloadUrl(self, testHash, key):
-        return self.address + "/build_contents?" + urllib.urlencode({"testHash": testHash, "key": key})
+        return self.address + "/build_contents?" + urllib.parse.urlencode({"testHash": testHash, "key": key})
 
     def wrapInHeader(self, contents, breadcrumb):
         return self.commonHeader(breadcrumb) + (
@@ -272,7 +273,7 @@ class Renderer:
 
     def clearTestLink(self, testname):
         return self.small_clear_button(
-            "/clearTest?" + urllib.urlencode({'testname': testname, 'redirect': self.redirect()}),
+            "/clearTest?" + urllib.parse.urlencode({'testname': testname, 'redirect': self.redirect()}),
             )
 
     def sourceLinkForCommit(self, commit):
@@ -296,7 +297,7 @@ class Renderer:
 
     def cancelTestRunButton(self, testRunId):
         return HtmlGeneration.Link(
-            self.address + "/cancelTestRun?" + urllib.urlencode({"testRunId":testRunId, "redirect": self.redirect()}),
+            self.address + "/cancelTestRun?" + urllib.parse.urlencode({"testRunId":testRunId, "redirect": self.redirect()}),
             "cancel",
             is_button=True,
             button_style=self.disable_if_cant_write('btn-primary btn-xs')
@@ -349,7 +350,7 @@ class Renderer:
     def reload_link(self):
         return HtmlGeneration.Link(
             "/reloadSource?" +
-                urllib.urlencode({'redirect': self.redirect()}),
+                urllib.parse.urlencode({'redirect': self.redirect()}),
             '<span class="octicon octicon-sync" aria-hidden="true" style="horizontal-align:center"></span>',
             is_button=True,
             button_style='btn-outline-primary btn-xs'
@@ -362,7 +363,7 @@ class Renderer:
 
         return HtmlGeneration.Link(
             "/toggleBranchUnderTest?" +
-                urllib.urlencode({'repo': branch.repo.name, 'branchname':branch.branchname, 'redirect': self.redirect()}),
+                urllib.parse.urlencode({'repo': branch.repo.name, 'branchname':branch.branchname, 'redirect': self.redirect()}),
             '<span class="octicon %s" aria-hidden="true" style="horizontal-align:center"></span>' % icon,
             is_button=True,
             button_style=self.disable_if_cant_write(button_style),
@@ -395,7 +396,7 @@ class Renderer:
         if isinstance(reponame, self.testManager.database.Repo):
             reponame = reponame.name
 
-        return self.address + "/branches?" + urllib.urlencode({'repoName':reponame,'groupings':groupings})
+        return self.address + "/branches?" + urllib.parse.urlencode({'repoName':reponame,'groupings':groupings})
 
     def shutdownDeployment(self, deploymentId):
         self.testManager.shutdownDeployment(str(deploymentId), time.time())

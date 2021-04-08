@@ -29,7 +29,7 @@ class InMemoryJsonStore(object):
 
     def setSeveral(self, kvs):
         with self.lock:
-            for k,v in kvs.iteritems():
+            for k,v in kvs.items():
                 self.set(k,v)
 
     def exists(self, key):

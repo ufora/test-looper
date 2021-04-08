@@ -394,7 +394,7 @@ class CommitContext(Context.Context):
         if not self.commit.data.repos:
             return card("Commit has no references to external repos.")
 
-        for refname, repoRef in sorted(self.commit.data.repos.iteritems()):
+        for refname, repoRef in sorted(self.commit.data.repos.items()):
             if repoRef.matches.Pin:
                 lines.append(
                     [refname, 
@@ -421,7 +421,7 @@ class CommitContext(Context.Context):
         if not commit:
             return preamble + HtmlGeneration.lightGreyWithHover(repoRef.reference[:--30], "Can't find commit %s" % commitHash[:10])
 
-        branches = {k.branchname: v for k,v in self.testManager.commitFindAllBranches(commit).iteritems()}
+        branches = {k.branchname: v for k,v in self.testManager.commitFindAllBranches(commit).items()}
 
         if repoRef.branch not in branches:
             return preamble + self.contextFor(commit).renderLink()
@@ -475,7 +475,7 @@ class CommitContext(Context.Context):
                 testNames = run.testNames.test_names
                 testHasLogs = run.testHasLogs
 
-                for i in xrange(len(run.testNames.test_names)):
+                for i in range(len(run.testNames.test_names)):
                     cur_runs, cur_successes, hasLogs = res.get(testNames[i], (0,0,False))
 
                     cur_runs += 1

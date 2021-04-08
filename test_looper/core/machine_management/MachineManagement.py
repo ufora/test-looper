@@ -207,7 +207,7 @@ class LocalMachineManagement(MachineManagement):
 
     def shutdown(self):
         logging.info("LocalMachineManagement shutting down %s workers", len(self.runningMachines))
-        for machineId, worker in self.runningMachines.iteritems():
+        for machineId, worker in self.runningMachines.items():
             try:
                 logging.info("Initiating worker shutdown for %s", machineId)
                 worker.stop()
@@ -272,7 +272,7 @@ class AwsMachineManagement(MachineManagement):
         self.invalidWindowsOsConfigs = set()
 
         listing = self.api.listWindowsOsConfigs()
-        for ((ami,hash),status) in listing.iteritems():
+        for ((ami,hash),status) in listing.items():
             config = OsConfig.WindowsVM(ami=ami, setupHash=hash)
 
             if status in ("In progress", "Awaiting snapshot", "Snapshotting"):

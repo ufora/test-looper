@@ -3,7 +3,7 @@ import hashlib
 import hmac
 import logging
 import requests
-import simplejson
+import json
 import traceback
 import threading
 import os
@@ -16,7 +16,7 @@ class ReposOnDisk(SourceControl.SourceControl):
     def __init__(self, path_to_local_repo_cache, config):
         super(ReposOnDisk, self).__init__()
 
-        assert isinstance(config.path_to_repos, (str,unicode))
+        assert isinstance(config.path_to_repos, str)
 
         self.path_to_local_repo_cache = str(path_to_local_repo_cache)
         self.path_to_repos = str(config.path_to_repos)
