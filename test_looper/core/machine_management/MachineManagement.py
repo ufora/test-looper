@@ -378,10 +378,10 @@ class AwsMachineManagement(MachineManagement):
             assert hardware_config in self.instance_types, "Can't find %s in %s" % (hardware_config, self.instance_types)
 
             instance_type = self.instance_types[hardware_config]
-
             if os_config.matches.LinuxWithDocker:
                 platform = "linux"
                 amiOverride = None
+                encodeBootScript = True
             elif os_config.matches.LinuxVM:
                 platform = "linux"
                 amiOverride = os_config.ami
@@ -389,16 +389,18 @@ class AwsMachineManagement(MachineManagement):
                     raise UnbootableWorkerCombination(hardware_config, os_config)
                 if os_config.setupHash:
                     amiOverride = self.api.lookupActualAmiForScriptHash(amiOverride, os_config.setupHash)
+                encodeBootScript = False
             elif os_config.matches.WindowsVM:
                 platform = "windows"
                 amiOverride = os_config.ami
                 if not amiOverride:
                     amiOverride = self.config.machine_management.windows_ami
                 amiOverride = self.api.lookupActualAmiForScriptHash(amiOverride, os_config.setupHash)
+                encodeBootScript = False
             else:
                 raise UnbootableWorkerCombination(hardware_config, os_config)
 
-            machineId = self.api.bootWorker(platform, instance_type, amiOverride=amiOverride)
+            machineId = self.api.bootWorker(platform, instance_type, amiOverride=amiOverride, encodeBootScript=encodeBootScript)
 
             self._machineBooted(machineId, hardware_config, os_config, True)
 

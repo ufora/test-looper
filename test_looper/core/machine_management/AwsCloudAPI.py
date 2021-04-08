@@ -369,7 +369,8 @@ class API:
             bootScriptOverride=None,
             nameValueOverride=None,
             extraTags=None,
-            wantsTerminateOnShutdown=True
+            wantsTerminateOnShutdown=True,
+            encodeBootScript=True
             ):
         assert platform in ["linux", "windows"]
 
@@ -449,7 +450,7 @@ class API:
             ClientToken=clientToken,
             InstanceInitiatedShutdownBehavior='terminate' if wantsTerminateOnShutdown else "stop",
             IamInstanceProfile={'Name': self.config.machine_management.worker_iam_role_name},
-            UserData=base64.b64encode(boot_script) if platform=="linux" else boot_script,
+            UserData=base64.b64encode(boot_script) if encodeBootScript else boot_script,
             BlockDeviceMappings=[deviceMapping],
             TagSpecifications=[
                 {
