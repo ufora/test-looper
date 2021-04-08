@@ -1,10 +1,10 @@
 #!/bin/bash
 
 ########################################################################
-#this is a bootstrap script to initialize
-#a linux test-looper worker that uses docker for process isolation.
-#we install some core services, install ssh keys, pull the test-looper codebase from
-#a specified host and port, and run the worker.
+# this is a bootstrap script to initialize
+# a linux test-looper worker that uses docker for process isolation.
+# we install some core services, install ssh keys, pull the test-looper codebase from
+# a specified host and port, and run the worker.
 ########################################################################
 
 export STORAGE=/media/ephemeral0
@@ -34,15 +34,18 @@ echo "****************"
 
 log "TestLooper%20Installing%20Docker"
 
-sudo yum install -y docker
+sudo apt-get install -y docker.io
 
 log "TestLooper%20Installing%20GCC"
 
-sudo yum install -y gcc
+sudo apt-get install -y gcc
 
 log "TestLooper%20Installing%20GIT"
 
-sudo yum install -y git
+sudo apt-get install -y git
+
+sudo apt-get install -y python3
+sudo apt-get install -y python3-pip
 
 echo "Moving docker directory to $STORAGE"
 sudo cp /var/lib/docker $STORAGE -r
