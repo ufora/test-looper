@@ -609,7 +609,7 @@ class API:
                 IamInstanceProfile={
                     "Name": self.config.machine_management.worker_iam_role_name
                 },
-                UserData=base64.b64encode(boot_script)
+                UserData=base64.b64encode(boot_script.encode("utf8"))
                 if encodeBootScript
                 else boot_script,
                 BlockDeviceMappings=[deviceMapping],

@@ -446,7 +446,7 @@ class AwsMachineManagement(MachineManagement):
             if os_config.matches.LinuxWithDocker:
                 platform = "linux"
                 amiOverride = None
-                encodeBootScript = True
+                encodeBootScript = False
             elif os_config.matches.LinuxVM:
                 platform = "linux"
                 amiOverride = os_config.ami
