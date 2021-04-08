@@ -631,7 +631,7 @@ class BranchContext(Context.Context):
                 ).render()
             )
 
-
+        res.append(self.renderer.toggleBranchUnderTestLink(self.branch).render())
         return "&nbsp;&nbsp;".join(res)
 
 

@@ -44,6 +44,9 @@ class API:
         if not [t for t in instance.tags if t["Key"] == "Name" and t["Value"] == self.config.machine_management.worker_name]:
             return False
 
+        if instance.subnet is None or instance.security_groups is None:
+            return False
+            
         if instance.subnet.id != self.config.machine_management.subnet:
             return False
 

@@ -194,7 +194,8 @@ class WorkerState(object):
                 volumes={a:a for a in args}, 
                 options="--rm"
                 )
-        else:
+
+        if True:
             for a in args:
                 try:
                     self.ensureDirectoryExists(a)
@@ -682,7 +683,7 @@ class WorkerState(object):
                     if time.time() - t0 > timeout:
                         ret_code = 1
                         container.stop()
-                        extra_message = "Test timed out, so we're stopping the test."
+                        extra_message = "Test timed out after " + str(time.time() - t0) + " > " + str(timeout) + " seconds, so we're stopping the test."
 
 
                 with open(log_filename, 'a') as build_log:
@@ -894,6 +895,16 @@ class WorkerState(object):
                 self.artifactStorage.download_build(dep.commitHash, sourceArtifactName, tarball_name)
 
             log_function(time.asctime() + " TestLooper> Extracting source cache for %s/%s.\n" % (dep.repo, dep.commitHash))
+
+            self.ensureDirectoryExists(target_dir)
+            if os.listdir(target_dir):
+                log_function(time.asctime() + " TestLooper> Warning - content already exists in %s. Clearing it.\n" % (target_dir,))
+                self.clearDirectoryAsRoot(target_dir)
+
+            for path in os.listdir(target_dir):
+                log_function(time.asctime() + " TestLooper> WARNING - content STILL exists in %s! %s\n" % (target_dir, path))
+            else:
+                log_function(time.asctime() + " TestLooper> Target directory is empty as expected.\n")
 
             self.extract_package(tarball_name, target_dir)
 
@@ -1133,9 +1144,9 @@ class WorkerState(object):
 
             is_success = runCmd(
                 stage.list_tests_command,
-                60,
+                240,
                 TEST_LOOPER_TEST_LIST_OUTPUT=os.path.join(internalCmd,"testlist.txt")
-                )
+            )
 
             with open(os.path.join(externalCmd, "testlist.txt"), "r") as testlist_file:
                 all_tests = set()
