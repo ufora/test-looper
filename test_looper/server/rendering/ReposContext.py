@@ -54,9 +54,7 @@ class ReposContext(Context.Context):
 
         repos = sorted(repos, key=lambda repo: (repo.commitsWithTests == 0, repo.name))
 
-        LOOKBACK = 5
-
-        grid_headers = [["REPO NAME", "PRIMARY TEST BRANCH"] + [""] * (LOOKBACK)]
+        grid_headers = [["REPO NAME", "PRIMARY TEST BRANCH"]]
 
         grid = []
 
@@ -66,10 +64,6 @@ class ReposContext(Context.Context):
 
                 if branch:
                     testRow = [self.contextFor(branch).renderLink(includeRepo=False)]
-
-                    testRow += self.contextFor(branch).topNCommitTestSummaryRow(
-                        LOOKBACK
-                    )
                 else:
                     testRow = []
 

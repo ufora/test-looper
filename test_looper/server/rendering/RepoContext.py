@@ -294,9 +294,7 @@ class RepoContext(Context.Context):
             branches, key=lambda b: (not self.branchHasTests(b), b.branchname)
         )
 
-        LOOKBACK = 5
-
-        grid_headers = [["", "BRANCH"] + [""] * LOOKBACK]
+        grid_headers = [["", "BRANCH"]]
 
         grid = []
 
@@ -309,10 +307,6 @@ class RepoContext(Context.Context):
                     self.contextFor(branch).renderLink(includeRepo=False),
                 ]
 
-                testRow = testRow + self.contextFor(branch).topNCommitTestSummaryRow(
-                    LOOKBACK
-                )
-
                 grid.append(testRow)
             else:
                 secondPass.append(branch)
@@ -322,7 +316,6 @@ class RepoContext(Context.Context):
             for branch in secondPass:
                 grid.append(
                     ["", self.contextFor(branch).renderLink(includeRepo=False)]
-                    + [""] * LOOKBACK
                 )
 
         return grid_headers, grid
