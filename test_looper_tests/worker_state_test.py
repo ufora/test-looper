@@ -228,7 +228,7 @@ class WorkerStateTests(unittest.TestCase):
         )
 
         self.assertTrue(result, log)
-        
+
     def test_worker_basic(self):
         repo, repoName, commitHash, worker = self.get_worker("simple_project")
 
@@ -281,6 +281,21 @@ class WorkerStateTests(unittest.TestCase):
         data = worker.artifactStorage.testContents(testHash, "testId3", keys[0])
 
         self.assertTrue(len(data) > 0)
+
+    def test_path_in_naked_worker(self):
+        repo, repoName, commitHash, worker = self.get_worker("simple_project")
+
+        result = self.runWorkerTest(
+            worker,
+            "testId",
+            repoName,
+            commitHash,
+            "check_path/linux_naked",
+            self.callbacksWithUploader(worker),
+            False,
+        )[0]
+
+        self.assertTrue(result)
 
     def test_worker_cant_run_tests_without_build(self):
         repo, repoName, commitHash, worker = self.get_worker("simple_project")

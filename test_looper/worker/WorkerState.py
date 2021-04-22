@@ -893,13 +893,16 @@ class WorkerState(object):
                         file=f,
                     )
 
+                envToUse = dict(os.environ)
+                envToUse.update(env)
+
                 runCommand = SubprocessRunner.SubprocessRunner(
                     ["/bin/bash", os.path.join(self.directories.command_dir, "cmd_invoker.sh")],
                     log_function,
                     log_function,
                     enablePartialLineOutput=True,
                     cwd=working_directory,
-                    env=env
+                    env=envToUse
                 )
                 runCommand.start()
 
@@ -932,7 +935,7 @@ class WorkerState(object):
                         print(extra_message, file=build_log)
                     print("Process exited with code ", ret_code, file=build_log)
                     build_log.flush()
-                
+
             def getCode(r):
                 if isinstance(r, int):
                     return r

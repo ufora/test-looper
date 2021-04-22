@@ -48,6 +48,11 @@ tests:
       dependencies:
         src: HEAD
         spiffy: build/linux
+    check_path/linux_naked:
+      command: |
+        python -c 'import os; import sys; sys.exit(0 if os.getenv("PATH") is not None else 1)'
+      dependencies:
+        src: HEAD
   - foreach:
       env: [linux, linux2]
     repeat:
