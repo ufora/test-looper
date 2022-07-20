@@ -221,18 +221,26 @@ class DockerImage(object):
             == 0
         )
 
-    def pull(self, logger=None, timeout=360):
+    def pull(self, logger=None, timeout=360, retries=10):
         def onStdOut(msg):
             if logger:
                 logger(msg)
             else:
                 print(msg)
 
-        proc = SubprocessRunner.SubprocessRunner(
-            [self.binary, "pull", self.image], onStdOut, onStdOut
-        )
-        proc.start()
-        return proc.wait(timeout=timeout) == 0
+        tries = 0
+        while tries <= retries or retries < 0:
+            proc = SubprocessRunner.SubprocessRunner(
+                [self.binary, "pull", self.image], onStdOut, onStdOut
+            )
+            proc.start()
+
+            ret_code = proc.wait(timeout=timeout)
+            if ret_code == 0:
+                return True
+            tries += 1
+
+        return True if ret_code == 0 else False
 
     def disable_build_cache(self):
         return False
