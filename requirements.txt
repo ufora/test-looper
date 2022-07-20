@@ -1,0 +1,6 @@
+boto3
+docker
+nose
+psutil
+PyYAML
+requests
