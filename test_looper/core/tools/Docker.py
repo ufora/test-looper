@@ -221,7 +221,7 @@ class DockerImage(object):
             == 0
         )
 
-    def pull(self, logger=None, timeout=360, retries=10):
+    def pull(self, logger=None, timeout=360, retries=10, sleepAmt=30):
         def onStdOut(msg):
             if logger:
                 logger(msg)
@@ -238,6 +238,8 @@ class DockerImage(object):
             ret_code = proc.wait(timeout=timeout)
             if ret_code == 0:
                 return True
+            else:
+                time.sleep(sleepAmt)
             tries += 1
 
         return True if ret_code == 0 else False
