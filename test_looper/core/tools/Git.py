@@ -194,6 +194,11 @@ class Git(object):
                     directory, ["git", "reset", "--hard", revision]
                 ):
                     raise Exception("Failed to checkout revision %s" % revision)
+
+                if self.subprocessCheckCallAltDir(
+                    directory, ["git", "submodule", "update", "--checkout"]
+                ):
+                    raise Exception("Failed to update submodules in commit %s" % revision)
             finally:
                 self.setCoreAutocrlf(False)
 
