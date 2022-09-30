@@ -1608,18 +1608,15 @@ class WorkerState(object):
 
             timeElapsedPerPriorPass = []
 
-            while is_success:
-                testsToRun = self.computeTestPlan(
-                    startTime,
-                    timeElapsedPerPriorPass,
-                    individualTestSuccesses,
-                    all_tests,
-                    historicalTestFailureRates,
-                )
+            testsToRun = self.computeTestPlan(
+                startTime,
+                timeElapsedPerPriorPass,
+                individualTestSuccesses,
+                all_tests,
+                historicalTestFailureRates,
+            )
 
-                if not testsToRun:
-                    break
-
+            if testsToRun:
                 with open(
                     os.path.join(externalCmd, "tests_to_run.txt"), "w"
                 ) as testlist_file:
@@ -1643,6 +1640,7 @@ class WorkerState(object):
                         image, testId, test_definition, log_function, times_seen
                     )
                 )
+
         else:
             if stage.command:
                 is_success = self._run_test_command(
