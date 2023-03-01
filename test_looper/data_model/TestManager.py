@@ -2925,7 +2925,7 @@ class TestManager(object):
             else:
                 needed = 1
         else:
-            needed = max(test.runsDesired, 1)
+            needed = max(test.runsDesired, 0)
 
         test.targetMachineBoot = max(needed - test.totalRuns, 0)
 
@@ -3068,6 +3068,7 @@ class TestManager(object):
                     else 0,
                 ),
                 priority=self.database.TestPriority.NoMoreTests(),
+                runsDesired=1,
             )
             test.testResultSummary.test = test
 

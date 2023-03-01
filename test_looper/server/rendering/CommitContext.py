@@ -402,7 +402,7 @@ class CommitContext(Context.Context):
     def handleAction(self):
         if self.options.get("action", "") == "update_suite_runs":
             suite = self.commit.data.tests[self.options.get("suite")]
-            suite.runsDesired = max(1, min(int(self.options.get("targetRuns")), 100))
+            suite.runsDesired = max(0, min(int(self.options.get("targetRuns")), 100))
             self.testManager._triggerTestPriorityUpdate(suite)
 
         if self.options.get("action", "") == "force_reparse":
@@ -1059,7 +1059,7 @@ class CommitContext(Context.Context):
 
     def renderIncreaseSuiteTargetCount(self, suite):
         menus = []
-        for count in [1, 5, 10, 100]:
+        for count in [0, 1, 5, 10, 100]:
             menus.append(
                 '<a class="dropdown-item" href="{link}">{contents}</a>'.format(
                     link=self.withOptions(
@@ -1082,7 +1082,7 @@ class CommitContext(Context.Context):
                   
                 </div>
                 """.format(
-            elt=max(suite.runsDesired, 1),
+            elt=max(suite.runsDesired, 0),
             title="Total number of runs of this test we want.",
             dd_items="".join(menus),
             btnstyle="btn-outline-secondary",
