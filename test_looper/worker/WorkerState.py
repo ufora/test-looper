@@ -1353,7 +1353,7 @@ class WorkerState(object):
             simultaneous = self.hardwareConfig.cores
 
             while running_threads + waiting_threads:
-                running_threads = [x for x in running_threads if x.isAlive()]
+                running_threads = [x for x in running_threads if x.is_alive()]
                 while len(running_threads) < simultaneous and waiting_threads:
                     t = waiting_threads.pop(0)
                     t.start()

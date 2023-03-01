@@ -1,5 +1,3 @@
-import collections
-from hashlib import md5
 import os
 import test_looper.core.SubprocessRunner as SubprocessRunner
 import sys
@@ -8,6 +6,8 @@ import docker
 import tempfile
 import test_looper.core.tools.DockerWatcher as DockerWatcher
 import time
+from collections.abc import Mapping
+from hashlib import md5
 
 docker_client = docker.from_env()
 docker_client.containers.list()
@@ -344,7 +344,7 @@ class DockerImage(object):
         if env:
             env = " ".join("--env {0}={1}".format(k, v) for k, v in env.items())
 
-        if isinstance(volumes, collections.Mapping):
+        if isinstance(volumes, Mapping):
             volumes = " ".join("--volume %s:%s" % (k, volumes[k]) for k in volumes)
 
         cmd = "{docker} run {options} {name} {volumes} {env} {image} {command}".format(
