@@ -3,3 +3,6 @@ dist/
 *.egg-info/
 test_looper_tests/system_test/test_looper_install
 local_test/
+
+# a leading slash means only match at the top of the repo
+/.venv
