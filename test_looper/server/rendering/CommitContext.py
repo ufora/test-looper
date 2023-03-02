@@ -19,6 +19,9 @@ ENABLE_BOOT_BUTTONS = False
 
 
 class CommitContext(Context.Context):
+
+    TARGET_COUNT_OPTIONS = [0, 1, 5, 10, 20, 50, 100]
+
     def __init__(
         self, renderer, commit, configFilter, projectFilter, parentLevel, options
     ):
@@ -404,6 +407,12 @@ class CommitContext(Context.Context):
             suite = self.commit.data.tests[self.options.get("suite")]
             suite.runsDesired = max(0, min(int(self.options.get("targetRuns")), 100))
             self.testManager._triggerTestPriorityUpdate(suite)
+
+        if self.options.get("action", "") == "update_all_suites_runs":
+            runsDesired = max(0, min(int(self.options.get("targetRuns")), 100))
+            for suite in self.commit.data.tests.values():
+                suite.runsDesired = runsDesired
+                self.testManager._triggerTestPriorityUpdate(suite)
 
         if self.options.get("action", "") == "force_reparse":
             self.testManager._forceTriggerCommitTestParse(self.commit)
@@ -1055,11 +1064,45 @@ class CommitContext(Context.Context):
 
             grid.append(row)
 
-        return HtmlGeneration.grid(grid)
+        return (
+            HtmlGeneration.card(
+                "Set Target Runs for all Suites" + self.renderSetAllSuitesTargetCount()
+            ) + HtmlGeneration.grid(grid)
+        )
+
+    def renderSetAllSuitesTargetCount(self):
+        menus = []
+        for count in self.TARGET_COUNT_OPTIONS:
+            menus.append(
+                '<a class="dropdown-item" href="{link}">{contents}</a>'.format(
+                    link=self.withOptions(
+                        action="update_all_suites_runs",
+                        targetRuns=str(count),
+                    ).urlString(),
+                    contents=str(count),
+                )
+            )
+
+        return """
+                <div class="btn-group">
+                  <a role="button" class="btn btn-xs {btnstyle}" title="{title}">{elt}</a>
+                  <button class="btn btn-xs {btnstyle} dropdown-toggle dropdown-toggle-split" type="button" id="dropdownMenuButton" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
+                  </button>
+                  <div class="dropdown-menu" aria-labelledby="dropdownMenuButton">
+                    {dd_items}
+                  </div>
+
+                </div>
+                """.format(
+            elt=0,
+            title="Total number of runs of all tests we want.",
+            dd_items="".join(menus),
+            btnstyle="btn-outline-secondary",
+        )
 
     def renderIncreaseSuiteTargetCount(self, suite):
         menus = []
-        for count in [0, 1, 5, 10, 100]:
+        for count in self.TARGET_COUNT_OPTIONS:
             menus.append(
                 '<a class="dropdown-item" href="{link}">{contents}</a>'.format(
                     link=self.withOptions(
