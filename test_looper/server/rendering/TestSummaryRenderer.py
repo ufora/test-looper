@@ -40,12 +40,15 @@ class TestSummaryRenderer:
 
     def renderSummary(self, label="", extraStyle=""):
         # first, see whether we have any tests
+        runsDesired = sum(t.runsDesired for t in self.allTests())
         activeTests = sum(t.activeRuns for t in self.allTests())
         activeBuilds = sum(t.activeRuns for t in self.allBuilds())
         active = activeTests + activeBuilds
 
         if not self.tests:
             button_text = '<span class="text-muted" style="width:30px">&nbsp;</span>'
+        elif not runsDesired:
+            button_text = ""
         else:
             button_text = self.renderButtonContents(active)
 
@@ -247,13 +250,13 @@ class TestSummaryRenderer:
         if suitesFailed:
             res += "<div>%s test suites failed</div>" % suitesFailed
 
-        totalTests = formatFloatToStringWithRoundoff(totalTests)
-        totalFailedTestCount = formatFloatToStringWithRoundoff(totalFailedTestCount)
+        totalTestsStr = formatFloatToStringWithRoundoff(totalTests)
+        totalFailedTestCountStr = formatFloatToStringWithRoundoff(totalFailedTestCount)
 
         if totalTests:
             res += "<div>%s / %s individual test runs failed.</div>" % (
-                totalFailedTestCount,
-                totalTests,
+                totalFailedTestCountStr,
+                totalTestsStr,
             )
 
             testLooksGoodTotal = sum(
