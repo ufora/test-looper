@@ -207,7 +207,7 @@ class TestSummaryRenderer:
                 else:
                     if t.activeRuns:
                         suitesRunning += 1
-                    else:
+                    elif t.runsDesired:
                         suitesNotRun += 1
             elif t.successes == 0:
                 suitesFailed += 1
