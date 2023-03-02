@@ -971,7 +971,7 @@ class CommitContext(Context.Context):
 
             row.append(t.testDefinitionSummary.project)
             row.append(t.testDefinitionSummary.configuration)
-            row.append(octicon("check") if t.calculatedPriority else "")
+            row.append(octicon("check") if t.calculatedPriority and t.runsDesired else "")
 
             row.append(
                 TestSummaryRenderer.TestSummaryRenderer(
