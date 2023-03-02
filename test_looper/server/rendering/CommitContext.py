@@ -166,6 +166,10 @@ class CommitContext(Context.Context):
             sortedTestSets.remove("all")
             sortedTestSets = ["all"] + sortedTestSets
 
+        if "none" in sortedTestSets:
+            sortedTestSets.remove("none")
+            sortedTestSets = ["none"] + sortedTestSets
+
         for test_set in sortedTestSets:
             isEnabledNow = test_set in commit.userEnabledTestSets
 
@@ -423,7 +427,9 @@ class CommitContext(Context.Context):
             new_sets = list(self.commit.userEnabledTestSets)
             hasIt = test_set in new_sets
 
-            if not hasIt and test_set == "all":
+            if test_set == "none":
+                new_sets = []
+            elif not hasIt and test_set == "all":
                 new_sets = ["all"]
             elif hasIt:
                 new_sets.remove(test_set)
