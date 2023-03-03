@@ -40,15 +40,12 @@ class TestSummaryRenderer:
 
     def renderSummary(self, label="", extraStyle=""):
         # first, see whether we have any tests
-        runsDesired = sum(t.runsDesired for t in self.allTests())
         activeTests = sum(t.activeRuns for t in self.allTests())
         activeBuilds = sum(t.activeRuns for t in self.allBuilds())
         active = activeTests + activeBuilds
 
         if not self.tests:
             button_text = '<span class="text-muted" style="width:30px">&nbsp;</span>'
-        elif self.ignoreIndividualTests and not runsDesired:
-            button_text = ""
         else:
             button_text = self.renderButtonContents(active)
 
@@ -317,7 +314,7 @@ class TestSummaryRenderer:
             if t.totalRuns == 0 and t.priority.matches.DependencyFailed:
                 depFailed += 1
             elif t.totalRuns == 0:
-                if t.calculatedPriority:
+                if t.calculatedPriority and t.runsDesired:
                     suitesNotRun += 1
                 else:
                     suitesNotRunAndNotPrioritized += 1
