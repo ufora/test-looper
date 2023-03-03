@@ -47,7 +47,7 @@ class TestSummaryRenderer:
 
         if not self.tests:
             button_text = '<span class="text-muted" style="width:30px">&nbsp;</span>'
-        elif not runsDesired:
+        elif self.ignoreIndividualTests and not runsDesired:
             button_text = ""
         else:
             button_text = self.renderButtonContents(active)
