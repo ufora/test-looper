@@ -470,9 +470,7 @@ class BranchContext(Context.Context):
                     t
                     for t in self.testManager.allTestsForCommit(c)
                     if shouldIncludeTest(t)
-                ]
-                if c.data
-                else [],
+                ],
                 lambda group: self.withOptions(expanded_columns="true")
                 .renderLink()
                 .withTextReplaced(
